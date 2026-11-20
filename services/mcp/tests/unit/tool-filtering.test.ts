@@ -29,28 +29,33 @@ const collectAlwaysAvailableToolNames = (): string[] =>
 
 describe('Tool Filtering - Features', () => {
     it.each([
-        { scopes: ['evaluation:read'], enabled: true, metadata: true, scores: false, upload: false },
+        { scopes: ['llm_analytics:read'], enabled: true, visible: true },
+        { scopes: ['offline_evaluation_ingestion:write'], enabled: true, visible: false },
+        { scopes: ['llm_analytics:read'], enabled: false, visible: false },
+        { scopes: ['llm_analytics:read'], enabled: undefined, visible: false },
+    ])('composite validation requires scorer read access and rollout: %j', async ({ scopes, enabled, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes), {
+            featureFlags: enabled === undefined ? {} : { 'ai-observability-composite-validation': enabled },
+        })
+        expect(tools.some((tool) => tool.name === 'llma-score-definition-validate')).toBe(visible)
+    })
+
+    it.each([
+        { scopes: ['evaluation:read'], metadata: true, scores: false, upload: false },
         {
             scopes: ['evaluation:read', 'llm_analytics:read'],
-            enabled: true,
             metadata: true,
             scores: true,
             upload: false,
         },
-        { scopes: ['offline_evaluation_ingestion:write'], enabled: true, metadata: false, scores: false, upload: true },
-        { scopes: ['*'], enabled: false, metadata: false, scores: false, upload: false },
-    ])(
-        'offline tools preserve read/write scope separation and rollout: %j',
-        async ({ scopes, enabled, metadata, scores, upload }) => {
-            const tools = await getToolsFromContext(createMockContext(scopes), {
-                featureFlags: { 'ai-observability-offline-evaluations': enabled },
-            })
-            const names = tools.map((tool) => tool.name)
-            expect(names.includes('llma-offline-experiment-item-payload-get')).toBe(metadata)
-            expect(names.includes('llma-offline-experiment-scorer-summary-list')).toBe(scores)
-            expect(names.includes('llma-offline-experiment-upload')).toBe(upload)
-        }
-    )
+        { scopes: ['offline_evaluation_ingestion:write'], metadata: false, scores: false, upload: true },
+    ])('offline tools preserve read/write scope separation: %j', async ({ scopes, metadata, scores, upload }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes))
+        const names = tools.map((tool) => tool.name)
+        expect(names.includes('llma-offline-experiment-item-payload-get')).toBe(metadata)
+        expect(names.includes('llma-offline-experiment-scorer-summary-list')).toBe(scores)
+        expect(names.includes('llma-offline-experiment-upload')).toBe(upload)
+    })
 
     it.each([false, true])('hides run-start tools from sandbox tokens: %s', async (sandbox) => {
         const context = {
@@ -329,17 +334,39 @@ describe('Tool Filtering - API Scopes', () => {
     it.each([
         { scopes: ['task:write'], rollout: true, visible: false },
         { scopes: ['query:read'], rollout: true, visible: false },
-        { scopes: ['task:write', 'query:read'], rollout: true, visible: true },
+        { scopes: ['task:write', 'query:read'], rollout: true, legacyRollout: false, visible: true },
         { scopes: ['task:write', 'query:write'], rollout: true, visible: true },
         { scopes: ['task:write', 'query:read'], rollout: false, visible: false },
         { scopes: ['task:write', 'query:read'], rollout: undefined, visible: false },
-    ])('metric replacement requires query access and rollout: %j', async ({ scopes, rollout, visible }) => {
-        const featureFlags: EvaluatedFlags = {}
-        if (rollout !== undefined) {
-            featureFlags['signals-report-checks-replace'] = rollout
+    ])(
+        'metric replacement requires query access and rollout: %j',
+        async ({ scopes, rollout, legacyRollout = true, visible }) => {
+            const featureFlags: EvaluatedFlags = { 'signals-report-checks-replace': legacyRollout }
+            if (rollout !== undefined) {
+                featureFlags['signals-report-monitoring'] = rollout
+            }
+            const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags })
+            expect(tools.some((tool) => tool.name === 'inbox-report-checks-replace')).toBe(visible)
         }
-        const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags })
-        expect(tools.some((tool) => tool.name === 'inbox-report-checks-replace')).toBe(visible)
+    )
+
+    // The legacy fallback lets codegen accept `hog_flow:write` here, which would hide these tools from send-scoped keys.
+    it.each([
+        { scopes: ['transactional_email:write'], visible: true },
+        { scopes: ['hog_flow:write'], visible: true },
+        { scopes: ['transactional_email:read'], visible: false },
+    ])('making a template transactional needs the send scope: $scopes', async ({ scopes, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes), {
+            featureFlags: { 'workflows-transactional-email-api': true },
+        })
+        const names = tools.map((tool) => tool.name)
+
+        for (const name of [
+            'workflows-make-email-template-transactional-prepare',
+            'workflows-make-email-template-transactional-execute',
+        ]) {
+            expect(names.includes(name)).toBe(visible)
+        }
     })
 
     it.each([
@@ -574,7 +601,7 @@ function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
 
 describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // Minted directly into a server-issued token, never advertised via OAuth metadata
-    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
+    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes/exposure.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
         'context_layer_internal:write',
@@ -589,7 +616,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'signal_scratchpad_internal:write',
     ])
 
-    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes.py)
+    // OAuth-hidden scopes (generated from OAUTH_HIDDEN_SCOPE_OBJECTS in posthog/scopes/exposure.py)
     // are PAT-grantable but never OAuth-advertised: tools requiring one (e.g. the staff-only
     // managed-migrations support tools) only surface for personal API keys carrying it.
     const oauthHiddenScopes = new Set<string>(OAUTH_SCOPES_HIDDEN)
@@ -1022,16 +1049,13 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(withFlags).toEqual(withoutFlags)
     })
 
-    it('notebooks-collaboration flag flips the active notebook edit tool', () => {
-        // When the flag is OFF, the legacy non-streaming PATCH tool is exposed.
-        // When the flag is ON, it's hidden and the streaming collab edit tool
-        // takes its place. The model never sees both at once.
+    it('notebooks-collaboration flag retires the legacy PATCH tool', () => {
         const off = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': false } })
         expect(off).toContain('notebooks-partial-update')
         expect(off).not.toContain('notebook-edit')
 
         const on = getToolsForFeatures({ featureFlags: { 'notebooks-collaboration': true } })
-        expect(on).toContain('notebook-edit')
+        expect(on).toContain('notebooks-update-cell')
         expect(on).not.toContain('notebooks-partial-update')
     })
 
@@ -1062,54 +1086,48 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('accounts-meetings-list')
     })
 
-    it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
-        // Flag ON: the cell tools take over create/read/edit — the model never sees two
-        // tools for the same job. Flag OFF: only the legacy surface.
-        const off = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': false } })
-        expect(off).toContain('notebooks-create')
-        expect(off).toContain('notebooks-retrieve')
-        expect(off).not.toContain('notebooks-create-markdown')
-        expect(off).not.toContain('notebooks-add-cell')
-        expect(off).not.toContain('notebooks-set-variables')
-        expect(off).not.toContain('notebooks-run')
-        expect(off).not.toContain('notebooks-run-status')
-        expect(off).not.toContain('notebooks-run-cell')
-        expect(off).not.toContain('notebooks-get')
+    it('keeps workflow disable hidden until backend draft routing is enabled', () => {
+        const hidden = getToolsForFeatures({ features: ['workflows'] })
+        expect(hidden).not.toContain('workflows-disable')
+        expect(hidden).toContain('workflows-enable')
 
-        const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
-        expect(on).toContain('notebooks-create-markdown')
-        expect(on).toContain('notebooks-add-cell')
-        expect(on).toContain('notebooks-update-cell')
-        expect(on).toContain('notebooks-delete-cell')
-        expect(on).toContain('notebooks-set-variables')
-        expect(on).toContain('notebooks-run')
-        expect(on).toContain('notebooks-run-status')
-        expect(on).toContain('notebooks-run-cell')
-        expect(on).toContain('notebooks-run-cell-result')
-        expect(on).toContain('notebooks-get')
-        expect(on).toContain('notebooks-list-frames')
-        expect(on).toContain('notebooks-configure-compute')
-        expect(on).not.toContain('notebooks-create')
-        expect(on).not.toContain('notebooks-retrieve')
+        const enabled = getToolsForFeatures({
+            features: ['workflows'],
+            featureFlags: { 'workflows-mcp-disable': true },
+        })
+        expect(enabled).toContain('workflows-disable')
+    })
 
-        // notebook-edit keeps its collaboration gate but retires under the cell tools.
-        const collabOnly = getToolsForFeatures({
-            featureFlags: { 'notebooks-collaboration': true, 'revamped-py-notebooks': false },
-        })
-        expect(collabOnly).toContain('notebook-edit')
-        const both = getToolsForFeatures({
-            featureFlags: { 'notebooks-collaboration': true, 'revamped-py-notebooks': true },
-        })
-        expect(both).not.toContain('notebook-edit')
+    it('exposes only the current notebook tools without rollout flags', () => {
+        const tools = getToolsForFeatures({ featureFlags: {} })
+        expect(tools).toContain('notebooks-create-markdown')
+        expect(tools).toContain('notebooks-add-cell')
+        expect(tools).toContain('notebooks-update-cell')
+        expect(tools).toContain('notebooks-delete-cell')
+        expect(tools).toContain('notebooks-set-variables')
+        expect(tools).toContain('notebooks-run')
+        expect(tools).toContain('notebooks-run-status')
+        expect(tools).toContain('notebooks-run-cell')
+        expect(tools).toContain('notebooks-run-cell-result')
+        expect(tools).toContain('notebooks-get')
+        expect(tools).toContain('notebooks-list-frames')
+        expect(tools).toContain('notebooks-configure-compute')
+        expect(tools).not.toContain('notebooks-create')
+        expect(tools).not.toContain('notebooks-retrieve')
+
+        expect(tools).not.toContain('notebook-edit')
     })
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
+            'workflows-email-activity',
             'workflows-supabase-auth-emails',
             'scout-trials',
-            'signals-report-checks-replace',
+            'scout-scratchpad-discard-mcp',
+            'signals-report-monitoring',
             'inbox-report-actions-mcp',
+            'inbox-reports-create-mcp',
             'signals-reviewer-exclusions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
@@ -1121,16 +1139,27 @@ describe('Tool Filtering - Feature Flags', () => {
             'llm-analytics-tags',
             'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
+            'marketing-analytics-recommendations',
+            'workflows-mcp-disable',
             'insight-data-checks',
-            'logs-agent-tools',
             'workflows-transactional-email-api',
+            'workflows-email-from-code',
             'activity-summary',
+            'personal-inbox-ranking',
+            'inbox-reports-search',
             'anomalies-search',
-            'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
             'investigate-insight',
-            'workflows-customerio-import',
             'mcp-session-recording-console-logs',
+            'discussions-slack-sync',
+            'ui-customization',
+            'warehouse-migration-import',
+            'mcp-feature-flag-restore-version',
+            'platform-alerts-source-warehouse',
+            'dwh-custom-source-ai-builder',
+            'workflows-bulk-suppressions-mcp',
+            'signals-source-filters',
+            'error-tracking-issue-tags',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1147,7 +1176,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
                 'notebooks-collaboration',
-                'revamped-py-notebooks',
                 'tasks',
                 'tasks-mcp-agent-run-start',
                 'marketing-analytics-mcp',
@@ -1171,13 +1199,16 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'workflows-mcp-onboarding',
                 'aeo-citation-tracking',
+                'self-driving-usage-display',
+                'logs-agent-tools',
+                'release-objects',
             ])
         )
-        expect(flags).toContain('ai-observability-offline-evaluations')
+        expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
-        expect(flags).toHaveLength(35)
+        expect(allFlags).not.toContain('self-driving-usage-mcp')
+        expect(flags).toHaveLength(38)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {
@@ -1306,23 +1337,24 @@ describe('Tool Filtering - Feature Flags', () => {
 
 describe('getFlagGatedTools', () => {
     it('reports a retired tool with the successor its definition declares', () => {
-        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': true } })
+        const gated = getFlagGatedTools({ featureFlags: { 'notebooks-collaboration': true } })
 
-        expect(gated.find((tool) => tool.name === 'notebooks-create')?.supersededBy).toEqual([
-            'notebooks-create-markdown',
+        expect(gated.find((tool) => tool.name === 'notebooks-partial-update')?.supersededBy).toEqual([
+            'notebooks-update-cell',
+            'notebooks-add-cell',
         ])
     })
 
     it('leaves out a tool the flags keep in the catalog', () => {
-        const gated = getFlagGatedTools({ featureFlags: { 'revamped-py-notebooks': false } })
+        const gated = getFlagGatedTools({ featureFlags: { 'notebooks-collaboration': false } })
 
-        expect(gated.map((tool) => tool.name)).not.toContain('notebooks-create')
+        expect(gated.map((tool) => tool.name)).not.toContain('notebooks-partial-update')
     })
 
     it('reports a tool an unset flag never enabled, so a caller learns it exists', () => {
         const gated = getFlagGatedTools({ featureFlags: {} })
 
-        const entry = gated.find((tool) => tool.name === 'notebooks-add-cell')
+        const entry = gated.find((tool) => tool.name === 'accounts-meetings-list')
         expect(entry).not.toBeUndefined()
         expect(entry?.supersededBy).toEqual([])
     })

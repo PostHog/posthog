@@ -1,5 +1,6 @@
 import { SkillCatalog } from '@/skills/skill-catalog'
 
+import type { OmnibusSkillsCache } from './cache/OmnibusSkillsCache'
 import type { RedisLike } from './cache/RedisCache'
 import { hashBytes } from './cache/SharedBlobCache'
 import { SkillArchiveCache, type SkillArchiveCacheOptions } from './cache/SkillArchiveCache'
@@ -24,6 +25,7 @@ export interface SkillCatalogServiceOptions extends SkillArchiveCacheOptions {
     /** How long startup waits for a catalog before the pod serves without one. */
     warmupTimeoutMs?: number
     warmupRetryMs?: number
+    omnibusSkills?: OmnibusSkillsCache
 }
 
 type LoadPhase = 'warmup' | 'poll'
@@ -41,21 +43,33 @@ class SkillArchiveIntegrityError extends Error {}
 export class SkillCatalogService {
     private readonly expectedArchiveSha: string | undefined
     private readonly archiveCache: SkillArchiveCache
+    private readonly omnibusSkills: OmnibusSkillsCache | undefined
     private readonly pollIntervalMs: number
     private readonly pollJitterMs: number
     private readonly warmupTimeoutMs: number
     private readonly warmupRetryMs: number
 
     private catalog: SkillCatalog | undefined
+    private archiveBytes: Uint8Array | undefined
     private archiveSha: string | undefined
+    private omnibusBytes: Uint8Array | undefined
+    private omnibusSha: string | undefined
     private loadedAt: number | undefined
     private timer: ReturnType<typeof setInterval> | undefined
     private polling = false
 
     constructor(redis: RedisLike, opts: SkillCatalogServiceOptions = {}) {
-        const { expectedArchiveSha, pollIntervalMs, pollJitterMs, warmupTimeoutMs, warmupRetryMs, ...cacheOptions } =
-            opts
+        const {
+            expectedArchiveSha,
+            pollIntervalMs,
+            pollJitterMs,
+            warmupTimeoutMs,
+            warmupRetryMs,
+            omnibusSkills,
+            ...cacheOptions
+        } = opts
         this.expectedArchiveSha = expectedArchiveSha
+        this.omnibusSkills = omnibusSkills
         const validateArchive =
             cacheOptions.validateArchive ?? ((bytes: Uint8Array) => void SkillCatalog.fromZip(bytes))
         this.archiveCache = new SkillArchiveCache(redis, {
@@ -90,6 +104,7 @@ export class SkillCatalogService {
                 const loaded = await this.archiveCache.loadOrRefresh()
                 skillArchiveEventsTotal.inc({ phase: 'warmup', result: loaded.result })
                 this.install(loaded.bytes, loaded.sha, 'warmup')
+                await this.adoptOmnibusSkills('warmup')
                 return
             } catch (error) {
                 skillArchiveEventsTotal.inc({ phase: 'warmup', result: 'error' })
@@ -139,6 +154,7 @@ export class SkillCatalogService {
         this.polling = true
         try {
             await this.adoptSharedArchive()
+            await this.adoptOmnibusSkills('poll')
             const refresh = await this.archiveCache.refreshIfStale()
             skillArchiveEventsTotal.inc({ phase: 'poll', result: refresh })
             if (refresh === 'downloaded') {
@@ -175,20 +191,62 @@ export class SkillCatalogService {
         }
     }
 
+    private async adoptOmnibusSkills(phase: LoadPhase): Promise<void> {
+        // A pinned archive serves exactly its bytes, so no unpinned overlay joins it.
+        if (!this.omnibusSkills || !this.archiveBytes || this.expectedArchiveSha) {
+            return
+        }
+        try {
+            const changed = await this.omnibusSkills.readIfChanged(this.omnibusSha)
+            if (!changed) {
+                return
+            }
+            this.omnibusBytes = changed.bytes
+            this.omnibusSha = changed.sha
+            this.installCatalog(this.archiveBytes, phase)
+            skillArchiveEventsTotal.inc({ phase, result: 'omnibus_reloaded' })
+        } catch (error) {
+            skillArchiveEventsTotal.inc({ phase, result: 'omnibus_error' })
+            console.error('[SkillCatalogService] omnibus skills failed to load; keeping the current catalog:', error)
+        }
+    }
+
     private install(bytes: Uint8Array, sha: string, phase: LoadPhase): void {
         this.verifyArchive(bytes)
         if (sha === this.archiveSha) {
             return
         }
-        const start = Date.now()
-        const catalog = SkillCatalog.fromZip(bytes)
-        this.catalog = catalog
+        this.archiveBytes = bytes
         this.archiveSha = sha
+        this.installCatalog(bytes, phase)
+    }
+
+    private installCatalog(bytes: Uint8Array, phase: LoadPhase): void {
+        const start = Date.now()
+        const catalog = this.buildCatalog(bytes)
+        this.catalog = catalog
         this.loadedAt = Date.now()
         skillCatalogLoadDurationSeconds.observe({ phase }, (this.loadedAt - start) / 1000)
         skillCatalogSkills.set(catalog.size)
         skillCatalogAgeSeconds.set(0)
-        console.info(`[SkillCatalogService] installed ${catalog.size} skills (${phase}, sha ${sha.slice(0, 12)})`)
+        console.info(
+            `[SkillCatalogService] installed ${catalog.size} skills (${phase}, sha ${this.archiveSha?.slice(0, 12)})`
+        )
+    }
+
+    /** The product archive must always install, so a failing overlay degrades to product skills only. */
+    private buildCatalog(bytes: Uint8Array): SkillCatalog {
+        if (this.omnibusBytes) {
+            try {
+                return SkillCatalog.fromZip(bytes, this.omnibusBytes)
+            } catch (error) {
+                console.error(
+                    '[SkillCatalogService] omnibus skills failed to overlay; serving product skills only:',
+                    error
+                )
+            }
+        }
+        return SkillCatalog.fromZip(bytes)
     }
 }
 

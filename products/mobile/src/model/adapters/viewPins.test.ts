@@ -21,14 +21,33 @@ describe('view pins', () => {
         const rows = [
             row('a', 'dashboard', '1', 0),
             row('b', 'insight', 'abc', 1),
-            row('c', 'web_analytics', null, 2),
-            row('d', 'notebook', 'nb1', 3),
+            row('c', 'dashboard', '2', 2),
+            row('d', 'insight', 'def', 3),
         ]
 
         const pins = pinsFromShortcuts(rows, { rank: { c: 0, a: 1 }, display: {} })
 
         expect(pins.map((pin) => pin.shortcutId)).toEqual(['c', 'a', 'b', 'd'])
-        expect(pins.map((pin) => pin.native)).toEqual([true, true, true, false])
+    })
+
+    test('keeps only dashboards and insights with a ref, the views the list can draw', () => {
+        const rows = [
+            row('folder', 'folder', 'Users/Ada', -1),
+            row('dashboards-page', 'dashboard', null, 0, { href: '/dashboard' }),
+            row('web-analytics-page', 'web_analytics', null, 1, { href: '/web' }),
+            row('flags-page', 'feature_flag', null, 2),
+            row('dashboard', 'dashboard', '12', 3),
+            row('notebook', 'notebook', 'nb1', 4),
+            row('flag', 'feature_flag', '7', 5),
+            row('insight', 'insight', 'abc', 6),
+        ]
+
+        const pins = pinsFromShortcuts(rows, { rank: {}, display: {} })
+
+        expect(pins.map((pin) => [pin.shortcutId, pin.kind, pin.ref])).toEqual([
+            ['dashboard', 'dashboard', '12'],
+            ['insight', 'insight', 'abc'],
+        ])
     })
 
     test('collapses rows for one view and keeps the ranked row, else the lowest order', () => {
@@ -37,9 +56,6 @@ describe('view pins', () => {
             row('sibling', 'dashboard', '7', 0, { created_at: '2026-10-01T10:00:00Z' }),
             row('ranked', 'insight', 'xyz', 5),
             row('renamed', 'insight', 'xyz', 2),
-            row('product', 'web_analytics', null, 3),
-            row('product-again', 'web_analytics', null, 4, { href: '/web' }),
-            row('folder', 'folder', null, 6),
         ]
 
         const pins = pinsFromShortcuts(rows, { rank: { ranked: 0 }, display: {} })
@@ -47,7 +63,6 @@ describe('view pins', () => {
         expect(pins.map((pin) => [pin.shortcutId, pin.shortcutIds])).toEqual([
             ['ranked', ['ranked', 'renamed']],
             ['sibling', ['old', 'sibling']],
-            ['product', ['product', 'product-again']],
         ])
     })
 

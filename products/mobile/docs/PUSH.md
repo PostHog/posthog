@@ -21,6 +21,8 @@ An expired session cannot authenticate an unregister request. Until the device s
 
 The app saves a newly issued token before its registration POST, because a lost response does not prove the server rejected it. Registration and unregistration requests have bounded deadlines. A failed storage read lets the launch gate settle with default push state.
 
+Fetching the Expo push token has a 15-second deadline. If the device or Expo does not respond, Settings stops spinning and shows an error with **Try again**. A late response cannot overwrite a later retry. Sign-out can continue once the token request times out.
+
 Push is unavailable, and the app skips it without errors, on the web, in simulators and emulators, and in Expo Go.
 Settings shows which one applies.
 
@@ -63,7 +65,29 @@ Without `google-services.json` the Android build still succeeds, but the app get
 ## Payloads
 
 Server pushes are sent by `posthog/tasks/push_notifications.send_user_push` through the Expo push API.
-All server pushes respect the account's push notification preferences. Ordinary chat and task pushes do not require a feature flag. Report pushes also require the existing `posthog-code-mobile-push` feature flag. Settings saves these in `users/@me/` `notification_settings`: `mobile_push_enabled` (master), `mobile_push_tasks_enabled` (mobile chats and tasks), `mobile_push_reports_enabled` (new reports), and `mobile_push_report_updates_enabled` (report updates). All default to enabled. The server checks preferences again before delivery, so disabling a category also stops queued pushes.
+All server pushes respect the account's push notification preferences. Ordinary chat and task pushes do not require a feature flag. Report pushes also require the existing `posthog-code-mobile-push` feature flag. **Settings → Notification settings** separates device permission from account-wide preferences. Account preferences apply across projects and devices; they do not change email or Slack settings.
+
+Settings saves booleans in `users/@me/` `notification_settings`, all enabled by default:
+
+| Feature | Keys                                                                             | Controls                                                           |
+| ------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| All     | `mobile_push_enabled`                                                            | All mobile alerts, including snooze reminders                      |
+| Reports | `mobile_push_reports_enabled`                                                    | New reports                                                        |
+| Reports | `mobile_push_report_updates_enabled`                                             | All report work updates, gating the report activity switches below |
+| Reports | `mobile_push_report_attention_enabled`, `mobile_push_report_completions_enabled` | Questions/problems and finished work                               |
+| Reports | `mobile_push_report_pr_ready_enabled`, `mobile_push_report_pr_outcomes_enabled`  | PRs ready to review and PRs merged or closed                       |
+| Reports | `mobile_push_snooze_enabled`                                                     | Snooze reminders                                                   |
+| Chat    | `mobile_push_chat_enabled`                                                       | All chat alerts, gating the chat activity switches below           |
+| Chat    | `mobile_push_chat_attention_enabled`, `mobile_push_chat_completions_enabled`     | Questions/problems and agent replies/completed tasks               |
+| Chat    | `mobile_push_chat_mentions_enabled`, `mobile_push_chat_replies_enabled`          | Mentions/assignments and ordinary teammate replies                 |
+| Chat    | `mobile_push_chat_pr_outcomes_enabled`                                           | Chat PRs merged or closed                                          |
+| Loops   | `mobile_push_loops_enabled`                                                      | Loop alerts; each loop also has its own delivery configuration     |
+
+Settings groups controls by **Reports** and **Chat**. The same activity can be enabled independently for reports and chat. Snooze reminders belong to Reports. Loop alerts are configured in each loop's settings. Turning off Chat notifications does not turn off loop alerts.
+
+Existing `mobile_push_tasks_enabled` opt-outs initialize both Chat and Loops to off. Older clients can still write that key to change both features together; an explicitly supplied feature key wins when both appear in one PATCH. The new app writes only the individual feature key. Existing report-update opt-outs still gate all report work alerts. The server checks preferences again before delivery, so disabling a feature or activity stops queued pushes too.
+
+Cancellations do not notify the user who canceled the run. When completed report work already has a new, open PR awaiting review, eligible reviewers receive the PR-ready alert instead of a second completion alert. Reviewers who disabled PR-ready alerts can still receive the completion alert. A PR attached after the completion alert was sent can still generate a separate alert.
 
 Chat and task notifications are eligible for work started in the mobile app, or work you actively continue there. Sending a message, starting or resuming a run, or answering an agent question from mobile enables updates for your account on that task, including chats originally started on the web or Slack. Merely opening a chat, reading its history, or watching its stream does not enable updates. Configuration changes and canceling a run also do not enroll the task.
 
@@ -85,18 +109,31 @@ Continuing a chat on mobile transfers its agent-update notifications to mobile f
 
 The server records the `X-PostHog-Client-Platform: mobile` creation header on the task; subsequent runs do not change its origin. Active continuation from mobile records a separate user-specific notification enrollment rather than rewriting that origin. Tasks created before the server stored the creation marker stay silent until actively continued in mobile; history alone cannot reliably establish mobile origin, and there is no backfill.
 
-Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread_message` (with `messageId`, no run), `handoff` (no run), `pr_merged`, and `pr_closed` (with `pullRequestUrl`).
+Kinds: `completed`, `failed`, `cancelled`, `awaiting`, `turn_completed`, `thread_message` (with `messageId` and a recipient-specific `isMention`, no run), `handoff` (no run), `pr_merged`, and `pr_closed` (with `pullRequestUrl`).
 `projectId` is the task's team id. Pushes from servers that predate it have no project id.
 
 **Pull request outcomes** come from verified PR close events through `notify_task_pull_request_outcome()`. Ordinary task pushes use title `PostHog` and body `"{task title}" pull request was merged` or `"{task title}" pull request was closed`, with `Untitled task` as the blank-title fallback. Report work uses title `Report update`, the same suffix with the report title (`Untitled report` fallback), and the report updates preference. Both carry `pullRequestUrl` as the stable PR identity. A durable per-recipient, task, PR, and outcome claim prevents retry duplicates independently of Slack announcement history.
 
-**Snooze reminders** are local notifications. They use the inbox shape with `notificationKind: 'snooze_reminder'`, so the same routing opens the report.
+**Snooze reminders** are local notifications. The report is snoozed immediately; scheduling its optional reminder checks the current account preferences in the background; if they cannot be fetched, the report is still snoozed but no reminder is scheduled. Turning off reminders or the master switch cancels pending snooze reminders on this device without unsnoozing reports. Other devices apply that change the next time the app opens or returns to the foreground. Enabling reminders applies to future snoozes, not previously canceled reminders. They use the inbox shape with `notificationKind: 'snooze_reminder'`, so the same routing opens the report.
 
 ## Routing
 
 `useNotificationRouting()` handles taps that start the app (`getLastNotificationResponse`) and taps while it runs (`addNotificationResponseReceivedListener`).
 It waits until the navigator is mounted and the session has loaded, and handles each notification id once.
+A signed-out tap waits for sign-in. On Android, the most recent push or snooze reminder tap survives
+process death and opens once routing is ready. On iOS, Expo keeps the response in memory. If the
+process dies before sign-in finishes, reopen the target from the inbox or chats.
 The pure resolver is `resolveNotificationRoute()` in `notificationRouting.ts`.
+
+On Android, Firebase and Expo open a private activity alias when the user taps a notification.
+The native handoff records the tap before Expo SDK 57's startup delegate can drop it.
+Both push and local reminder taps replace the same pending destination, so tapping a reminder
+after a push opens the reminder even if Expo later replays the earlier response.
+The store keeps only the notification identifier and routing fields. It clears the destination
+when JavaScript acknowledges that identifier. It also remembers the original launch identifier
+so restoring the task from Recents does not replay it.
+This workaround requires a new Android build.
+Recheck the workaround when upgrading Expo ([upstream issue](https://github.com/expo/expo/issues/49254)).
 
 Chat taps reuse the single chat screen. If the target task is already open in the same account
 and project, the tap leaves its session and draft intact. Otherwise it replaces the open chat

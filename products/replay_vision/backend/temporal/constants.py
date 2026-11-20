@@ -15,8 +15,9 @@ ADMISSION_BUDGET_TTL = dt.timedelta(seconds=15)
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
 # Must exceed the worst-case failure chain in `workflow.py`, where every phase spends its full schedule_to_close
 # budget before the terminal mark runs: create 3m + mark running 3m + fetch 5m + rasterize 40m + upload 20m +
-# provider 25m + terminal mark 3m + cleanup 1m = 100m. The 10m headroom covers task-queue scheduling latency
-# between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
+# provider 25m + terminal mark 3m + cleanup 1m = 100m. The folded chain is create 3m + prepare 5m + rasterize 40m +
+# upload 20m + provider 25m + finalize 8m + terminal mark 3m + cleanup 1m = 105m. The headroom covers task-queue
+# scheduling latency between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
 # row is stranded in `running` until the reaper's cutoff below.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
 
@@ -111,7 +112,8 @@ SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 # What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
 # scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
 # kills the attempt after the candidates were found, so the tick retries without ever dispatching.
-FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+# Covers the 30 s group key lookup and the 180 s candidate query, plus slack for Postgres reads.
+FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=230)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
@@ -133,6 +135,9 @@ RECONCILER_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 LIST_ENABLED_SCANNERS_TIMEOUT = dt.timedelta(seconds=60)
 LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)
 RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
+# Caps each of the upsert and delete fan-outs per reconciler tick, so a fleet-wide fingerprint change rolls
+# out over several ticks instead of one workflow scheduling an activity per scanner past the history limit.
+RECONCILE_MAX_SCHEDULE_OPS_PER_TICK = 1000
 
 # Short attempts so one stranded on a dying worker reruns on a live one instead of holding the tick.
 REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)
@@ -174,6 +179,17 @@ CREATE_OBSERVATION_TIMEOUT = dt.timedelta(seconds=30)
 
 CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
+# Covers signal emission (up to 2 minutes), the result write and the delivery steps after it.
+FINALIZE_OBSERVATION_TIMEOUT = dt.timedelta(minutes=5)
+FINALIZE_OBSERVATION_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=8)
+
+# The candidate query budgets its ClickHouse time from its own start, so the gates before it get extra time.
+SWEEP_SCANNER_TICK_TIMEOUT = (
+    FIND_SCANNER_CANDIDATES_TIMEOUT + CHECK_SCANNER_BUDGET_TIMEOUT + COUNT_IN_FLIGHT_APPLIES_TIMEOUT
+)
+# Fits two timed-out attempts plus backoff, so a third attempt only follows fast admission rejections.
+SWEEP_SCANNER_TICK_SCHEDULE_TO_CLOSE = 2 * SWEEP_SCANNER_TICK_TIMEOUT + dt.timedelta(seconds=40)
+
 
 # Slots at each cap that scheduled dispatch (sweep, backfill) must leave free, so a user-initiated
 # observe still admits when scheduled work is saturated; on-demand admission checks the full caps.
@@ -185,9 +201,8 @@ def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
     """Scheduled-dispatch headroom for a sweep or backfill tick: the tighter of the per-scanner and
     per-team caps, minus the slots reserved for on-demand admission.
 
-    The sweep workflow throttles on this and the count activity records the throttled
-    metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
-    inside deterministic workflow code.
+    The sweep tick throttles on this and the count activity records the throttled metric from
+    it, so the decision and the metric can't drift apart.
     """
     return min(
         MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - scanner_in_flight,
@@ -207,7 +222,7 @@ BACKFILL_TICK_INTERVAL = dt.timedelta(minutes=1)
 BACKFILL_TICK_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
 
 PREPARE_BACKFILL_TICK_TIMEOUT = dt.timedelta(seconds=30)
-FIND_BACKFILL_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+FIND_BACKFILL_CANDIDATES_TIMEOUT = FIND_SCANNER_CANDIDATES_TIMEOUT
 ADVANCE_BACKFILL_CURSOR_TIMEOUT = dt.timedelta(seconds=30)
 BACKFILL_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
 
@@ -265,3 +280,16 @@ LEARNED_RULES_CONCURRENCY = 16
 LIST_DUE_LEARNED_RULES_TIMEOUT = dt.timedelta(seconds=60)
 # Covers the model call's own 120s timeout plus the database reads around it.
 REFRESH_TEAM_LEARNED_RULES_TIMEOUT = dt.timedelta(minutes=4)
+
+
+# Highlight feed rebuilds: a schedule starts this every minute and skips a start while one still runs.
+HIGHLIGHT_REBUILD_WORKFLOW_NAME = "replay-vision-rebuild-highlight-feeds"
+HIGHLIGHT_REBUILD_WORKFLOW_ID = "replay-vision-highlight-feed-rebuilder"
+HIGHLIGHT_REBUILD_SCHEDULE_ID = "replay-vision-highlight-feed-rebuilder-schedule"
+HIGHLIGHT_REBUILD_INTERVAL = dt.timedelta(minutes=1)
+HIGHLIGHT_REBUILD_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+HIGHLIGHT_REBUILD_ACTIVITY_TIMEOUT = dt.timedelta(minutes=8)
+# One team's build holds one heavy statement under its own 120s cap, so a heartbeat per team arrives well inside this.
+HIGHLIGHT_REBUILD_HEARTBEAT_TIMEOUT = dt.timedelta(minutes=5)
+# The activity starts no team after this, which leaves a slow last build room inside the activity timeout.
+HIGHLIGHT_REBUILD_CLAIM_BUDGET = dt.timedelta(minutes=3)

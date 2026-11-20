@@ -4,7 +4,6 @@ import uuid
 import dataclasses
 from collections.abc import Iterator
 from datetime import timedelta
-from ipaddress import ip_address
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -26,6 +25,8 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.scoping import team_scope
 from posthog.settings.signals import _parse_team_ids
 from posthog.sync import database_sync_to_async
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
@@ -1111,7 +1112,7 @@ async def aorganization_emit():
     # test's transaction, so this delete is the only cleanup these rows get. Without it every
     # emit test leaks a committed org into the shared --reuse-db database and poisons later
     # product suites in the same CI job (cascade also removes the team/config/run fixtures).
-    await database_sync_to_async(org.delete)()
+    await database_sync_to_async(delete_skipping_empty_tables)(org)
 
 
 @pytest_asyncio.fixture
@@ -1968,7 +1969,7 @@ def _no_flag_payload():
 class TestLighthouseAudit:
     @pytest.fixture(autouse=True)
     def mock_target_dns(self) -> Iterator[None]:
-        with patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")}):
+        with mock_anti_ssrf_dns_lookup():
             yield
 
     def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing", form_factor: str = "desktop"):

@@ -17,6 +17,7 @@ from products.messaging.backend.services import (
 )
 from products.messaging.backend.services.lazy_list import LazyList
 from products.messaging.backend.services.opt_out_service import BulkOptOutEntry, UnknownCategoryError
+from products.messaging.backend.services.unsubscribe_metrics import EmailSendReference
 
 ALL_MESSAGE_PREFERENCE_CATEGORY_ID: str = preference_model.ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 EMAIL_TRACKING_PREFERENCE_ID: str = preference_model.EMAIL_TRACKING_PREFERENCE_ID
@@ -101,6 +102,54 @@ def remove_opt_out(
     except preferences_service.CategoryNotFound as e:
         raise MessageCategoryNotFound("Category not found") from e
     return ChangedPreferences(preferences=_to_contract(row), created=created)
+
+
+class TopicsNotFound(Exception):
+    """The project has no live topic with these keys."""
+
+    def __init__(self, keys: list[str]) -> None:
+        super().__init__(", ".join(keys))
+        self.keys = keys
+
+
+@frozen
+class TopicPreferences:
+    identifier: str
+    # True when the recipient opted back in to all marketing, False when opted out, None when never set.
+    all_marketing: bool | None
+    # Topic key to True (opted in) or False (opted out), for every live topic with a stored choice.
+    topics: dict[str, bool]
+
+
+def set_preferences(
+    team_id: int, identifier: str, all_marketing: bool | None, topics: dict[str, bool]
+) -> TopicPreferences:
+    """Apply `all_marketing`, then each topic in order, as one write. Syncs to Customer.io after commit.
+
+    Raises TopicsNotFound, and changes nothing, when a key names no live topic of the project.
+    """
+    try:
+        stored = preferences_service.set_preferences(team_id, identifier, all_marketing, topics)
+    except preferences_service.TopicsNotFound as e:
+        raise TopicsNotFound(e.keys) from e
+    keys_by_id = preferences_service.topic_keys_by_id(team_id)
+    return TopicPreferences(
+        identifier=identifier,
+        all_marketing=_opted_in(stored.get(ALL_MESSAGE_PREFERENCE_CATEGORY_ID)),
+        topics={
+            keys_by_id[category_id]: opted_in
+            for category_id, value in stored.items()
+            if category_id in keys_by_id and (opted_in := _opted_in(value)) is not None
+        },
+    )
+
+
+def _opted_in(value: Any) -> bool | None:
+    if value == PreferenceStatus.OPTED_IN.value:
+        return True
+    if value == PreferenceStatus.OPTED_OUT.value:
+        return False
+    return None
 
 
 def export_opt_outs_csv(team_id: int, category_key: str | None) -> Iterator[str]:
@@ -189,3 +238,7 @@ def record_unsubscribe_metric(team_id: int, token_data: dict[str, Any], opted_ou
     unsubscribe_metrics.record_email_unsubscribed_metric(
         team_id, unsubscribe_metrics.parse_unsubscribe_source(token_data), opted_out_category_ids
     )
+
+
+def email_send_reference(token_data: dict[str, Any]) -> EmailSendReference | None:
+    return unsubscribe_metrics.parse_email_send_reference(token_data)

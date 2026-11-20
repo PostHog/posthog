@@ -6,7 +6,7 @@ import { LifecycleMarkPerson } from '~/common/persons/repositories/person-reposi
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
+import { InternalPerson, Team } from '~/types'
 
 import { EventOps } from './person-update'
 import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
@@ -21,8 +21,6 @@ export interface PersonsStoreTransactionForBatch {
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -59,6 +57,9 @@ export interface PersonsStoreTransactionForBatch {
 
     /** The target and sources are row-locked, in ascending id order, until the transaction ends. */
     readMergeRows(teamId: number, targetId: string, sourceIds: string[], distinctId: string): Promise<InternalPerson[]>
+
+    /** The live person that owns the distinct id, read on this transaction without a row lock. */
+    readPerson(teamId: number, distinctId: string): Promise<InternalPerson | undefined>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
@@ -129,8 +130,6 @@ export type PersonsStoreForBatch = Omit<
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -161,8 +160,6 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -173,8 +170,6 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
         return this.tx.createPerson(
             createdAt,
             properties,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
             teamId,
             isUserId,
             isIdentified,
@@ -240,6 +235,10 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
         distinctId: string
     ): Promise<InternalPerson[]> {
         return this.tx.readMergeRows(teamId, targetId, sourceIds, distinctId)
+    }
+
+    readPerson(teamId: number, distinctId: string): Promise<InternalPerson | undefined> {
+        return this.tx.readPerson(teamId, distinctId)
     }
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
@@ -327,8 +326,6 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
     createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -339,8 +336,6 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         return this.store.createPerson(
             createdAt,
             properties,
-            propertiesLastUpdatedAt,
-            propertiesLastOperation,
             teamId,
             isUserId,
             isIdentified,

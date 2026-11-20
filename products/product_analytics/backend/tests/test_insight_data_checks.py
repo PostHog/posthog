@@ -28,7 +28,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.exceptions import APIQueriesBudgetExceeded
-from posthog.models import PersonalAPIKey, PropertyDefinition
+from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
@@ -37,6 +37,7 @@ from products.access_control.backend.facade.api import upsert_property_access_co
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.contracts import (
     InsightDataCheck,
     InsightDataChecks,

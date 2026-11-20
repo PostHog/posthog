@@ -1,5 +1,10 @@
+import { waitFor } from '@testing-library/react'
+
 import api from 'lib/api'
+import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { retryImport } from 'lib/utils/retryImport'
+import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
@@ -45,6 +50,17 @@ jest.mock('products/subscriptions/frontend/components/Subscriptions/exportNudge/
 jest.mock('products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast', () => ({
     claimExportNudgeMessage: jest.fn(() => null),
 }))
+jest.mock('lib/utils/async', () => ({
+    ...jest.requireActual('lib/utils/async'),
+    delay: jest.fn(async () => {}),
+}))
+jest.mock('lib/utils/retryImport', () => ({
+    ...jest.requireActual('lib/utils/retryImport'),
+    retryImport: jest.fn((factory: () => unknown) => factory()),
+}))
+jest.mock('scenes/cohorts/cohortSavedToast', () => ({
+    cohortSavedToast: jest.fn(),
+}))
 
 // The nudge body stands in as an opaque element that echoes the headline it was rendered under,
 // which is what distinguishes the toast's states.
@@ -64,6 +80,31 @@ const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType =>
 })
 
 describe('exportsLogic', () => {
+    it.each(['server', 'browser'])('reports a failed PNG dialog download for %s exports', async (renderer) => {
+        jest.clearAllMocks()
+        initKeaTests()
+        jest.mocked(retryImport).mockRejectedValueOnce(new Error('Failed to fetch dynamically imported module'))
+        const logic = renderer === 'server' ? exportsLogic() : captureImageLogic()
+        const unmount = logic.mount()
+        try {
+            if (renderer === 'server') {
+                exportsLogic.actions.startExport({ dashboard: 7, export_format: ExporterFormat.PNG })
+            } else {
+                captureImageLogic.actions.downloadImage({ selector: '.chart', screenshotKey: 'test' })
+            }
+            await waitFor(() =>
+                expect(lemonToast.error).toHaveBeenCalledWith(
+                    'Could not open the export options. Reload the page and try again.'
+                )
+            )
+        } finally {
+            unmount()
+            jest.mocked(retryImport)
+                .mockReset()
+                .mockImplementation(async (factory) => factory())
+        }
+    })
+
     describe('pickPollDelayMs', () => {
         it('returns the default delay when nothing is pending', () => {
             expect(pickPollDelayMs([asset({ has_content: true })])).toBe(10000)
@@ -122,6 +163,35 @@ describe('exportsLogic', () => {
             expect(startExportSpy).toHaveBeenCalledTimes(1)
             expect(startExportSpy.mock.calls[0][0].export_context?.skip_inactivity).toBe(expected)
         })
+    })
+
+    describe('createStaticCohort', () => {
+        it.each([
+            { toastLoads: true, expectedRichToasts: 1, expectedPlainToasts: 0 },
+            { toastLoads: false, expectedRichToasts: 0, expectedPlainToasts: 1 },
+        ])(
+            'saves the cohort and confirms it when the toast loads: $toastLoads',
+            async ({ toastLoads, expectedRichToasts, expectedPlainToasts }) => {
+                jest.clearAllMocks()
+                if (!toastLoads) {
+                    jest.mocked(retryImport).mockRejectedValueOnce(
+                        new Error('Failed to fetch dynamically imported module')
+                    )
+                }
+                const createSpy = jest.spyOn(api, 'create').mockResolvedValue({ id: 5, name: 'Buyers' })
+                initKeaTests()
+                const logic = exportsLogic()
+                logic.mount()
+
+                logic.actions.createStaticCohort('Buyers', { kind: 'HogQLQuery', query: 'select 1' } as any)
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(createSpy).toHaveBeenCalledTimes(1)
+                expect(lemonToast.error).not.toHaveBeenCalled()
+                expect(jest.mocked(cohortSavedToast).mock.calls).toHaveLength(expectedRichToasts)
+                expect(jest.mocked(lemonToast.success).mock.calls).toHaveLength(expectedPlainToasts)
+            }
+        )
     })
 
     describe('createExport toast', () => {

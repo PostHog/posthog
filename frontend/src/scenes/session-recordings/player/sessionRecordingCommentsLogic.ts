@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { preloadRichContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -169,6 +170,13 @@ export const sessionRecordingCommentsLogic = kea<sessionRecordingCommentsLogicTy
         loadRecordingMetaSuccess: () => {
             actions.loadRecordingComments()
             actions.loadRecordingNotebookComments()
+        },
+
+        loadRecordingCommentsSuccess: ({ sessionComments }) => {
+            // Comments render as rich text on the seekbar, in the inspector and in the comments list.
+            if (sessionComments.length > 0) {
+                preloadRichContent()
+            }
         },
 
         deleteCommentSuccess: () => {

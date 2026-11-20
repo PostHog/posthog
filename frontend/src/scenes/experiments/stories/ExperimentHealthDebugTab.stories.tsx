@@ -88,11 +88,13 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
     latest_calculation: {
         finished_at: '2025-01-27T09:30:00Z',
         failures: [],
+        hours_of_data: 500,
+        zero_metrics: [],
     },
     flag_history: {
         checked: true,
         not_checked_reason: null,
-        launched_at: '2025-01-06T10:00:00Z',
+        start_date: '2025-01-06T10:00:00Z',
         team_timezone: 'UTC',
         changes: [
             {
@@ -120,6 +122,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         calls: 4200,
         remotely_evaluated_calls: 4116,
         people_assigned_outside: 0,
+        filters_test_accounts: true,
     },
     reader_access: { can_read_flag_history: true, can_query_events: true, denied_event_properties: [] },
     exposures: {

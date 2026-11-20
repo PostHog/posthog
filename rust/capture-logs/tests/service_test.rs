@@ -595,7 +595,9 @@ fn test_otel_log_row_overridden_timestamp_tracking() {
     let (row_overridden, was_overridden) =
         KafkaLogRow::new(log_record_overridden, None, None, default_max_past()).unwrap();
     assert!(was_overridden);
-    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+    assert!(row_overridden
+        .attributes
+        .contains_key("posthog.original_timestamp"));
 
     // Test with a timestamp far in the future (should be overridden)
     let far_future_nanos = (Utc::now() + TimeDelta::hours(25))
@@ -614,7 +616,9 @@ fn test_otel_log_row_overridden_timestamp_tracking() {
     let (row_overridden, was_overridden) =
         KafkaLogRow::new(log_record_overridden, None, None, default_max_past()).unwrap();
     assert!(was_overridden);
-    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+    assert!(row_overridden
+        .attributes
+        .contains_key("posthog.original_timestamp"));
 
     // Test with a recent timestamp (should not be overridden)
     let recent_nanos = (Utc::now() - TimeDelta::hours(1))
@@ -633,7 +637,9 @@ fn test_otel_log_row_overridden_timestamp_tracking() {
     let (row_recent, was_not_overridden) =
         KafkaLogRow::new(log_record_recent, None, None, default_max_past()).unwrap();
     assert!(!was_not_overridden);
-    assert!(!row_recent.attributes.contains_key("$originalTimestamp"));
+    assert!(!row_recent
+        .attributes
+        .contains_key("posthog.original_timestamp"));
 }
 
 #[tokio::test]

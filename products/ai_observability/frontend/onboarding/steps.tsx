@@ -10,9 +10,8 @@ import geminiImage from 'scenes/onboarding/shared/logos/gemini.svg'
 import { LangChainLogo } from 'scenes/onboarding/shared/logos/LangChainLogo'
 import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
 import { OpenRouterLogo } from 'scenes/onboarding/shared/logos/OpenRouterLogo'
-import type { WizardBadgeItem } from 'scenes/onboarding/shared/wizard-sync/WizardModeShell'
+import type { WizardBadgeItem } from 'scenes/onboarding/shared/wizard-command/WizardModeShell'
 import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -62,5 +61,4 @@ export const aiObservabilityOnboarding: ProductOnboardingProvider = {
             ),
         },
     ],
-    completeRedirectUrl: () => urls.aiObservabilityDashboard(),
 }

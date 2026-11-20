@@ -5,7 +5,7 @@ import { LemonButton, LemonInput, LemonModal, lemonToast } from '@posthog/lemon-
 
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { maxThreadLogic } from './maxThreadLogic'

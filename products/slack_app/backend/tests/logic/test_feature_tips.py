@@ -100,28 +100,42 @@ class TestOfferFeatureTip:
 
     @parameterized.expand(
         [
-            ("opted out", {"opted_out_at": "2026-01-01T00:00:00Z"}, None, None),
+            ("opted out", {"opted_out_at": "2026-01-01T00:00:00Z"}, None, None, None),
             (
                 "chose a follow-up mode before tips existed",
                 {},
                 UntaggedFollowupMode.NEVER,
+                None,
                 SlackFeature.FILE_ATTACHMENTS,
             ),
             (
                 "used a feature that leaves no setting",
                 {"used": {"file_attachments": "2026-01-01T00:00:00Z"}},
                 UntaggedFollowupMode.NEVER,
+                None,
                 SlackFeature.MODEL_IN_MENTION,
+            ),
+            ("is in the middle of onboarding", {}, None, {"started_at": "2026-01-01T00:00:00Z"}, None),
+            ("only got a work focus", {}, None, {"work_focus_outcome": "sent"}, SlackFeature.THREAD_FOLLOWUP),
+            (
+                "finished onboarding",
+                {},
+                None,
+                {"started_at": "2026-01-01T00:00:00Z", "completed_at": "2026-01-02T00:00:00Z"},
+                SlackFeature.THREAD_FOLLOWUP,
             ),
         ]
     )
-    def test_skips_what_the_reader_turned_off_or_already_uses(self, _name, stored_state, followup_mode, expected):
+    def test_skips_what_the_reader_turned_off_or_already_uses(
+        self, _name, stored_state, followup_mode, onboarding, expected
+    ):
         self._threads(3)
         SlackSettings.objects.create(
             slack_workspace_id=WORKSPACE,
             slack_user_id=SLACK_USER,
             untagged_followup_mode=followup_mode,
             feature_tips={"backfilled_at": "2026-01-01T00:00:00Z", "interaction_count": 5, **stored_state},
+            onboarding=onboarding,
         )
 
         assert self._offer() == expected
@@ -191,16 +205,16 @@ class TestChooseTip(SimpleTestCase):
             ),
             (
                 "low confidence",
-                ChoiceAnswer(choice="code_change_pr", confidence=0.3, probabilities={}),
-                "subscription",
-                "ranked",
+                ChoiceAnswer(choice="subscription", confidence=0.3, probabilities={}),
+                "code_change_pr",
+                "random",
             ),
-            ("no match", ChoiceAnswer(choice="none", confidence=0.95, probabilities={}), "subscription", "ranked"),
+            ("no match", ChoiceAnswer(choice="none", confidence=0.95, probabilities={}), "code_change_pr", "random"),
             (
                 "not a candidate",
                 ChoiceAnswer(choice="mcp_tool", confidence=0.95, probabilities={}),
-                "subscription",
-                "ranked",
+                "code_change_pr",
+                "random",
             ),
             ("refusal", RefusalAnswer(), "subscription", "ranked"),
         ]
@@ -210,7 +224,11 @@ class TestChooseTip(SimpleTestCase):
         client.decide.return_value = SystemOneResult(
             model="jev", answers={picker.FEATURE_TIP_QUESTION_ID: answer}, input_tokens=None
         )
-        with patch.object(picker, "build_system_one_client", return_value=client):
+        with (
+            patch.object(picker, "build_system_one_client", return_value=client),
+            # A random pick takes the last candidate, so it can not pass by matching the ranked one.
+            patch.object(picker.random, "choices", side_effect=lambda population, weights: [population[-1]]),
+        ):
             choice = picker.choose_tip(self.candidates, "fix the checkout error", team_id=1, distinct_id=None)
 
         assert choice is not None
@@ -273,6 +291,15 @@ class TestFeatureTipClicks:
         self._click(offer.FEATURE_TIP_OPT_OUT_ACTION_ID, SlackFeature.SUBSCRIPTION.value)
 
         assert get_state(WORKSPACE, SLACK_USER).opted_out_at is not None
+
+    def test_undo_turns_tips_on_again(self):
+        self._click(offer.FEATURE_TIP_OPT_OUT_ACTION_ID, SlackFeature.SUBSCRIPTION.value)
+        confirmation = self.respond.call_args.args[1]
+        assert offer.FEATURE_TIP_UNDO_OPT_OUT_ACTION_ID in json.dumps(confirmation["blocks"])
+
+        self._click(offer.FEATURE_TIP_UNDO_OPT_OUT_ACTION_ID, SlackFeature.SUBSCRIPTION.value)
+
+        assert get_state(WORKSPACE, SLACK_USER).opted_out_at is None
 
     def test_a_click_from_another_workspace_changes_nothing(self):
         self._click(offer.FEATURE_TIP_OPT_OUT_ACTION_ID, SlackFeature.SUBSCRIPTION.value, slack_team_id="T_OTHER")

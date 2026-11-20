@@ -256,6 +256,30 @@ class TestImpactEndpoints(_ImpactTestCase):
         assert body["window_days"] == 7
         assert Cohort.objects.filter(pk=body["cohort_id"], is_static=True).exists()
 
+    @parameterized.expand(
+        [
+            ("impact_history", "get", "impact", False, 200),
+            ("cohort_history", "post", "affected_cohort", False, 400),
+            ("impact_current_targeting", "get", "impact", True, 404),
+            ("cohort_current_targeting", "post", "affected_cohort", True, 404),
+        ]
+    )
+    def test_unreadable_experiment_observations_are_not_counted_or_exported(
+        self, _name: str, method: str, action: str, scanner_targets_it: bool, expected_status: int
+    ) -> None:
+        targeting = {"experiment_id": 999_999}
+        scanner = self._make_scanner(ScannerType.MONITOR)
+        observation = self._make_observation(scanner, session_id="s1", distinct_id="u1")
+        ReplayObservation.objects.filter(pk=observation.pk).update(scanner_snapshot={"experiment_targeting": targeting})
+        if scanner_targets_it:
+            ReplayScanner.objects.filter(pk=scanner.pk).update(experiment_targeting=targeting)
+
+        resp = getattr(self.client, method)(f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/{action}/")
+
+        assert resp.status_code == expected_status, resp.json()
+        assert resp.json().get("affected_sessions", 0) == 0
+        assert not Cohort.objects.exists()
+
     def test_affected_cohort_400_when_no_users(self) -> None:
         scanner = self._make_scanner(ScannerType.MONITOR)
 

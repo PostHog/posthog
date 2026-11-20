@@ -22,7 +22,7 @@ export function CommandKSearchNotice({ row }: { row: NoticeRow }): JSX.Element {
                 <IconInfo className="size-3.5" />
             </ItemMedia>
             <ItemContent className="text-xs text-muted-foreground">
-                {row.reason === 'partial' ? (
+                {row.reason === 'partial' || row.reason === 'corrected' ? (
                     <span>
                         No matches for <Words words={row.missing} />. Showing results for <Words words={row.shown} />.
                     </span>

@@ -2,9 +2,11 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlResourceType } from '~/types'
 
 import { metricsAttributeValuesRetrieve, metricsNamesRetrieve } from 'products/metrics/frontend/generated/api'
 
@@ -14,6 +16,10 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsNamesRetrieve: jest.fn(),
     metricsAttributeValuesRetrieve: jest.fn(),
+}))
+jest.mock('lib/utils/accessControlUtils', () => ({
+    ...jest.requireActual('lib/utils/accessControlUtils'),
+    userHasAccess: jest.fn(),
 }))
 jest.mock('scenes/insights/utils/api', () => ({
     insightsApi: { create: jest.fn() },
@@ -25,6 +31,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 const mockNames = metricsNamesRetrieve as jest.MockedFunction<typeof metricsNamesRetrieve>
 const mockValues = metricsAttributeValuesRetrieve as jest.MockedFunction<typeof metricsAttributeValuesRetrieve>
 const mockInsightCreate = insightsApi.create as jest.MockedFunction<typeof insightsApi.create>
+const mockUserHasAccess = userHasAccess as jest.MockedFunction<typeof userHasAccess>
 
 describe('metricsStarterDashboardLogic', () => {
     let logic: ReturnType<typeof metricsStarterDashboardLogic.build>
@@ -35,6 +42,7 @@ describe('metricsStarterDashboardLogic', () => {
         mockNames.mockReset()
         mockValues.mockReset()
         mockInsightCreate.mockReset()
+        mockUserHasAccess.mockReset().mockReturnValue(true)
         ;(lemonToast.success as jest.Mock).mockReset()
         ;(lemonToast.warning as jest.Mock).mockReset()
         ;(lemonToast.error as jest.Mock).mockReset()
@@ -90,7 +98,7 @@ describe('metricsStarterDashboardLogic', () => {
 
         expect(mockInsightCreate).toHaveBeenCalledTimes(2)
         const [countInsight, histogramInsight] = mockInsightCreate.mock.calls.map(([insight]) => insight)
-        expect(countInsight.dashboards).toEqual([42])
+        expect(mockInsightCreate.mock.calls.map(([, dashboardIds]) => dashboardIds)).toEqual([[42], [42]])
         expect(countInsight.query).toMatchObject({
             kind: 'MetricsQuery',
             clauses: [
@@ -107,6 +115,84 @@ describe('metricsStarterDashboardLogic', () => {
             clauses: [expect.objectContaining({ metricType: 'histogram' })],
         })
         expect((histogramInsight.query as any).clauses[0]).not.toHaveProperty('aggregation')
+    })
+
+    it('adds request rate, error rate and latency per service from span-derived series, even with no picked metrics', async () => {
+        const derived = [
+            { name: 'posthog.derived.spans.requests', metric_type: 'sum' },
+            { name: 'posthog.derived.spans.errors', metric_type: 'sum' },
+            { name: 'posthog.derived.spans.duration', metric_type: 'histogram' },
+        ]
+        // The picker list stops at its limit before the derived names, as for a team with many metrics.
+        mockNames.mockImplementation(async (_team, params) =>
+            params?.value === 'posthog.derived.spans.'
+                ? { results: derived }
+                : { results: [{ name: 'billing.queue.depth', metric_type: 'gauge' }] }
+        )
+        logic.actions.openModal()
+        await expectLogic(logic).toDispatchActions(['loadServicePanelsAvailableSuccess'])
+        logic.actions.setDashboardName('Checkout')
+        logic.actions.setServiceName('checkout')
+
+        await expectLogic(logic, () => {
+            logic.actions.createDashboard()
+        }).toDispatchActions(['createDashboardSuccess'])
+
+        const insights = mockInsightCreate.mock.calls.map(([insight]) => insight)
+        expect(insights.map((insight) => insight.name)).toEqual([
+            'Request rate by service',
+            'Error rate by service',
+            'Latency p50 by service',
+            'Latency p95 by service',
+            'Latency p99 by service',
+        ])
+        const serviceScope = {
+            groupBy: [{ key: 'service.name' }],
+            filters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
+        }
+        const rate = { metricType: 'sum', aggregation: 'sum', rangeFunction: 'rate', ...serviceScope }
+        expect(insights[1].query).toEqual({
+            kind: 'MetricsQuery',
+            clauses: [
+                { name: 'a', metricName: 'posthog.derived.spans.errors', ...rate },
+                { name: 'b', metricName: 'posthog.derived.spans.requests', ...rate },
+            ],
+            formula: 'a / b',
+            dateRange: { date_from: '-6h' },
+        })
+        expect((insights[4].query as any).clauses).toEqual([
+            {
+                name: 'a',
+                metricName: 'posthog.derived.spans.duration',
+                metricType: 'histogram',
+                aggregation: 'quantile',
+                quantile: 0.99,
+                ...serviceScope,
+            },
+        ])
+    })
+
+    it('leaves out the span-derived panels for a user without tracing access', async () => {
+        mockUserHasAccess.mockImplementation((resource) => resource !== AccessControlResourceType.Tracing)
+        mockNames.mockResolvedValue({
+            results: [
+                { name: 'billing.queue.depth', metric_type: 'gauge' },
+                { name: 'posthog.derived.spans.requests', metric_type: 'sum' },
+                { name: 'posthog.derived.spans.errors', metric_type: 'sum' },
+                { name: 'posthog.derived.spans.duration', metric_type: 'histogram' },
+            ],
+        })
+        logic.actions.openModal()
+        await expectLogic(logic).toDispatchActions(['loadServicePanelsAvailableSuccess', 'loadMetricOptionsSuccess'])
+        expect(logic.values.servicePanelsAvailable).toBe(false)
+
+        logic.actions.setDashboardName('Billing')
+        logic.actions.setSelectedMetrics([metricOptionKey('billing.queue.depth', 'gauge')])
+        await expectLogic(logic, () => {
+            logic.actions.createDashboard()
+        }).toDispatchActions(['createDashboardSuccess'])
+
+        expect(mockInsightCreate.mock.calls.map(([insight]) => insight.name)).toEqual(['billing.queue.depth'])
     })
 
     it('navigates to the partially built dashboard when an insight create fails mid-loop', async () => {

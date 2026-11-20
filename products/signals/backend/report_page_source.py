@@ -1,3 +1,4 @@
+import json
 from collections.abc import Collection
 from datetime import datetime
 from typing import Any
@@ -97,7 +98,7 @@ def report_page_source(*, team: Team, report_id: str, with_signals: bool = True)
 def report_agent_texts(
     *, team: Team, report_id: str, types: Collection[str], per_type: int = 20
 ) -> list[ReportArtefactText]:
-    """The newest artefacts of each type that an agent wrote, oldest first. Notes people wrote are left out."""
+    """Shared figure sources have no viewer context, so personal and protected notes are left out."""
     written_by_person = Q(actor_kind=SignalActorKind.USER) | Q(actor_kind__isnull=True, created_by__isnull=False)
     artefacts = SignalReportArtefact.objects.filter(team_id=team.id, report_id=report_id).exclude(written_by_person)
     rows = [
@@ -107,7 +108,16 @@ def report_agent_texts(
         .order_by("-created_at")
         .values_list("id", "type", "content", "created_at")[:per_type]
     ]
-    return [
-        ReportArtefactText(artefact_id=str(artefact_id), type=artefact_type, content=content, created_at=created_at)
-        for artefact_id, artefact_type, content, created_at in sorted(rows, key=lambda row: row[3])
-    ]
+    texts: list[ReportArtefactText] = []
+    for artefact_id, artefact_type, content, created_at in sorted(rows, key=lambda row: row[3]):
+        if artefact_type == SignalReportArtefact.ArtefactType.NOTE:
+            try:
+                parsed = json.loads(content)
+            except (json.JSONDecodeError, ValueError):
+                parsed = None
+            if isinstance(parsed, dict) and {"analytics_query_context", "restricted_to_user_id"}.intersection(parsed):
+                continue
+        texts.append(
+            ReportArtefactText(artefact_id=str(artefact_id), type=artefact_type, content=content, created_at=created_at)
+        )
+    return texts

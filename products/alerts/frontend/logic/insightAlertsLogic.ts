@@ -7,33 +7,32 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import {
-    AlertConditionType,
-    BreakdownFilter,
-    GoalLine,
-    InsightThresholdType,
-    NodeKind,
-} from '~/queries/schema/schema-general'
-import {
     containsHogQLQuery,
     hasBreakdownFilter,
     isFunnelsQuery,
     isInsightVizNode,
     isMetricsQuery,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import {
+    AlertConditionType,
+    BreakdownFilter,
+    GoalLine,
+    InsightThresholdType,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { FunnelVizType, InsightLogicProps } from '~/types'
 
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
 import type { InsightModel } from '../../../../frontend/src/types'
 import { AlertType, AnomalyPoint, isTrendsAlertConfig } from '../types'
-import { buildAlertFilterConfig } from './alertNotifications'
 
 export interface InsightAlertsLogicProps {
     insightId: number
     insightLogicProps: InsightLogicProps
     /**
-     * When true, skip the afterMount alerts API fetch and the per-alert destination-count fetch — a dashboard
-     * mounts one of these logics per tile, so those requests N+1 on load. Inline `insight.alerts` (prefetched by
+     * When true, skip the afterMount alerts API fetch: a dashboard mounts one of these logics per tile, so that
+     * request would N+1 on load. Inline `insight.alerts` (prefetched by
      * the dashboard endpoints) still hydrates, so saved display options like alert threshold lines can render.
      * Call `loadAlerts()` when surfacing UI that needs fresh data (e.g. before `ManageAlertsModal` opens).
      */
@@ -157,8 +156,6 @@ export interface insightAlertsLogicValues {
     breakdownFilter: BreakdownFilter | null | undefined // insightVizDataLogic
     showAlertThresholdLines: boolean | null | undefined // insightVizDataLogic
     alertAnomalyPoints: AnomalyPoint[]
-    alertDestinationCounts: Record<string, number>
-    alertDestinationCountsLoading: boolean
     alertThresholdLines: GoalLine[]
     alerts: AlertType[]
     alertsLoading: boolean
@@ -179,21 +176,6 @@ export interface insightAlertsLogicActions {
     } // insightVizDataLogic
     clearSimulationAnomalyPoints: () => {
         value: true
-    }
-    loadAlertDestinationCounts: (alerts: AlertType[]) => AlertType[]
-    loadAlertDestinationCountsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadAlertDestinationCountsSuccess: (
-        alertDestinationCounts: Record<string, number>,
-        payload?: AlertType[]
-    ) => {
-        alertDestinationCounts: Record<string, number>
-        payload?: AlertType[]
     }
     loadAlerts: () => any
     loadAlertsFailure: (
@@ -280,37 +262,14 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
+                // Without an insight ID, the API returns every alert in the project.
+                if (!props.insightId) {
+                    return []
+                }
                 const response = await api.alerts.list(props.insightId)
                 return response.results
             },
         },
-        alertDestinationCounts: [
-            {} as Record<string, number>,
-            {
-                loadAlertDestinationCounts: async (alerts: AlertType[]) => {
-                    if (alerts.length === 0) {
-                        return {}
-                    }
-                    const alertIds = new Set(alerts.map((alert) => alert.id))
-                    const response = await api.hogFunctions.list({
-                        types: ['internal_destination'],
-                        filter_groups: alerts.map((alert) => buildAlertFilterConfig(alert.id)),
-                        full: true,
-                        limit: 500,
-                    })
-                    return response.results.reduce<Record<string, number>>((counts, hogFunction) => {
-                        const alertIdProperty = hogFunction.filters?.properties?.find(
-                            (property) => property.key === 'alert_id'
-                        )
-                        const alertId = alertIdProperty?.value
-                        if (typeof alertId === 'string' && alertIds.has(alertId)) {
-                            counts[alertId] = (counts[alertId] ?? 0) + 1
-                        }
-                        return counts
-                    }, {})
-                },
-            },
-        ],
     })),
 
     reducers({
@@ -427,12 +386,6 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        loadAlertsSuccess: ({ alerts }) => {
-            actions.loadAlertDestinationCounts(alerts)
-        },
-        upsertAlert: () => {
-            actions.loadAlertDestinationCounts(values.alerts)
-        },
         setQuery: ({ query }) => {
             actions.setShouldShowAlertDeletionWarning(values.alerts.length > 0 && !alertsSurviveQuery(query))
         },
@@ -449,9 +402,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         // If the insight has an alerts property (even if empty), use it - this means the backend sent us the alerts data
         if (values.insight?.alerts && Array.isArray(values.insight.alerts)) {
             if (props.deferInitialAlertsLoad) {
-                // Hydrate without loadAlertsSuccess: its listener fetches destination counts per
-                // insight, which dashboards must not fan out on mount. Threshold lines only need
-                // the alerts themselves; ManageAlertsModal loads the rest when opened.
+                // Hydrate without loadAlertsSuccess. Threshold lines only need the alerts themselves;
+                // ManageAlertsModal loads fresh alerts when opened.
                 actions.setAlertsFromInsight(values.insight.alerts)
             } else {
                 actions.loadAlertsSuccess(values.insight.alerts)

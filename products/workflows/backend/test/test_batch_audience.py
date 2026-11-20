@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 
 from django.test import override_settings
@@ -9,11 +11,22 @@ from posthog.redis import get_client as get_redis_client
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
+from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
-from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
+from products.workflows.backend.services.batch_audience import (
+    audience_page_size,
+    get_batch_audience_person_ids,
+    get_batch_audience_person_ids_snapshot,
+)
 from products.workflows.backend.services.blast_radius import get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
+_ON = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _uuid(index: int) -> str:
@@ -47,6 +60,23 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         result = get_batch_audience_person_ids(self.team, FILTERS, dedupe_key=dedupe_key)
 
         assert sorted(result) == [_uuid(i) for i in expected_indices]
+
+    @parameterized.expand(
+        [
+            ("email_dedupe", "email", 10, [1, 3, 4, 5]),
+            ("no_dedupe", None, 10, [1, 2, 3, 4, 5]),
+            # The cap cuts the audience in id order, so the resolver's truncation sees the same first persons.
+            ("capped", None, 2, [1, 2]),
+        ]
+    )
+    def test_snapshot_query_returns_the_whole_audience_in_id_order(self, _name, dedupe_key, limit, expected_indices):
+        self._create_audience(["Dup@X.com", " dup@x.com ", "b@x.com", None, ""])
+
+        result = get_batch_audience_person_ids_snapshot(
+            self.team, FILTERS, dedupe_key=dedupe_key, limit=limit, settings=bounded_memory_settings()
+        )
+
+        assert result == [_uuid(i) for i in expected_indices]
 
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])
@@ -92,12 +122,23 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             ("nothing_building", "behavioral", "all", False, "needs_attention"),
             # The pipeline doesn't run for the team, so the cohort never finishes calculating.
             ("team_off_realtime_allowlist", "behavioral", "none", True, "needs_attention"),
+            # A load-test team runs the pipeline, but its users must not see the audience start building.
+            (
+                "team_granted_processing_only",
+                "behavioral",
+                "none",
+                True,
+                "needs_attention",
+                RealtimeCohortLevel.PROCESSING,
+            ),
             # The cohorts product reports this one as person_properties, which the response doesn't declare.
             ("person_property_cohort_on_a_behavioral_cohort", "person_on_behavioral", "all", False, "building"),
+            # A stale debounce key must not make a cohort nobody turned on read as building.
+            ("realtime_off", "behavioral", "all", True, "needs_attention", None, None),
         ]
     )
     def test_realtime_cohort_audience_size_estimates_from_the_cohort_count(
-        self, _name, shape, allowlist, build_queued, expected_state
+        self, _name, shape, allowlist, build_queued, expected_state, access_level=None, realtime_enabled_at=_ON
     ):
         # The send reads realtime membership from a Postgres database Django can't reach, so the
         # preview estimates from the cohort's periodic count and reports no email dedupe.
@@ -116,6 +157,7 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 team=self.team,
                 name="inner",
                 cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=_ON,
                 filters={"properties": {"type": "AND", "values": [behavioral_leaf]}},
             )
             leaves = [
@@ -126,9 +168,14 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
             team=self.team,
             name="c",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=realtime_enabled_at,
             count=2,
             filters={"properties": {"type": "AND", "values": leaves}},
         )
+        if access_level is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=access_level, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
         if build_queued:
             get_redis_client().set(
                 cohort_backfill_pending_key(cohort.pk, CohortBackfillKind.BEHAVIORAL),
@@ -197,3 +244,37 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         assert size.realtime_cohort is None
         mixed = size.realtime_cohort_with_other_conditions
         assert (mixed.id if mixed else None) == (cohort.pk if expect_flagged else None)
+
+    @parameterized.expand(
+        [
+            ("same_audience_cached", FILTERS, None, True, (2, 2)),
+            ("uncached_caller_counts_again", FILTERS, None, False, (3, 3)),
+            ("other_filters_count_again", {"properties": []}, None, True, (3, 3)),
+            ("other_dedupe_key_counts_again", FILTERS, "email", True, (3, 3)),
+        ]
+    )
+    def test_audience_size_reuses_a_recent_count_only_for_the_same_audience(
+        self, _name, filters, dedupe_key, use_cached_counts, expected
+    ):
+        self._create_audience(["a@x.com", "b@x.com"])
+        get_audience_size(
+            team_id=self.team.pk,
+            filters=FILTERS,
+            group_type_index=None,
+            dedupe_key=None,
+            sends_email=True,
+            use_cached_counts=True,
+        )
+        _create_person(team=self.team, distinct_ids=["user-3"], uuid=_uuid(3), properties={"subscribed": "true"})
+        flush_persons_and_events()
+
+        size = get_audience_size(
+            team_id=self.team.pk,
+            filters=filters,
+            group_type_index=None,
+            dedupe_key=dedupe_key,
+            sends_email=True,
+            use_cached_counts=use_cached_counts,
+        )
+
+        assert (size.affected, size.total) == expected

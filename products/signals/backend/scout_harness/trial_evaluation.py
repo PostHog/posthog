@@ -60,7 +60,7 @@ from products.signals.backend.scout_harness.trial_result import (
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader, ScoutRubricReadError
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 from products.signals.backend.trial_judging import JUDGE_PROMPT_VERSION as JUDGE_PROMPT_VERSION
-from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
+from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_logs, read_task_run_log_content
 
 MAX_EVALUATION_BYTES = MAX_TRIAL_RUNS * 512 * 1024
 JUDGE_MODEL = "gpt-6.1-sol"
@@ -351,7 +351,7 @@ def _bound_run(launch: TrialLaunch) -> SignalScoutRun | None:
         or task.created_by_id != launch.user_id
         or task.deleted
         or task.origin_product != "signals_scout"
-        or task.origin_key != f"scout-trial:{launch.id}"
+        or task.stored_idempotency_key != f"scout-trial:{launch.id}"
         or not isinstance(marker, dict)
         or marker.get("version") != 1
         or marker.get("context_id") != str(launch.context_id)
@@ -362,19 +362,19 @@ def _bound_run(launch: TrialLaunch) -> SignalScoutRun | None:
 
 def _add_trace(builder: _EvidenceBuilder, run: SignalScoutRun) -> None:
     try:
-        urls = get_task_run_log_urls(run.task_run_id, run.task_run.task_id, run.team_id)
-        if not urls or urls != [run.task_run.log_url]:
+        logs = get_task_run_logs(run.task_run_id, run.task_run.task_id, run.team_id)
+        if not logs or logs != [run.task_run.log]:
             builder.limitations.append(
                 "The exact trial trace was unavailable; inherited resume-chain logs were not read."
             )
             return
-        size = get_task_run_log_size(urls, strict=True)
+        size = get_task_run_log_size(logs, strict=True)
         if size <= 0:
             builder.limitations.append("The trial trace was unavailable.")
             return
         if size > MAX_EVIDENCE_BYTES:
             raise TrialEvaluationError("The trial trace exceeds the 128 MiB sandbox attachment limit.")
-        content = read_task_run_log_content(urls)
+        content = read_task_run_log_content(logs)
         if not content:
             raise TrialEvaluationNotReady(
                 "The trial trace could not be read. Retry this evaluation after storage is available."

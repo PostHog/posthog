@@ -15,6 +15,7 @@ interface SectionImpressionState {
     loadedQueryKey: string | null
     loadedContext: ReportListRequestContext | null
     loadedRanker: string | null
+    loadedRankingPill: boolean
 }
 
 function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionImpressionState {
@@ -26,6 +27,7 @@ function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionIm
         loadedQueryKey,
         loadedContext,
         loadedRanker,
+        loadedRankingPill,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
         isLoaded,
@@ -35,6 +37,7 @@ function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionIm
         loadedQueryKey,
         loadedContext,
         loadedRanker,
+        loadedRankingPill,
     }
 }
 
@@ -48,13 +51,19 @@ function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionIm
  * narrowing the state filter or changing any server filter re-impresses the rows at their new
  * ranks; loading a further page keeps the context and impresses only the new rows.
  */
-export function useReportImpressions(rows: MergedReportRow[], selectedSections: InboxReportSectionKey[]): void {
+export function useReportImpressions(
+    rows: MergedReportRow[],
+    selectedSections: InboxReportSectionKey[],
+    linkStrips: boolean = false
+): void {
     // Fixed-order reads over every state (not just the selected ones), so the hook order never
     // changes when the filter does; the effect below only consults the selected states.
     const sections: Record<InboxReportSectionKey, SectionImpressionState> = {
         monitoring: useSectionImpressionState('monitoring'),
         'needs-decision': useSectionImpressionState('needs-decision'),
+        'outcome-monitoring': useSectionImpressionState('outcome-monitoring'),
         resolved: useSectionImpressionState('resolved'),
+        closed: useSectionImpressionState('closed'),
         dismissed: useSectionImpressionState('dismissed'),
         'held-back': useSectionImpressionState('held-back'),
         'not-actionable': useSectionImpressionState('not-actionable'),
@@ -76,9 +85,14 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
     const settled = selectedSections.every(
         (key) => (sections[key].isLoaded || sections[key].reportsLoadFailed) && !sections[key].reportsResponseLoading
     )
-    // The ranker is in the key because `sort=recommended` keeps the same query when the server switches rankers.
+    // The ranker and pill setting are in the key because `sort=recommended` keeps the same query when the server switches arms.
     const contextKey = JSON.stringify(
-        selectedSections.map((key) => [key, sections[key].loadedQueryKey, sections[key].loadedRanker])
+        selectedSections.map((key) => [
+            key,
+            sections[key].loadedQueryKey,
+            sections[key].loadedRanker,
+            sections[key].loadedRankingPill,
+        ])
     )
 
     const impressedIdsRef = useRef(new Set<string>())
@@ -124,6 +138,9 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
                 sortDirection: context.sortDirection,
                 createdWindow: context.createdWindow,
                 rankerId: sections[sectionKey].loadedRanker,
+                rankingPill: sections[sectionKey].loadedRankingPill,
+                linkStrips,
+                collapsedCounts: sectionRows.map(({ collapsedReportIds }) => collapsedReportIds?.length ?? 0),
             })
         }
         // `sections` is a fresh object each render; `contextKey` and `settled` already change with

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconHide } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 
 import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
 

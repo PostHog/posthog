@@ -2,7 +2,12 @@ import { Code, ConnectError } from '@connectrpc/connect'
 
 import { logger } from '~/common/utils/logger'
 
-import { grpcErrorType, personhogRetriesTotal, personhogTerminalErrorsTotal } from './metrics'
+import {
+    errorClassLabel,
+    personhogHandledVerdictsTotal,
+    personhogRetriesTotal,
+    personhogTerminalErrorsTotal,
+} from './metrics'
 
 const RETRYABLE_CODES = new Set([
     Code.Unavailable,
@@ -22,6 +27,22 @@ const CAPACITY_INITIAL_DELAY_MS = 250
 
 function isRetryable(error: unknown): error is ConnectError {
     return error instanceof ConnectError && RETRYABLE_CODES.has(error.code)
+}
+
+/**
+ * A server answer the caller resolves on its own path rather than a failure:
+ * the persons store writes a merged-away person's ops to its survivor. The
+ * error class declares the verdict so this layer can keep it off the
+ * terminal-error series an alert pages on. Only the recovered cases qualify;
+ * a fence or a size refusal still leaves the request unfulfilled here.
+ */
+export interface HandledVerdict {
+    readonly handledVerdict: string
+}
+
+function handledVerdictOf(error: unknown): string | undefined {
+    const verdict = (error as Partial<HandledVerdict> | null)?.handledVerdict
+    return typeof verdict === 'string' ? verdict : undefined
 }
 
 /**
@@ -62,7 +83,8 @@ function backoffMs(error: ConnectError, attempt: number, initialDelayMs: number)
  * Emits `personhog_retries_total` on each retried attempt and
  * `personhog_terminal_errors_total` when retries are exhausted or the
  * error is non-retryable — both tagged with method + client + error_type
- * so they align with `personhog_errors_total` from timedGrpc.
+ * so they align with `personhog_errors_total` from timedGrpc. A
+ * HandledVerdict goes to `personhog_handled_verdicts_total` instead.
  */
 export async function withRetry<T>(
     fn: () => Promise<T>,
@@ -77,14 +99,19 @@ export async function withRetry<T>(
             return await fn()
         } catch (error) {
             lastError = error
+            const verdict = handledVerdictOf(error)
+            if (verdict !== undefined) {
+                personhogHandledVerdictsTotal.inc({ method, client, verdict })
+                throw error
+            }
             if (!isRetryable(error) || attempt === maxRetries) {
-                personhogTerminalErrorsTotal.inc({ method, client, error_type: grpcErrorType(error) })
+                personhogTerminalErrorsTotal.inc({ method, client, error_type: errorClassLabel(error) })
                 logger.error(`[${client}/${method}] gRPC call failed`, {
                     error: String(error),
                 })
                 throw isRetryable(error) ? tagRetriable(error) : error
             }
-            personhogRetriesTotal.inc({ method, client, error_type: grpcErrorType(error) })
+            personhogRetriesTotal.inc({ method, client, error_type: errorClassLabel(error) })
             logger.warn(`[${client}/${method}] Retryable gRPC error, retrying`, {
                 attempt: attempt + 1,
                 maxRetries,

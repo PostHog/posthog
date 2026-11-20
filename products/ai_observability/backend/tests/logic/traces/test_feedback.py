@@ -2,7 +2,13 @@ from datetime import timedelta
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.traces.feedback import TraceFeedback, present_value
+from products.ai_observability.backend.logic.traces.feedback import (
+    Score,
+    StepFeedback,
+    TraceFeedback,
+    present_value,
+    roll_up_by_step,
+)
 
 from .rows import T0, make_feedback_row
 
@@ -68,3 +74,21 @@ def test_entry_targets(_name: str, parent_id: str | None, node_id: str) -> None:
 
     assert [score.node_id for score in feedback.scores] == [node_id]
     assert [(text.text, text.node_id) for text in feedback.texts] == [("Too long, but correct.", node_id)]
+
+
+def _score(score_id: str, node_id: str) -> Score:
+    return Score(id=score_id, name="helpfulness", value="1", node_id=node_id, timestamp=T0)
+
+
+def test_roll_up_groups_scores_and_counts_responses_per_step() -> None:
+    first, second, on_trace = _score("s1", "g1"), _score("s2", "g1"), _score("s3", "trace-1")
+
+    steps = roll_up_by_step([first, second, on_trace], ["trace-1", "g2"])
+
+    assert steps == (
+        StepFeedback(node_id="g1", scores=(first, second), response_count=0),
+        StepFeedback(node_id="g2", scores=(), response_count=1),
+        StepFeedback(node_id="trace-1", scores=(on_trace,), response_count=1),
+    )
+    assert [step.total for step in steps] == [2, 1, 2]
+    assert roll_up_by_step([], []) == ()

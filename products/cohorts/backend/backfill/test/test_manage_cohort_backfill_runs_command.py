@@ -36,6 +36,7 @@ class TestManageCohortBackfillRuns(BaseTest):
             team=self.team,
             name=name,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",

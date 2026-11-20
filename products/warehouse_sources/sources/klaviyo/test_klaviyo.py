@@ -1,0 +1,1050 @@
+import json
+from datetime import UTC, date, datetime
+from typing import Any
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
+import time_machine
+from unittest.mock import MagicMock, patch
+
+import requests
+from parameterized import parameterized
+from tenacity import Future, RetryCallState
+
+from products.warehouse_sources.sources.klaviyo import klaviyo
+from products.warehouse_sources.sources.klaviyo._config import KlaviyoSourceConfig
+from products.warehouse_sources.sources.klaviyo.constants import (
+    KLAVIYO_API_VERSION_2024_10_15,
+    KLAVIYO_API_VERSION_2026_07_15,
+)
+from products.warehouse_sources.sources.klaviyo.klaviyo import (
+    KlaviyoConversionMetricError,
+    KlaviyoRetryableError,
+    _build_filter,
+    _build_initial_params,
+    _clamp_future_value_to_now,
+    _format_incremental_value,
+    _parse_retry_after,
+)
+from products.warehouse_sources.sources.klaviyo.settings import (
+    FORM_REPORT_STATISTICS,
+    KLAVIYO_ENDPOINTS,
+    SERIES_REPORT_TIMEFRAME_WEEKS,
+    VALUES_REPORT_TIMEFRAME_KEY,
+    KlaviyoEndpointConfig,
+    KlaviyoValuesReportConfig,
+)
+from products.warehouse_sources.sources.klaviyo.source import KLAVIYO_NEWER_VERSION_REQUIRED, KlaviyoSource
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+    scripted_network,
+)
+
+
+def _driver(conversion_metric_id: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        KlaviyoSource(), KlaviyoSourceConfig(api_key="pk_test", conversion_metric_id=conversion_metric_id)
+    )
+
+
+def _page(data: Any, status: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json=data)
+
+
+def _drive_pages(endpoint: str, pages: dict[str, Any], **inputs: Any) -> DriveResult:
+    responses = [value if isinstance(value, ScriptedResponse) else _page(value) for value in pages.values()]
+    result = _driver().run(endpoint, responses, **inputs)
+    expected = [urlsplit(url) for url in pages]
+    assert result.paths == [url.path for url in expected]
+    assert result.queries == [{name: tuple(values) for name, values in parse_qs(url.query).items()} for url in expected]
+    assert [request.origin for request in result.requests] == [f"{url.scheme}://{url.netloc}" for url in expected]
+    return result
+
+
+def _rows(result: DriveResult) -> list[dict[str, Any]]:
+    return [row for table in result.rows for row in table.to_pylist()]
+
+
+class TestFormatIncrementalValue:
+    @parameterized.expand(
+        [
+            ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14.000Z"),
+            (
+                "datetime_with_microseconds",
+                datetime(2026, 1, 15, 10, 30, 45, 123456, tzinfo=UTC),
+                "2026-01-15T10:30:45.123Z",
+            ),
+            ("naive_datetime", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14.000Z"),
+            ("date_value", date(2026, 3, 4), "2026-03-04T00:00:00.000Z"),
+            ("string_passthrough", "some-cursor-value", "some-cursor-value"),
+        ]
+    )
+    def test_format_incremental_value(self, _name: str, value: object, expected: str) -> None:
+        assert _format_incremental_value(value) == expected
+
+
+class TestBuildFilter:
+    @parameterized.expand(
+        [
+            (
+                "incremental_only",
+                KLAVIYO_ENDPOINTS["events"],
+                "datetime",
+                "2026-03-04T02:58:14.000Z",
+                "greater-than(datetime,2026-03-04T02:58:14.000Z)",
+            ),
+            (
+                "base_filter_only",
+                KLAVIYO_ENDPOINTS["email_campaigns"],
+                None,
+                None,
+                "equals(messages.channel,'email')",
+            ),
+            (
+                "combined_base_and_incremental",
+                KLAVIYO_ENDPOINTS["email_campaigns"],
+                "updated_at",
+                "2026-03-04T02:58:14.000Z",
+                "and(equals(messages.channel,'email'),greater-than(updated_at,2026-03-04T02:58:14.000Z))",
+            ),
+            ("no_filter", KLAVIYO_ENDPOINTS["metrics"], None, None, None),
+        ]
+    )
+    def test_build_filter(
+        self, _name: str, config: KlaviyoEndpointConfig, field: str | None, value: str | None, expected: str | None
+    ) -> None:
+        assert _build_filter(config, field, value) == expected
+
+
+class TestBuildInitialParams:
+    def test_lookback_window_uses_z_suffix(self) -> None:
+        config = KLAVIYO_ENDPOINTS["events"]
+        params = _build_initial_params(
+            config,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+            incremental_field="datetime",
+        )
+        assert "filter" in params
+        assert "+00:00" not in params["filter"]
+        assert params["filter"].endswith("Z)")
+
+
+class TestClampFutureValueToNow:
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_future_date_is_clamped(self) -> None:
+        assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
+
+    def test_string_passthrough(self) -> None:
+        assert _clamp_future_value_to_now("some-cursor-value") == "some-cursor-value"
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            # The conversion-metric messages KlaviyoConversionMetricError raises are deterministic, so
+            # they must classify as non-retryable. The message wording and the source-side substring
+            # live in two files; this locks them together so a reword can't silently make the failure
+            # retry into the same result.
+            (
+                "no_metric",
+                "Klaviyo needs a conversion metric to sync campaign_values_reports, but the account has none.",
+            ),
+            (
+                "ineligible_metric",
+                "Klaviyo rejected conversion metric M_X for flow_values_reports: it isn't eligible for values reporting.",
+            ),
+        ]
+    )
+    def test_conversion_metric_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        non_retryable_errors = KlaviyoSource().get_non_retryable_errors()
+        assert error_message_matches(observed_error, non_retryable_errors.keys())
+
+    @parameterized.expand(
+        [
+            # A plan-gated 403 (e.g. webhooks without Advanced KDP) carries Klaviyo's body detail on
+            # the message and must map to the plan message, not the scope one the user can't act on.
+            (
+                "plan_gated",
+                "HTTPError: 403 Client Error: Forbidden for url: https://a.klaviyo.com/api/webhooks (You must have Advanced KDP enabled to use this endpoint.)",
+                "Advanced KDP add-on",
+            ),
+            # A scope-denied 403 keeps pointing at the key's read scopes.
+            (
+                "scope_missing",
+                "HTTPError: 403 Client Error: Forbidden for url: https://a.klaviyo.com/api/metrics",
+                "missing the read permissions",
+            ),
+        ]
+    )
+    def test_first_matching_entry_supplies_the_user_facing_message(
+        self, _name: str, observed_error: str, expected_snippet: str
+    ) -> None:
+        # Mirrors update_external_data_job_model: the first matching entry becomes the user-facing
+        # error, so reordering the dict (or broadening a pattern) regresses the shown message.
+        matches = [
+            friendly
+            for pattern, friendly in KlaviyoSource().get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert expected_snippet in matches[0]
+
+
+class TestTransientConnectionErrorsStayRetryable:
+    @parameterized.expand(
+        [
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='a.klaviyo.com', port=443): Read timed out. (read timeout=60.0)",
+            ),
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='a.klaviyo.com', port=443): Max retries exceeded with url: /api/events",
+            ),
+            (
+                "chunked_encoding",
+                "Connection broken: InvalidChunkLength(got length b'', 0 bytes read)",
+            ),
+        ]
+    )
+    def test_exhausted_connection_failure_keeps_retrying_with_a_friendly_message(
+        self, _name: str, observed_error: str
+    ) -> None:
+        # These are the exact exception strings `_fetch_page`'s tenacity retry already exhausts on
+        # (see TestFetchPageRetries below). They must never reach get_non_retryable_errors and
+        # disable the schema - a single slow Klaviyo response must not pause syncing for good - and
+        # once Temporal's own retries are also exhausted the stored message must stay friendly
+        # rather than the raw urllib3 text.
+        source = KlaviyoSource()
+        assert not error_message_matches(observed_error, source.get_non_retryable_errors().keys())
+        assert error_message_matches(observed_error, source.get_retryable_errors())
+        messages = [
+            message for pattern, message in source.get_retry_exhausted_errors().items() if pattern in observed_error
+        ]
+        assert messages and "clears on its own" in messages[0]
+
+
+class TestFetchPageRetries:
+    @parameterized.expand(
+        [
+            ("chunked_encoding", requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength")),
+            ("read_timeout", requests.ReadTimeout("Read timed out.")),
+            ("connection_error", requests.ConnectionError("Connection reset by peer")),
+        ]
+    )
+    def test_transient_errors_are_retried(self, _name: str, transient_error: Exception) -> None:
+        # A transient network failure on the first attempt must retry rather than fail the whole sync.
+        good = MagicMock()
+        good.status_code = 200
+        good.ok = True
+        good.json.return_value = {"data": []}
+
+        session = MagicMock()
+        session.get.side_effect = [transient_error, good]
+
+        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
+            result = klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
+
+        assert result == {"data": []}
+        assert session.get.call_count == 2
+
+    def test_transient_error_reraised_after_exhausting_attempts(self) -> None:
+        # After the 5-attempt cap the last transient error must surface (reraise=True), not be swallowed.
+        session = MagicMock()
+        session.get.side_effect = requests.exceptions.ChunkedEncodingError("Connection broken: InvalidChunkLength")
+
+        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
+            with pytest.raises(requests.exceptions.ChunkedEncodingError):
+                klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
+
+        assert session.get.call_count == 5
+
+    @parameterized.expand(
+        [
+            ("get", None),
+            # The values/series reports paginate with POST, the path the original error came from.
+            ("post", {"data": {"type": "flow-values-report"}}),
+        ]
+    )
+    def test_429_retry_after_header_propagates_to_the_exception(
+        self, _name: str, json_body: dict[str, Any] | None
+    ) -> None:
+        # `_wait_klaviyo` only sees Klaviyo's Retry-After instruction via this attribute; if
+        # `_fetch_page` stops attaching it, retries silently fall back to blind exponential backoff.
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.ok = False
+        rate_limited.headers = {"Retry-After": "42"}
+
+        session = MagicMock()
+        session.get.return_value = rate_limited
+        session.post.return_value = rate_limited
+
+        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
+            with pytest.raises(KlaviyoRetryableError) as exc_info:
+                klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock(), json_body=json_body)
+
+        assert exc_info.value.retry_after == 42.0
+
+    def test_5xx_does_not_read_retry_after(self) -> None:
+        # Only 429 carries a meaningful Retry-After from Klaviyo; a 5xx shouldn't pick up a stray
+        # header value and skip the exponential backoff meant for generic server errors.
+        server_error = MagicMock()
+        server_error.status_code = 503
+        server_error.ok = False
+        server_error.headers = {"Retry-After": "42"}
+
+        session = MagicMock()
+        session.get.return_value = server_error
+
+        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
+            with pytest.raises(KlaviyoRetryableError) as exc_info:
+                klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
+
+        assert exc_info.value.retry_after is None
+
+
+class TestRetryAfter:
+    @parameterized.expand(
+        [
+            ("30", 30.0),
+            (" 30 ", 30.0),
+            ("0", 0.0),
+            (None, None),
+            ("", None),
+            ("soon", None),
+            # A negative delta is a malformed header, not "no wait" — treat it as absent so the
+            # caller falls back to exponential backoff instead of retrying instantly.
+            ("-5", None),
+            # An HTTP-date already in the past clamps to no wait.
+            ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),
+        ]
+    )
+    def test_parse_retry_after(self, value: str | None, expected: float | None) -> None:
+        assert _parse_retry_after(value) == expected
+
+    def _state(self, exc: Exception) -> RetryCallState:
+        state = RetryCallState(retry_object=MagicMock(), fn=None, args=(), kwargs={})
+        state.outcome = Future.construct(1, exc, has_exception=True)
+        return state
+
+
+def _response_with_status(status_code: int, body: bytes | None = None, url: str | None = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    if body is not None:
+        response._content = body
+    if url is not None:
+        response.url = url
+    return response
+
+
+class TestFetchPageErrorDetail:
+    _url = "https://a.klaviyo.com/api/webhooks"
+
+    def _session_returning(self, response: requests.Response) -> MagicMock:
+        session = MagicMock()
+        session.get.return_value = response
+        return session
+
+    def test_klaviyo_detail_rides_on_the_http_error(self) -> None:
+        # A 403's status and URL alone can't distinguish a key missing a read scope from an endpoint
+        # the account's Klaviyo plan doesn't include; without the body detail on the message, the
+        # non-retryable mapping blames scopes the user may have already granted.
+        body = json.dumps(
+            {
+                "errors": [
+                    {
+                        "code": "permission_denied",
+                        "title": "You do not have permission to perform this action.",
+                        "detail": "You must have Advanced KDP enabled to use this endpoint.",
+                    }
+                ]
+            }
+        ).encode()
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            klaviyo._fetch_page(
+                self._session_returning(_response_with_status(403, body=body, url=self._url)),
+                self._url,
+                {},
+                MagicMock(),
+            )
+
+        assert "You must have Advanced KDP enabled to use this endpoint." in str(exc_info.value)
+        assert "403 Client Error" in str(exc_info.value)
+        assert self._url in str(exc_info.value)
+        # Fan-out handlers branch on `exc.response.status_code`, so the response must stay attached.
+        assert exc_info.value.response is not None
+        assert exc_info.value.response.status_code == 403
+
+    def test_non_json_error_body_still_raises_the_plain_error(self) -> None:
+        # A gateway HTML error page must not crash detail extraction and mask the real HTTPError.
+        with pytest.raises(requests.HTTPError) as exc_info:
+            klaviyo._fetch_page(
+                self._session_returning(_response_with_status(403, body=b"<html>denied</html>", url=self._url)),
+                self._url,
+                {},
+                MagicMock(),
+            )
+
+        assert "403 Client Error" in str(exc_info.value)
+        assert self._url in str(exc_info.value)
+
+
+def _list_url(list_id: str, filter_value: str | None = None) -> str:
+    filter_part = f"&filter={filter_value}" if filter_value else ""
+    return (
+        f"https://a.klaviyo.com/api/lists/{list_id}/profiles"
+        f"?page[size]=100{filter_part}&sort=-joined_group_at&fields[profile]=joined_group_at"
+    )
+
+
+class TestListProfilesFanOut:
+    def test_incremental_run_filters_with_lookback_on_every_list(self) -> None:
+        expected_filter = "greater-than(joined_group_at,2026-03-03T02:58:14.000Z)"
+        pages = {
+            "https://a.klaviyo.com/api/lists?page[size]=10": {
+                "data": [{"id": "L1"}, {"id": "L2"}],
+                "links": {"next": None},
+            },
+            _list_url("L1", filter_value=expected_filter): {
+                "data": [
+                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2026-03-04T01:00:00+00:00"}}
+                ],
+                "links": {"next": None},
+            },
+            _list_url("L2", filter_value=expected_filter): {
+                "data": [],
+                "links": {"next": None},
+            },
+        }
+        result = _drive_pages(
+            "list_profiles",
+            pages,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="joined_group_at",
+        )
+        assert result.raised is None
+        assert result.params("filter") == [None, expected_filter, expected_filter]
+        assert _rows(result) == [{"list_id": "L1", "profile_id": "P1", "joined_group_at": "2026-03-04T01:00:00+00:00"}]
+
+    def test_follows_membership_pagination(self) -> None:
+        next_url = "https://a.klaviyo.com/api/lists/L1/profiles?page[cursor]=abc"
+        pages = {
+            "https://a.klaviyo.com/api/lists?page[size]=10": {
+                "data": [{"id": "L1"}],
+                "links": {"next": None},
+            },
+            _list_url("L1"): {
+                "data": [
+                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2025-11-08T00:00:00+00:00"}}
+                ],
+                "links": {"next": next_url},
+            },
+            next_url: {
+                "data": [
+                    {"type": "profile", "id": "P2", "attributes": {"joined_group_at": "2025-11-07T00:00:00+00:00"}}
+                ],
+                "links": {"next": None},
+            },
+        }
+        result = _drive_pages("list_profiles", pages)
+        assert result.raised is None
+        assert result.params("page[cursor]") == [None, None, "abc"]
+        assert _rows(result) == [
+            {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
+            {"list_id": "L1", "profile_id": "P2", "joined_group_at": "2025-11-07T00:00:00+00:00"},
+        ]
+
+    def test_list_deleted_mid_fan_out_is_skipped(self) -> None:
+        pages = {
+            "https://a.klaviyo.com/api/lists?page[size]=10": {
+                "data": [{"id": "L1"}, {"id": "GONE"}, {"id": "L2"}],
+                "links": {"next": None},
+            },
+            _list_url("L1"): {
+                "data": [
+                    {"type": "profile", "id": "P1", "attributes": {"joined_group_at": "2025-11-08T00:00:00+00:00"}}
+                ],
+                "links": {"next": None},
+            },
+            _list_url("GONE"): _page({"errors": []}, status=404),
+            _list_url("L2"): {
+                "data": [
+                    {"type": "profile", "id": "P2", "attributes": {"joined_group_at": "2025-12-01T09:30:00+00:00"}}
+                ],
+                "links": {"next": None},
+            },
+        }
+        result = _drive_pages("list_profiles", pages)
+        assert result.raised is None
+        assert _rows(result) == [
+            {"list_id": "L1", "profile_id": "P1", "joined_group_at": "2025-11-08T00:00:00+00:00"},
+            {"list_id": "L2", "profile_id": "P2", "joined_group_at": "2025-12-01T09:30:00+00:00"},
+        ]
+
+    def test_non_404_http_error_propagates(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/lists":
+                return _page({"data": [{"id": "L1"}], "links": {"next": None}})
+            return _page({"errors": []}, status=500)
+
+        result = _driver().run("list_profiles", respond)
+        assert isinstance(result.raised, KlaviyoRetryableError)
+        assert set(result.paths) == {"/api/lists", "/api/lists/L1/profiles"}
+
+    def test_non_retryable_non_404_http_error_propagates(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/lists":
+                return _page({"data": [{"id": "L1"}], "links": {"next": None}})
+            return _page({"errors": []}, status=403)
+
+        result = _driver().run("list_profiles", respond)
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.raised.response is not None
+        assert result.raised.response.status_code == 403
+
+
+class TestGeneralizedFanOut:
+    def test_deleted_flow_is_skipped_while_enumerating_two_level_parents(self) -> None:
+        # A flow deleted between enumeration and the action fetch must not fail the whole sync.
+        pages = {
+            "https://a.klaviyo.com/api/flows?page[size]=50": {
+                "data": [{"id": "GONE"}, {"id": "F2"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/flows/GONE/flow-actions?page[size]=50": _page({"errors": []}, status=404),
+            "https://a.klaviyo.com/api/flows/F2/flow-actions?page[size]=50": {
+                "data": [{"id": "A2"}],
+                "links": {"next": None},
+            },
+            "https://a.klaviyo.com/api/flow-actions/A2/flow-messages?page[size]=50&sort=-updated": {
+                "data": [{"type": "flow-message", "id": "M2", "attributes": {"channel": "sms"}}],
+                "links": {"next": None},
+            },
+        }
+        result = _drive_pages("flow_messages", pages)
+        assert result.raised is None
+        assert _rows(result) == [
+            {"type": "flow-message", "id": "M2", "channel": "sms", "flow_action_id": "A2", "flow_id": "F2"}
+        ]
+
+    @parameterized.expand(
+        [
+            ("list_profiles", ["list_id", "profile_id"]),
+            ("segment_profiles", ["segment_id", "profile_id"]),
+        ]
+    )
+    def test_membership_tables_key_on_parent_and_profile(self, endpoint: str, expected_keys: list[str]) -> None:
+        # A membership key that isn't unique table-wide seeds duplicates that every later merge
+        # multi-matches, which is how these fan-outs OOM.
+        assert KLAVIYO_ENDPOINTS[endpoint].primary_keys == expected_keys
+
+
+class TestProfilesSubscriptionsRoundTrip:
+    def test_suppression_and_consent_land_in_the_synced_row(self) -> None:
+        # Suppression and consent status only exist inside the nested subscriptions object; if
+        # flattening or batching drops or reshapes it, a team exporting unsubscribes before a
+        # sending-platform migration silently loses exactly the profiles that must not be messaged.
+        suppressed_subscriptions = {
+            "email": {
+                "marketing": {
+                    "can_receive_email_marketing": False,
+                    "consent": "UNSUBSCRIBED",
+                    "suppression": [{"reason": "USER_SUPPRESSED", "timestamp": "2026-01-02T00:00:00+00:00"}],
+                    "list_suppressions": [
+                        {"list_id": "L1", "reason": "UNSUBSCRIBE", "timestamp": "2026-01-03T00:00:00+00:00"}
+                    ],
+                }
+            }
+        }
+        consented_subscriptions = {
+            "email": {"marketing": {"can_receive_email_marketing": True, "consent": "SUBSCRIBED"}},
+            "sms": {
+                "marketing": {
+                    "can_receive_sms_marketing": True,
+                    "consent": "SUBSCRIBED",
+                    "consent_timestamp": "2026-02-01T00:00:00+00:00",
+                }
+            },
+            "mobile_push": {"marketing": {"can_receive_push_marketing": False, "consent": "UNSUBSCRIBED"}},
+        }
+        pages = {
+            "https://a.klaviyo.com/api/profiles?additional-fields[profile]=subscriptions": {
+                "data": [
+                    {
+                        "type": "profile",
+                        "id": "P_SUPPRESSED",
+                        "attributes": {"email": "suppressed@example.com", "subscriptions": suppressed_subscriptions},
+                    },
+                    {
+                        "type": "profile",
+                        "id": "P_CONSENTED",
+                        "attributes": {"email": "consented@example.com", "subscriptions": consented_subscriptions},
+                    },
+                ],
+                "links": {"next": None},
+            },
+        }
+
+        result = _drive_pages("profiles", pages)
+        assert result.raised is None
+        rows = {row["id"]: row for row in _rows(result)}
+
+        assert rows["P_SUPPRESSED"]["email"] == "suppressed@example.com"
+        assert json.loads(rows["P_SUPPRESSED"]["subscriptions"]) == suppressed_subscriptions
+        assert json.loads(rows["P_CONSENTED"]["subscriptions"]) == consented_subscriptions
+
+
+class TestValuesReports:
+    def test_prefers_a_value_tracking_metric_over_the_accounts_first_metric(self) -> None:
+        # Blindly taking the first metric picked an engagement metric that Klaviyo rejects for values
+        # reporting. Resolution must prefer a value-tracking metric by name even when it is not first.
+        result = _driver().run(
+            "campaign_values_reports",
+            [
+                _page(
+                    {
+                        "data": [
+                            {"id": "M_ENGAGEMENT", "attributes": {"name": "Viewed Product"}},
+                            {"id": "M_ORDERED", "attributes": {"name": "Ordered Product"}},
+                        ],
+                        "links": {},
+                    }
+                ),
+                _page(
+                    {
+                        "data": {
+                            "attributes": {
+                                "results": [{"groupings": {"campaign_id": "C1"}, "statistics": {"opens": 1}}]
+                            }
+                        },
+                        "links": {},
+                    }
+                ),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/metrics", "/api/campaign-values-reports"]
+        assert _rows(result)[0]["conversion_metric_id"] == "M_ORDERED"
+        assert result.requests[1].json()["data"]["attributes"]["conversion_metric_id"] == "M_ORDERED"
+
+    def test_ineligible_conversion_metric_fails_the_sync_instead_of_finishing_empty(self) -> None:
+        # Klaviyo rejects some metrics (e.g. system metrics) as conversion metrics for values
+        # reports. Returning empty here finalized the run green with zero rows, so the broken table
+        # looked healthy forever; the run must fail visibly with an actionable message instead.
+        body = (
+            b'{"errors":[{"status":400,"code":"invalid","title":"Invalid input.",'
+            b'"detail":"Passed in conversion metric does not support querying for values data",'
+            b'"source":{"pointer":"/data/attributes/conversion_metric_id"}}]}'
+        )
+
+        result = _driver().run(
+            "campaign_values_reports",
+            [
+                _page({"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}),
+                ScriptedResponse(status=400, body=body),
+            ],
+        )
+        assert isinstance(result.raised, KlaviyoConversionMetricError)
+        assert "isn't eligible for values reporting" in str(result.raised)
+
+    def test_unrelated_http_error_still_propagates(self) -> None:
+        # Only the ineligible-conversion-metric 400 becomes a KlaviyoConversionMetricError; any other
+        # HTTP failure (e.g. a transient 500) must propagate unchanged so it keeps its own handling.
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/metrics":
+                return _page({"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}})
+            return _page({"errors": [{"status": 500, "title": "Internal Server Error"}]}, status=500)
+
+        result = _driver().run("campaign_values_reports", respond)
+        assert isinstance(result.raised, KlaviyoRetryableError)
+        assert set(result.paths) == {"/api/metrics", "/api/campaign-values-reports"}
+
+    @pytest.mark.parametrize(
+        "status,body",
+        [
+            (400, b'{"errors":[{"status":400,"code":"invalid","detail":"Some other validation failure"}]}'),
+            (403, b'{"errors":[{"status":403,"code":"forbidden"}]}'),
+        ],
+    )
+    def test_a_report_error_other_than_an_ineligible_metric_propagates_as_the_http_error(
+        self, status: int, body: bytes
+    ) -> None:
+        result = _driver().run(
+            "campaign_values_reports",
+            [
+                _page({"data": [{"id": "M_FIRST", "attributes": {"name": "Viewed Product"}}], "links": {}}),
+                ScriptedResponse(status=status, body=body),
+            ],
+        )
+        assert isinstance(result.raised, requests.HTTPError)
+        assert not isinstance(result.raised, KlaviyoConversionMetricError)
+
+    def test_account_with_no_metrics_fails_instead_of_posting_an_invalid_report(self) -> None:
+        # No conversion metric means no valid report to post. Failing loudly keeps the run from
+        # finalizing green with zero rows against a table the user believes is syncing.
+        result = _driver().run("campaign_values_reports", [_page({"data": [], "links": {}})])
+        assert isinstance(result.raised, KlaviyoConversionMetricError)
+        assert "needs a conversion metric" in str(result.raised)
+        assert result.paths == ["/api/metrics"]
+
+
+class TestReportVariants:
+    # Monday 03:30 UTC, which is still Sunday evening in the account's timezone. A window computed in
+    # UTC would open a week later and end seven hours ahead of the account's clock.
+    @time_machine.travel("2026-09-14T03:30:00Z", tick=False)
+    def test_series_report_carries_interval_and_expands_each_bucket_into_a_row(self) -> None:
+        # Series reports return each statistic as an array aligned to a top-level date_times list;
+        # keeping the arrays nested would leave the table unqueryable and collapse the weekly rows.
+        # Klaviyo also 400s a series report missing the interval, so the body must carry it.
+        result = _driver().run(
+            "flow_series_reports",
+            [
+                _page({"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}),
+                _page({"data": [{"id": "A1", "attributes": {"timezone": "America/Los_Angeles"}}]}),
+                _page(
+                    {
+                        "data": {
+                            "attributes": {
+                                "results": [
+                                    {
+                                        "groupings": {
+                                            "flow_id": "F1",
+                                            "flow_message_id": "FM1",
+                                            "send_channel": "email",
+                                        },
+                                        "statistics": {"opens": [1, 2]},
+                                    }
+                                ],
+                                "date_times": ["2026-01-05T00:00:00+00:00", "2026-01-12T00:00:00+00:00"],
+                            }
+                        },
+                        "links": {},
+                    }
+                ),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/metrics", "/api/accounts", "/api/flow-series-reports"]
+        attributes = result.requests[-1].json()["data"]["attributes"]
+        assert attributes["interval"] == "weekly"
+        # Klaviyo rejects a weekly series report whose window is over 52 weeks, and rejects any
+        # timeframe key it does not publish, so the window goes as a custom start/end pair. Klaviyo
+        # ignores the offset on the pair and reads it in the account's timezone, so the pair must be
+        # computed there: 51 weeks that open on a Monday and end at the account's current time.
+        assert attributes["timeframe"] == {"start": "2025-09-22T00:00:00-07:00", "end": "2026-09-13T20:30:00-07:00"}
+        assert _rows(result) == [
+            {
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
+                "send_channel": "email",
+                "date_time": "2026-01-05T00:00:00+00:00",
+                "opens": 1,
+                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_WEEKS}_weeks",
+                "conversion_metric_id": "M_ORDER",
+            },
+            {
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
+                "send_channel": "email",
+                "date_time": "2026-01-12T00:00:00+00:00",
+                "opens": 2,
+                "timeframe_key": f"last_{SERIES_REPORT_TIMEFRAME_WEEKS}_weeks",
+                "conversion_metric_id": "M_ORDER",
+            },
+        ]
+
+    @parameterized.expand(
+        [
+            ("form_values_reports", "form-values-report", "/form-values-reports", ["form_id"]),
+            ("segment_values_reports", "segment-values-report", "/segment-values-reports", None),
+        ]
+    )
+    def test_form_and_segment_reports_omit_the_conversion_metric_and_its_lookup(
+        self, endpoint: str, report_type: str, path: str, expected_group_by: list[str] | None
+    ) -> None:
+        # Form and segment reports don't accept a conversion_metric_id; sending one (or the group_by
+        # segment reports also reject) 400s the request, and resolving one would cost a needless
+        # /metrics walk on every sync.
+        script = [_page({"data": {"attributes": {"results": []}}, "links": {}})]
+        if endpoint == "form_values_reports":
+            script.append(_page({"data": [], "links": {}}))
+        result = _driver().run(endpoint, script)
+        assert result.raised is None
+        body = result.requests[0].json()
+        attributes = body["data"]["attributes"]
+        assert body["data"]["type"] == report_type
+        assert "conversion_metric_id" not in attributes
+        assert result.paths[0] == f"/api{path}"
+        assert all("/metrics" not in url for url in result.urls)
+        if expected_group_by is None:
+            assert "group_by" not in attributes
+        else:
+            assert attributes["group_by"] == expected_group_by
+
+    def test_form_values_report_lists_every_form_and_zero_fills_the_quiet_ones(self) -> None:
+        result = _driver().run(
+            "form_values_reports",
+            [
+                _page(
+                    {
+                        "data": {
+                            "attributes": {
+                                "results": [
+                                    {
+                                        "groupings": {"form_id": "FORM_ACTIVE"},
+                                        "statistics": {"viewed_form": 40, "submits": 4, "submit_rate": 0.1},
+                                    }
+                                ]
+                            }
+                        },
+                        "links": {},
+                    }
+                ),
+                _page({"data": [{"id": "FORM_ACTIVE"}, {"id": "FORM_QUIET"}], "links": {}}),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == ["/api/form-values-reports", "/api/forms"]
+        assert result.requests[1].param("page[size]") == "100"
+        by_form = {row["form_id"]: row for row in _rows(result)}
+        assert set(by_form) == {"FORM_ACTIVE", "FORM_QUIET"}
+        assert (by_form["FORM_ACTIVE"]["viewed_form"], by_form["FORM_ACTIVE"]["submits"]) == (40, 4)
+        assert by_form["FORM_ACTIVE"]["submit_rate"] == 0.1
+        quiet = by_form["FORM_QUIET"]
+        assert quiet["timeframe_key"] == VALUES_REPORT_TIMEFRAME_KEY
+        assert quiet["submit_rate"] is None
+        assert all(quiet[statistic] == 0 for statistic in FORM_REPORT_STATISTICS if statistic != "submit_rate")
+        assert len(result.requests) == 2
+
+    @parameterized.expand(
+        [
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_series_reports_key_on_the_time_bucket(self, endpoint: str) -> None:
+        # Without date_time in the primary key, the ~51 weekly rows per grouping collapse to one on
+        # merge, silently discarding the whole time series. Without date_time as a cursor the table
+        # syncs full refresh, so every sync rebuilds it from Klaviyo's rolling window and drops the
+        # weeks that have since left it, which no later sync can fetch again.
+        config = KLAVIYO_ENDPOINTS[endpoint]
+        assert "date_time" in config.primary_keys
+        assert [f["field"] for f in config.incremental_fields] == ["date_time"]
+        assert config.default_incremental_field == "date_time"
+        # Klaviyo caps a weekly series report at 52 weeks, which rules out last_365_days, and
+        # rejects any key outside its published set, which rules out inventing a 52-week one. Both
+        # rejections are 400s that fail the whole sync, so the window must go as a custom pair.
+        assert config.values_report is not None
+        assert config.values_report.timeframe_key is None
+        assert config.values_report.timeframe_weeks == SERIES_REPORT_TIMEFRAME_WEEKS
+
+    def test_a_timeframe_key_klaviyo_does_not_publish_is_refused(self) -> None:
+        # An unpublished key reads like a real one but 400s every request the endpoint makes, so
+        # the config has to refuse it here rather than at sync time.
+        with pytest.raises(ValueError):
+            KlaviyoValuesReportConfig(
+                report_type="flow-series-report",
+                statistics=["opens"],
+                group_by=["flow_id"],
+                timeframe_key="last_52_weeks",
+            )
+
+
+class TestEndpointRequestParams:
+    @parameterized.expand(
+        [
+            # Klaviyo caps page[size] per endpoint and 400s anything larger, which fails the table.
+            ("segments", 10),
+            ("templates", 10),
+            ("web_feeds", 20),
+            ("tag_groups", 25),
+            ("tags", 50),
+            ("flow_actions", 50),
+            ("flow_messages", 50),
+            ("forms", 100),
+            ("reviews", 100),
+            ("images", 100),
+            ("catalog_items", 100),
+            ("catalog_variants", 100),
+            ("catalog_categories", 100),
+            ("coupons", 100),
+            ("coupon_codes", 100),
+            ("push_tokens", 100),
+            ("data_sources", 100),
+            ("segment_profiles", 100),
+        ]
+    )
+    def test_page_size_stays_within_the_endpoint_cap(self, endpoint: str, expected: int) -> None:
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert params["page[size]"] == expected
+
+    @parameterized.expand([("custom_metrics",), ("object_types",), ("webhooks",), ("accounts",)])
+    def test_unsized_endpoints_send_no_page_size(self, endpoint: str) -> None:
+        # These endpoints document no page[size] param; sending one is rejected.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert "page[size]" not in params
+
+    @parameterized.expand([("list_profiles",), ("segment_profiles",)])
+    def test_membership_fan_outs_keep_their_restrictive_fieldset(self, endpoint: str) -> None:
+        # The fan-outs only need joined_group_at; expanding them with additional-fields would
+        # balloon every per-parent request.
+        params = _build_initial_params(
+            KLAVIYO_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert params["fields[profile]"] == "joined_group_at"
+        assert "additional-fields[profile]" not in params
+
+
+class TestNewSchemas:
+    @parameterized.expand(
+        [
+            ("segments", True),
+            ("segment_profiles", False),
+            ("flow_actions", True),
+            ("flow_messages", False),
+            ("campaign_values_reports", True),
+            ("templates", True),
+        ]
+    )
+    def test_expensive_fan_outs_are_opt_in(self, endpoint: str, expected_default: bool) -> None:
+        # A default-on fan-out silently multiplies API cost for accounts that opted into auto-sync.
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas[endpoint].should_sync_default is expected_default
+
+    @parameterized.expand(
+        [
+            ("segment_profiles",),
+            ("flow_actions",),
+            ("flow_messages",),
+            ("campaign_values_reports",),
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_endpoints_that_re_pull_a_window_are_merge_only(self, endpoint: str) -> None:
+        # Append mode would materialize the intentional re-pulls as duplicate rows. A lookback
+        # endpoint re-pulls a window of rows each run, and a report re-posts its whole window.
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas[endpoint].supports_append is False
+
+
+class TestSourceResponseSortMode:
+    @parameterized.expand(
+        [
+            ("list_profiles", "desc"),
+            ("segment_profiles", "desc"),
+            ("flow_actions", "desc"),
+            ("flow_messages", "desc"),
+            ("events", "asc"),
+            ("segments", "asc"),
+        ]
+    )
+    def test_source_response_sort_mode(self, endpoint: str, expected: str) -> None:
+        # "desc" defers watermark persistence to successful job end; reverting the fan-out to "asc"
+        # per-batch persistence lets a crashed run advance the watermark past lists it never fetched.
+        result = _driver().run(endpoint, [])
+        assert result.response is not None
+        assert result.response.sort_mode == expected
+
+
+class TestApiVersionThreadsToRevisionHeader:
+    @parameterized.expand([("2024-10-15",), ("2026-07-15",)])
+    def test_pinned_version_reaches_revision_header(self, api_version: str) -> None:
+        # The resolved pin must reach Klaviyo's `revision` header, or a source pinned to a supported
+        # revision would silently sync against whatever version the request layer hardcodes.
+        result = _driver().run("events", [_page({"data": [], "links": {"next": None}})], api_version=api_version)
+        assert result.raised is None
+        assert result.requests[0].headers["revision"] == api_version
+
+
+class TestEndpointsNewerThanThePinnedRevision:
+    @parameterized.expand(
+        [
+            (KLAVIYO_API_VERSION_2024_10_15, False),
+            (KLAVIYO_API_VERSION_2026_07_15, True),
+            (None, True),
+        ]
+    )
+    def test_tables_the_pinned_revision_does_not_serve_stay_listed_but_default_off(
+        self, pin: str | None, served: bool
+    ) -> None:
+        schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1, api_version=pin)}
+        assert schemas["events"].should_sync_default is True
+        for name in ("data_sources", "custom_metrics", "object_types", "custom_object_records", "web_feeds"):
+            assert schemas[name].should_sync_default is served
+            assert (schemas[name].description == KLAVIYO_NEWER_VERSION_REQUIRED) is not served
+
+    def test_enabled_table_on_an_older_pin_fails_without_calling_klaviyo(self) -> None:
+        result = _driver().run("data_sources", [], api_version=KLAVIYO_API_VERSION_2024_10_15)
+        assert result.raised is not None
+        assert result.requests == []
+        friendly = [
+            message
+            for pattern, message in KlaviyoSource().get_non_retryable_errors().items()
+            if error_message_matches(str(result.raised), [pattern])
+        ]
+        assert friendly and friendly[0] is not None
+        assert "Contact PostHog support" in friendly[0]
+
+
+class TestValidateCredentialsResolvedPin:
+    @parameterized.expand(
+        [
+            (KLAVIYO_API_VERSION_2024_10_15, KLAVIYO_API_VERSION_2024_10_15),
+            (KLAVIYO_API_VERSION_2026_07_15, KLAVIYO_API_VERSION_2026_07_15),
+            # No pin (pre-creation) resolves to the default the new row is stamped with.
+            (None, KLAVIYO_API_VERSION_2026_07_15),
+        ]
+    )
+    def test_class_probe_threads_resolved_pin(self, pin: str | None, expected: str) -> None:
+        with scripted_network([_page({})]) as network:
+            result = KlaviyoSource().validate_credentials(KlaviyoSourceConfig(api_key="pk_test"), 1, api_version=pin)
+        assert result == (True, None)
+        assert network.requests_log[0].headers["revision"] == expected
+
+    @parameterized.expand([(KLAVIYO_API_VERSION_2024_10_15,), (KLAVIYO_API_VERSION_2026_07_15,)])
+    def test_probe_sends_pin_as_revision_header(self, api_version: str) -> None:
+        # A 2024-10-15-pinned source must validate on the same `revision` header it syncs with.
+        with scripted_network([_page({})]) as network:
+            assert klaviyo.validate_credentials("pk_test", api_version) == (True, None)
+        assert network.requests_log[0].headers["revision"] == api_version
+        assert network.requests_log[0].path == "/api/accounts"
+
+    @parameterized.expand(
+        [
+            (401, klaviyo._KLAVIYO_INVALID_KEY_ERROR),
+            (403, klaviyo._KLAVIYO_MISSING_SCOPE_ERROR),
+            (503, klaviyo._KLAVIYO_UNREACHABLE_ERROR),
+        ]
+    )
+    def test_failure_status_picks_the_matching_message(self, status: int, expected: str) -> None:
+        with scripted_network([_page({}, status=status)]) as network:
+            ok, error = klaviyo.validate_credentials("pk_test")
+
+        assert ok is False
+        assert error == expected
+        assert network.requests_log[0].path == "/api/accounts"

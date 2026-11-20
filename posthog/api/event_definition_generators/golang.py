@@ -1,20 +1,41 @@
 import re
 from datetime import datetime
 
+from django.db import models
 from django.db.models import QuerySet
 
 import orjson
 
-from ...models import EventDefinition, SchemaPropertyGroupProperty
+from products.event_definitions.backend.models import EventDefinition, SchemaPropertyGroupProperty
+
 from .base import EventDefinitionGenerator
 
 
+class GoSDK(models.TextChoices):
+    POSTHOG_GO = "posthog-go", "posthog-go 1.x"
+    POSTHOG_GO_V2 = "posthog-go-v2", "posthog-go 2.x"
+
+
+# Go treats each major from 2 on as its own module, so a file built for one major does not compile against the other.
+GO_SDK_IMPORT_PATHS: dict[GoSDK, str] = {
+    GoSDK.POSTHOG_GO: "github.com/posthog/posthog-go",
+    GoSDK.POSTHOG_GO_V2: "github.com/posthog/posthog-go/v2",
+}
+
+
 class GolangGenerator(EventDefinitionGenerator):
+    def __init__(self, sdk: GoSDK = GoSDK.POSTHOG_GO) -> None:
+        self.sdk = sdk
+
     def generator_version(self) -> str:
         return "1.1.0"
 
     def language_name(self) -> str:
-        return "Go"
+        return "Go" if self.sdk == GoSDK.POSTHOG_GO else f"Go ({self.sdk.label})"
+
+    def hash_inputs(self) -> dict[str, str]:
+        # The default SDK adds nothing, so the hash of a module generated before `sdk` existed stays the same.
+        return {} if self.sdk == GoSDK.POSTHOG_GO else {"sdk": self.sdk.value}
 
     def generate(
         self, event_definitions: QuerySet[EventDefinition], schema_map: dict[str, list[SchemaPropertyGroupProperty]]
@@ -29,7 +50,9 @@ class GolangGenerator(EventDefinitionGenerator):
             if any(prop.property_type == "DateTime" for prop in properties):
                 imports.append('\t"time"')
                 break
-        imports.append('\t"github.com/posthog/posthog-go"')
+        import_path = GO_SDK_IMPORT_PATHS[self.sdk]
+        other_sdk = GoSDK.POSTHOG_GO_V2 if self.sdk == GoSDK.POSTHOG_GO else GoSDK.POSTHOG_GO
+        imports.append(f'\t"{import_path}"')
         imports_section = "\n".join(imports)
 
         event_blocks: list[str] = []
@@ -47,6 +70,7 @@ class GolangGenerator(EventDefinitionGenerator):
 //
 // Generated at: {now}
 // Generator version: {self.generator_version()}
+// Built for {self.sdk.label} ({import_path}). Request `sdk={other_sdk.value}` for {other_sdk.label}.
 //
 // This package provides type-safe helper functions to build posthog.Capture
 // structs for your defined events. It provides:

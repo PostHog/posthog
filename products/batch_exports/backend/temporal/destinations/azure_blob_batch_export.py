@@ -3,7 +3,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from django.conf import settings
 
@@ -346,7 +346,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
         blob_key,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), AsyncExitStack() as cleanup:
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_AZURE_BLOB_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
 
@@ -359,6 +359,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

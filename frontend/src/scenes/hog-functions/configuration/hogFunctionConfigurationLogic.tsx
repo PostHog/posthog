@@ -23,7 +23,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import {
     CyclotronJobInputsValidation,
@@ -33,6 +33,8 @@ import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
+import { isEmptyObject } from 'lib/utils/guards'
+import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import { projectLogic } from 'scenes/projectLogic'
@@ -44,6 +46,7 @@ import { userLogic } from 'scenes/userLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DataTableNode,
     EventsNode,
@@ -53,7 +56,6 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     AvailableFeature,
@@ -82,6 +84,7 @@ import {
     IntegrationType,
 } from '~/types'
 
+import { hogFunctionTemplatesRetrieve } from 'products/cdp/frontend/generated/api'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 import { destinationWorkflowSuggestionLogic } from 'products/workflows/frontend/DestinationWorkflowSuggestion/destinationWorkflowSuggestionLogic'
 import { workflowEventsFromFilters } from 'products/workflows/frontend/DestinationWorkflowSuggestion/messagingDestinations'
@@ -197,6 +200,27 @@ export function sanitizeInputs(
     })
 
     return sanitizedInputs
+}
+
+function withoutSecrets<T extends Pick<HogFunctionMappingType, 'inputs' | 'inputs_schema'>>(
+    config: T
+): { config: T; dropped: boolean } {
+    if (!config.inputs) {
+        return { config, dropped: false }
+    }
+    const secretKeys = new Set(config.inputs_schema?.filter((schema) => schema.secret).map((schema) => schema.key))
+    const inputs: Record<string, CyclotronJobInputType> = {}
+    let dropped = false
+    for (const [key, input] of Object.entries(config.inputs)) {
+        if (input?.secret || secretKeys.has(key)) {
+            const value = input?.value
+            dropped ||=
+                !!input?.secret || !(value === undefined || value === null || value === '' || isEmptyObject(value))
+        } else {
+            inputs[key] = input
+        }
+    }
+    return { config: { ...config, inputs }, dropped }
 }
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
@@ -406,6 +430,7 @@ export interface hogFunctionConfigurationLogicValues {
     mightDropEvents: boolean
     newFilters: CyclotronJobFiltersType | null
     newHogCode: string | null
+    newInputValues: Record<string, CyclotronJobInputType> | null
     newInputs: CyclotronJobInputSchemaType[] | null
     oldFilters: CyclotronJobFiltersType | null
     oldHogCode: string | null
@@ -453,6 +478,25 @@ export interface hogFunctionConfigurationLogicActions {
         onContinue: () => void
         template: HogFunctionTemplateType
     } // destinationWorkflowSuggestionLogic
+    acceptInputsDiff: () => {
+        value: true
+    }
+    changeInput: (
+        key: string,
+        input: CyclotronJobInputType
+    ) => {
+        input: {
+            bytecode?: any
+            order?: number | undefined
+            secret?: boolean | undefined
+            templating?: 'hog' | 'liquid' | undefined
+            value: any
+        }
+        key: string
+    }
+    changeInputsSchema: (inputsSchema: CyclotronJobInputSchemaType[]) => {
+        inputsSchema: CyclotronJobInputSchemaType[]
+    }
     clearFiltersDiff: () => {
         value: true
     }
@@ -603,6 +647,18 @@ export interface hogFunctionConfigurationLogicActions {
     }
     setNewHogCode: (newHogCode: string) => {
         newHogCode: string
+    }
+    setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => {
+        newInputValues: Record<
+            string,
+            {
+                bytecode?: any
+                order?: number | undefined
+                secret?: boolean | undefined
+                templating?: 'hog' | 'liquid' | undefined
+                value: any
+            }
+        >
     }
     setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => {
         newInputs: CyclotronJobInputSchemaType[]
@@ -923,6 +979,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIFiltersPromptOpen: true,
         setOldInputs: (oldInputs: CyclotronJobInputSchemaType[]) => ({ oldInputs }),
         setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
+        setNewInputValues: (newInputValues: Record<string, CyclotronJobInputType>) => ({ newInputValues }),
+        changeInput: (key: string, input: CyclotronJobInputType) => ({ key, input }),
+        changeInputsSchema: (inputsSchema: CyclotronJobInputSchemaType[]) => ({ inputsSchema }),
+        acceptInputsDiff: true,
         clearInputsDiff: true,
         reportAIHogFunctionInputsPrompted: true,
         reportAIHogFunctionInputsAccepted: true,
@@ -1015,6 +1075,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 clearInputsDiff: () => null,
             },
         ],
+        newInputValues: [
+            null as Record<string, CyclotronJobInputType> | null,
+            {
+                setNewInputValues: (_, { newInputValues }) => newInputValues,
+                clearInputsDiff: () => null,
+            },
+        ],
     })),
     loaders(({ actions, props, values, cache }) => ({
         template: [
@@ -1032,7 +1099,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const res = await api.hogFunctions.getTemplate(props.templateId)
+                    let res: HogFunctionTemplateType
+                    try {
+                        res = (await hogFunctionTemplatesRetrieve(
+                            String(ApiConfig.getCurrentProjectId()),
+                            props.templateId
+                        )) as HogFunctionTemplateType
+                    } catch (e) {
+                        // A template id that does not exist (a stale or mistyped link) 404s here. Fall back
+                        // to null so the scene renders its not-found state instead of filing the rejection
+                        // in error tracking.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
 
                     if (!res) {
                         throw new Error('Template not found')
@@ -1323,6 +1404,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             },
             submit: async (data) => {
+                // The editor shows a pending PostHog AI suggestion that is not in `data` yet.
+                if (values.inputsDiff) {
+                    lemonToast.error('Accept or reject the suggested inputs first')
+                    return
+                }
+
                 // Check HOG code size immediately before submission
                 if (data.hog) {
                     const hogSize = new Blob([data.hog]).size
@@ -2020,6 +2107,34 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIHogFunctionInputsPrompted: () => {
             posthog.capture('ai_hog_function_inputs_prompted', { type: values.type })
         },
+        changeInput: ({ key, input }) => {
+            // A suggested value stays pending until accept. Fields such as the JSON editor also report
+            // a change when they render a new value, so writing it to the form here would apply it early.
+            if (values.newInputValues && key in values.newInputValues) {
+                actions.setNewInputValues({ ...values.newInputValues, [key]: input })
+                return
+            }
+            actions.setConfigurationValue(`inputs.${key}`, input)
+        },
+        acceptInputsDiff: () => {
+            if (values.newInputs) {
+                actions.setConfigurationValue('inputs_schema', values.newInputs)
+            }
+            for (const [key, input] of Object.entries(values.newInputValues ?? {})) {
+                actions.setConfigurationValue(`inputs.${key}`, input)
+            }
+            actions.reportAIHogFunctionInputsAccepted()
+            actions.clearInputsDiff()
+        },
+        changeInputsSchema: ({ inputsSchema }) => {
+            // The editor builds the edited schema from the suggested one, so a schema edit during a
+            // suggestion takes the suggestion with it, including the values it holds as pending.
+            for (const [key, input] of Object.entries(values.newInputValues ?? {})) {
+                actions.setConfigurationValue(`inputs.${key}`, input)
+            }
+            actions.clearInputsDiff()
+            actions.setConfigurationValue('inputs_schema', inputsSchema)
+        },
         reportAIHogFunctionInputsAccepted: () => {
             posthog.capture('ai_hog_function_inputs_accepted', { type: values.type })
         },
@@ -2108,15 +2223,27 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         duplicate: async () => {
             if (values.hogFunction) {
+                const copied = withoutSecrets(values.configuration)
+                const copiedMappings = values.configuration.mappings?.map(withoutSecrets)
+                const droppedSecrets = copied.dropped || !!copiedMappings?.some((mapping) => mapping.dropped)
                 const newConfig = {
-                    ...values.configuration,
+                    ...copied.config,
+                    mappings: copiedMappings?.map((mapping) => mapping.config) ?? copied.config.mappings,
                     name: `${values.configuration.name} (copy)`,
+                    enabled: droppedSecrets ? false : copied.config.enabled,
                 }
                 // TODO: What to do if no template?
                 const originalTemplate = values.hogFunction.template!
+                const { pathname } = router.values.location
                 router.actions.push(urls.hogFunctionNew(originalTemplate.id), undefined, {
                     configuration: newConfig,
                 })
+                const openedCopy = router.values.location.pathname !== pathname
+                if (openedCopy && droppedSecrets) {
+                    lemonToast.info(
+                        'Secret values are not copied, so the copy starts disabled. Enter them again, then enable it.'
+                    )
+                }
             }
         },
         duplicateFromTemplate: async () => {

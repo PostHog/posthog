@@ -4,10 +4,10 @@ import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
 
 import { BIAggregation, BIDataSource } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 
 import { AGGREGATION_OPTIONS } from '../biEditorOptions'
 

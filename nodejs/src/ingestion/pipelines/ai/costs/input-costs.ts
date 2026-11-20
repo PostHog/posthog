@@ -148,6 +148,22 @@ const computeCachedAudioInputCost = (
     return bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cachedAudioTokens)
 }
 
+const computeCachedImageInputCost = (
+    event: PluginEvent,
+    cost: ResolvedModelCost,
+    cachedImageTokens: number
+): string => {
+    if (cachedImageTokens <= 0) {
+        return '0'
+    }
+    const multiplier = matchProvider(event, 'anthropic') ? 0.1 : 0.5
+    const rate =
+        cost.cost.input_image_cache ??
+        cost.cost.cache_read_token ??
+        bigDecimal.multiply(cost.cost.prompt_token, multiplier)
+    return bigDecimal.multiply(rate, cachedImageTokens)
+}
+
 export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
     if (!event.properties) {
         return '0'
@@ -178,18 +194,19 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     // Audio/image input tokens are reported by providers (OpenAI, Gemini) as a subset
     // of the total input token count. We bill them separately at modality rates and
     // subtract them from the text pool to avoid double-counting at the prompt rate.
-    // Split cached audio and images from their uncached portions. Cached audio
-    // has its own rate; cached images use the standard cache-read rate.
     const uncachedAudioInputTokens = audioInputTokens - cachedAudioInputTokens
     const uncachedImageInputTokens = imageInputTokens - cachedImageInputTokens
     const audioInputCost = computeAudioInputCost(event, cost, uncachedAudioInputTokens)
     const cachedAudioInputCost = computeCachedAudioInputCost(event, cost, cachedAudioInputTokens)
     const imageInputCost = computeImageInputCost(event, cost, uncachedImageInputTokens)
-    const modalityInputCost = bigDecimal.add(bigDecimal.add(audioInputCost, cachedAudioInputCost), imageInputCost)
+    const cachedImageInputCost = computeCachedImageInputCost(event, cost, cachedImageInputTokens)
+    const modalityInputCost = bigDecimal.add(
+        bigDecimal.add(audioInputCost, cachedAudioInputCost),
+        bigDecimal.add(imageInputCost, cachedImageInputCost)
+    )
     const hasModalityTokens = audioInputTokens > 0 || imageInputTokens > 0
 
-    // Cached image tokens use the standard cache-read rate, but remain part of
-    // image_input and must not also reduce the regular text-token pool.
+    // boffin: Cached image tokens leave the text cache pool so they are billed only once.
     const cachedTextTokens = cachedNonAudioTokens - cachedImageInputTokens
     const imageTokensToSubtract = exclusive ? uncachedImageInputTokens : imageInputTokens
 
@@ -219,8 +236,8 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
         const cacheReadCost =
             cost.cost.cache_read_token !== undefined
-                ? bigDecimal.multiply(cost.cost.cache_read_token, cachedNonAudioTokens)
-                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cachedNonAudioTokens)
+                ? bigDecimal.multiply(cost.cost.cache_read_token, cachedTextTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cachedTextTokens)
 
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
         const baseUncachedTokens = exclusive
@@ -253,7 +270,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
     if (cost.cost.cache_read_token !== undefined) {
         // Use explicit cache read cost if available
-        cacheReadCost = bigDecimal.multiply(cost.cost.cache_read_token, cachedNonAudioTokens)
+        cacheReadCost = bigDecimal.multiply(cost.cost.cache_read_token, cachedTextTokens)
     } else {
         // Use default multiplier of 0.5 for all providers when cache_read_token is not defined
         const multiplier = 0.5
@@ -266,10 +283,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
             })
         }
 
-        cacheReadCost = bigDecimal.multiply(
-            bigDecimal.multiply(cost.cost.prompt_token, multiplier),
-            cachedNonAudioTokens
-        )
+        cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, multiplier), cachedTextTokens)
     }
 
     const cacheWriteRate = cost.cost.cache_write_token ?? cost.cost.prompt_token

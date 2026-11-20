@@ -62,6 +62,11 @@
         border-radius: var(--radius-lg);
     }
 
+    .quill-resizable__handle[data-size='sm'] > div {
+        width: 0.1875rem;
+        height: 1rem;
+    }
+
     .quill-resizable__handle[aria-orientation='horizontal'] > div {
         rotate: 90deg;
     }

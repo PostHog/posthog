@@ -2,7 +2,7 @@ import { ReactNode } from 'react'
 
 import { IconEye, IconHide, IconTarget } from '@posthog/icons'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {

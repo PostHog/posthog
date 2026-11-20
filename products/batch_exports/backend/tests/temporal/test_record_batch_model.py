@@ -13,10 +13,12 @@ import pyarrow as pa
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
+from posthog.clickhouse.events_json import EVENTS_JSON_INSERT_SETTINGS
+from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.credentials import AWSKeyPair
-from posthog.models import OrganizationMembership, PropertyDefinition, User
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
+from posthog.models import OrganizationMembership, User
+from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -24,6 +26,7 @@ from posthog.temporal.tests.utils.events import generate_test_events_in_clickhou
 
 from products.access_control.backend.models import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.batch_exports.backend.custom_events_schema import recompile_stored_schema
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     validate_hogql_query_for_batch_export,
@@ -45,6 +48,7 @@ from products.batch_exports.backend.temporal.record_batch_model import (
 from products.batch_exports.backend.temporal.sql.sessions import SESSIONS_LOOKBACK_DAYS
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events, truncate_sessions
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 
 if TYPE_CHECKING:
     from posthog.models import Organization, Team
@@ -175,11 +179,11 @@ class TestSessionsRecordBatchModel:
             for expr in hogql_query.where.exprs
         )
 
-    async def test_as_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
+    async def test_as_query_with_context(self, ateam, data_interval_start, data_interval_end):
         model = SessionsRecordBatchModel(
             team_id=ateam.id,
         )
-        printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+        printed_query, _ = await model.as_query_with_context(data_interval_start, data_interval_end)
 
         assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
@@ -219,7 +223,7 @@ class TestSessionsRecordBatchModel:
     async def test_interleaved_calls_do_not_mix_team_ids(
         self, ateam, another_ateam, data_interval_start, data_interval_end
     ):
-        """Regression test to reproduce a previous race condition in as_query_with_parameters where
+        """Regression test to reproduce a previous race condition in as_query_with_context where
         two different models were created with different team IDs, and the second model's query
         overwrote the first model's query."""
 
@@ -243,11 +247,11 @@ class TestSessionsRecordBatchModel:
         assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
         assert f"team_id, {another_ateam.id}" not in printed_query
 
-    async def test_as_insert_into_s3_query_with_parameters(self, ateam, data_interval_start, data_interval_end):
+    async def test_as_insert_into_s3_query_with_context(self, ateam, data_interval_start, data_interval_end):
         model = SessionsRecordBatchModel(
             team_id=ateam.id,
         )
-        printed_query, _ = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, _ = await model.as_insert_into_s3_query_with_context(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -285,14 +289,14 @@ class TestSessionsRecordBatchModel:
         # this model needs no request settings: the printer already emitted them
         assert model.get_clickhouse_request_settings() == {}
 
-    async def test_as_insert_into_s3_query_with_parameters_keyless_auth(
+    async def test_as_insert_into_s3_query_with_context_keyless_auth(
         self, ateam, data_interval_start, data_interval_end
     ):
         """Test that keyless S3 auth generates the correct s3() function call without credentials."""
         model = SessionsRecordBatchModel(
             team_id=ateam.id,
         )
-        printed_query, _ = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, _ = await model.as_insert_into_s3_query_with_context(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -350,8 +354,8 @@ class TestSessionsRecordBatchModelSelection:
         interval_start: dt.datetime,
         interval_end: dt.datetime,
     ) -> list[str]:
-        printed_query, parameters = await model._print_query(interval_start, interval_end, output_format="JSONEachRow")
-        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+        printed_query, context = await model._print_query(interval_start, interval_end, output_format="JSONEachRow")
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=context.values)
         return [row["session_id"] for row in rows]
 
     async def test_selects_late_session_by_interval_covering_its_ingestion(self, clickhouse_client, ateam):
@@ -427,32 +431,41 @@ class TestSessionsRecordBatchModelSelection:
 @pytest.mark.django_db
 class TestHogQLQueryRecordBatchModel:
     @pytest.mark.parametrize(
-        "hogql_query",
+        "hogql_query,table,clickhouse_table,workload",
         [
-            "SELECT event AS event, distinct_id AS distinct_id FROM events",
-            "WITH exported_events AS (SELECT event, distinct_id FROM events) "
-            "SELECT event AS event, distinct_id AS distinct_id FROM exported_events",
+            ("SELECT event AS event, distinct_id AS distinct_id FROM events", "events", "events", Workload.DEFAULT),
+            (
+                "WITH exported_events AS (SELECT event, distinct_id FROM events) "
+                "SELECT event AS event, distinct_id AS distinct_id FROM exported_events",
+                "events",
+                "events",
+                Workload.DEFAULT,
+            ),
+            ("SELECT body FROM logs", "logs", "logs_distributed", Workload.LOGS),
         ],
-        ids=["table", "cte"],
+        ids=["table", "cte", "logs"],
     )
-    async def test_as_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end, hogql_query):
+    async def test_as_query_with_context(
+        self, ateam, auser, data_interval_start, data_interval_end, hogql_query, table, clickhouse_table, workload
+    ):
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.id,
             hogql_query=hogql_query,
             user_id=auser.pk,
         )
-        printed_query, query_parameters = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+        printed_query, context = await model.as_query_with_context(data_interval_start, data_interval_end)
 
         # should add filter on team_id
-        assert f"equals(events.team_id, {ateam.id})" in printed_query
+        assert f"equals({clickhouse_table}.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
-        assert "log_comment" in query_parameters
+        assert "log_comment" in context.values
+        assert context.workload == workload
         # without interval placeholders the query runs as-is, as of now
         assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
         assert model.wait_for_data_interval_end is False
-        assert model.hogql_table_names == ("events",)
+        assert model.hogql_table_names == (table,)
 
-    async def test_as_query_with_parameters_applies_data_interval(
+    async def test_as_query_with_context_applies_data_interval(
         self, ateam, auser, data_interval_start, data_interval_end
     ):
         model = HogQLQueryRecordBatchModel(
@@ -464,7 +477,7 @@ class TestHogQLQueryRecordBatchModel:
                 "AND timestamp < {data_interval_end}"
             ),
         )
-        printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+        printed_query, _ = await model.as_query_with_context(data_interval_start, data_interval_end)
 
         upper_bound = f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
         lower_bound = f"toDateTime64('{data_interval_start:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
@@ -474,7 +487,7 @@ class TestHogQLQueryRecordBatchModel:
         assert "equals(event, %(hogql_val_" in printed_query
         assert model.wait_for_data_interval_end is True
 
-    async def test_as_query_with_parameters_selects_only_rows_in_data_interval(self, clickhouse_client, ateam, auser):
+    async def test_as_query_with_context_selects_only_rows_in_data_interval(self, clickhouse_client, ateam, auser):
         await truncate_events(clickhouse_client)
         data_interval_start = dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
         data_interval_end = dt.datetime(2021, 1, 15, 11, 0, 0, tzinfo=dt.UTC)
@@ -497,20 +510,30 @@ class TestHogQLQueryRecordBatchModel:
             ),
         )
 
-        printed_query, parameters = await model._print_query(
+        printed_query, context = await model._print_query(
             data_interval_start, data_interval_end, output_format="JSONEachRow"
         )
-        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=context.values)
 
         assert {row["uuid"] for row in rows} == {event["uuid"] for event in events_in_range}
 
-    async def test_as_insert_into_s3_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end):
+    @pytest.mark.parametrize(
+        "hogql_query,table,workload",
+        [
+            ("SELECT event AS event, distinct_id AS distinct_id FROM events", "events", Workload.DEFAULT),
+            ("SELECT body FROM logs", "logs_distributed", Workload.LOGS),
+        ],
+        ids=["events", "logs"],
+    )
+    async def test_as_insert_into_s3_query_with_context(
+        self, ateam, auser, data_interval_start, data_interval_end, hogql_query, table, workload
+    ):
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.id,
-            hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events",
+            hogql_query=hogql_query,
             user_id=auser.pk,
         )
-        printed_query, query_parameters = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, context = await model.as_insert_into_s3_query_with_context(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -521,7 +544,9 @@ class TestHogQLQueryRecordBatchModel:
         assert "INSERT INTO FUNCTION" in printed_query
         assert "https://test-bucket.s3.amazonaws.com/test-prefix/export_{_partition_id}.arrow" in printed_query
         assert "PARTITION BY rand() %% 5" in printed_query
-        assert f"equals(events.team_id, {ateam.id})" in printed_query
+        assert f"equals({table}.team_id, {ateam.id})" in printed_query
+        assert "log_comment" in context.values
+        assert context.workload == workload
         # the user's query is wrapped as-is: settings are sent as query parameters, so we never write a
         # SETTINGS clause into the query
         assert "SETTINGS" not in printed_query
@@ -565,7 +590,7 @@ class TestHogQLQueryRecordBatchModel:
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.pk, hogql_query="SELECT properties AS properties FROM events", user_id=auser.pk
         )
-        await model.as_query_with_parameters(None, None)
+        await model.as_query_with_context(None, None)
 
         assert model.get_clickhouse_request_settings()["json_type_escape_dots_in_keys"] == "1"
 
@@ -658,7 +683,7 @@ class TestHogQLQueryRecordBatchModel:
             team_id=ateam.pk, batch_export_model=batch_export_model
         )
         assert record_batch_model is not None
-        printed_query, _ = await record_batch_model.as_query_with_parameters(data_interval_start, data_interval_end)
+        printed_query, _ = await record_batch_model.as_query_with_context(data_interval_start, data_interval_end)
 
         assert ("toTimeZone(events.timestamp" in printed_query) is converts_timezone
 
@@ -670,7 +695,7 @@ class TestHogQLQueryRecordBatchModel:
         await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
         payload = BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
         _, model, _, _, _, _ = resolve_batch_exports_model(ateam.pk, payload)
-        await model.as_query_with_parameters(None, None)
+        await model.as_query_with_context(None, None)
 
         if actor_state == "deleted":
             await User.objects.filter(pk=auser.pk).adelete()
@@ -693,7 +718,7 @@ class TestHogQLQueryRecordBatchModel:
             )
 
         with pytest.raises(UnsupportedHogQLQueryError, match="Save the export again"):
-            await model.as_query_with_parameters(None, None)
+            await model.as_query_with_context(None, None)
 
     @pytest.mark.parametrize("use_new_events_schema", [False, True])
     async def test_rechecks_user_property_restrictions_at_runtime(
@@ -716,7 +741,7 @@ class TestHogQLQueryRecordBatchModel:
             _, model, _, _, _, _ = resolve_batch_exports_model(
                 ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
             )
-            before, _ = await model.as_query_with_parameters(None, None)
+            before, _ = await model.as_query_with_context(None, None)
             assert "NULL AS secret" not in before
             assert "JSONDropKeys" not in before
 
@@ -724,13 +749,13 @@ class TestHogQLQueryRecordBatchModel:
                 team=ateam, property_definition=prop, organization_member=membership, access_level="none"
             )
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
-            after, parameters = await model.as_insert_into_s3_query_with_parameters(
+            after, context = await model.as_insert_into_s3_query_with_context(
                 None, None, "https://example.com/staging", None, 1
             )
 
         assert "NULL AS secret" in after
         assert "JSONDropKeys" in after
-        assert any(isinstance(value, list) and "secret_field" in value for value in parameters.values())
+        assert any(isinstance(value, list) and "secret_field" in value for value in context.values.values())
 
     async def test_rechecks_table_access_at_runtime(
         self, ateam: "Team", aorganization: "Organization", auser: User
@@ -751,7 +776,7 @@ class TestHogQLQueryRecordBatchModel:
             _, model, _, _, _, _ = resolve_batch_exports_model(
                 ateam.pk, BatchExportHogQLModel(query=query, user_id=auser.pk, modifiers={})
             )
-            await model.as_query_with_parameters(None, None)
+            await model.as_query_with_context(None, None)
             membership = await OrganizationMembership.objects.aget(user=auser, organization=aorganization)
             await AccessControl.objects.acreate(
                 team=ateam,
@@ -762,12 +787,19 @@ class TestHogQLQueryRecordBatchModel:
             )
 
             with pytest.raises(UnsupportedHogQLQueryError, match="You don't have access to table `export_view`"):
-                await model.as_query_with_parameters(None, None)
+                await model.as_query_with_context(None, None)
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("use_new_events_schema", [False, True])
-async def test_custom_export_recompilation_preserves_column_names(ateam, use_new_events_schema):
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+async def test_custom_export_recompilation_preserves_column_names(ateam):
+    """A team on the new schema keeps its stored custom-schema fields, and only a native run recompiles them.
+
+    `resolve_batch_exports_model` must return the stored fields unchanged, because runs that read a legacy table use
+    them as stored. `recompile_stored_schema` compiles the stored HogQL query for the native table: it keeps the stored
+    aliases, so the export's column names don't change, replaces expressions that no longer exist (the removed
+    materialized column), and drops values the stored query no longer uses.
+    """
     schema: BatchExportSchema = {
         "hogql_query": "SELECT lower(e.event), e.properties.$browser AS browser FROM events AS e",
         "fields": [
@@ -776,20 +808,17 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
         ],
         "values": {"unused_old_parameter": "stale"},
     }
-    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_new_events_schema):
-        _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-            team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
-        )
+    _, _, _, stored_fields, _, stored_values = await database_sync_to_async(resolve_batch_exports_model)(
+        team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
+    )
+    fields, values = await database_sync_to_async(recompile_stored_schema)(ateam.pk, schema, schema["hogql_query"])
 
-    assert fields is not None
+    assert stored_fields == schema["fields"]
+    assert stored_values == schema["values"]
     assert [field["alias"] for field in fields] == ["`lower(e.event)`", "browser"]
-    if use_new_events_schema:
-        assert fields[0]["expression"] == "lower(events.event)"
-        assert "mat_removed_column" not in fields[1]["expression"]
-        assert values == {"hogql_val_0": "$browser"}
-    else:
-        assert fields == schema["fields"]
-        assert values == schema["values"]
+    assert fields[0]["expression"] == "lower(events.event)"
+    assert "mat_removed_column" not in fields[1]["expression"]
+    assert "unused_old_parameter" not in values
     assert schema["fields"][0]["expression"] == "lower(e.event)"
 
 
@@ -799,6 +828,20 @@ async def test_custom_export_recompilation_preserves_column_names(ateam, use_new
 async def test_custom_export_backfill_runs_without_legacy_events_tables(
     ateam, clickhouse_client, interval_start_is_none
 ):
+    """A backfill on the native table exports the stored documents, with filters and custom fields on typed columns.
+
+    The test database holds only `events_json`, written by the ingestion cleaner, so any read of a legacy table fails.
+    It checks that:
+    - the exported `properties` and `person_properties` are the stored documents: flags in the `$feature_flags` map
+      with their sentinels, objects and arrays that the cleaner stored as text put back, and no declared-path
+      defaults, `$feature/` keys, `$active_feature_flags`, temporary properties or top-level null fields.
+    - `set`, `set_once`, `unset` and `group_set` are empty.
+    - filters compiled for the new schema match on the typed columns: a flag through the map, and "is not set" on a
+      declared key whose stored value is its `""` default.
+    - recompiled custom-schema fields read the typed columns, so a flag field returns its value and the sentinels map
+      back to the variant names.
+    - duplicate rows and rows of another team are left out.
+    """
     database = f"native_export_{uuid7().hex}"
     await clickhouse_client.execute_query(f"CREATE DATABASE {database}")
     try:
@@ -813,7 +856,16 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 f"CREATE TABLE events_json (uuid UUID, person_id UUID, team_id Int64, event String, distinct_id String, "
                 f"timestamp DateTime64(6), inserted_at DateTime64(6), created_at DateTime64(6), elements_chain String, "
                 f"properties {EVENTS_PROPERTIES_JSON_TYPE()}, person_properties {PERSON_PROPERTIES_JSON_TYPE()}, "
-                "temporary_properties JSON) ENGINE = Memory"
+                "temporary_properties JSON, properties_null_keys Array(String), "
+                "temporary_properties_null_keys Array(String), person_properties_null_keys Array(String)) ENGINE = Memory"
+            )
+            # The rows go through the cleaner that writes `events_json` at ingestion, so a change to how it stores
+            # events changes what this test exports. A VALUES insert cannot call the cleaner, so the SDK documents
+            # are staged as text first.
+            await client.execute_query(
+                "CREATE TABLE events_input (uuid UUID, person_id UUID, team_id Int64, event String, distinct_id String, "
+                "timestamp DateTime64(6), inserted_at DateTime64(6), created_at DateTime64(6), elements_chain String, "
+                "properties String, person_properties String) ENGINE = Memory"
             )
             row = {
                 "uuid": str(uuid7()),
@@ -825,18 +877,35 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 "inserted_at": "2024-02-01 12:00:00",
                 "created_at": "2024-02-01 12:00:00",
                 "elements_chain": "",
-                "properties": {
-                    "$browser": "Firefox",
-                    "amount": 2.5,
-                    "person": {"properties": "event value"},
-                    "$feature_flags": {"named-false": "$false", "named-true": "$true", "some-feature": "true"},
-                },
-                "person_properties": {"email": "buyer@example.com"},
-                "temporary_properties": {"$set": {"email": "buyer@example.com"}},
+                "properties": json.dumps(
+                    {
+                        "$browser": "Firefox",
+                        "amount": 2.5,
+                        "person": {"properties": "event value"},
+                        "cart": {"items": 2, "note": None},
+                        "tags": ["a", "b"],
+                        "coupon": None,
+                        "$feature/some-feature": True,
+                        "$feature/named-false": "false",
+                        "$feature/named-true": "true",
+                        "$feature/retired-flag": None,
+                        "$active_feature_flags": ["some-feature", "named-false", "named-true"],
+                        "$set": {"email": "buyer@example.com", "phone": None},
+                        "$unset": ["old_property"],
+                    }
+                ),
+                "person_properties": json.dumps({"email": "buyer@example.com", "nickname": None}),
             }
             await client.execute_query(
-                "INSERT INTO events_json FORMAT JSONEachRow\n"
+                "INSERT INTO events_input FORMAT JSONEachRow\n"
                 + "\n".join(json.dumps(value) for value in [row, row, {**row, "team_id": ateam.pk + 1}])
+            )
+            await client.execute_query(
+                "INSERT INTO events_json SELECT uuid, person_id, team_id, event, distinct_id, timestamp, inserted_at, "
+                "created_at, elements_chain, cleaned.properties, cleaned.person_properties, cleaned.temporary_properties, "
+                "cleaned.properties_null_keys, cleaned.temporary_properties_null_keys, cleaned.person_properties_null_keys "
+                f"FROM (SELECT *, {EVENTS_JSON_CLEANER}(properties, person_properties) AS cleaned FROM events_input) "
+                f"SETTINGS {EVENTS_JSON_INSERT_SETTINGS}"
             )
             schema: BatchExportSchema = {
                 "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested, e.properties.`$feature/some-feature` AS flag, e.properties.`$feature/named-false` AS named_false, e.properties.`$feature/named-true` AS named_true FROM events AS e",
@@ -846,15 +915,18 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 ],
                 "values": {"unused_old_parameter": "stale"},
             }
-            _, _, _, fields, _, values = await database_sync_to_async(resolve_batch_exports_model)(
-                team_id=ateam.pk, batch_export_model=BatchExportEventsCustomModel(schema=schema)
+            fields, values = await database_sync_to_async(recompile_stored_schema)(
+                ateam.pk, schema, schema["hogql_query"]
             )
-            assert fields is not None
             assert "unused_old_parameter" not in values
             predicate, values = await database_sync_to_async(compose_filters_clause)(
-                [{"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]}],
+                [
+                    {"key": "$feature/some-feature", "type": "event", "operator": "exact", "value": ["true"]},
+                    {"key": "$os", "type": "event", "operator": "is_not_set"},
+                ],
                 team_id=ateam.pk,
                 values=values,
+                use_new_events_schema=True,
             )
             batches: list[pa.RecordBatch] = await database_sync_to_async(
                 lambda: list(
@@ -866,7 +938,10 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                         interval_end="2024-01-02 00:00:00",
                         include_events=["purchase"],
                         fields=fields
-                        + [{"expression": key, "alias": key} for key in ("properties", "person_properties", "set")],
+                        + [
+                            {"expression": key, "alias": key}
+                            for key in ("properties", "person_properties", "set", "set_once", "unset", "group_set")
+                        ],
                         filters_str=predicate,
                         extra_query_parameters=values,
                         is_backfill=True,
@@ -884,14 +959,23 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert rows[0]["named_true"] == "true"
             exported_properties = json.loads(rows[0]["properties"])
             assert exported_properties["$browser"] == "Firefox"
-            assert exported_properties["$set"] == {"email": "buyer@example.com"}
-            assert "$feature_flags" not in exported_properties
-            assert exported_properties["$feature/some-feature"] is True
-            assert exported_properties["$feature/named-false"] == "false"
-            assert exported_properties["$feature/named-true"] == "true"
-            assert exported_properties["$active_feature_flags"] == ["named-false", "named-true", "some-feature"]
-            assert json.loads(rows[0]["person_properties"])["email"] == "buyer@example.com"
-            assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
+            assert "$os" not in exported_properties
+            assert exported_properties["$feature_flags"] == {
+                "named-false": "$false",
+                "named-true": "$true",
+                "some-feature": "true",
+            }
+            assert not any(key.startswith("$feature/") for key in exported_properties)
+            assert "$active_feature_flags" not in exported_properties
+            assert "$set" not in exported_properties
+            assert exported_properties["cart"] == {"items": 2, "note": None}
+            assert exported_properties["tags"] == ["a", "b"]
+            assert "coupon" not in exported_properties
+            exported_person_properties = json.loads(rows[0]["person_properties"])
+            assert exported_person_properties["email"] == "buyer@example.com"
+            assert "$initial_os" not in exported_person_properties
+            assert "nickname" not in exported_person_properties
+            assert [rows[0][key] for key in ("set", "set_once", "unset", "group_set")] == [None, None, None, None]
             assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)
     finally:
         await clickhouse_client.execute_query(f"DROP DATABASE {database}")

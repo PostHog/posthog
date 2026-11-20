@@ -113,8 +113,8 @@ from products.review_hog.backend.temporal.activities import (
     validate_github_integration_activity,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_MANUAL, ResolvePRWorkflowInputs
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Commit, NoteArtefact, TaskRunArtefact
+from products.signals.backend.facade.report_artefacts import Commit, NoteArtefact, TaskRunArtefact
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 
@@ -830,6 +830,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                             model=RESOLUTION_MODEL,
                             reasoning_effort=RESOLUTION_REASONING_EFFORT,
                             initial_permission_mode=RESOLUTION_INITIAL_PERMISSION_MODE,
+                            can_push=True,
                         )
                         await database_sync_to_async(_append_task_run, thread_sensitive=False)(
                             input, prepared.report_id, session

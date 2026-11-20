@@ -4,8 +4,8 @@ import { toast, type ToastOptions, type UpdateOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconCopy, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
-import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatus'
-import { isChristmas } from 'lib/holidays'
+import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
+import { isChristmas } from 'lib/utils/holidays'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { hashCodeForString } from 'lib/utils/strings'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
@@ -38,6 +38,11 @@ export interface ToastButton {
 interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     button?: ToastButton
     hideButton?: boolean
+}
+
+interface ErrorToastOptions<T = string> extends ToastOptionsWithButton<T> {
+    /** Sent to analytics in place of `message`, for a message that can repeat text the user typed. */
+    capturedMessage?: string
 }
 
 interface SuccessToastOptions<T = string> extends ToastOptionsWithButton<T> {
@@ -292,12 +297,15 @@ export const lemonToast = {
         })
         return id
     },
-    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
+    error(
+        message: string | JSX.Element,
+        { button, hideButton, capturedMessage, ...toastOptions }: ErrorToastOptions = {}
+    ) {
         // The toolbar bundle initializes a named instance, so the default instance imported here stays
         // uninitialized there and posthog-js discards the event. `capture` is defined either way.
         if (posthog.__loaded) {
             posthog.capture('toast error', {
-                message: String(message),
+                message: capturedMessage ?? String(message),
                 button: button?.label,
                 toastId: toastOptions.toastId,
             })

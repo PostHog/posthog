@@ -42,7 +42,7 @@ def make_user(
 
 def make_context(
     user: AuthenticatedUser | None = None,
-    product: str = "llm_gateway",
+    product: str = "django",
     request_id: str | None = None,
 ) -> ThrottleContext:
     return ThrottleContext(
@@ -150,7 +150,7 @@ class TestThrottleRunner:
         runner = ThrottleRunner(throttles=[product_throttle, burst_throttle, sustained_throttle])
 
         user = make_user(auth_method="personal_api_key")
-        context = make_context(user=user, product="llm_gateway")
+        context = make_context(user=user, product="django")
 
         result = await runner.check(context)
         assert result.allowed is True
@@ -167,7 +167,7 @@ class TestThrottleContext:
     def test_context_holds_request_id(self) -> None:
         context = ThrottleContext(
             user=make_user(),
-            product="llm_gateway",
+            product="django",
             request_id="req-123",
         )
 

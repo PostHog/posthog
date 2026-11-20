@@ -25,15 +25,14 @@ from products.workflows.backend.services.email_sending_tier import (
     recompute_email_sending_tier_for_team,
     recompute_email_sending_tiers,
 )
+from products.workflows.backend.services.email_sending_tier_audit import EMAIL_SENDING_TIER_CHANGED_EVENT
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
 
-TIER_HOURLY_CAPS = [200, 600, 2000, 6000, 20000, 60000, 200000]
 TIER_DAILY_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 TIER_BATCH_CAPS = [1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
 TIER_SETTINGS = {
-    "WORKFLOWS_EMAIL_TIER_HOURLY_CAPS": TIER_HOURLY_CAPS,
     "WORKFLOWS_EMAIL_TIER_DAILY_CAPS": TIER_DAILY_CAPS,
     "WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS": TIER_BATCH_CAPS,
     "WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER": [3],
@@ -79,10 +78,10 @@ def clean_days(count: int, sent_per_day: int, *, days_ago: int = 0) -> dict[str,
 
 @override_settings(**TIER_SETTINGS)
 class TestEmailSendingTierDecision(SimpleTestCase):
-    @parameterized.expand([(tier, caps) for tier, caps in enumerate(zip(TIER_HOURLY_CAPS, TIER_DAILY_CAPS))])
-    def test_tier_maps_to_its_caps(self, tier: int, caps: tuple[int, int]) -> None:
+    @parameterized.expand([(tier, cap) for tier, cap in enumerate(TIER_DAILY_CAPS)])
+    def test_tier_maps_to_its_caps(self, tier: int, cap: int) -> None:
         limits = get_email_sending_tier_limits(tier)
-        assert (limits.per_hour, limits.per_day) == caps
+        assert limits.per_day == cap
 
     @parameterized.expand([(tier,) for tier in range(len(TIER_DAILY_CAPS) - 1)])
     def test_promotes_one_tier_when_every_criterion_is_met(self, tier: int) -> None:
@@ -408,15 +407,23 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         self._config(email_sending_tier=0, email_sending_tier_updated_at=timezone.now() - timedelta(days=30))
         used = clean_days(2, TIER_DAILY_CAPS[0])
         histories = {self.team.id: history(team_id=self.team.id, sent=sum(used.values()), daily_sends=used)}
-        with patch(
-            "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
-            return_value=SendingHistoryWindows(window=histories, recent=histories),
+        with (
+            patch(
+                "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
+                return_value=SendingHistoryWindows(window=histories, recent=histories),
+            ),
+            patch("posthog.event_usage.posthoganalytics.capture") as global_capture,
         ):
             if by_staff:
                 recompute_email_sending_tier_for_team(self.team.id, user_id=self.user.pk)
             else:
                 recompute_workflows_email_sending_tiers()
 
+        assert [
+            (call.kwargs["distinct_id"], call.kwargs["properties"]["changed_by"])
+            for call in global_capture.call_args_list
+            if call.kwargs["event"] == EMAIL_SENDING_TIER_CHANGED_EVENT
+        ] == ([(str(self.team.uuid), "staff")] if by_staff else [])
         config = TeamWorkflowsConfig.objects.get(team=self.team)
         assert config.email_sending_tier == 1
         assert config.email_sending_tier_updated_at is not None

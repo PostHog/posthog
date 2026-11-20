@@ -145,29 +145,6 @@ pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
     )
 }
 
-/// Finds a row of the chunk where a column the scan would read cannot tell the boolean `false` from
-/// the string `"false"`. It leaves out only the row filter and the band, so it reads every row the
-/// scan can read.
-pub fn ambiguous_value_probe_sql(spec: &ScanSpec, columns: &ColumnBackedKeys) -> String {
-    format!(
-        "SELECT 1\nFROM {} AS e\nWHERE {}\n  AND {}\nLIMIT 1",
-        spec.table.as_str(),
-        chunk_rows_sql(spec),
-        ambiguous_values_sql(columns),
-    )
-}
-
-/// True where [`columns_object_expr`] would build the boolean `false`. A string keeps its spaces in
-/// the column, and JSON reads ` false ` as the boolean. Tabs and line breaks stay escaped.
-pub fn ambiguous_values_sql(columns: &ColumnBackedKeys) -> String {
-    join_terms(
-        columns.iter().map(|(_, column)| {
-            format!("trim(BOTH ' ' FROM {}) = 'false'", column_reference(column))
-        }),
-        "OR",
-    )
-}
-
 /// One team, one day, the chunk's event names, and only rows inserted before the chunk's claim.
 /// The claim is in the past, so every query over the chunk reads the same rows.
 fn chunk_rows_sql(spec: &ScanSpec) -> String {
@@ -190,9 +167,9 @@ fn chunk_rows_sql(spec: &ScanSpec) -> String {
 
 /// Renders a superset of HogVM equality (see [`cohort_core::hogvm::analysis::EventRowFilter`]) over
 /// the value's raw JSON text without its outer quotes. The string `value` reads as itself, or holds a
-/// backslash when JSON escapes one of its characters; a boolean reads as `true` or `false`; an object
-/// starts with `{`. Assumes a blob holds each key once, since ClickHouse reads the first value and
-/// `serde_json` the last.
+/// backslash when JSON escapes one of its characters; a boolean reads as its text, which is `value`
+/// whenever the boolean equals it; an object starts with `{`. Assumes a blob holds each key once,
+/// since ClickHouse reads the first value and `serde_json` the last.
 pub fn row_filter_sql(filter: &ScanRowFilter, columns: &MaterializedColumns) -> String {
     let filtered_events = filter
         .events()
@@ -264,9 +241,6 @@ fn property_value_sql<'a>(
         ),
     };
     let literals = values
-        .into_iter()
-        .chain(["true", "false"])
-        .collect::<BTreeSet<_>>()
         .into_iter()
         .map(clickhouse_string_literal)
         .collect::<Vec<_>>()
@@ -669,10 +643,6 @@ mod tests {
             ("$current_url", "mat_$current_url"),
             ("$pathname", "mat_$pathname"),
         ]);
-        assert_eq!(
-            ambiguous_value_probe_sql(&unbanded_spec(), &columns),
-            "SELECT 1\nFROM events AS e\nWHERE e.team_id = 2\n  AND e.timestamp >= fromUnixTimestamp64Milli(86400000)\n  AND e.timestamp < fromUnixTimestamp64Milli(172800000)\n  AND e.event IN ('purchase')\n  AND coalesce(e.inserted_at, e._timestamp) < fromUnixTimestamp64Milli(200000000)\n  AND (trim(BOTH ' ' FROM e.`mat_$current_url`) = 'false' OR trim(BOTH ' ' FROM e.`mat_$pathname`) = 'false')\nLIMIT 1"
-        );
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Empty,
             elements_chain: ScalarColumn::Empty,
@@ -746,7 +716,7 @@ mod tests {
         let rendered = row_filter_sql(&row_filter, &columns);
         assert_eq!(
             rendered,
-            "(e.event NOT IN ('$feature_flag_called', '$pageview') OR (e.event = '$feature_flag_called' AND arrayExists(v -> v IN ('a', 'b', 'false', 'true') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR v = '', [e.`mat_$feature_flag`])) OR (e.event = '$pageview' AND arrayExists(v -> v IN ('false', 'https://example.com/', 'true') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR JSONType(e.properties) != 'Object', [replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', '')])))"
+            "(e.event NOT IN ('$feature_flag_called', '$pageview') OR (e.event = '$feature_flag_called' AND arrayExists(v -> v IN ('a', 'b') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR v = '', [e.`mat_$feature_flag`])) OR (e.event = '$pageview' AND arrayExists(v -> v IN ('https://example.com/') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR JSONType(e.properties) != 'Object', [replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', '')])))"
         );
 
         let banded = spec(event_names.into_vec(), BandSpec::new(1, 2).unwrap());
@@ -805,18 +775,5 @@ mod tests {
             );
             assert!(!sql.contains("e.elements_chain"), "{sql}");
         }
-    }
-
-    /// The probe has to read the rows its scan reads. On `events` it would name a column that table
-    /// lacks, or find no flag call to probe.
-    #[test]
-    fn the_flag_evaluations_probe_reads_its_own_table_and_arrival_bound() {
-        assert_eq!(
-            ambiguous_value_probe_sql(
-                &flag_evaluations_spec(),
-                &backed(&[("$feature_flag", "flag_key")])
-            ),
-            "SELECT 1\nFROM flag_evaluations AS e\nWHERE e.team_id = 2\n  AND e.timestamp >= fromUnixTimestamp64Milli(86400000)\n  AND e.timestamp < fromUnixTimestamp64Milli(172800000)\n  AND e.event IN ('$feature_flag_called')\n  AND e.inserted_at < fromUnixTimestamp64Milli(200000000)\n  AND trim(BOTH ' ' FROM e.`flag_key`) = 'false'\nLIMIT 1"
-        );
     }
 }

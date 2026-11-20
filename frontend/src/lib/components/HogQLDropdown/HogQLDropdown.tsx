@@ -4,8 +4,9 @@ import { useState } from 'react'
 
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
+
 import { NodeKind } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 
 import { HogQLEditor } from '../HogQLEditor/HogQLEditor'
 

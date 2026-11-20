@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getAllEventNames } from '~/queries/nodes/InsightViz/utils'
+import { isActionsNode, isInsightQueryWithSeries } from '~/queries/schema/node-guards'
 import { ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
-import { isActionsNode, isInsightQueryWithSeries } from '~/queries/utils'
 import { EditorFilterProps } from '~/types'
 
 import { getInsightPropertyFilterGroupTypes } from 'products/product_analytics/frontend/insights/editor/propertyTaxonomicGroupTypes'

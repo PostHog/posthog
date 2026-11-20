@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { IconInfo } from '@posthog/icons'
+import { IconChevronDown, IconInfo } from '@posthog/icons'
 import {
     LemonButton,
     LemonCollapse,
@@ -24,7 +24,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -32,7 +32,6 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -52,6 +51,8 @@ import {
     SchemaEditorAction,
     SourceEditorAction,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { WarehouseTableAccessControlModal } from 'products/data_warehouse/frontend/shared/components/WarehouseTableAccessControlModal'
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
@@ -65,8 +66,10 @@ import {
 } from 'products/data_warehouse/frontend/utils'
 import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { addTableLogic } from './addTableLogic'
+import { AddTableModal } from './AddTableModal'
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
-import { replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
+import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
 import { ReplaceFileModal } from './ReplaceFileModal'
 import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
 
@@ -100,15 +103,6 @@ function fileUploadColumns(isFileUpload: boolean, columns: SchemaColumn[]): Sche
     return columns
         .filter((column) => !FILE_UPLOAD_HIDDEN_COLUMN_KEYS.includes(column.key ?? ''))
         .map((column) => (column.className === dimWhenNotSyncing ? { ...column, className: undefined } : column))
-}
-
-function replaceFileDisabledReason(schema: ExternalDataSourceSchema | undefined): string | undefined {
-    if (!schema) {
-        return 'This source has no table'
-    }
-    return schema.status === ExternalDataSchemaStatus.Running
-        ? 'An import is running. Replace the file once it finishes.'
-        : undefined
 }
 
 interface SchemaStatusDisplay {
@@ -205,6 +199,11 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     const { loadDestinations } = useActions(destinationLookupLogic)
     const { destinationsById } = useValues(destinationLookupLogic)
     const { openReplaceFile } = useActions(replaceFileLogic({ sourceId: id }))
+    const { openAddTable } = useActions(addTableLogic({ sourceId: id }))
+    // A source that reads a whole bucket can't discover tables, so it gets Add table without the flag.
+    const canAddTables =
+        !!source?.supports_adding_tables &&
+        (!!featureFlags[FEATURE_FLAGS.WAREHOUSE_OBJECT_STORAGE_ADD_TABLE] || source.supports_table_discovery === false)
     const showDestinations = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]
     const isFileUpload = isFileUploadSource(source)
     const fileUploadSchema = isFileUpload ? source?.schemas[0] : undefined
@@ -246,7 +245,10 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
             <div className="flex items-start justify-between gap-2 mb-2">
                 {isFileUpload ? (
                     <div className="text-secondary text-sm">
-                        This table comes from a file you uploaded. To update its data, replace the file.
+                        {source?.file_name
+                            ? `This table comes from the file ${source.file_name}. `
+                            : 'This table comes from a file you uploaded. '}
+                        To update its data, replace the file.
                     </div>
                 ) : (
                     <div className="flex flex-wrap items-center gap-3 min-w-0">
@@ -361,20 +363,60 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                                 </LemonButton>
                             </SourceEditorAction>
                             <SourceEditorAction source={source}>
-                                <LemonButton
-                                    type="secondary"
-                                    loading={refreshingSchemas}
-                                    onClick={() => refreshSchemas()}
-                                    disabledReason={
-                                        sourceLoading
-                                            ? 'Source is loading'
-                                            : syncingNow
-                                              ? 'Sync in progress'
-                                              : undefined
-                                    }
-                                >
-                                    Pull new schemas
-                                </LemonButton>
+                                {canAddTables ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={openAddTable}
+                                        disabledReason={sourceLoading ? 'Source is loading' : undefined}
+                                        data-attr="schemas-tab-add-table"
+                                        sideAction={
+                                            source?.supports_table_discovery !== false
+                                                ? {
+                                                      icon: <IconChevronDown />,
+                                                      'aria-label': 'More ways to add tables',
+                                                      dropdown: {
+                                                          placement: 'bottom-end',
+                                                          overlay: (
+                                                              <LemonMenuOverlay
+                                                                  items={[
+                                                                      {
+                                                                          label: 'Find new tables',
+                                                                          tooltip:
+                                                                              "Scan the source's folder for tables you have not added yet",
+                                                                          onClick: () => refreshSchemas(),
+                                                                          disabledReason: refreshingSchemas
+                                                                              ? 'Schema refresh in progress'
+                                                                              : syncingNow
+                                                                                ? 'Sync in progress'
+                                                                                : undefined,
+                                                                          'data-attr': 'schemas-tab-find-new-tables',
+                                                                      },
+                                                                  ]}
+                                                              />
+                                                          ),
+                                                      },
+                                                  }
+                                                : undefined
+                                        }
+                                    >
+                                        Add table
+                                    </LemonButton>
+                                ) : (
+                                    <LemonButton
+                                        type="secondary"
+                                        loading={refreshingSchemas}
+                                        onClick={() => refreshSchemas()}
+                                        disabledReason={
+                                            sourceLoading
+                                                ? 'Source is loading'
+                                                : syncingNow
+                                                  ? 'Sync in progress'
+                                                  : undefined
+                                        }
+                                    >
+                                        Pull new schemas
+                                    </LemonButton>
+                                )}
                             </SourceEditorAction>
                         </>
                     )}
@@ -438,12 +480,12 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                 />
             )}
             {isFileUpload && <ReplaceFileModal sourceId={id} />}
+            {canAddTables && <AddTableModal sourceId={id} />}
             {accessControlSchema?.table && (
-                <AccessControlObjectModal
+                <WarehouseTableAccessControlModal
                     isOpen={!!accessControlSchema}
                     onClose={() => setAccessControlSchema(null)}
-                    resource={AccessControlResourceType.WarehouseTable}
-                    resource_id={accessControlSchema.table.id}
+                    tableId={accessControlSchema.table.id}
                     title={accessControlSchema.label ?? accessControlSchema.name}
                     description="Control who can query, sync, and manage this table. Members without editor access can't trigger syncs, change its settings, or delete it."
                 />
@@ -630,17 +672,62 @@ function ManagedSchemaTable({
                     key: 'sync_type',
                     className: dimWhenNotSyncing,
                     render: (_, schema) => {
-                        if (!schema.sync_type) {
-                            return <span className="text-muted">Not set up</span>
-                        }
                         const blockedReason = schema.incremental_sync_blocked
-                        if (!blockedReason) {
-                            return <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                        const syncMethod = schema.sync_type ? (
+                            <LemonTag type={blockedReason ? 'warning' : 'primary'}>
+                                {SyncTypeLabelMap[schema.sync_type]}
+                            </LemonTag>
+                        ) : (
+                            <span className="text-muted">Not set up</span>
+                        )
+                        // The schema scene hides the sync method section for a file upload, so no link here.
+                        if (isFileUpload) {
+                            return syncMethod
+                        }
+                        const webhookTag = schema.webhook_not_registered ? (
+                            <Tooltip title="This table uses webhook sync, but the source has no active webhook. Each sync reads the source API instead, which is slower and can read the whole table. Set up the webhook on the Webhook tab, or change the sync method.">
+                                <Link
+                                    to={urls.dataWarehouseSource(prefixedSourceId, 'webhook')}
+                                    subtle
+                                    data-attr="schemas-tab-webhook-not-registered"
+                                >
+                                    <LemonTag type="danger">No webhook</LemonTag>
+                                </Link>
+                            </Tooltip>
+                        ) : null
+                        const syncMethodLink = (
+                            <Tooltip
+                                title={
+                                    blockedReason
+                                        ? IncrementalSyncBlockedMessageMap[blockedReason]
+                                        : schema.sync_type
+                                          ? 'Change the sync method for this table'
+                                          : 'Set up the sync method for this table'
+                                }
+                                interactive={!!blockedReason}
+                            >
+                                <Link
+                                    to={urls.dataWarehouseSourceSchema(
+                                        prefixedSourceId,
+                                        schema.id,
+                                        'configuration',
+                                        'sync-method'
+                                    )}
+                                    subtle
+                                    data-attr="schemas-tab-sync-method"
+                                >
+                                    {syncMethod}
+                                </Link>
+                            </Tooltip>
+                        )
+                        if (!webhookTag) {
+                            return syncMethodLink
                         }
                         return (
-                            <Tooltip title={IncrementalSyncBlockedMessageMap[blockedReason]} interactive>
-                                <LemonTag type="warning">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
-                            </Tooltip>
+                            <div className="flex flex-wrap items-center gap-1">
+                                {syncMethodLink}
+                                {webhookTag}
+                            </div>
                         )
                     },
                 },
@@ -876,6 +963,17 @@ function SchemaBulkActions({
     const frequencyOptions = allowedSyncFrequencies()
 
     const onEnable = (): void => {
+        const pendingCount = selected.filter(
+            (schema) => !schema.should_sync && schema.pending_self_managed_table
+        ).length
+        if (pendingCount > 0) {
+            confirmPendingSelfManagedSync(pendingCount, enableWithDefaults, 'bulk')
+            return
+        }
+        enableWithDefaults()
+    }
+
+    const enableWithDefaults = (): void => {
         const needingDefaults = selected.filter((schema) => !schema.should_sync && !schema.sync_type)
         if (needingDefaults.length === 0) {
             run(() => bulkEnable(selected))

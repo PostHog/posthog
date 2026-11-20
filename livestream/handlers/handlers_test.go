@@ -749,38 +749,49 @@ func TestStreamEventsHandlerAppliesPropertyRestrictions(t *testing.T) {
 	})
 }
 
-func TestStreamEventsHandlerEndsStreamWhenRecheckRestrictsFilteredProperty(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		viper.Set("jwt.secret", "test-periodic-restriction-secret")
-		viper.Set("jwt.authorization_url", "http://authorization.test")
-		defer viper.Set("jwt.authorization_url", "")
+func TestStreamEventsHandlerEndsStreamWhenRecheckRestrictsAccess(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "filtered property", body: `{"restricted_event_properties": ["email"], "restricted_person_properties": []}`},
+		{name: "viewer IP", body: `{"ip_restrictions": [["198.51.100.0/24"]]}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				viper.Set("jwt.secret", "test-periodic-restriction-secret")
+				viper.Set("jwt.authorization_url", "http://authorization.test")
+				defer viper.Set("jwt.authorization_url", "")
 
-		var calls atomic.Int32
-		originalTransport := http.DefaultTransport
-		http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
-			if calls.Add(1) == 1 {
-				return restrictionsResponse(`{"restricted_event_properties": [], "restricted_person_properties": []}`), nil
-			}
-			return restrictionsResponse(`{"restricted_event_properties": ["email"], "restricted_person_properties": []}`), nil
+				var calls atomic.Int32
+				originalTransport := http.DefaultTransport
+				http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					if calls.Add(1) == 1 {
+						return restrictionsResponse(`{"restricted_event_properties": [], "restricted_person_properties": []}`), nil
+					}
+					return restrictionsResponse(test.body), nil
+				})
+				defer func() { http.DefaultTransport = originalTransport }()
+
+				request := httptest.NewRequest(http.MethodGet, "/events?property=email=hidden@example.com", nil)
+				request.RemoteAddr = "203.0.113.7:8000"
+				request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+					"team_id": 1, "api_token": "test-project-token",
+				}))
+				e := echo.New()
+				subChan := make(chan events.Subscription, 1)
+				unSubChan := make(chan events.Subscription, 1)
+				done := make(chan error, 1)
+				go func() {
+					done <- StreamEventsHandler(e.Logger, subChan, unSubChan)(e.NewContext(request, httptest.NewRecorder()))
+				}()
+
+				<-subChan
+				time.Sleep(30 * time.Second)
+
+				require.NoError(t, <-done)
+				assert.Equal(t, int32(2), calls.Load())
+			})
 		})
-		defer func() { http.DefaultTransport = originalTransport }()
-
-		request := httptest.NewRequest(http.MethodGet, "/events?property=email=hidden@example.com", nil)
-		request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
-			"team_id": 1, "api_token": "test-project-token",
-		}))
-		e := echo.New()
-		subChan := make(chan events.Subscription, 1)
-		unSubChan := make(chan events.Subscription, 1)
-		done := make(chan error, 1)
-		go func() {
-			done <- StreamEventsHandler(e.Logger, subChan, unSubChan)(e.NewContext(request, httptest.NewRecorder()))
-		}()
-
-		<-subChan
-		time.Sleep(30 * time.Second)
-
-		require.NoError(t, <-done)
-		assert.Equal(t, int32(2), calls.Load())
-	})
+	}
 }

@@ -10,6 +10,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { userLogic } from 'scenes/userLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
@@ -171,6 +172,27 @@ describe('timeSensitiveAuthenticationLogic', () => {
             await pending
 
             await expectLogic(logic).toMatchValues({ showAuthenticationModal: false })
+        })
+
+        it('should email the signed-in user a link to set a password', async () => {
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, has_password: false })
+            const resetRequests: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/reset/': async ({ request }) => {
+                        resetRequests.push(await request.json())
+                        return [204]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.sendSetPasswordLink()
+            })
+                .toDispatchActions(['sendSetPasswordLinkSuccess'])
+                .toMatchValues({ setPasswordLinkSentTo: MOCK_DEFAULT_USER.email })
+
+            expect(resetRequests).toEqual([{ email: MOCK_DEFAULT_USER.email }])
         })
     })
 

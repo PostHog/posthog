@@ -3,13 +3,14 @@ import type { ReactNode } from 'react'
 
 import { ApiConfig } from 'lib/api'
 import type { DataColorTheme } from 'lib/colors'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
+import { DEFAULT_STEP_SOURCES } from '~/queries/nodes/InsightQuery/stepSourcePresets'
 import {
     InsightFilter,
     InsightVizNode,
@@ -59,7 +60,6 @@ import {
     journeysNodeModalTitle,
     journeysOtherModalTitle,
 } from './journeysModalTitles'
-import { DEFAULT_STEP_SOURCES } from './stepSourcePresets'
 
 const DEFAULT_JOURNEYS_LOGIC_KEY = 'default_journeys_key'
 

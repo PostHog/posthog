@@ -1,6 +1,7 @@
 import { azureBlobDefinition } from './azureBlob'
 import { bigqueryDefinition } from './bigquery'
 import { databricksDefinition } from './databricks'
+import { motherduckDefinition } from './motherduck'
 import { postgresDefinition } from './postgres'
 import { redshiftDefinition } from './redshift'
 import { s3Definition } from './s3'
@@ -20,6 +21,7 @@ export const WAREHOUSE_DESTINATIONS: Record<CreatableDestinationType, WarehouseD
     Databricks: databricksDefinition,
     S3: s3Definition,
     AzureBlob: azureBlobDefinition,
+    MotherDuck: motherduckDefinition,
 }
 
 export const CREATABLE_DESTINATION_TYPES = Object.keys(WAREHOUSE_DESTINATIONS) as CreatableDestinationType[]

@@ -5,6 +5,25 @@ Native changes still need a new build, see [RELEASING.md](RELEASING.md).
 
 Production OTA updates use a release request merged to `master` and approval from a required `mobile-production` environment reviewer. See [Releasing](RELEASING.md#request-a-hosted-release) for request creation, prerequisites and recovery.
 
+The `ota-180-20261102` request publishes the JavaScript and assets from the `1.8.0` native release to production.
+Merge it only after `native-180` has a completed release receipt. It targets `1.8.0` builds; older runtimes need the native store update first.
+
+The `ota-1160-chat-live-20261116` request follows `ota-1160-live-custom-properties` and targets `1.16.0` builds.
+It includes chat message timestamps, collapsed intermediate activity, charts in chat replies, clarification forms, and Live values that stay visible during refresh.
+It also includes the merged Inbox report action fixes.
+Both native fingerprints match the `1.16.0` baseline, so this update keeps the app version unchanged.
+
+The `ota-1160-live-logo` request follows `ota-1160-chat-live-20261116` and targets `1.16.0` builds.
+It animates the PostHog logo during Live refreshes and removes the updating row and native refresh spinner.
+Saved values remain visible, and pull-to-refresh remains available.
+
+The `ota-1160-notification-controls` request follows `ota-1160-live-logo` and targets `1.16.0` builds.
+It adds separate report and chat notification controls, clearer Inbox setup states, and sortable error cards with activity charts.
+It also makes screen header gradients consistent.
+
+The `ota-1160-navigation-and-date-ranges` request follows `ota-1160-notification-controls` and targets `1.16.0` builds.
+It keeps Live event details at a steady height while custom properties load, remembers date ranges between sessions, and scrolls to the top when you tap the selected tab.
+
 ## How a device gets an update
 
 - `expo-updates` checks `https://u.expo.dev/4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` each time the app starts.
@@ -43,7 +62,7 @@ Do not run `pnpm update`. That is pnpm's own command, and it upgrades dependenci
 
 ## Runtime version
 
-`app.config.ts` sets `runtimeVersion.policy` to `appVersion`, so the runtime version equals `version` (now `1.4.0`).
+`app.config.ts` sets `runtimeVersion.policy` to `appVersion`, so the runtime version equals `version` (now `1.16.0`).
 An update reaches only the builds with the same runtime version.
 
 The device's `appVersion` policy does not detect native changes. The hosted release workflow additionally compares Expo native fingerprints for both platforms against the last successful native release. You must raise `version` and request a native release when a change needs native code, for example:

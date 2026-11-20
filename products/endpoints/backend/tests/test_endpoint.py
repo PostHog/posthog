@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.schema import EndpointLastExecutionTimesRequest
 
+from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -56,6 +57,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "kind": "HogQLQuery",
             "modifiers": None,
             "name": None,
+            "offset": None,
             "query": "SELECT count(1) FROM query_log",
             "response": None,
             "sendRawQuery": None,
@@ -352,6 +354,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "kind": "HogQLQuery",
             "modifiers": None,
             "name": None,
+            "offset": None,
             "query": "SELECT 1",
             "response": None,
             "sendRawQuery": None,
@@ -742,27 +745,24 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
     def test_list_no_filters(self):
         """Test listing all endpoints without filters."""
         create_endpoint_with_version(
-            name="query1",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            is_active=True,
-        )
-        create_endpoint_with_version(
             name="query2",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=False,
         )
+        create_endpoint_with_version(
+            name="query1",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
 
-        # Test without any filters - should return all queries
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        query_names = {q["name"] for q in response_data["results"]}
-        self.assertEqual(query_names, {"query1", "query2"})
+        self.assertEqual([q["name"] for q in response.json()["results"]], ["query1", "query2"])
 
     def test_create_endpoint_with_comprehensive_trends_query(self):
         """Test creating a endpoint with a comprehensive TrendsQuery containing many fields."""
@@ -1267,6 +1267,24 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         version = endpoint.get_version()
         self.assertIsNotNone(version)
         self.assertEqual(version.data_freshness_seconds, 21600)
+
+    @parameterized.expand([("flag_on", True, 21600), ("flag_off", False, None)])
+    def test_response_reports_the_plan_refresh_floor(self, _name, flag_enabled, expected_floor_seconds):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        endpoint = create_endpoint_with_version(
+            name="plan_floor_test", team=self.team, query=self.sample_hogql_query, created_by=self.user
+        )
+
+        with mock.patch(
+            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["plan_refresh_floor_seconds"], expected_floor_seconds)
 
     def test_create_endpoint_with_insight_reference(self):
         """Test creating an endpoint with a reference to the insight it was created from."""

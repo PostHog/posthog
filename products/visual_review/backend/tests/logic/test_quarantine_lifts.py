@@ -4,6 +4,7 @@ import pytest
 
 from django.utils import timezone
 
+from products.visual_review.backend.facade.contracts import AUTO_EXTEND_REASON_PREFIX
 from products.visual_review.backend.facade.enums import (
     QuarantineLiftState,
     ReviewState,
@@ -12,7 +13,7 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import errors, github_api, quarantine_lifts, repos, runs
+from products.visual_review.backend.logic import auto_extend, errors, github_api, quarantine_lifts, repos, runs
 from products.visual_review.backend.models import QuarantinedIdentifier, QuarantineLiftRequest, Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -23,7 +24,9 @@ MASTER_SHA = "master-sha"
 
 
 def _merged(base_ref: str = "master") -> github_api.PullRequestState:
-    return github_api.PullRequestState(state="closed", merged=True, merge_commit_sha=MERGE_SHA, base_ref=base_ref)
+    return github_api.PullRequestState(
+        state="closed", merged=True, merge_commit_sha=MERGE_SHA, base_ref=base_ref, head_sha="pr-head"
+    )
 
 
 def _run(repo: Repo, *, branch: str, pr_number: int | None, commit_sha: str, **overrides) -> Run:
@@ -310,7 +313,9 @@ class TestReconcileLiftRequests:
             ),
             (
                 "still_open",
-                github_api.PullRequestState(state="open", merged=False, merge_commit_sha=None, base_ref="master"),
+                github_api.PullRequestState(
+                    state="open", merged=False, merge_commit_sha=None, base_ref="master", head_sha="pr-head"
+                ),
                 True,
                 "fixed",
                 "fixed",
@@ -319,7 +324,9 @@ class TestReconcileLiftRequests:
             ),
             (
                 "closed_without_merging",
-                github_api.PullRequestState(state="closed", merged=False, merge_commit_sha=None, base_ref="master"),
+                github_api.PullRequestState(
+                    state="closed", merged=False, merge_commit_sha=None, base_ref="master", head_sha="pr-head"
+                ),
                 True,
                 "fixed",
                 "fixed",
@@ -383,6 +390,34 @@ class TestReconcileLiftRequests:
         pending_request.refresh_from_db()
         assert pending_request.state == QuarantineLiftState.SUPERSEDED
         github["pull_request_state"].assert_not_called()
+
+    @pytest.mark.parametrize("path", ["reconcile", "apply"])
+    def test_a_request_moved_by_an_extension_stays_pending_against_the_old_quarantine(
+        self, repo, quarantine_row, pending_request, github, path
+    ):
+        run = _run(repo, branch="master", pr_number=None, commit_sha=MASTER_SHA)
+        snapshot = _snapshot(run, current_hash="fixed", baseline_hash="fixed")
+        stale = QuarantineLiftRequest.objects.get(id=pending_request.id)
+        auto_extend._extend(
+            run,
+            auto_extend._ActiveQuarantine(
+                id=quarantine_row.id,
+                identifier=IDENTIFIER,
+                expires_at=quarantine_row.expires_at,
+                source=quarantine_row.source,
+            ),
+            f"{AUTO_EXTEND_REASON_PREFIX}: changed in 3 of the last 100 default-branch runs, 1 picture",
+            timezone.now(),
+        )
+
+        if path == "reconcile":
+            quarantine_lifts._LiftReconciler(run).reconcile(stale, snapshot)
+        else:
+            assert quarantine_lifts._apply(stale, run, MERGE_SHA) is False
+
+        extension = QuarantinedIdentifier.objects.exclude(id=quarantine_row.id).get(identifier=IDENTIFIER)
+        pending_request.refresh_from_db()
+        assert (pending_request.state, pending_request.quarantine_id) == (QuarantineLiftState.PENDING, extension.id)
 
     @pytest.mark.parametrize(
         ("name", "branch", "pr_number", "is_partial", "default_branch"),

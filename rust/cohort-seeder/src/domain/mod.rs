@@ -16,6 +16,7 @@ pub mod compare;
 pub mod completion;
 pub mod condition;
 pub mod condition_analysis;
+pub mod fair_share;
 pub mod ids;
 pub mod ledger;
 pub mod newest_day;
@@ -58,6 +59,7 @@ pub use condition::{EventNameSet, Lookback, PinnedCondition};
 pub use condition_analysis::{
     ConditionAnalyses, ConditionCensus, ConditionClass, MISSING_BYTECODE_REASON,
 };
+pub use fair_share::{ClaimCandidate, ClaimCandidates, SlotLoad};
 pub use ids::{
     Band, ChunkId, ClaimEpoch, ConditionHash, ConditionHashError, DayIdx, RunId, SChunkMs,
     ScannedAtMs, UtcMillis, UtcMsRange, UtcRangeError,

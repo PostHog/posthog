@@ -18,6 +18,7 @@ from posthog.temporal.delete_teams.activities import (
     delete_project_record_activity,
     delete_team_persons_activity,
     delete_team_records_activity,
+    delete_ui_customization_activity,
     deprovision_managed_warehouse_activity,
     enqueue_clickhouse_deletion_activity,
     queue_recording_deletions_activity,
@@ -119,6 +120,16 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
         if temporalio.workflow.patched("delete-event-properties"):
             await temporalio.workflow.execute_activity(
                 delete_event_properties_activity,
+                team_inputs,
+                start_to_close_timeout=HEAVY_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
+
+        # Older histories have no customization activity; the patch preserves their command sequence on replay.
+        if temporalio.workflow.patched("delete-ui-customization"):
+            await temporalio.workflow.execute_activity(
+                delete_ui_customization_activity,
                 team_inputs,
                 start_to_close_timeout=HEAVY_ACTIVITY_TIMEOUT,
                 heartbeat_timeout=HEAVY_HEARTBEAT_TIMEOUT,

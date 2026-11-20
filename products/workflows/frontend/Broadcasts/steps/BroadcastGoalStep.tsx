@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
-import { tagsModel } from '~/models/tagsModel'
-
 import type { HogFlowConversionApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { ConversionGoalEditor } from '../../Workflows/hogflows/steps/components/ConversionGoalEditor'
@@ -13,8 +11,6 @@ import { DEFAULT_BROADCAST_CONVERSION, broadcastWizardLogic } from '../broadcast
 export function BroadcastGoalStep(): JSX.Element {
     const { goalEnabled, conversion, stepValidationErrors, tags, channel } = useValues(broadcastWizardLogic)
     const { setGoalEnabled, setConversion, setTags } = useActions(broadcastWizardLogic)
-    const { tags: allTags } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
         <div className="flex flex-col gap-4">
@@ -66,14 +62,7 @@ export function BroadcastGoalStep(): JSX.Element {
                         list by tag.
                     </p>
                 </div>
-                <ObjectTags
-                    tags={tags}
-                    onChange={setTags}
-                    onEdit={loadTagsIfNeeded}
-                    saving={false}
-                    tagsAvailable={allTags.filter((tag: string) => !tags.includes(tag))}
-                    data-attr="broadcast-wizard-tags"
-                />
+                <ObjectTags tags={tags} onChange={setTags} saving={false} data-attr="broadcast-wizard-tags" />
             </div>
         </div>
     )

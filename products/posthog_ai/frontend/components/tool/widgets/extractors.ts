@@ -1,6 +1,13 @@
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
 import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+} from '~/queries/schema/node-guards'
+import {
     ArtifactContentType,
     ArtifactMessage,
     ArtifactSource,
@@ -8,13 +15,6 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataTableNode, NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
-import {
-    isDataTableNode,
-    isDataVisualizationNode,
-    isHogQLQuery,
-    isInsightQueryNode,
-    isInsightVizNode,
-} from '~/queries/utils'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'

@@ -1,6 +1,5 @@
 import json
 import time
-from ipaddress import ip_address
 
 from unittest.mock import patch
 
@@ -11,13 +10,16 @@ import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import apply_provisioning_defaults
+from posthog.api.oauth.cimd import THROWAWAY_HOST_MESSAGE, CIMDFetchError, apply_provisioning_defaults
 from posthog.api.oauth.client_assertion import (
     CLIENT_ASSERTION_TYPE_JWT_BEARER,
     PRIVATE_KEY_REQUIRED_MESSAGE,
     ClientAssertionError,
 )
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning_review import CIMDProvisioningReview
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
 
@@ -39,10 +41,10 @@ def _jwks() -> dict:
 
 
 class _CacheHeaderlessResponse:
-    """Stands in for the requests.Response the CIMD fetch returns, which is read only for
-    cache headers."""
+    """Stands in for the requests.Response the CIMD fetch returns, which is read only for its
+    headers."""
 
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {"Content-Type": "application/json"}
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -94,7 +96,7 @@ class TestClientRegistration(ProvisioningTestBase):
         with (
             # example.com does not resolve, and the SSRF guard runs before the fetch, so
             # without this the metadata check would fail for a reason unrelated to the test.
-            patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")}),
+            mock_anti_ssrf_dns_lookup(),
             metadata_patch,
             patch(
                 "posthog.api.oauth.client_assertion.fetch_client_json_document",
@@ -279,6 +281,22 @@ class TestClientRegistration(ProvisioningTestBase):
         assert app.provisioning.can_create_accounts is False
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
 
+    def test_a_throwaway_hosted_client_id_is_refused_before_its_document_is_fetched(self):
+        tunnel_url = "https://quiet-river-tea.trycloudflare.com/.well-known/client.json"
+
+        with patch("posthog.api.oauth.cimd.fetch_client_json_document") as mock_fetch:
+            res = self._post_api(REGISTRATION_URL, {"client_id": tunnel_url})
+
+        assert res.status_code == 400, res.json()
+        checks = {check["name"]: check for check in res.json()["checks"]}
+        assert checks["metadata_document"] == {
+            "name": "metadata_document",
+            "ok": False,
+            "detail": THROWAWAY_HOST_MESSAGE,
+        }
+        mock_fetch.assert_not_called()
+        assert not OAuthApplication.objects.filter(client_id=tunnel_url).exists()
+
     def test_a_document_we_could_not_store_is_not_promoted(self):
         # A rejected save leaves the row describing the previous document. Promoting off it
         # would grant provisioning, and derive client_type from a stored key set, that the
@@ -323,6 +341,35 @@ class TestClientRegistration(ProvisioningTestBase):
         app = OAuthApplication.objects.get(client_id=CIMD_URL)
         assert app.provisioning.active is False
 
+    @parameterized.expand(
+        [
+            ("pending", False, False, "PostHog is reviewing this client", 1),
+            ("needs_human", False, False, "PostHog staff are reviewing this client", 0),
+            ("rejected", True, False, "Provisioning is blocked for this client", 0),
+            # Accepted, but staff now require an organization behind every self-registered partner.
+            ("accepted", False, True, "Link this client to a PostHog organization", 0),
+        ]
+    )
+    def test_partner_under_review_is_told_to_wait(
+        self, review_status, disabled, organization_required, expected_detail, expected_restarts
+    ):
+        active = review_status == "accepted"
+        app = self._make_partner(_provisioning_config=provisioning_config(active=active, disabled=disabled))
+        CIMDProvisioningReview.objects.create(application=app, domain="example.com", status=review_status)
+
+        with (
+            patch("posthog.api.oauth.provisioning_review.start_review") as mock_start,
+            override_instance_config("CIMD_PROVISIONING_REQUIRES_ORGANIZATION", organization_required),
+        ):
+            res = self._register({"client_id": CIMD_URL})
+
+        assert res.status_code == 400, res.json()
+        check = next(c for c in res.json()["checks"] if c["name"] == "provisioning_enabled")
+        assert check["ok"] is False
+        assert check["detail"].startswith(expected_detail)
+        # A pending review restarts its workflow, so a run that died never leaves the partner stuck.
+        assert mock_start.call_count == expected_restarts
+
     def test_unreachable_jwks_is_reported_as_a_failed_check(self):
         self._make_partner()
 
@@ -339,6 +386,19 @@ class TestClientRegistration(ProvisioningTestBase):
         assert checks["metadata_document"]["ok"] is True
         assert checks["provisioning_enabled"]["ok"] is True
         assert checks["jwks"]["ok"] is False
+
+    def test_stored_off_domain_jwks_is_reported_without_fetching_it(self):
+        self._make_partner(jwks_uri="https://keys.partner-cdn.net/jwks.json")
+
+        with patch("posthog.api.oauth.client_assertion._fetch_jwks_document") as fetch_jwks:
+            res = self._register({"client_id": CIMD_URL}, metadata_error=CIMDFetchError("Document unreachable"))
+
+        assert res.status_code == 200, res.json()
+        checks = {check["name"]: check for check in res.json()["checks"]}
+        assert checks["metadata_document"]["ok"] is False
+        assert checks["jwks"]["ok"] is False
+        assert "same domain as your client_id (example.com" in checks["jwks"]["detail"]
+        fetch_jwks.assert_not_called()
 
     @parameterized.expand(
         [

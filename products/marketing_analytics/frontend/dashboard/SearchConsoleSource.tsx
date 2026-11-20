@@ -37,7 +37,7 @@ export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode
     }
     if (!dataWarehouseSources) {
         return (
-            <section className="max-w-3xl w-full mx-auto mt-8 mb-6">
+            <section className="w-full mt-8 mb-6">
                 <h2 className="mb-4 flex items-center justify-between gap-2">
                     <span>Search performance</span>
                     {headerAction}
@@ -68,7 +68,7 @@ export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode
         return null
     }
     return (
-        <section className="max-w-3xl w-full mx-auto mt-8 mb-6">
+        <section className="w-full mt-8 mb-6">
             <h2 className="mb-4">Search performance</h2>
             <LemonCard hoverEffect={false} className="space-y-4" data-attr="marketing-search-console-extra">
                 <div className="flex items-start gap-4">

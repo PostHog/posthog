@@ -50,6 +50,8 @@ Both gates probe hosts rather than compare cluster names.
 Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
 `DeletionTarget.cluster_setting` names where a storage table lives, and `ClickhouseCluster.sibling` turns that name into a handle; neither decides reachability.
 `sharded_events_json` carries `CLICKHOUSE_EVENTS_CLUSTER`, which names the `events` cluster.
+`sharded_flag_evaluations` carries `CLICKHOUSE_FLAGS_CLUSTER`, which names the `flags` cluster, and shards across nodes whose `hostClusterRole` is `flags`.
+A deployment with no `flags` cluster keeps the table on the main cluster, and the handle in hand sweeps it there.
 
 ## Dispatching to a target's own cluster
 
@@ -68,6 +70,9 @@ The rest are bound to a single handle and refuse rather than skip when a target 
   Each op runs its SQL on a host of its own shard.
   Each copy records the maximum `inserted_at` it observed for that target. The copy, pre-delete count, mutation and verification reuse that bound, so a later row stays outside the destructive set.
 - The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
+  So a deferred event-removal request without a HogQL predicate that may hold `$feature_flag_called` refuses where `sharded_flag_evaluations` is on the `flags` cluster.
+  It refuses before it queues anything.
+  A request with a predicate refuses earlier, while that table holds rows the predicate matches (see the HogQL section below).
 
 ### Getting the dictionaries onto the second cluster
 
@@ -95,7 +100,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
-- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal with a HogQL predicate does not sweep it, and refuses while a matching row has no events copy. Deferred event removal with a predicate reaches the rows that have an events copy through their uuids, and the rest through the predicate compiled for this table (below). Property removal with a predicate does not sweep it. Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal with a HogQL predicate does not sweep it, and refuses while a matching row has no events copy. Deferred event removal with a predicate reaches the rows that have an events copy through their uuids, and the rest through the predicate compiled for this table (below). Property removal with a predicate does not sweep it. Stored on the `flags` cluster where that cluster exists. There, deferred event removal without a predicate refuses, and event removal with a predicate refuses while the table holds matching rows (above). Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
   A document keyed by another id is not reached by event deletion. The AI observability summaries use `<trace or generation id>::<job id>` under the `llm-analytics` product, so deleting the summary events leaves their embeddings until the table TTL.
   To remove them, turn off AI data analysis for the organization first, so no new summaries arrive during the run. Then run `delete_team_product_documents_job` with the `team_id` and the `product`. It deletes only that product's documents for that team, from the model tables and the ingestion buffer. It fails when the team has no documents for that product (a misspelled name), when the deletes run past `timeout_seconds`, or when any document survives.
@@ -103,6 +108,98 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
 They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
 The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
+
+## Customer analytics membership
+
+`sharded_person_group_membership` has no age-based TTL.
+It stores distinct IDs and historical group associations, but no person properties.
+The `customer-analytics-membership-discovery` Temporal schedule records missing persons and groups in Postgres.
+It never deletes membership or eligibility config.
+The schedule starts paused and runs hourly when enabled.
+Worker restarts preserve its existing schedule settings.
+
+Discovery checks current distinct-ID mappings and live persons.
+Deleted mappings and deleted persons count as missing identities.
+When ClickHouse reports a person as missing, a strong personhog read confirms the mapping and its owner.
+Discovery decodes JSON escapes in group keys before identity lookups and keeps stored keys in candidates.
+When ClickHouse reports a group as missing, a strong personhog read confirms its absence.
+Group identity reads exclude properties. Malformed JSON keys retain their raw representation.
+Decoded group keys longer than the primary identity column's 400-character limit count as missing without an identity lookup.
+Scan cursors and pending membership keys use ClickHouse external tables so large stored keys do not expand SQL text.
+Deleted teams need no identity reads.
+
+Each batch scans at most 100 membership keys and rechecks 100 saved candidates.
+It saves the next unprocessed key in Postgres so later batches can resume after rows disappear.
+Scan pages also clear recovered candidates outside the recheck page.
+Discovery checks membership for pending keys outside the scan page and removes their candidates after membership erasure.
+Pending-only keys with no membership cannot create new candidates.
+New candidates use bulk inserts and preserve `first_missing_at` on repeated discovery.
+Identity read failures leave candidates and scan positions unchanged.
+A per-team Redis lease prevents overlapping membership batches.
+Discovery renews its 15-second lease every five seconds, including during network reads.
+A busy lease raises a retryable error. Activity retries wait 20 seconds, so a crashed discovery worker's lease expires before retry.
+Renewal failures prevent checkpoint writes. Renewal stops at the batch query deadline.
+Heartbeats report liveness. Postgres stores the checkpoints.
+Postgres transactions contain database writes only.
+
+The coordinator discovers teams from membership, eligibility config, and saved scans.
+It processes at most 10 pages of 25 teams and stops starting teams after 45 minutes.
+Each team processes at most 100 batches and stops starting batches after 10 minutes.
+The coordinator saves each processed team. Team zero holds its cursor and never starts a project scan.
+Cleanup state has no project foreign key, so project deletion cannot remove pending work.
+
+Queries use the SQL editor's `HOGQL_INCREASED_MAX_EXECUTION_TIME` setting, which defaults to 600 seconds.
+Each batch reduces the query timeout to fit its remaining activity budget.
+The activity reserves time for three attempts inside the child workflow deadline.
+Memory, read, thread, and result limits come from the ClickHouse profile.
+Unavailable shards and overflow limits fail queries instead of returning partial results.
+Queries use the `OFFLINE` workload because discovery runs in the background.
+Discovery queries carry the Customer analytics product tag and the data deletion feature tag.
+Per-team queries also pass the team ID to the ClickHouse client so team settings and incident limits apply.
+The `customer_analytics_membership_discovery_` metrics report outcomes, batch duration, and scan duration.
+The scan duration includes waiting between scheduled runs. It is not the duration of one workflow execution.
+Batch histograms cover durations through ten minutes. Scan histograms cover durations through seven days.
+The `customer_analytics_membership_step_seconds` histogram labels each measurement by `job`, `step`, and `outcome`.
+Steps separate membership scans, candidate reads, ClickHouse identity reads, primary identity checks, and checkpoint writes.
+Step measurements include failed operations. Metric labels contain no team IDs or identity values.
+
+Each `membership_discovery_batch` log includes counts, `duration_seconds`, `step_seconds`, `failed_step`, and `has_more`.
+Each team and coordinator emits a `membership_run_summary` log with totals, elapsed seconds, outcome, and `stop_reason`.
+Stop reasons distinguish completed work, time budgets, batch limits, page limits, failures, and cancellation.
+Coordinator totals include successful child workflow results. Failed teams log their own partial totals.
+Temporal adds workflow IDs, run IDs, and attempt numbers to the logs and suppresses workflow logs during replay.
+
+Discovery does not change existing person or group deletion processes.
+The `customer-analytics-membership-deletion` schedule owns erasure and runs independently of discovery.
+It starts paused in dry-run mode. Deletion also requires an explicit team list.
+It selects candidates missing for at least 24 hours and repeats identity checks before each deletion batch.
+Recovered identities clear their candidates. Failed lookups or erasure verification keep work pending.
+Deletion never discovers new candidates.
+
+Both jobs use the same per-team lease. Each schedule has its own batch, team-page, and time limits.
+Deletion keeps its coordinator cursor in team row `-1`, separate from discovery's row `0`.
+Neither coordinator row starts a project sweep.
+Deletion preserves the key held in a discovery cursor until discovery advances past it.
+Its coordinator selects teams from overdue candidates and deleted-team scan state, without scanning membership.
+
+The deletion job uses lightweight deletes on storage shards and verifies that no matching membership survives.
+Deletion predicates use bounded raw-key filters for index pruning and SHA-256 digests for exact matching.
+Keys above 400 characters use prefix filters, so large stored values do not expand query text or erase rows that share a prefix.
+Topology discovery, shard queries, and verification apply per-team query settings and kill-switch ceilings alongside the remaining batch deadline.
+It checks for pending mutations before retrying and skips shards where matching rows are already absent.
+Each deletion resolves fresh shard topology, including sibling clusters.
+Topology discovery caps bootstrap socket waits and query execution by the remaining batch time, including sibling discovery.
+Shard and verification connections use a finite socket timeout of twice the shared query execution limit.
+Query failure logs include the team, stage, and error code, without database exception text or membership keys.
+Candidates are removed only after verified erasure.
+Deleted-team erasure also removes eligibility config and clears scan state after membership is gone.
+Live-team erasure keeps eligibility config and unrelated membership.
+The `customer_analytics_membership_deletion_` metrics report checked candidates, recovery, deletion, and failures.
+Step timings also cover storage resolution, pending mutation checks, per-shard deletes, erasure verification, and checkpoint cleanup.
+Deletion batch logs include `dry_run`, `deletion_enabled`, and a `skip_reason` for dry runs or teams outside the allowlist.
+Team and coordinator summaries include `failed_batches`. A caught deletion failure produces a `partial_failure` summary even when the workflow completes.
+The `deleted` count measures membership keys confirmed erased, not physical ClickHouse rows.
+Event deletion and configured group-property deletion do not repair membership or its activity timestamps.
 
 ## Tables on TTL alone
 
@@ -181,7 +278,9 @@ The copy, the delete's count, the reingest and the shard verify count each uuid 
 The reingest bumps `_timestamp` past the original's on both tables, so a merge that meets a cleaned row and a surviving original keeps the cleaned row.
 A request that removes `$feature_flag` empties `flag_key`, which is in the sort key.
 That cleaned row therefore never collapses with an original.
-A table created before the switch to `ReplacingMergeTree` keeps every duplicate, and the job leaves its `_timestamp` as it is, because the job reads the engine from `system.tables` on each run.
+A table created before the switch to `ReplacingMergeTree` keeps every duplicate.
+The job still bumps its `_timestamp`, because the reingest and the shard verify find cleaned rows in the staged files by the table's sorting key columns, `uuid`, `timestamp`, `_timestamp` and `inserted_at`.
+A property removal does not start while another property removal on the same team has started and not completed, because restoring that removal's staged copy would undo a rewrite made in between.
 
 #### Rows past the TTL
 
@@ -207,9 +306,12 @@ That window is the forward delay that the events tables also have, not the consu
 
 #### Other readers
 
-Cleaned rows carry `inserted_at = marker`, as on events.
-A reader that checkpoints `flag_evaluations` on `inserted_at` sees a rewritten row again if the marker is later than its checkpoint.
-The copy carries every other column through unchanged.
+Cleaned rows keep their original `inserted_at`, as on events.
+A deletion requested before the removal ran therefore still reaches them once they are back in the table, because its `inserted_at` bound compares against the time the row was first ingested.
+`deletes_job` does not wait for a running property removal, so a deletion that runs while the cleaned rows sit only in the staged files does not see them.
+A reader that checkpoints `flag_evaluations` on `inserted_at` does not read a rewritten row again, so it keeps the uncleaned copy it read before.
+Events batch exports select rows by `COALESCE(inserted_at, _timestamp)`, so they do not export a cleaned row again either, except a legacy row with no `inserted_at`.
+Apart from the removed properties and the columns materialized from them, the copy carries every column through unchanged, except `_timestamp`, which moves one second past the marker.
 `flag_evaluations_backfill_job` does not copy a day while a data deletion request run is queued or executing, so it does not re-insert an original the job removed.
 
 `flag_evaluations` stays absent from `MATERIALIZATION_VALID_TABLES`.
@@ -232,6 +334,9 @@ An immediate request without a predicate sweeps the table and verifies it like t
 ### Event removal with a HogQL predicate on `flag_evaluations`
 
 A flag-evaluation row is a fork of its `$feature_flag_called` event, with the same uuid, and both tables shard on `sipHash64(distinct_id)`, so the two copies share a shard.
+That holds only while both tables are on one cluster.
+Where `sharded_flag_evaluations` is on the `flags` cluster, the shard-local copy check below cannot run.
+A request with a predicate then refuses while the table holds rows that match its other criteria, before it deletes or queues anything.
 `DeletionTarget.copied_from` records that relationship.
 A deferred request with a predicate reaches a row that has an events copy through `events`.
 The queue fill reads uuids from `sharded_events` with the events-compiled predicate, and the drain deletes those uuids from every target, so it deletes the flag row of every event the predicate names.
@@ -324,24 +429,58 @@ The job skips any of these tables that does not exist.
 Other personal-data tables expire sooner under their own TTL.
 It deletes a month only when every event in it is older than the retention. A month that is only partly past the retention waits for a later run, for manual runs too.
 
-Staff set the retention in Django admin, on the team and organization pages:
+Organization admins set the retention in project and organization settings, and staff set it in Django admin, on the team and organization pages:
 
 - `OrganizationEventsRetentionConfig` holds the organization's default, minimum and maximum months.
 - `TeamEventsRetentionConfig` holds a team's own months, which must fall within its organization's range. Saving an organization range that excludes an existing team value fails until that team changes.
-- A team's effective retention is its own value, else its organization's default. A team with neither keeps all its events.
-- This setting is separate from `Team.event_retention_months`, which the billing plan sets and which only hides older events from queries.
+- A team's set period is its own value, else its organization's default. A set period is deleted at every run.
+- A team with no set period uses its default period, which waits for the team's pass, every 3 months.
+- The default period is the plan's period, capped at 24 months when the organization has the `product_analytics_standard_data_retention` feature. Billing gives that feature to current plans only, so older plans default to their whole period. The default never goes below the organization's minimum.
+- `Team.event_retention_months` is the plan's period, which billing sets. A period never deletes past it before the team's pass.
 - The Events retention page under Custom tools (`/admin/events-retention/`) lists every team that has a value of its own or belongs to an organization with a config.
   It shows each team's billing months (`Team.event_retention_months`), its effective retention, where that comes from, and the first month the cleanup keeps, 100 teams per page.
 
-`monthly_retention_events_cleanup_job` has four steps, in this order:
+`monthly_retention_events_cleanup_job` has six steps:
 
-- `plan_old_events_cleanup` reads every team's effective retention when the run starts and logs each one as organization, team and months. It then finds the months that hold events for each team and keeps the ones entirely past that team's retention. It logs the teams due in each month.
+- `update_plan_deletions` tracks each team's pass period in `TeamEventsPlanDeletion`: the set period, never past the plan's period, else the default period. It gives a row only to the teams where `should_delete_past_default_period` is true, and removes the rows of all other teams. A team without a row gets no pass, and its set period is never capped by its plan.
+  - `should_delete_past_default_period` needs the `events-data-retention-deletion` flag on PostHog Cloud, and does not depend on query enforcement. Self-hosted never gets a pass. The flag gets each team's plan period and organization, so a rollout can target plans and leave out organizations.
+  - A new row's first pass is at least 3 months out, so a team keeps its events for at least 3 months after the flag turns on.
+  - Turning the flag off removes the team's row at the next run. A run that already finished `update_plan_deletions` still deletes for that team.
+  - A shorter period, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out.
+  - It locks the rows of 1000 teams at a time, reads their periods, and writes its changes in one transaction. A period saved in settings during the run is therefore kept. It then hands on the teams whose pass is due.
+- Saving a period in settings writes the row of each team that deletes past its default straight away, so the settings page can show the next deletion. A shorter period moves the next pass to at least 3 months out. The save writes the rows before and after it changes the period, so a row that still holds a period from before a plan change first catches up to the period in use.
+- The cleanup and settings write rows through `reschedule_plan_deletions`, which locks the rows before it reads the periods.
+- Pass dates fall on the 3rd, so the date shown is the run that deletes.
+- `plan_old_events_cleanup` reads every team's set period. A team with a set period uses it. A team whose pass is due uses its pass period, or the shorter of the two. It reads each due pass row again, so a period saved after the run started applies: a longer period raises the row's months, and a shorter one moves the pass past this run. It logs each team's period in months, then finds the months that hold events for each team and keeps the ones entirely past that team's period. It logs the teams due in each month.
 - `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
-- `plan_old_sessions_cleanup` starts after the events are deleted. It finds the sessions partitions entirely past each team's retention, so a month whose events an earlier run deleted still gets its sessions deleted.
+- `plan_old_sessions_cleanup` starts after the events are deleted. It uses the period the events plan used for each team, and finds the sessions partitions entirely past it, so a month whose events an earlier run deleted still gets its sessions deleted.
 - `cleanup_old_sessions_by_partition` deletes each planned sessions month for the teams due in it. Sessions partition by the month a session started, so a session that continues into a kept month is deleted with the due month.
+- `advance_plan_deletion_passes` moves the next pass of each team that both plans completed 3 months out, after the sessions deletes succeed. It keeps a later date that a shorter period saved during the run set.
 
-A manual run can narrow each plan with `team_ids` and `partitions`, set separately on the events and the sessions plan steps. A listed team with no retention is ignored.
-`monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere), and skips when no retention is set. It is stopped by default.
+A manual run can narrow each plan with its own `team_ids` and `partitions`. The sessions plan covers only the teams the events plan covers. A listed team with neither a set period nor a pass due is ignored.
+A pass completes only for a team that both plans include, and only when neither sets `partitions`. Otherwise the pass stays due for the next full run.
+The `update_plan_deletions` config has its own `team_ids`, which limits the rows it adds and removes.
+`monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere). It is stopped by default.
+Pass dates are dates in that local time zone, so the date shown in settings is the day its deletes start.
+
+A billing sync that lengthens the plan period writes the organization's rows straight away, so a downgrade soon after still sees the longer period.
+A billing sync that shortens the plan period checks each team's period under the previous and the new plan, each with its own standard retention feature.
+It does nothing more when no team's period gets shorter, for example when every team has a set period within the new plan.
+Otherwise it writes the rows of those teams straight away, the same way a settings save does.
+The sync then queues the Celery task `report_events_retention_shortened`, which sends an `events retention period shortened` event to each organization admin, with the previous and new plan periods and the first pass past the shorter period.
+That pass date is empty when the deletion flag covers none of those teams.
+The send runs in a worker, so an ingestion outage never holds up the billing sync, and the task retries a failed send 5 times over up to about 15 minutes.
+The first billing sync of a new organization sends nothing, because the organization has no previous plan period.
+The Celery beat task `report_upcoming_events_deletions` runs daily at 15:00 UTC.
+On the day the next cleanup is exactly 14 days away, it reschedules the rows due at that cleanup, the same way a settings save does, so a period that got shorter since the pass was set moves the pass instead of announcing it.
+It then sends an `events retention deletion upcoming` event to the admins of each organization with a team still due, one organization at a time, whether the team downgraded or not.
+Every pass gets this event, every 3 months, and only teams behind the deletion flag have rows, so a team that joins the flag after a downgrade hears before its first pass.
+A team whose set period is at or below its pass's period is left out, because the monthly cleanup already deletes everything that pass would.
+A set period above the pass's period still sends.
+Only that one day sends, so nothing records what was sent.
+A failed send fails the task, which retries the same way as the shortened task, and a retry sends again to the organizations already sent.
+Workflows turn both events into emails.
+
 The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
 Both jobs and `squash_person_overrides` carry the `deletes_job_concurrency` tag. The Dagster deployment settings put a run-queue limit of 1 on that tag, so a second run of any of the three queues instead of starting.
 `sharded_events_json` keeps events dated before 2020, because it stores them in its 202001 partition and the delete addresses the event's own month.

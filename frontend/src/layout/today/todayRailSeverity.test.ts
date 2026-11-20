@@ -1,4 +1,4 @@
-import type { BillingAlertConfig } from 'scenes/billing/billingLogic'
+import type { BillingAlertConfig } from 'lib/logic/billing/billingLogic'
 
 import { TodayRailSeverity, severityFromBillingAlert, worstSeverity } from './todayRailSeverity'
 

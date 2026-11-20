@@ -113,6 +113,7 @@ impl Harness {
             backoff_until: None,
             pending_commit: None,
             was_leased: false,
+            recovered_commit: None,
         };
 
         Self {

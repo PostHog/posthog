@@ -9,12 +9,14 @@ import structlog
 from posthog.hogql.database.database import Database
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.facade.api import delete_metric_node, mark_metric_node_degraded, sync_metric_to_dag
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 
 from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND
+from ..metrics import DatabaseBuildTrigger
 from ..models.metric import Metric
 from .validation import definition_nodes, table_names_as_written
 
@@ -86,6 +88,7 @@ def sync_metric_lineage(metric: Metric, database: Database | None = None) -> Lin
                 team=metric.team,
                 bypass_warehouse_access_control=True,
                 allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
+                trigger=DatabaseBuildTrigger.METRIC_LINEAGE,
             )
         with team_scope(metric.team_id), transaction.atomic():
             current = Metric.objects.for_team(metric.team_id).select_for_update().filter(pk=metric.pk).first()
@@ -106,11 +109,11 @@ def sync_metric_lineage(metric: Metric, database: Database | None = None) -> Lin
         return LineageSyncOutcome.DEGRADED
 
 
-def remove_metric_lineage(metric: Metric) -> None:
+def remove_metric_lineage(metric: Metric, team: Team) -> None:
     """Drop the metric's lineage node. The metric row is already gone, so a failure here only
     strands a node the next backfill removes, and must not turn a successful delete into an error."""
     try:
-        delete_metric_node(metric.team, metric.id)
+        delete_metric_node(team, metric.id)
     except Exception as error:
         capture_exception(error)
         logger.exception("Failed to remove metric lineage", metric_id=str(metric.id), team_id=metric.team_id)

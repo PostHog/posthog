@@ -35,6 +35,18 @@ function runWithState(state: Record<string, unknown>): TaskRun {
 
 describe("run launch", () => {
   describe("readRunLaunch", () => {
+    it.each([true, false])(
+      "preserves caller-managed completion: %s",
+      (callerEndsRun) => {
+        expect(
+          readRunLaunch(
+            sources({
+              taskRun: runWithState({ caller_ends_run: callerEndsRun }),
+            }),
+          ).callerEndsRun,
+        ).toBe(callerEndsRun);
+      },
+    );
     it.each<[string, TaskRun | null, string | null]>([
       ["the recorded kind", runWithState({ snapshot_kind: "warm" }), "warm"],
       ["absent when the run has none", runWithState({}), "absent"],
@@ -127,6 +139,20 @@ describe("run launch", () => {
         "the inbox report",
         createTask({ signal_report: "rep_1" }),
         "https://us.posthog.com/project/2/inbox/rep_1",
+      ],
+      [
+        "the inbox report for a desktop task",
+        createTask({
+          signal_report: "rep_1",
+          client_provenance: "posthog_desktop",
+        }),
+        "https://us.posthog.com/project/2/inbox/rep_1",
+      ],
+      ["nothing without provenance", createTask(), undefined],
+      [
+        "nothing with null provenance",
+        createTask({ client_provenance: null }),
+        undefined,
       ],
       [
         "the web chat for a web task",

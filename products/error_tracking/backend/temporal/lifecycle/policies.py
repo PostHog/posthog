@@ -22,6 +22,6 @@ SUMMARY_RETRY_POLICY = common.RetryPolicy(
     maximum_interval=timedelta(seconds=30),
     maximum_attempts=3,
 )
-# Sized past one model call (ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS) plus the category call and the input build.
+# Sized past one model call (ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS) plus the input build.
 SUMMARY_START_TO_CLOSE_TIMEOUT = timedelta(seconds=60)
 SUMMARY_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(minutes=5)

@@ -4,10 +4,14 @@ from ipaddress import IPv4Network, IPv6Address, IPv6Network, collapse_addresses,
 
 from products.web_analytics.backend.hogql_queries.bot_ip_networks import (
     AHREFSBOT_NETWORKS,
+    ANTHROPIC_CLAUDE_NETWORKS,
     APPLEBOT_NETWORKS,
     BINGBOT_NETWORKS,
+    COMMON_CRAWL_CCBOT_NETWORKS,
+    DUCKASSISTBOT_NETWORKS,
     GOOGLE_COMMON_CRAWLER_NETWORKS,
     GOOGLE_SPECIAL_CRAWLER_NETWORKS,
+    GOOGLE_USER_TRIGGERED_AGENT_NETWORKS,
     GOOGLE_USER_TRIGGERED_FETCHER_NETWORKS,
     OPENAI_CHATGPT_USER_NETWORKS,
     OPENAI_GPTBOT_NETWORKS,
@@ -46,6 +50,14 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "Bot",
         "Google",
         networks=GOOGLE_SPECIAL_CRAWLER_NETWORKS,
+        documentation_url="https://developers.google.com/crawling/docs/verifying-google-crawlers",
+    ),
+    "google-user-triggered-agents": BotIPDefinition(
+        "Google-Agent",
+        "ai_assistant",
+        "AI Agent",
+        "Google",
+        networks=GOOGLE_USER_TRIGGERED_AGENT_NETWORKS,
         documentation_url="https://developers.google.com/crawling/docs/verifying-google-crawlers",
     ),
     "google-user-triggered-fetchers": BotIPDefinition(
@@ -122,6 +134,32 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
         "Ahrefs",
         networks=AHREFSBOT_NETWORKS,
         documentation_url="https://ahrefs.com/robot",
+    ),
+    # Anthropic publishes one list for ClaudeBot, Claude-User and Claude-SearchBot, so the
+    # ranges carry the ClaudeBot label. A user agent that names the bot still wins.
+    "anthropic-claude": BotIPDefinition(
+        "Claude",
+        "ai_crawler",
+        "AI Agent",
+        "Anthropic",
+        networks=ANTHROPIC_CLAUDE_NETWORKS,
+        documentation_url="https://claude.com/crawling/bots.json",
+    ),
+    "common-crawl-ccbot": BotIPDefinition(
+        "Common Crawl",
+        "ai_crawler",
+        "AI Agent",
+        "Common Crawl",
+        networks=COMMON_CRAWL_CCBOT_NETWORKS,
+        documentation_url="https://index.commoncrawl.org/ccbot.json",
+    ),
+    "duckassistbot": BotIPDefinition(
+        "DuckDuckGo AI",
+        "ai_assistant",
+        "AI Agent",
+        "DuckDuckGo",
+        networks=DUCKASSISTBOT_NETWORKS,
+        documentation_url="https://duckduckgo.com/duckassistbot.json",
     ),
 }
 

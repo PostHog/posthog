@@ -150,6 +150,7 @@ async fn the_watch_delivers_newer_epochs_and_retires_but_nothing_stale() {
     assert_eq!(next_adopted(&mut rx).await.epoch, 1);
 
     let flipped = ChangelogConfig {
+        cluster: None,
         topic: "personhog_updates_128".into(),
         partitions: 128,
         epoch: 2,
@@ -171,6 +172,7 @@ async fn the_watch_delivers_newer_epochs_and_retires_but_nothing_stale() {
     let newer = ChangelogConfig {
         epoch: 3,
         draining: vec![Generation {
+            cluster: None,
             topic: "personhog_updates_128".into(),
             partitions: 128,
             epoch: 2,
@@ -239,6 +241,7 @@ async fn a_severed_watch_still_adopts_the_flip_through_reconcile() {
     proxy.sever();
     direct
         .put_changelog_config(&ChangelogConfig {
+            cluster: None,
             topic: "personhog_updates_128".into(),
             partitions: 128,
             epoch: 2,

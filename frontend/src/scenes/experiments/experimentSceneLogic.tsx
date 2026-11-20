@@ -53,6 +53,7 @@ function reportExperimentTabViewed(experimentId: ExperimentIdType, tab: string):
 
 export const EXPERIMENT_TABS = [
     'metrics',
+    'health',
     'settings',
     'code',
     'variants',
@@ -69,7 +70,7 @@ export const DEFAULT_EXPERIMENT_TAB: ExperimentTab = 'metrics'
 // and LegacyExperimentView — a tab the views render but this omits gets clamped away on load.
 export const getAvailableExperimentTabs = (
     experiment: Experiment,
-    { canSeeHealthDebug = false }: { canSeeHealthDebug?: boolean } = {}
+    { canSeeHealth = false, canSeeHealthDebug = false }: { canSeeHealth?: boolean; canSeeHealthDebug?: boolean } = {}
 ): ExperimentTab[] => {
     // Legacy experiments render a reduced, read-only view with only these two tabs.
     if (isLegacyExperiment(experiment)) {
@@ -83,6 +84,8 @@ export const getAvailableExperimentTabs = (
                 return !isDraft
             case 'feedback':
                 return !!experiment.feature_flag
+            case 'health':
+                return canSeeHealth
             case 'health-debug':
                 return canSeeHealthDebug
             default:
@@ -91,8 +94,8 @@ export const getAvailableExperimentTabs = (
     })
 }
 
-// Staff only. While impersonating, the user is the customer, so superpowers are off for the staff member at the
-// keyboard and the impersonation itself counts.
+// Staff only. While impersonating, the user is the customer: superpowers are off for the staff member at the keyboard
+// and the flag evaluates on the customer, so the impersonation itself counts.
 export const canSeeHealthDebugTab = ({
     superpowersEnabled,
     isImpersonated,
@@ -101,7 +104,7 @@ export const canSeeHealthDebugTab = ({
     superpowersEnabled: boolean
     isImpersonated: boolean
     healthFindingsEnabled: boolean
-}): boolean => (superpowersEnabled || isImpersonated) && healthFindingsEnabled
+}): boolean => isImpersonated || (superpowersEnabled && healthFindingsEnabled)
 
 // kea-router coerces numeric-looking params to numbers, so check the type before membership
 const isExperimentTab = (tab: unknown): tab is ExperimentTab =>
@@ -143,6 +146,7 @@ export interface experimentSceneLogicValues {
     activeTabKey: ExperimentTab
     availableTabs: ExperimentTab[]
     breadcrumbs: Breadcrumb[]
+    canSeeHealth: boolean
     canSeeHealthDebug: boolean
     experiment: Experiment
     experimentId: ExperimentIdType
@@ -171,6 +175,7 @@ export interface experimentSceneLogicActions {
         activeTabKey:
             | 'code'
             | 'feedback'
+            | 'health'
             | 'health-debug'
             | 'history'
             | 'metrics'
@@ -237,12 +242,13 @@ export interface experimentSceneLogicMeta {
             } | null
         ) => ((state: any, props?: ExperimentLogicProps | undefined) => boolean) | undefined
         isExperimentLaunched: (arg: boolean | undefined) => boolean
+        canSeeHealth: (user: UserType | null, featureFlags: FeatureFlagsSet) => boolean
         canSeeHealthDebug: (
             superpowersEnabled: boolean | undefined,
             user: UserType | null,
             featureFlags: FeatureFlagsSet
         ) => boolean
-        availableTabs: (experiment: Experiment, canSeeHealthDebug: boolean) => ExperimentTab[]
+        availableTabs: (experiment: Experiment, canSeeHealth: boolean, canSeeHealthDebug: boolean) => ExperimentTab[]
         experimentLoaded: (experiment: Experiment) => boolean
         breadcrumbs: (experiment: Experiment, experimentId: ExperimentIdType) => Breadcrumb[]
         sidePanelContext: (experimentId: ExperimentIdType) => SidePanelSceneContext | null
@@ -378,6 +384,12 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             ],
             (isExperimentLaunched: boolean | undefined): boolean => isExperimentLaunched ?? false,
         ],
+        canSeeHealth: [
+            (s) => [s.user, s.featureFlags],
+            // The same readers as experimentLogic's `showsHealthFindings`, so the tab shows wherever the findings do.
+            (user: UserType | null, featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] || !!user?.is_impersonated,
+        ],
         canSeeHealthDebug: [
             (s) => [s.superpowersEnabled, s.user, s.featureFlags],
             (superpowersEnabled: boolean | undefined, user: UserType | null, featureFlags: FeatureFlagsSet): boolean =>
@@ -388,9 +400,9 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 }),
         ],
         availableTabs: [
-            (s) => [s.experiment, s.canSeeHealthDebug],
-            (experiment: Experiment, canSeeHealthDebug: boolean): ExperimentTab[] =>
-                getAvailableExperimentTabs(experiment, { canSeeHealthDebug }),
+            (s) => [s.experiment, s.canSeeHealth, s.canSeeHealthDebug],
+            (experiment: Experiment, canSeeHealth: boolean, canSeeHealthDebug: boolean): ExperimentTab[] =>
+                getAvailableExperimentTabs(experiment, { canSeeHealth, canSeeHealthDebug }),
         ],
         experimentLoaded: [
             (s) => [s.experiment],

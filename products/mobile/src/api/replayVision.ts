@@ -1,5 +1,6 @@
-import { ApiError, apiFetch, apiJson, projectPath } from './client'
+import { ApiError, apiJson, apiReadResponse, projectPath } from './client'
 import { type ProjectScope, scopeKey } from './reports'
+import { transport } from './transport'
 
 // Shapes follow `ReplayObservationSerializer`, `InlineScanResponseSerializer` and `WatchFeedResponseSerializer` in
 // `products/replay_vision/backend/api/`, keeping the fields the app reads. The summarizer's `model_output` follows
@@ -96,13 +97,19 @@ export interface WatchFeedItemApi {
 
 export interface WatchFeedResponseApi {
     results?: WatchFeedItemApi[]
+    has_more?: boolean
+    as_of?: string | null
 }
 
 export const WATCH_FEED_LIMIT = 5
 
-export async function fetchWatchFeed(signal?: AbortSignal): Promise<WatchFeedResponseApi> {
-    return apiJson<WatchFeedResponseApi>(projectPath('vision/scanners/watch_feed/'), {
-        query: { limit: WATCH_FEED_LIMIT, date_from: '-7d' },
+/** Replay Vision's ranked feed, `GET vision/scanners/highlight_feed/`: observations most worth watching first. */
+export async function fetchWatchFeed(
+    signal?: AbortSignal,
+    page: { limit: number; offset: number; asOf: string | null } = { limit: WATCH_FEED_LIMIT, offset: 0, asOf: null }
+): Promise<WatchFeedResponseApi> {
+    return apiJson<WatchFeedResponseApi>(projectPath('vision/scanners/highlight_feed/'), {
+        query: { limit: page.limit, offset: page.offset || undefined, as_of: page.asOf ?? undefined, date_from: '-7d' },
         signal,
     })
 }
@@ -118,23 +125,28 @@ export async function fetchFrameUrl(
     chapter: number | null,
     signal?: AbortSignal
 ): Promise<string> {
-    const response = await apiFetch(
+    return apiReadResponse(
         projectPath(`vision/observations/${encodeURIComponent(observationId)}/thumbnail/`),
         {
             query: { chapter },
             redirect: 'manual',
             signal,
+        },
+        async (response) => {
+            const location = response.headers.get('Location')
+            if (response.status >= 300 && response.status < 400 && location) {
+                return location
+            }
+            if (response.ok) {
+                // Local dev and a deployment without object storage serve the bytes from the API itself.
+                return frameDataUri(
+                    await transport(() => response.arrayBuffer()),
+                    response.headers.get('Content-Type') ?? 'image/png'
+                )
+            }
+            throw new ApiError(response.status, undefined, response.headers)
         }
     )
-    const location = response.headers.get('Location')
-    if (response.status >= 300 && response.status < 400 && location) {
-        return location
-    }
-    if (response.ok) {
-        // Local dev and a deployment without object storage serve the bytes from the API itself.
-        return frameDataUri(await response.arrayBuffer(), response.headers.get('Content-Type') ?? 'image/png')
-    }
-    throw new ApiError(response.status, undefined, response.headers)
 }
 
 function frameDataUri(bytes: ArrayBuffer, contentType: string): string {

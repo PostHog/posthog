@@ -89,7 +89,7 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
     // `flush_interval_ms`. Flush every turn so this waits on the spawned send
     // rather than racing that interval.
     for _ in 0..100 {
-        posthog_rs::flush().await;
+        posthog::flush().await;
         if capture.hits_async().await > 0 {
             break;
         }

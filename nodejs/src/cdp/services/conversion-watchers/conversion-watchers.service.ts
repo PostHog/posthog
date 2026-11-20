@@ -1,6 +1,7 @@
 import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
+import { LazyPool } from '~/cdp/utils/lazy-pool'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
@@ -34,33 +35,22 @@ const INSERT_CHUNK_SIZE = 1000
  */
 export class ConversionWatchersService {
     private queuedRows: ConversionWatcherRow[] = []
-    private pool: Pool | null = null
-    private stopped = false
+    private readonly pool: LazyPool
     private inFlight = new Set<Promise<unknown>>()
 
     // Owns its pool rather than taking one, mirroring the subscription matcher: the table lives in the
     // cyclotron database, which nothing else in the result-sink chain connects to. A process without
     // the connection string drops watchers via the failure counter rather than throwing, so processes
     // that never run workflows are unaffected.
-    constructor(
-        private readonly databaseUrl: string | undefined,
-        private readonly maxConnections?: number
-    ) {}
-
-    // Built on first use, not in the constructor. Every CDP service set constructs this service, but
-    // only the ones that actually run workflows ever write a row — an eager pool would have every
-    // consumer, and every test that builds a service set, holding cyclotron connections it never uses.
-    private getPool(): Pool | null {
-        if (this.pool || this.stopped || !this.databaseUrl) {
-            return this.pool
-        }
-        this.pool = new Pool({ connectionString: this.databaseUrl, max: this.maxConnections })
-        // pg throws an uncaught exception if an idle client errors with no listener attached, which
-        // would take down the process for something this sink is allowed to drop.
-        this.pool.on('error', (err) => {
+    constructor(databaseUrl: string | undefined, maxConnections?: number) {
+        // Built on first use, not in the constructor. Every CDP service set constructs this service, but
+        // only the ones that actually run workflows ever write a row — an eager pool would have every
+        // consumer, and every test that builds a service set, holding cyclotron connections it never uses.
+        this.pool = new LazyPool(databaseUrl, maxConnections, (err) => {
+            // pg throws an uncaught exception if an idle client errors with no listener attached, which
+            // would take down the process for something this sink is allowed to drop.
             logger.error('⚠️', 'Conversion watcher pool error', { err })
         })
-        return this.pool
     }
 
     // Idempotent: pg rejects a second end() with "Called end on pool more than once", and several
@@ -69,14 +59,12 @@ export class ConversionWatchersService {
     public async stop(): Promise<void> {
         // Set first so a flush that has not started yet gets no pool and drops its rows through the
         // failure counter, rather than opening a connection this method is about to close.
-        this.stopped = true
-        // A flush that is already running holds a pool reference and awaits a query. Ending the pool
-        // under it would fail the work it has not finished, so wait for every one of them. Each
-        // operation reports its own failure, and shutdown must not re-raise that.
-        await Promise.all([...this.inFlight].map((operation) => operation.catch(() => {})))
-        const pool = this.pool
-        this.pool = null
-        await pool?.end()
+        await this.pool.end(() =>
+            // A flush that is already running holds a pool reference and awaits a query. Ending the pool
+            // under it would fail the work it has not finished, so wait for every one of them. Each
+            // operation reports its own failure, and shutdown must not re-raise that.
+            Promise.all([...this.inFlight].map((operation) => operation.catch(() => {})))
+        )
     }
 
     public queueInvocationResults(results: CyclotronJobInvocationResult[]): void {
@@ -110,7 +98,7 @@ export class ConversionWatchersService {
         this.queuedRows = []
         gaugeConversionWatchersPending.set(0)
 
-        const pool = this.getPool()
+        const pool = this.pool.get()
         if (!pool) {
             counterConversionWatchersFailed.inc(rows.length)
             logger.error('⚠️', 'Dropping conversion watchers: no cyclotron database configured', {
@@ -138,7 +126,7 @@ export class ConversionWatchersService {
     private async insertChunk(pool: Pool, rows: ConversionWatcherRow[]): Promise<void> {
         const values: any[] = []
         const placeholders = rows.map((row, index) => {
-            const base = index * 10
+            const base = index * 11
             values.push(
                 row.id,
                 row.team_id,
@@ -149,14 +137,15 @@ export class ConversionWatchersService {
                 row.person_id,
                 row.flow_version,
                 JSON.stringify(row.goal),
+                row.created_at,
                 row.expires_at
             )
-            return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`
+            return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11})`
         })
 
         await pool.query(
             `INSERT INTO conversion_watchers
-                (id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, expires_at)
+                (id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at, expires_at)
              VALUES ${placeholders.join(', ')}
              ON CONFLICT (id) DO NOTHING`,
             values

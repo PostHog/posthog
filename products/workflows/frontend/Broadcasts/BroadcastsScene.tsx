@@ -16,6 +16,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
+import { EngagementEventsBanner } from '../EngagementEventsBanner'
 import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
 import {
@@ -41,7 +42,6 @@ export function BroadcastsScene(): JSX.Element {
     const { location } = useValues(router)
     const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
     // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
-    const showAudienceSuggestions = useFeatureFlag('WORKFLOWS_BROADCAST_AUDIENCE_SUGGESTIONS')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const lastSegment = location.pathname.split('/').pop() as MessagingNavTabKey | 'calendar'
     const currentTab: MessagingNavTabKey | 'broadcasts' | 'calendar' =
@@ -58,7 +58,7 @@ export function BroadcastsScene(): JSX.Element {
         content: (
             <>
                 <BroadcastsFeaturePreview />
-                {showAudienceSuggestions && <BroadcastAudienceSuggestions />}
+                <BroadcastAudienceSuggestions />
                 <BroadcastsTable />
             </>
         ),
@@ -97,6 +97,7 @@ export function BroadcastsScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
+            <EngagementEventsBanner />
             <LemonTabs<'broadcasts' | 'calendar' | 'library' | 'messaging-setup'>
                 activeKey={
                     currentTab === 'broadcasts' || currentTab === 'calendar' || currentTab === 'library'

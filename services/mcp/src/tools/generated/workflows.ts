@@ -6,12 +6,21 @@ import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    omitResponseFields,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 import hooks_workflowsCreate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsGet from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsUpdate from '@/tools/workflows/broadcastLinkHooks'
 import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggestionCreateHooks'
+import hooks_workflowsEnable from '@/tools/workflows/testSenderNoteHooks'
+import hooks_workflowsPublish from '@/tools/workflows/testSenderNoteHooks'
 
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
@@ -323,6 +332,53 @@ const workflowsEmailDraftsCreate = (): ToolBase<
     },
 })
 
+const WorkflowsEnableSchema = () => {
+    const HogFlowsPartialUpdateBody = orvalSchemas.HogFlowsPartialUpdateBody()
+    const HogFlowsPartialUpdateParams = orvalSchemas.HogFlowsPartialUpdateParams()
+    return HogFlowsPartialUpdateParams.omit({ project_id: true }).extend(
+        HogFlowsPartialUpdateBody.omit({
+            name: true,
+            description: true,
+            tags: true,
+            trigger_masking: true,
+            conversion: true,
+            exit_condition: true,
+            email_sending_rate_limit: true,
+            variables: true,
+        }).shape
+    )
+}
+
+const workflowsEnable = (): ToolBase<
+    ReturnType<typeof WorkflowsEnableSchema>,
+    WithAgentNote<Schemas.HogFlowUpdate, false>
+> =>
+    withUiApp('workflow', {
+        name: 'workflows-enable',
+        schema: WorkflowsEnableSchema(),
+        handler: withToolHooks(
+            hooks_workflowsEnable,
+            async (context: Context, params: z.infer<ReturnType<typeof WorkflowsEnableSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const body: Record<string, unknown> = {}
+                body['status'] = 'active'
+                const result = await context.api.request<Schemas.HogFlowUpdate>({
+                    method: 'PATCH',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
+                    body: await transformRequestBody(hooks_workflowsEnable, context, params, body),
+                })
+                const filtered = omitResponseFields(result, [
+                    'actions.*.config.inputs',
+                    'draft.actions.*.config.inputs',
+                ]) as typeof result
+                return withAgentNote(
+                    filtered,
+                    "This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n"
+                )
+            }
+        ),
+    })
+
 const WorkflowsGetSchema = () => {
     const HogFlowsRetrieveParams = orvalSchemas.HogFlowsRetrieveParams()
     return HogFlowsRetrieveParams.omit({ project_id: true })
@@ -505,6 +561,7 @@ const workflowsList = (): ToolBase<
                     id: params.id,
                     latest_send_first: params.latest_send_first,
                     limit: params.limit,
+                    name: params.name,
                     offset: params.offset,
                     optimization_enabled: params.optimization_enabled,
                     origin_product: params.origin_product,
@@ -673,6 +730,7 @@ const workflowsLogs = (): ToolBase<ReturnType<typeof WorkflowsLogsSchema>, unkno
                 instance_id: params.instance_id,
                 level: params.level,
                 limit: params.limit,
+                offset: params.offset,
                 search: params.search,
             },
         })
@@ -733,29 +791,41 @@ const WorkflowsPublishSchema = () => {
     return HogFlowsPublishCreateParams.omit({ project_id: true }).extend(HogFlowsPublishCreateBody.shape)
 }
 
-const workflowsPublish = (): ToolBase<ReturnType<typeof WorkflowsPublishSchema>, Schemas.HogFlowPublishResponse> => ({
+const workflowsPublish = (): ToolBase<
+    ReturnType<typeof WorkflowsPublishSchema>,
+    WithAgentNote<Schemas.HogFlowPublishResponse, false>
+> => ({
     name: 'workflows-publish',
     schema: WorkflowsPublishSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPublishSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.confirm !== undefined) {
-            body['confirm'] = params.confirm
+    handler: withToolHooks(
+        hooks_workflowsPublish,
+        async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPublishSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.confirm !== undefined) {
+                body['confirm'] = params.confirm
+            }
+            if (params.confirm_token !== undefined) {
+                body['confirm_token'] = params.confirm_token
+            }
+            if (params.sandbox_sender_warned !== undefined) {
+                body['sandbox_sender_warned'] = params.sandbox_sender_warned
+            }
+            const result = await context.api.request<Schemas.HogFlowPublishResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
+                body: await transformRequestBody(hooks_workflowsPublish, context, params, body),
+            })
+            const filtered = omitResponseFields(result, [
+                'workflow.actions.*.config.inputs',
+                'workflow.draft.actions.*.config.inputs',
+            ]) as typeof result
+            return withAgentNote(
+                filtered,
+                "The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.\n"
+            )
         }
-        if (params.confirm_token !== undefined) {
-            body['confirm_token'] = params.confirm_token
-        }
-        const result = await context.api.request<Schemas.HogFlowPublishResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/publish/`,
-            body,
-        })
-        const filtered = omitResponseFields(result, [
-            'workflow.actions.*.config.inputs',
-            'workflow.draft.actions.*.config.inputs',
-        ]) as typeof result
-        return filtered
-    },
+    ),
 })
 
 const WorkflowsReputationGetSchema = () => {
@@ -895,6 +965,9 @@ const workflowsSendingRulesUpdate = (): ToolBase<
             }
             if (params.marketing_frequency_cap_window_days !== undefined) {
                 body['marketing_frequency_cap_window_days'] = params.marketing_frequency_cap_window_days
+            }
+            if (params.marketing_frequency_cap_hold_hours !== undefined) {
+                body['marketing_frequency_cap_hold_hours'] = params.marketing_frequency_cap_hold_hours
             }
             if (params.email_tracking_consent_mode !== undefined) {
                 body['email_tracking_consent_mode'] = params.email_tracking_consent_mode
@@ -1164,6 +1237,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-email-drafts-create': workflowsEmailDraftsCreate,
+    'workflows-enable': workflowsEnable,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,

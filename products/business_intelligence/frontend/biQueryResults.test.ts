@@ -27,6 +27,35 @@ const node = (config: BIConfig): BIVisualizationNode => ({
 })
 
 describe('BI visualization data reuse', () => {
+    test.each(['result', 'results'] as const)(
+        'renders saved pivot data from %s and applies the row limit',
+        (resultKey) => {
+            const query = node({ ...config, chartType: ChartDisplayType.ActionsTable, rows: [], limit: 100 })
+            const columns = [...getBIResultDimensions(query.config).map(({ column }) => column), 'sum_revenue']
+            const rows = Array.from({ length: 101 }, (_, index) => [`category ${index}`, index])
+            const response = {
+                columns,
+                types: columns.map((column, index) => [column, index === 0 ? 'String' : 'Float64']),
+                [resultKey]: rows,
+                last_refresh: '2026-10-01T00:00:00Z',
+            }
+            const original = structuredClone(response)
+            expect(getBIVisualizationResponse(query, response)).toMatchObject({
+                columns,
+                types: response.types,
+                results: rows.slice(0, 100),
+                hasMore: true,
+                last_refresh: response.last_refresh,
+            })
+            expect(getBIResultSummary(query, response)).toMatchObject({ groups: 100, marks: 100, limited: true })
+            expect(response).toEqual(original)
+            expect(getBIVisualizationResponse(query, { ...response, [resultKey]: [] })).toMatchObject({
+                results: [],
+                hasMore: false,
+            })
+        }
+    )
+
     test.each([
         ChartDisplayType.ScatterPlot,
         ChartDisplayType.ActionsLineGraph,

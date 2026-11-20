@@ -42,6 +42,7 @@ const entry = (
 describe('analyticsFeedLogic', () => {
     let requests: string[]
     let searches: (string | null)[]
+    let tagFilters: (string | null)[]
     let dashboardReads: number
     let firstDashboardRead: Promise<void>
 
@@ -49,6 +50,7 @@ describe('analyticsFeedLogic', () => {
         resetAnalyticsFeedSnapshot()
         requests = []
         searches = []
+        tagFilters = []
         dashboardReads = 0
         firstDashboardRead = Promise.resolve()
         useMocks({
@@ -64,6 +66,7 @@ describe('analyticsFeedLogic', () => {
                     const offset = params.get('offset') ?? '0'
                     requests.push(`${type}:${offset}:${params.get('order_by')}`)
                     searches.push(params.get('search'))
+                    tagFilters.push(params.get('tags'))
                     if (type === 'canvas') {
                         return { results: [entry('canvas', 'c7', 'Growth/C', at(7), GRACE)], users: USERS, next: null }
                     }
@@ -214,6 +217,18 @@ describe('analyticsFeedLogic', () => {
         expect(new Set(searches)).toEqual(new Set([search]))
     })
 
+    it('asks the server for rows with any picked tag, and keeps every row it returns', async () => {
+        const logic = analyticsFeedLogic()
+        logic.mount()
+        const tagged: AnalyticsFeedQuery = { ...ALL, tags: ['finance', 'growth'] }
+
+        await expectLogic(logic, () => logic.actions.ensureFeed(tagged, 100)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.ensureFeed(tagged, 100)).toFinishAllListeners()
+
+        expect(feed(logic, tagged)).toEqual(['dashboard:10', 'dashboard:8', 'insight:i5', 'dashboard:3'])
+        expect(new Set(tagFilters)).toEqual(new Set(['["finance","growth"]']))
+    })
+
     it('keeps the loaded list after a remount, so a revisit shows rows at once', async () => {
         const first = analyticsFeedLogic()
         first.mount()
@@ -228,8 +243,8 @@ describe('analyticsFeedLogic', () => {
 })
 
 describe('mergeAnalyticsSources view order', () => {
-    test.each(['-last_viewed_at', 'last_viewed_at'] as const)(
-        'merges %s across types with unviewed rows last',
+    test.each(['-last_viewed_at', 'last_viewed_at', '-created_at', 'created_at'] as const)(
+        'merges %s across types with rows that have no time last',
         (orderBy) => {
             const source = (type: 'dashboard' | 'notebook', days: (number | null)[]): AnalyticsSourceState => ({
                 projectId: '1',
@@ -253,9 +268,9 @@ describe('mergeAnalyticsSources view order', () => {
                 failed: false,
                 generation: 0,
             })
-            const dashboards = orderBy === '-last_viewed_at' ? [5, 2, null] : [2, 5, null]
+            const dashboards = orderBy.startsWith('-') ? [5, 2, null] : [2, 5, null]
             const { items } = mergeAnalyticsSources([source('dashboard', dashboards), source('notebook', [3, null])])
-            const expected = orderBy === '-last_viewed_at' ? [5, 3, 2, null, null] : [2, 3, 5, null, null]
+            const expected = orderBy.startsWith('-') ? [5, 3, 2, null, null] : [2, 3, 5, null, null]
             expect(items.map((item) => item.timestamp)).toEqual(expected.map((day) => (day === null ? null : at(day))))
             expect(items.slice(-2).map((item) => item.type)).toEqual(['notebook', 'dashboard'])
         }

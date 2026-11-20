@@ -22,7 +22,7 @@ inputs:
     save-cache:
         description: Whether to save the uv cache after the job
         required: false
-        default: ${{ github.ref == 'refs/heads/master' }}
+        default: ${{ github.ref == 'refs/heads/master' && github.event_name != 'api' }}
 
 outputs:
     cache-hit:

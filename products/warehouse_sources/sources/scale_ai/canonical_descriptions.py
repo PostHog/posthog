@@ -1,0 +1,78 @@
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "tasks": {
+        "description": "A unit of data labeling work submitted to Scale, with its type, status, timestamps, and review results.",
+        "docs_url": "https://scale.com/docs/api-reference/tasks",
+        "columns": {
+            "task_id": "Unique identifier for the task.",
+            "type": "The task type (e.g. imageannotation, categorization, textcollection).",
+            "status": "Current lifecycle status of the task (pending, completed, or canceled).",
+            "project": "Name of the project the task belongs to.",
+            "batch": "Name of the batch the task belongs to, if any.",
+            "created_at": "When the task was created.",
+            "completed_at": "When the task was completed, if it has been.",
+            "updated_at": "When the task was last updated.",
+            "callback_url": "URL Scale calls when the task completes.",
+            "instruction": "Instructions shown to the labeler for this task.",
+            "params": "Task-type-specific parameters supplied at creation.",
+            "response": "The completed labeling response, present once the task is done.",
+            "metadata": "Arbitrary customer-supplied metadata attached to the task.",
+            "customer_review_status": "Audit result for the task (accepted, fixed, commented, or rejected).",
+            "tags": "Tags applied to the task.",
+            "unique_id": "Customer-supplied unique identifier used to deduplicate task creation.",
+        },
+    },
+    "batches": {
+        "description": "A collection of tasks grouped for calibration and delivery within a project.",
+        "docs_url": "https://scale.com/docs/api-reference/batches",
+        "columns": {
+            "name": "Unique name of the batch.",
+            "project": "Name of the project the batch belongs to.",
+            "status": "Current status of the batch (staging, in_progress, or completed).",
+            "created_at": "When the batch was created.",
+            "completed_at": "When the batch was completed, if it has been.",
+            "metadata": "Arbitrary customer-supplied metadata attached to the batch.",
+        },
+    },
+    "projects": {
+        "description": "A container that defines the labeling task type and instructions shared by its tasks and batches.",
+        "docs_url": "https://scale.com/docs/api-reference/projects",
+        "columns": {
+            "name": "Unique name of the project.",
+            "type": "The task type the project produces.",
+            "created_at": "When the project was created.",
+            "param_history": "History of parameter/instruction versions for the project.",
+        },
+    },
+    "audits": {
+        "description": "A fixless audit of a completed task: the audit result and the feedback items that feed Scale's quality scores.",
+        "docs_url": "https://api-reference.scale.com/docs/api-reference/fixless-audits",
+        "columns": {
+            "id": "Unique identifier for the audit.",
+            "srn": "Scale resource name of the audit, usable in place of the id.",
+            "type": "The audit type (always fixless).",
+            "result": "The audit result (accepted or rejected).",
+            "task_id": "Identifier of the audited task.",
+            "comments": "Free-text comments from the auditor.",
+            "target_response": "The audited task response, as an object with its url.",
+            "feedback_items": "Errors, flags, confirmations and comments the auditor recorded on the task.",
+            "metadata": "Arbitrary customer-supplied metadata attached to the audit.",
+            "active": "Whether this is the latest audit of the task. Only the latest audit counts for quality scores.",
+            "source": "Where the audit was made (api, lidarlite, or classic).",
+            "created_by": "Who created the audit.",
+            "created_at": "When the audit was created.",
+            "updated_at": "When the audit was last updated.",
+        },
+    },
+    "batch_statuses": {
+        "description": "The status of a batch and the counts of its tasks grouped by task status.",
+        "docs_url": "https://api-reference.scale.com/docs/api-reference/batches",
+        "columns": {
+            "batch_name": "Name of the batch.",
+            "status": "Current status of the batch (staging, in_progress, or completed).",
+            "tasks_pending": "Number of tasks in the batch that are pending.",
+            "tasks_completed": "Number of tasks in the batch that are completed.",
+        },
+    },
+}

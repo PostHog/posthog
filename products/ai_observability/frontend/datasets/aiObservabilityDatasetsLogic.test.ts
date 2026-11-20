@@ -40,6 +40,8 @@ describe('aiObservabilityDatasetsLogic', () => {
         updated_at: '2024-01-01T00:00:00Z',
         created_by: null,
         archived: false,
+        expires_at: null,
+        expiring_soon: false,
         current_revision: null,
         current_revision_id: null,
         user_access_level: 'editor',
@@ -56,6 +58,8 @@ describe('aiObservabilityDatasetsLogic', () => {
         updated_at: '2024-01-02T00:00:00Z',
         created_by: null,
         archived: false,
+        expires_at: null,
+        expiring_soon: false,
         current_revision: null,
         current_revision_id: null,
         user_access_level: 'editor',
@@ -107,7 +111,6 @@ describe('aiObservabilityDatasetsLogic', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
-            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
         })
         const tabs = offlineEvaluationsLogic()
         tabs.mount()

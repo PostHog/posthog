@@ -25,6 +25,11 @@ describe('findClosestSeriesKey', () => {
         expect(findClosestSeriesKey([row('a', 50), row('b', 200), row('c', 110)], 100)).toBe('c')
     })
 
+    it('skips overlay series, matching the hover dot', () => {
+        const trend = { series: { key: 'trend', overlay: true }, yPixel: 100 }
+        expect(findClosestSeriesKey([row('a', 150), trend], 100)).toBe('a')
+    })
+
     it('handles a single series', () => {
         expect(findClosestSeriesKey([row('x', 300)], 100)).toBe('x')
     })

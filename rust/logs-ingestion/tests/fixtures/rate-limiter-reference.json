@@ -1,0 +1,1188 @@
+{
+ "keyPatterns": [
+  "@posthog-test/logs-parity-rl*",
+  "@posthog-test/logs-sampling-rate/tokens/987654321/*"
+ ],
+ "keyedLimiters": {
+  "v3": {
+   "name": "logs-parity-rl-keyed-v3",
+   "scriptVersion": "v3",
+   "ttlSeconds": 600
+  },
+  "v2": {
+   "name": "logs-parity-rl-keyed-v2",
+   "scriptVersion": "v2",
+   "ttlSeconds": 600
+  },
+  "grouped": {
+   "name": "logs-parity-rl-grouped",
+   "scriptVersion": "v3",
+   "ttlSeconds": 600
+  }
+ },
+ "logsLimiters": {
+  "all": {
+   "name": "logs-parity-rl-logs-all",
+   "config": {
+    "LOGS_LIMITER_ENABLED_TEAMS": "*",
+    "LOGS_LIMITER_DISABLED_FOR_TEAMS": "3, x",
+    "LOGS_LIMITER_BUCKET_SIZE_KB": 10,
+    "LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND": 2,
+    "LOGS_LIMITER_TTL_SECONDS": 600,
+    "LOGS_LIMITER_TEAM_BUCKET_SIZE_KB": "2:25, 4 : 3, bad:1",
+    "LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": "2:5"
+   }
+  },
+  "listed": {
+   "name": "logs-parity-rl-logs-listed",
+   "config": {
+    "LOGS_LIMITER_ENABLED_TEAMS": "1,2",
+    "LOGS_LIMITER_DISABLED_FOR_TEAMS": "",
+    "LOGS_LIMITER_BUCKET_SIZE_KB": 4,
+    "LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND": 1,
+    "LOGS_LIMITER_TTL_SECONDS": 600,
+    "LOGS_LIMITER_TEAM_BUCKET_SIZE_KB": "",
+    "LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": ""
+   }
+  }
+ },
+ "samplingRules": [
+  {
+   "id": "drop-health",
+   "rule_type": "path_drop",
+   "scope_service": null,
+   "scope_path_pattern": null,
+   "scope_attribute_filters": [],
+   "config": {
+    "patterns": [
+     "healthz"
+    ],
+    "match_attribute_key": "url.path"
+   }
+  },
+  {
+   "id": "rl-records",
+   "rule_type": "rate_limit",
+   "scope_service": "api",
+   "scope_path_pattern": null,
+   "scope_attribute_filters": [],
+   "config": {
+    "logs_per_second": 2,
+    "burst_logs": 3
+   }
+  },
+  {
+   "id": "rl-bytes",
+   "rule_type": "rate_limit",
+   "scope_service": null,
+   "scope_path_pattern": null,
+   "scope_attribute_filters": [],
+   "config": {
+    "kb_per_second": 1,
+    "burst_kb": 1
+   }
+  }
+ ],
+ "shas": {
+  "v2": "f8b27ea6a3f4823cc6710f72abd856ec83221998",
+  "v3": "25df07199ef89fa96971f5bc0fb79695b6030d64"
+ },
+ "steps": [
+  {
+   "kind": "keyed",
+   "limiter": "v3",
+   "method": "many",
+   "nowMs": 1736942400000,
+   "requests": [
+    {
+     "id": "a",
+     "cost": 3,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942400
+    },
+    {
+     "id": "b",
+     "cost": 15,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942400
+    },
+    {
+     "id": "c",
+     "cost": 2.5,
+     "bucketSize": 7.5,
+     "refillRate": 0.5,
+     "now": 1736942400
+    }
+   ],
+   "output": [
+    [
+     "a",
+     {
+      "tokensBefore": 10,
+      "tokens": 7,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "b",
+     {
+      "tokensBefore": 10,
+      "tokens": -1,
+      "isRateLimited": true
+     }
+    ],
+    [
+     "c",
+     {
+      "tokensBefore": 7,
+      "tokens": 5,
+      "isRateLimited": false
+     }
+    ]
+   ]
+  },
+  {
+   "kind": "keyed",
+   "limiter": "v3",
+   "method": "many",
+   "nowMs": 1736942400000,
+   "requests": [
+    {
+     "id": "a",
+     "cost": 8,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942401
+    },
+    {
+     "id": "b",
+     "cost": 10,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942401
+    },
+    {
+     "id": "c",
+     "cost": 1,
+     "bucketSize": 7.5,
+     "refillRate": 0.5,
+     "now": 1736942403
+    }
+   ],
+   "output": [
+    [
+     "a",
+     {
+      "tokensBefore": 8,
+      "tokens": 0,
+      "isRateLimited": true
+     }
+    ],
+    [
+     "b",
+     {
+      "tokensBefore": 1,
+      "tokens": -1,
+      "isRateLimited": true
+     }
+    ],
+    [
+     "c",
+     {
+      "tokensBefore": 6,
+      "tokens": 5,
+      "isRateLimited": false
+     }
+    ]
+   ]
+  },
+  {
+   "kind": "keyed",
+   "limiter": "v3",
+   "method": "many",
+   "nowMs": 1736942400000,
+   "requests": [
+    {
+     "id": "a",
+     "cost": 1,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942395
+    },
+    {
+     "id": "a",
+     "cost": 1,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942500
+    },
+    {
+     "id": "c",
+     "cost": 0.25,
+     "bucketSize": 7.5,
+     "refillRate": 0.5,
+     "now": 1736942404
+    }
+   ],
+   "output": [
+    [
+     "a",
+     {
+      "tokensBefore": 0,
+      "tokens": -1,
+      "isRateLimited": true
+     }
+    ],
+    [
+     "a",
+     {
+      "tokensBefore": 99,
+      "tokens": 10,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "c",
+     {
+      "tokensBefore": 6,
+      "tokens": 5,
+      "isRateLimited": false
+     }
+    ]
+   ]
+  },
+  {
+   "kind": "keyed",
+   "limiter": "v3",
+   "method": "many",
+   "nowMs": 1736942600500,
+   "requests": [
+    {
+     "id": "a",
+     "cost": 50,
+     "bucketSize": 10,
+     "refillRate": 1
+    },
+    {
+     "id": "d",
+     "cost": 1e-7,
+     "bucketSize": 1e+21,
+     "refillRate": 3
+    }
+   ],
+   "output": [
+    [
+     "a",
+     {
+      "tokensBefore": 111,
+      "tokens": 10,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "d",
+     {
+      "tokensBefore": -9223372036854778000,
+      "tokens": -9223372036854778000,
+      "isRateLimited": true
+     }
+    ]
+   ]
+  },
+  {
+   "kind": "keyed",
+   "limiter": "v2",
+   "method": "many",
+   "nowMs": 1736942400000,
+   "requests": [
+    {
+     "id": "a",
+     "cost": 3,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942400
+    },
+    {
+     "id": "b",
+     "cost": 15,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942400
+    },
+    {
+     "id": "c",
+     "cost": 2.5,
+     "bucketSize": 7.5,
+     "refillRate": 0.5,
+     "now": 1736942400
+    }
+   ],
+   "output": [
+    [
+     "a",
+     {
+      "tokensBefore": 10,
+      "tokens": 7,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "b",
+     {
+      "tokensBefore": 10,
+      "tokens": -1,
+      "isRateLimited": true
+     }
+    ],
+    [
+     "c",
+     {
+      "tokensBefore": 7,
+      "tokens": 5,
+      "isRateLimited": false
+     }
+    ]
+   ]
+  },
+  {
+   "kind": "keyed",
+   "limiter": "v2",
+   "method": "many",
+   "nowMs": 1736942400000,
+   "requests": [
+    {
+     "id": "a",
+     "cost": 8,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942401
+    },
+    {
+     "id": "b",
+     "cost": 10,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942401
+    },
+    {
+     "id": "c",
+     "cost": 6,
+     "bucketSize": 7.5,
+     "refillRate": 0.5,
+     "now": 1736942403
+    },
+    {
+     "id": "a",
+     "cost": 1,
+     "bucketSize": 10,
+     "refillRate": 1,
+     "now": 1736942395
+    }
+   ],
+   "output": [
+    [
+     "a",
+     {
+      "tokensBefore": 8,
+      "tokens": 0,
+      "isRateLimited": true
+     }
+    ],
+    [
+     "b",
+     {
+      "tokensBefore": 11,
+      "tokens": 1,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "c",
+     {
+      "tokensBefore": 6,
+      "tokens": 0,
+      "isRateLimited": true
+     }
+    ],
+    [
+     "a",
+     {
+      "tokensBefore": 0,
+      "tokens": -1,
+      "isRateLimited": true
+     }
+    ]
+   ]
+  },
+  {
+   "kind": "keyed",
+   "limiter": "grouped",
+   "method": "grouped",
+   "nowMs": 1736942400000,
+   "requests": [
+    {
+     "id": "x",
+     "cost": 2,
+     "bucketSize": 5,
+     "refillRate": 1,
+     "now": 1736942400
+    },
+    {
+     "id": "y",
+     "cost": 4,
+     "bucketSize": 3,
+     "refillRate": 1,
+     "now": 1736942400
+    },
+    {
+     "id": "x",
+     "cost": 3,
+     "bucketSize": 99,
+     "refillRate": 50,
+     "now": 1736942450
+    },
+    {
+     "id": "x",
+     "cost": 1,
+     "now": 1736942400
+    },
+    {
+     "id": "y",
+     "cost": 1
+    }
+   ],
+   "output": [
+    [
+     "x",
+     {
+      "tokensBefore": 5,
+      "tokens": 3,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "y",
+     {
+      "tokensBefore": 3,
+      "tokens": -1,
+      "isRateLimited": true
+     }
+    ],
+    [
+     "x",
+     {
+      "tokensBefore": 3,
+      "tokens": 0,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "x",
+     {
+      "tokensBefore": 0,
+      "tokens": -1,
+      "isRateLimited": true
+     }
+    ],
+    [
+     "y",
+     {
+      "tokensBefore": 3,
+      "tokens": 2,
+      "isRateLimited": false
+     }
+    ]
+   ]
+  },
+  {
+   "kind": "keyed",
+   "limiter": "grouped",
+   "method": "grouped",
+   "nowMs": 1736942402000,
+   "requests": [
+    {
+     "id": "x",
+     "cost": 1,
+     "bucketSize": 5,
+     "refillRate": 1
+    },
+    {
+     "id": "x",
+     "cost": 1,
+     "bucketSize": 5,
+     "refillRate": 1
+    },
+    {
+     "id": "y",
+     "cost": 0.5,
+     "bucketSize": 3,
+     "refillRate": 1
+    },
+    {
+     "id": "x",
+     "cost": 1,
+     "bucketSize": 5,
+     "refillRate": 1
+    }
+   ],
+   "output": [
+    [
+     "x",
+     {
+      "tokensBefore": 2,
+      "tokens": 1,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "x",
+     {
+      "tokensBefore": 1,
+      "tokens": 0,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "y",
+     {
+      "tokensBefore": 2,
+      "tokens": 1.5,
+      "isRateLimited": false
+     }
+    ],
+    [
+     "x",
+     {
+      "tokensBefore": 0,
+      "tokens": -1,
+      "isRateLimited": true
+     }
+    ]
+   ]
+  },
+  {
+   "kind": "logs",
+   "limiter": "all",
+   "nowMs": 1736942400000,
+   "messages": [
+    {
+     "teamId": 1,
+     "bytesUncompressed": 4000,
+     "createdAt": "2025-01-15T12:00:00.000Z"
+    },
+    {
+     "teamId": 1,
+     "bytesUncompressed": 4001,
+     "createdAt": "2025-01-15T12:00:00.400Z"
+    },
+    {
+     "teamId": 1,
+     "bytesUncompressed": 3000,
+     "createdAt": "2025-01-15T11:59:57.000Z"
+    },
+    {
+     "teamId": 2,
+     "bytesUncompressed": 20000,
+     "createdAt": "2025-01-15T12:00:00.000Z"
+    },
+    {
+     "teamId": 2,
+     "bytesUncompressed": 6000,
+     "createdAt": "Wed, 15 Jan 2025 12:00:01 GMT"
+    },
+    {
+     "teamId": 3,
+     "bytesUncompressed": 99000,
+     "createdAt": null
+    },
+    {
+     "teamId": 3,
+     "bytesUncompressed": 99000,
+     "createdAt": "not a date"
+    },
+    {
+     "teamId": 4,
+     "bytesUncompressed": 1,
+     "createdAt": "2025-01-15T12:00:00.500Z"
+    },
+    {
+     "teamId": 4,
+     "bytesUncompressed": 2500,
+     "createdAt": "2025-01-15T12:00:00.500Z"
+    },
+    {
+     "teamId": 1,
+     "bytesUncompressed": 1,
+     "createdAt": "2025-01-15T12:00:00.000Z"
+    }
+   ],
+   "output": {
+    "allowed": [
+     0,
+     1,
+     3,
+     5,
+     6,
+     7,
+     9
+    ],
+    "dropped": [
+     2,
+     4,
+     8
+    ]
+   }
+  },
+  {
+   "kind": "logs",
+   "limiter": "all",
+   "nowMs": 1736942400000,
+   "messages": [
+    {
+     "teamId": 1,
+     "bytesUncompressed": 3500,
+     "createdAt": "2025-01-15T12:00:02.000Z"
+    },
+    {
+     "teamId": 1,
+     "bytesUncompressed": 1500,
+     "createdAt": "2025-01-15T12:00:01.000Z"
+    },
+    {
+     "teamId": 2,
+     "bytesUncompressed": 10000,
+     "createdAt": "2025-01-15T12:00:01.000Z"
+    },
+    {
+     "teamId": 4,
+     "bytesUncompressed": 999,
+     "createdAt": "2025-01-15T12:00:09.000Z"
+    }
+   ],
+   "output": {
+    "allowed": [
+     0,
+     1,
+     2,
+     3
+    ],
+    "dropped": []
+   }
+  },
+  {
+   "kind": "logs",
+   "limiter": "listed",
+   "nowMs": 1736942400000,
+   "messages": [
+    {
+     "teamId": 1,
+     "bytesUncompressed": 3000,
+     "createdAt": "2025-01-15T12:00:00.000Z"
+    },
+    {
+     "teamId": 1,
+     "bytesUncompressed": 1000,
+     "createdAt": "2025-01-15T12:00:00.000Z"
+    },
+    {
+     "teamId": 2,
+     "bytesUncompressed": 5000,
+     "createdAt": "2025-01-15T12:00:00.000Z"
+    },
+    {
+     "teamId": 5,
+     "bytesUncompressed": 1000000000,
+     "createdAt": ""
+    },
+    {
+     "teamId": 1,
+     "bytesUncompressed": 1,
+     "createdAt": "2025-01-15T12:00:00.000Z"
+    }
+   ],
+   "output": {
+    "allowed": [
+     0,
+     1,
+     3
+    ],
+    "dropped": [
+     2,
+     4
+    ]
+   }
+  },
+  {
+   "kind": "sampling",
+   "nowMs": 1736942400000,
+   "teamId": 987654321,
+   "headerBytes": 0,
+   "records": [
+    {
+     "uuid": "r0",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "api",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 200
+    },
+    {
+     "uuid": "r1",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "api",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/healthz\""
+     },
+     "bytes_uncompressed": 200
+    },
+    {
+     "uuid": "r2",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "api",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 200
+    },
+    {
+     "uuid": "r3",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "worker",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 400
+    },
+    {
+     "uuid": "r4",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "api",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 200
+    },
+    {
+     "uuid": "r5",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "worker",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 500
+    },
+    {
+     "uuid": "r6",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "api",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 200
+    },
+    {
+     "uuid": "r7",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "worker",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": null
+    },
+    {
+     "uuid": "r8",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "worker",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 300
+    }
+   ],
+   "output": {
+    "kept": [
+     "r0",
+     "r2",
+     "r3",
+     "r4",
+     "r5",
+     "r7"
+    ],
+    "recordsDropped": 3,
+    "recordsDroppedByRuleId": [
+     [
+      "drop-health",
+      1
+     ],
+     [
+      "rl-records",
+      1
+     ],
+     [
+      "rl-bytes",
+      1
+     ]
+    ],
+    "bytesDropped": 700,
+    "bytesDroppedByRuleId": [
+     [
+      "drop-health",
+      200
+     ],
+     [
+      "rl-records",
+      200
+     ],
+     [
+      "rl-bytes",
+      300
+     ]
+    ],
+    "contentBytesDropped": 120.66666666666666,
+    "contentBytesTotal": 366,
+    "droppedBy": "sampling"
+   }
+  },
+  {
+   "kind": "sampling",
+   "nowMs": 1736942401400,
+   "teamId": 987654321,
+   "headerBytes": 2500,
+   "records": [
+    {
+     "uuid": "s0",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "api",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 200
+    },
+    {
+     "uuid": "s1",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "worker",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 200
+    },
+    {
+     "uuid": "s2",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "worker",
+     "resource_attributes": null,
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 200
+    },
+    {
+     "uuid": "s3",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "api",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": null,
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 200
+    },
+    {
+     "uuid": "s4",
+     "trace_id": {
+      "$bytes": "0102030405060708090a0b0c0d0e0f10"
+     },
+     "span_id": null,
+     "trace_flags": null,
+     "timestamp": 1736942400000000,
+     "observed_timestamp": 1736942400000000,
+     "body": "request handled",
+     "severity_text": "INFO",
+     "severity_number": 9,
+     "service_name": "worker",
+     "resource_attributes": {
+      "service.name": "\"api\""
+     },
+     "instrumentation_scope": "scope@1",
+     "event_name": null,
+     "attributes": {
+      "url.path": "\"/api/items\""
+     },
+     "bytes_uncompressed": 200
+    }
+   ],
+   "output": {
+    "kept": [
+     "s0",
+     "s2",
+     "s3",
+     "s4"
+    ],
+    "recordsDropped": 1,
+    "recordsDroppedByRuleId": [
+     [
+      "rl-bytes",
+      1
+     ]
+    ],
+    "bytesDropped": 200,
+    "bytesDroppedByRuleId": [
+     [
+      "rl-bytes",
+      200
+     ]
+    ],
+    "contentBytesDropped": 328.25,
+    "contentBytesTotal": 589,
+    "droppedBy": "sampling"
+   }
+  }
+ ],
+ "finalState": {
+  "@posthog-test/logs-parity-rl-grouped/tokens/x": {
+   "ts": "1736942402",
+   "pool": "0"
+  },
+  "@posthog-test/logs-parity-rl-grouped/tokens/y": {
+   "ts": "1736942402",
+   "pool": "1.5"
+  },
+  "@posthog-test/logs-parity-rl-keyed-v2/tokens/a": {
+   "ts": "1736942401",
+   "pool": "0"
+  },
+  "@posthog-test/logs-parity-rl-keyed-v2/tokens/b": {
+   "ts": "1736942401",
+   "pool": "1"
+  },
+  "@posthog-test/logs-parity-rl-keyed-v2/tokens/c": {
+   "ts": "1736942403",
+   "pool": "0.5"
+  },
+  "@posthog-test/logs-parity-rl-keyed-v3/tokens/a": {
+   "ts": "1736942601",
+   "pool": "10"
+  },
+  "@posthog-test/logs-parity-rl-keyed-v3/tokens/b": {
+   "ts": "1736942401",
+   "pool": "0"
+  },
+  "@posthog-test/logs-parity-rl-keyed-v3/tokens/c": {
+   "ts": "1736942404",
+   "pool": "5.75"
+  },
+  "@posthog-test/logs-parity-rl-keyed-v3/tokens/d": {
+   "ts": "1736942601",
+   "pool": "1e+21"
+  },
+  "@posthog-test/logs-parity-rl-logs-all/tokens/1": {
+   "ts": "1736942402",
+   "pool": "8"
+  },
+  "@posthog-test/logs-parity-rl-logs-all/tokens/2": {
+   "ts": "1736942401",
+   "pool": "15"
+  },
+  "@posthog-test/logs-parity-rl-logs-all/tokens/4": {
+   "ts": "1736942409",
+   "pool": "3"
+  },
+  "@posthog-test/logs-parity-rl-logs-listed/tokens/1": {
+   "ts": "1736942400",
+   "pool": "4"
+  },
+  "@posthog-test/logs-parity-rl-logs-listed/tokens/2": {
+   "ts": "1736942400",
+   "pool": "4"
+  },
+  "@posthog-test/logs-sampling-rate/tokens/987654321/rl-bytes": {
+   "ts": "1736942401",
+   "pool": "0"
+  },
+  "@posthog-test/logs-sampling-rate/tokens/987654321/rl-records": {
+   "ts": "1736942401",
+   "pool": "0"
+  }
+ }
+}

@@ -1,4 +1,4 @@
-import { isTrendsQuery } from '~/queries/utils'
+import { isTrendsQuery } from '~/queries/schema/node-guards'
 import { ChartDisplayType } from '~/types'
 
 // Their own module so an option component can read these groupings without importing the

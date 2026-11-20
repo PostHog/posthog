@@ -23,6 +23,9 @@ from posthog.models.integration import (
     SnowflakeIntegration,
     SnowflakeIntegrationError,
 )
+from posthog.models.integration.aws import AWS_ROLE_ARN_RE
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
     UNREACHABLE_HOST_MESSAGE,
@@ -185,21 +188,52 @@ def _check_file_format(merged_config: dict[str, typing.Any], supported_compressi
         )
 
 
+_AWS_CREDENTIAL_KEYS = frozenset({"aws_access_key_id", "aws_secret_access_key"})
+
+
+def _reject_inline_copy_keys(
+    instance: BatchExport | None,
+    merged_config: dict[str, typing.Any],
+    existing_config: dict[str, typing.Any],
+) -> None:
+    """Reject inline AWS keys in Redshift `copy_inputs`, whatever the mode.
+
+    Runs for every mode so keys cannot be stored under `INSERT` and later used by `COPY`.
+    """
+    copy_inputs = merged_config.get("copy_inputs")
+    if copy_inputs is None:
+        return
+    if not isinstance(copy_inputs, dict):
+        # The workflow JSON-decodes string `copy_inputs`, so a string could carry inline keys.
+        if instance is None or copy_inputs != existing_config.get("copy_inputs"):
+            raise contracts.InvalidBatchExportDestinationError("'copy_inputs' must be an object.")
+        return
+
+    for field_name in ("bucket_credentials", "authorization"):
+        value = copy_inputs.get(field_name)
+        if isinstance(value, dict) and bool(_AWS_CREDENTIAL_KEYS & value.keys()):
+            allowed_source = "an AWS S3 integration"
+            if field_name == "authorization":
+                allowed_source += " or an IAM role ARN"
+            raise contracts.InvalidBatchExportDestinationError(
+                f"'{field_name}' must be {allowed_source}. Inline AWS access keys are no longer accepted."
+            )
+
+
 def _check_redshift_copy_inputs(
     team_id: int,
-    instance: BatchExport | None,
     merged_config: dict[str, typing.Any],
     existing_config: dict[str, typing.Any],
 ) -> None:
     copy_inputs = merged_config.get("copy_inputs", {})
     if not copy_inputs:
         raise contracts.InvalidBatchExportDestinationError("Missing required inputs for 'COPY'")
+    if not isinstance(copy_inputs, dict):
+        raise contracts.InvalidBatchExportDestinationError("'copy_inputs' must be an object.")
 
     required_inputs = {"s3_bucket", "region_name", "authorization", "bucket_credentials"}
     if required_inputs - copy_inputs.keys():
         raise contracts.InvalidBatchExportDestinationError("Missing required input for 'COPY'")
-
-    credential_keys = {"aws_access_key_id", "aws_secret_access_key"}
 
     bucket_credentials = copy_inputs["bucket_credentials"]
     bucket_integration_id = _coerce_integration_id(bucket_credentials)
@@ -212,19 +246,6 @@ def _check_redshift_copy_inputs(
         ("bucket_credentials", bucket_integration_id),
         ("authorization", authorization_integration_id),
     ):
-        # Sticky like the top-level integration: COPY credentials that reference an
-        # integration cannot drop back to inline values.
-        # TODO: remove this guard once integrations are mandatory for Redshift and
-        # inline credentials are gone.
-        if (
-            instance is not None
-            and copy_integration_id is None
-            and _coerce_integration_id(existing_copy_inputs.get(field_name)) is not None
-        ):
-            raise contracts.InvalidBatchExportDestinationError(
-                f"Cannot switch '{field_name}' from an integration to inline credentials. "
-                "Send a different integration ID to swap, or omit the field to keep the current one."
-            )
         if copy_integration_id is None:
             continue
         # These ids live inside `config` rather than the team-scoped `integration`
@@ -234,21 +255,29 @@ def _check_redshift_copy_inputs(
                 f"'{field_name}' does not reference an AWS S3 integration of this project."
             )
 
-    if bucket_integration_id is None and (
-        not isinstance(bucket_credentials, dict) or credential_keys - bucket_credentials.keys()
-    ):
-        raise contracts.InvalidBatchExportDestinationError("Missing required bucket credentials for 'COPY'")
+    if bucket_integration_id is None:
+        raise contracts.InvalidBatchExportDestinationError(
+            "Missing required bucket credentials for 'COPY'. Set them to an AWS S3 integration ID."
+        )
 
     if authorization_integration_id is None:
-        if isinstance(authorization, dict):
-            if credential_keys - authorization.keys():
-                raise contracts.InvalidBatchExportDestinationError("Missing required credentials for 'COPY'")
-        elif isinstance(authorization, str):
+        if isinstance(authorization, str):
             if not authorization.strip():
                 raise contracts.InvalidBatchExportDestinationError("Missing required IAM role for 'COPY'")
+            # Only changed values are checked, so unrelated edits to existing exports keep saving.
+            # `default` is valid: the COPY statement runs `IAM_ROLE default`.
+            if (
+                authorization != existing_copy_inputs.get("authorization")
+                and authorization != "default"
+                and not AWS_ROLE_ARN_RE.match(authorization)
+            ):
+                raise contracts.InvalidBatchExportDestinationError(
+                    "Authorization for 'COPY' must be an IAM role ARN (arn:aws:iam::<account-id>:role/<name>), "
+                    "'default', or an AWS S3 integration ID."
+                )
         else:
             raise contracts.InvalidBatchExportDestinationError(
-                "Authorization for 'COPY' must be an IAM role ARN, AWS credentials, or an integration ID."
+                "Authorization for 'COPY' must be an IAM role ARN or an AWS S3 integration ID."
             )
 
 
@@ -270,9 +299,6 @@ def validate_destination(
             message says which one.
         contracts.BatchExportNotFoundError: If ``export_id`` names no export of the team.
     """
-    # The caller's copy of the export has its secrets stripped, and the Redshift COPY check reads the
-    # stored inline credentials, so the export is read again here.
-    # TODO: once inline credentials are gone, take the existing destination from the caller instead.
     instance = (
         load_batch_export(team_id, export_id, "destination", "destination__integration")
         if export_id is not None
@@ -386,6 +412,15 @@ def validate_destination(
             raise contracts.InvalidBatchExportDestinationError(str(e))
 
     if destination_type == BatchExportDestinationType.POSTGRES:
+        # Sticky integration: an explicit `integration: null` would make the export fall back to
+        # any inline credentials still left in its config, and nothing records that switch.
+        # TODO: remove this guard once inline credentials are gone.
+        if instance is not None and instance.destination.integration is not None and kept_integration is None:
+            raise contracts.InvalidBatchExportDestinationError(
+                "Cannot remove the integration from a Postgres batch export that uses one. "
+                "Omit `integration` to keep it, or send a different one to swap."
+            )
+
         # New Postgres exports must use an Integration for credentials. Exports created before
         # integrations existed keep their inline credentials, so only require it on create
         # (`instance is None`); existing inline-credential exports stay valid when edited.
@@ -417,18 +452,9 @@ def validate_destination(
         _check_file_format(merged_config, AZURE_BLOB_SUPPORTED_COMPRESSIONS)
 
     if destination_type == BatchExportDestinationType.REDSHIFT:
-        # Sticky integration: an export that uses one cannot drop back to inline credentials.
-        # TODO: remove this guard once inline credentials are gone.
-        if instance is not None and instance.destination.integration is not None and requested_integration is None:
-            raise contracts.InvalidBatchExportDestinationError(
-                "Cannot remove the integration from a Redshift batch export that uses one. "
-                "Re-send its `integration` to keep it (or a different one to swap)."
-            )
-
-        # New Redshift exports must use an Integration for credentials. Exports created before
-        # integrations existed keep their inline credentials, so only require it on create
-        # (`instance is None`); existing inline-credential exports stay valid when edited.
-        if requested_integration is None and instance is None:
+        # A PATCH that omits `integration` keeps the linked one, so only an explicit null, or an
+        # export that never had one, is rejected.
+        if kept_integration is None:
             raise contracts.InvalidBatchExportDestinationError("Integration is required for Redshift batch exports")
 
         if requested_integration is not None:
@@ -444,17 +470,18 @@ def validate_destination(
                     "set it to the cluster or workgroup endpoint."
                 )
 
+        _reject_inline_copy_keys(instance, merged_config, existing_config)
         if merged_config.get("mode") == "COPY":
-            _check_redshift_copy_inputs(team_id, instance, merged_config, existing_config)
+            _check_redshift_copy_inputs(team_id, merged_config, existing_config)
 
     if destination_type in (
         BatchExportDestinationType.POSTGRES,
         BatchExportDestinationType.REDSHIFT,
     ):
         # PostgreSQL-server integrations (Postgres, plain Redshift) keep the host in the
-        # linked Integration; AWS Redshift integrations and inline configs keep it in
-        # `config`. Prefer the Integration's host when it has one so we don't skip
-        # SSRF validation (and don't `KeyError` on a `config` that has no `host`).
+        # linked Integration; AWS Redshift integrations keep it in `config`. Prefer the
+        # Integration's host when it has one so we don't skip SSRF validation (and don't
+        # `KeyError` on a `config` that has no `host`).
         host = requested_integration.config.get("host") if requested_integration is not None else None
         if host is None:
             host = merged_config.get("host")
@@ -574,12 +601,25 @@ def organization_has_custom_events_schema_exports(organization_id: UUID) -> bool
     return BatchExport.objects.filter(schema__isnull=False, team__organization_id=organization_id).exists()
 
 
-# TODO: remove this and `BatchExportDestination.secret_fields` once inline credentials are gone.
+# HTTP exports keep their token in `config`. The other entries keep inline credentials out of API
+# responses for exports that never got an Integration and still hold them.
+_SECRET_FIELDS: dict[str, frozenset[str]] = {
+    BatchExportDestinationType.HTTP: frozenset({"token"}),
+    BatchExportDestinationType.AWS_S3: frozenset({"aws_access_key_id", "aws_secret_access_key"}),
+    BatchExportDestinationType.S3_COMPATIBLE: frozenset({"aws_access_key_id", "aws_secret_access_key"}),
+    BatchExportDestinationType.SNOWFLAKE: frozenset({"user", "password", "private_key", "private_key_passphrase"}),
+    BatchExportDestinationType.POSTGRES: frozenset({"user", "password"}),
+    BatchExportDestinationType.REDSHIFT: frozenset({"user", "password", "aws_access_key_id", "aws_secret_access_key"}),
+    BatchExportDestinationType.BIGQUERY: frozenset({"private_key", "private_key_id", "client_email", "token_uri"}),
+}
+
+
 def _remove_secret_fields(destination_type: str, config: dict[str, typing.Any]) -> dict[str, typing.Any]:
     target = {}
+    secret_fields = _SECRET_FIELDS.get(destination_type, frozenset())
 
     for k, v in config.items():
-        if k in BatchExportDestination.secret_fields[destination_type]:
+        if k in secret_fields:
             continue
         elif isinstance(v, dict):
             target[k] = _remove_secret_fields(destination_type, v)
@@ -629,9 +669,7 @@ def get_batch_export(team_id: int, export_id: UUID, *, include_latest_runs: bool
     return _to_configuration(batch_export, include_latest_runs=include_latest_runs)
 
 
-def list_batch_exports(
-    team_id: int, *, offset: int, limit: int
-) -> tuple[list[contracts.BatchExportConfiguration], int]:
+def list_batch_exports(team_id: int, *, page: PageRequest) -> Page[contracts.BatchExportConfiguration]:
     batch_exports = (
         BatchExport.objects.exclude(deleted=True)
         .filter(team_id=team_id)
@@ -640,8 +678,9 @@ def list_batch_exports(
         .order_by("-created_at", "-id")
         .select_related("destination", "source")
     )
-    page = batch_exports[offset : offset + limit]
-    return [_to_configuration(batch_export, include_latest_runs=True) for batch_export in page], batch_exports.count()
+    return select_page(batch_exports, page).map(
+        lambda batch_export: _to_configuration(batch_export, include_latest_runs=True)
+    )
 
 
 def schedule_and_save(batch_export: BatchExport) -> None:

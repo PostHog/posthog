@@ -1,3 +1,6 @@
+from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
+
 from posthog.test.base import BaseTest
 from unittest import mock
 
@@ -14,7 +17,10 @@ from posthog.models.event.new_events_schema import events_route_scope, new_event
 from posthog.redis import TEST_clear_clients
 from posthog.token_bucket import TEST_reset_scripts
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    ServedWindow,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
     ENQUEUE_FAILURE_BACKOFF_SECONDS,
     PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
@@ -22,6 +28,8 @@ from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precomput
     TEAM_WARM_BUDGET,
     _query_shape_key,
     _revalidation_query,
+    costs_latest_day_computed_at,
+    events_latest_day_computed_at,
     handle_not_ready,
     handle_stale_served,
     marketing_ensure_precomputed,
@@ -32,6 +40,39 @@ _DELAY = (
     "products.marketing_analytics.backend.tasks.lazy_precompute_revalidation"
     ".revalidate_marketing_analytics_precompute.delay"
 )
+
+
+_T0 = datetime(2024, 3, 1, tzinfo=UTC)
+_T1 = datetime(2024, 3, 5, 1, tzinfo=UTC)
+_T2 = datetime(2024, 3, 5, 9, tzinfo=UTC)
+
+
+def _utc_day_window(day: int, computed_at: datetime | None) -> ServedWindow:
+    return ServedWindow(
+        start=datetime(2024, 3, day, tzinfo=UTC), end=datetime(2024, 3, day + 1, tzinfo=UTC), computed_at=computed_at
+    )
+
+
+class TestLatestDayComputedAt(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Local Mar 5 starts at Mar 4 22:00 UTC, so the Mar 4 UTC window holds its first hours.
+            ("ahead_of_utc", "Asia/Jerusalem", [(3, _T0), (4, _T1), (5, _T2)], _T1),
+            # Local Mar 5 starts at Mar 5 08:00 UTC, so the Mar 4 UTC window holds none of it.
+            ("behind_utc", "America/Los_Angeles", [(4, _T0), (5, _T2), (6, _T1)], _T1),
+            ("unknown_stamp_on_latest_day", "UTC", [(4, _T0), (5, None)], None),
+        ]
+    )
+    def test_events_take_the_oldest_window_holding_the_local_latest_day(self, _name, timezone, windows, expected):
+        latest_day_start = datetime(2024, 3, 5, tzinfo=ZoneInfo(timezone))
+        served = [_utc_day_window(day, stamp) for day, stamp in windows]
+
+        assert events_latest_day_computed_at(served, latest_day_start) == expected
+
+    def test_costs_take_only_the_window_holding_the_cost_day(self):
+        served = [_utc_day_window(4, _T0), _utc_day_window(5, _T2)]
+
+        assert costs_latest_day_computed_at(served, date(2024, 3, 5)) == _T2
 
 
 class TestMarketingRevalidationEventsTable(SimpleTestCase):

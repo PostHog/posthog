@@ -1,0 +1,47 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"98EFEF90-68BF-3A75-A89C-A388EDB05326\",\"release_id\":null,\"content_hash\":\"2fe769ea8fbfd2d7aacb74166256526eefba74d134a58d3042461dec4ed2cb76c9a079e8edfae482124df188788a4870fab0dbbb14db17d1ad9526c2f2920231\",\"content_length\":1437}],\"force\":false,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"98EFEF90-68BF-3A75-A89C-A388EDB05326\",\"release_id\":null,\"content_hash\":\"2fe769ea8fbfd2d7aacb74166256526eefba74d134a58d3042461dec4ed2cb76c9a079e8edfae482124df188788a4870fab0dbbb14db17d1ad9526c2f2920231\",\"content_length\":1437}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":false,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/03b8a617-624e-57ff-a78a-fdee042e40a2?length=1437",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "2fe769ea8fbfd2d7aacb74166256526eefba74d134a58d3042461dec4ed2cb76c9a079e8edfae482124df188788a4870fab0dbbb14db17d1ad9526c2f2920231",
+        "length": 1437
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"03b8a617-624e-57ff-a78a-fdee042e40a2\":\"2fe769ea8fbfd2d7aacb74166256526eefba74d134a58d3042461dec4ed2cb76c9a079e8edfae482124df188788a4870fab0dbbb14db17d1ad9526c2f2920231\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ]
+}

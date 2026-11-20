@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -18,8 +17,9 @@ use crate::{
     },
     util::{get_json_nested, like, regex_match},
     values::{
-        compare_values, temporal_seconds_pair, Callable, Closure, FromHogLiteral, HogLiteral,
-        HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue, UpvalueCell,
+        boolean_text_equals, compare_values, temporal_seconds_pair, Callable, Closure,
+        FromHogLiteral, HogLiteral, HogMap, HogStr, HogValue, LocalCallable, Num, NumOp, Upvalue,
+        UpvalueCell,
     },
 };
 
@@ -330,11 +330,13 @@ impl<'a> HogVM<'a> {
             }
             Operation::In => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(haystack.contains(&needle, &self.heap)?)?;
+                let result = self.in_op(&haystack, &needle)?;
+                self.push_stack(result)?;
             }
             Operation::NotIn => {
                 let (needle, haystack) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(haystack.contains(&needle, &self.heap)?.not()?)?;
+                let result = self.in_op(&haystack, &needle)?.not()?;
+                self.push_stack(result)?;
             }
             Operation::Regex => self.regex_op(true, false)?,
             Operation::NotRegex => self.regex_op(true, true)?,
@@ -994,12 +996,12 @@ impl<'a> HogVM<'a> {
         self.push_stack(HogLiteral::Boolean(matched ^ negate))
     }
 
-    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default path accepts numbers and lexicographically ordered
-    /// numeric arrays. `sortableSemver` returns a numeric array, so server-side property filters need
-    /// this narrow array case even when they retain strict comparison semantics. Other non-number
-    /// operands still error, which lets cymbal auto-disable malformed rules. Only when the context
-    /// opts into coercing comparisons does a non-number operand reach [`compare_values`]. `a` is the
-    /// top of the stack.
+    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default path accepts numbers, and orders two numeric arrays
+    /// through [`compare_values`]. `sortableSemver` returns a numeric array, so server-side property
+    /// filters need this narrow array case even when they retain strict comparison semantics. Other
+    /// non-number operands still error, which lets cymbal auto-disable malformed rules. Only when the
+    /// context opts into coercing comparisons does a non-number, non-array operand reach
+    /// [`compare_values`]. `a` is the top of the stack.
     fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
         let a = self.pop_stack()?;
         let b = self.pop_stack()?;
@@ -1010,13 +1012,10 @@ impl<'a> HogVM<'a> {
             if matches!(a_lit, HogLiteral::Null) || matches!(b_lit, HogLiteral::Null) {
                 // SQL semantics, shared with the Node and Python VMs: a null on either side is no match.
                 HogLiteral::Boolean(false)
-            } else if self.context.coerce_comparisons {
-                compare_values(op, a_lit, b_lit, &self.heap)?
-            } else if let (HogLiteral::Array(a_values), HogLiteral::Array(b_values)) =
-                (a_lit, b_lit)
+            } else if self.context.coerce_comparisons
+                || matches!((a_lit, b_lit), (HogLiteral::Array(_), HogLiteral::Array(_)))
             {
-                let ordering = compare_numeric_arrays(a_values, b_values, &self.heap)?;
-                HogLiteral::Boolean(ordering_matches(op, ordering))
+                compare_values(op, a_lit, b_lit, &self.heap)?
             } else {
                 let a_num: &Num = a_lit.try_as()?;
                 let b_num: &Num = b_lit.try_as()?;
@@ -1030,7 +1029,7 @@ impl<'a> HogVM<'a> {
     /// `1 == 1.0` holds for every shared-crate consumer (see [`PartialEq for Num`](crate::Num)).
     /// The flag gates only what sits on top: when the context opts into coercing comparisons (the
     /// realtime-cohort evaluator), a temporal pair compares by epoch seconds to match ClickHouse
-    /// (`is_date_exact`); every non-temporal pair is unchanged either way.
+    /// (`is_date_exact`); every non-temporal pair compares through [`Self::values_equal`].
     ///
     /// "Temporal pair" is [`temporal_seconds_pair`] — the same predicate [`compare_values`] uses for
     /// ordering, so `timestamp == toDateTime(...)` and `timestamp > toDateTime(...)` agree on which
@@ -1044,7 +1043,33 @@ impl<'a> HogVM<'a> {
                 return Ok((x == y).into());
             }
         }
-        a.equals(b, &self.heap)
+        Ok(self.values_equal(a, b)?.into())
+    }
+
+    /// Shared by `==` and every membership test (`in`, `has`, `indexOf`, `in()`) so that they agree.
+    pub(crate) fn values_equal(&self, a: &HogValue, b: &HogValue) -> Result<bool, VmError> {
+        if self.context.boolean_text_equality {
+            if let Some(equal) = boolean_text_equals(a.deref(&self.heap)?, b.deref(&self.heap)?) {
+                return Ok(equal);
+            }
+        }
+        Ok(*a.equals(b, &self.heap)?.try_as::<bool>()?)
+    }
+
+    fn in_op(&self, haystack: &HogValue, needle: &HogValue) -> Result<HogLiteral, VmError> {
+        if !self.context.boolean_text_equality {
+            return haystack.contains(needle, &self.heap);
+        }
+        let (HogLiteral::Array(items) | HogLiteral::Tuple(items)) = haystack.deref(&self.heap)?
+        else {
+            return haystack.contains(needle, &self.heap);
+        };
+        for item in items {
+            if self.values_equal(item, needle)? {
+                return Ok(true.into());
+            }
+        }
+        Ok(false.into())
     }
 
     // Move a value from the stack onto the heap, replacing it with a reference to the heap value,
@@ -1604,36 +1629,6 @@ fn failure(error: VmError, vm: Option<&HogVM>, step: usize) -> VmFailure {
         ip: vm.map_or(0, |vm| vm.ip),
         stack: vm.map_or(Vec::new(), |vm| vm.stack.clone()),
         step,
-    }
-}
-
-fn compare_numeric_arrays(
-    a: &[HogValue],
-    b: &[HogValue],
-    heap: &VmHeap,
-) -> Result<Ordering, VmError> {
-    for value in a.iter().chain(b) {
-        let _: &Num = value.deref(heap)?.try_as()?;
-    }
-
-    for (a_value, b_value) in a.iter().zip(b) {
-        let a_num: &Num = a_value.deref(heap)?.try_as()?;
-        let b_num: &Num = b_value.deref(heap)?.try_as()?;
-        let ordering = a_num.compare(b_num);
-        if ordering != Ordering::Equal {
-            return Ok(ordering);
-        }
-    }
-    Ok(a.len().cmp(&b.len()))
-}
-
-fn ordering_matches(op: NumOp, ordering: Ordering) -> bool {
-    match op {
-        NumOp::Gt => ordering.is_gt(),
-        NumOp::Gte => ordering.is_ge(),
-        NumOp::Lt => ordering.is_lt(),
-        NumOp::Lte => ordering.is_le(),
-        _ => unreachable!("ordering comparison requires a comparison operation"),
     }
 }
 

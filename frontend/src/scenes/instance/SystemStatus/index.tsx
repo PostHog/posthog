@@ -7,9 +7,9 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 

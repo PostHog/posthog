@@ -9,8 +9,8 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
@@ -128,6 +128,7 @@ export interface MaterializationPreview {
 export interface endpointSceneLogicValues {
     endpoint: EndpointVersionType | null // endpointLogic
     endpointLoading: boolean // endpointLogic
+    endpointMissing: boolean // endpointLogic
     activeTab: EndpointTab
     breadcrumbs: Breadcrumb[]
     bucketOverrides: Record<string, string>
@@ -344,7 +345,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 'updateEndpointSuccess',
             ],
         ],
-        values: [endpointLogic(), ['endpoint', 'endpointLoading']],
+        values: [endpointLogic(), ['endpoint', 'endpointLoading', 'endpointMissing']],
     })),
     actions({
         setLocalQuery: (query: Node | null) => ({ query }),

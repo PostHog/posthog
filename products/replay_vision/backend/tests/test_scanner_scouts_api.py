@@ -1,3 +1,6 @@
+import hashlib
+from typing import Any
+
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -8,6 +11,7 @@ from posthog.models.team import Team
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
+from products.replay_vision.backend.scout_templates import ScoutTemplateKey, render_template_body
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.replay_vision.backend.variant_analysis import (
@@ -15,9 +19,12 @@ from products.replay_vision.backend.variant_analysis import (
     VARIANT_ANALYSIS_TAG,
     pause_variant_analysis_scouts,
 )
+from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.model_selection import scout_model_pin_catalog
 from products.signals.backend.scout_harness.tools.structured_output import validate_structured_output_schema
+from products.skills.backend.api.skill_services import publish_skill_version
+from products.skills.backend.models.skills import LLMSkill
 
 
 class TestScannerScoutCreate(_VisionAPITestCase):
@@ -95,6 +102,22 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         assert response.status_code == 400, response.json()
         with team_scope(self.team.id):
             assert not SignalScoutConfig.objects.filter(source_id=str(self.scanner.id)).exists()
+
+    def test_templates_are_rendered_for_the_scanner_in_the_url(self) -> None:
+        response = self.client.get(f"{self._scouts_url(str(self.scanner.id))}templates/")
+        assert response.status_code == 200, response.json()
+        templates = response.json()
+        assert [t["key"] for t in templates] == ["daily-digest", "root-cause", "trend-watch", "new-issues", "scratch"]
+        assert all(f"`vision-scanners-get` with id `{self.scanner.id}`" in t["body"] for t in templates)
+
+    def test_a_body_with_unfilled_placeholders_is_rejected(self) -> None:
+        response = self.client.post(
+            self._scouts_url(str(self.scanner.id)),
+            data=self._payload(body="Report on <WHAT THIS SCOUT WATCHES FOR> every day."),
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "body"
 
     def test_a_scout_can_be_created_with_a_slack_destination(self) -> None:
         # The create modal offers a Slack channel, so the destination arrives on the create call
@@ -284,3 +307,94 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         assert response.status_code == 403, response.content
         with team_scope(self.team.id):
             assert not SignalScoutConfig.objects.filter(skill_name="signals-scout-daily-digest").exists()
+
+
+class TestScoutTemplateSync(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner()
+        self.url = f"/api/environments/{self.team.id}/vision/scanners/{self.scanner.id}/scouts/"
+
+    def _skill(self, name: str) -> LLMSkill:
+        return LLMSkill.objects.get(team=self.team, name=name, is_latest=True, deleted=False)
+
+    def _create(self, name: str, body: str, template_key: str | None) -> None:
+        payload: dict[str, str] = {"name": name, "description": "d", "body": body}
+        if template_key:
+            payload["template_key"] = template_key
+        response = self.client.post(self.url, data=payload, format="json")
+        assert response.status_code == 201, response.json()
+
+    def _template_body(self, key: str) -> str:
+        templates = self.client.get(f"{self.url}templates/")
+        assert templates.status_code == 200, templates.json()
+        return next(t["body"] for t in templates.json() if t["key"] == key)
+
+    def _refresh(self, *names: str) -> None:
+        # The entry point the scout runner calls before it loads a scout's skill.
+        for name in names:
+            refresh_source_scout(self.team.id, name)
+
+    def test_template_edits_reach_untouched_scouts_before_they_run_and_never_edited_ones(self) -> None:
+        digest = self._template_body("daily-digest")
+        self._create("signals-scout-x-daily-digest", digest, "daily-digest")
+        # Claiming stamps server-owned metadata, which must not turn a retried create into a conflict.
+        retry = self.client.post(
+            self.url,
+            data={
+                "name": "signals-scout-x-daily-digest",
+                "description": "d",
+                "body": digest,
+                "template_key": "daily-digest",
+            },
+            format="json",
+        )
+        assert retry.status_code == 200, retry.json()
+        self._create("signals-scout-y-daily-digest", digest + "\nOnly report checkout.", "daily-digest")
+        # A scout made before claiming existed: its untouched text is claimed on its next run.
+        self._create("signals-scout-z-daily-digest", digest, None)
+        names = [
+            "signals-scout-x-daily-digest",
+            "signals-scout-y-daily-digest",
+            "signals-scout-z-daily-digest",
+        ]
+
+        self._refresh(*names)
+        assert {name: self._skill(name).version for name in names} == dict.fromkeys(names, 1)
+
+        def edited_template(*args: Any) -> str | None:
+            body = render_template_body(*args)
+            return None if body is None else body + "\nA new template step."
+
+        with patch("products.replay_vision.backend.scout_template_sync.render_template_body", edited_template):
+            self._refresh(*names)
+            # Applied once: the next run finds every untouched scout already current.
+            self._refresh(*names)
+
+            for name in ("signals-scout-x-daily-digest", "signals-scout-z-daily-digest"):
+                skill = self._skill(name)
+                assert skill.body.endswith("A new template step.")
+                assert skill.version == 2
+            assert self._skill("signals-scout-y-daily-digest").body.endswith("Only report checkout.")
+
+            # Someone edits a synced scout; from then on the template no longer overwrites it.
+            publish_skill_version(
+                self.team,
+                user=self.user,
+                skill_name="signals-scout-x-daily-digest",
+                body="My own instructions.",
+                base_version=2,
+            )
+            self._refresh("signals-scout-x-daily-digest")
+            assert self._skill("signals-scout-x-daily-digest").body == "My own instructions."
+
+    def test_a_scout_made_from_an_older_template_gets_the_current_one_on_its_first_run(self) -> None:
+        old_body = f"Read `vision-scanners-get` with id `{self.scanner.id}` and file a digest."
+        normalized = old_body.replace(str(self.scanner.id), "{scanner_id}")
+        self._create("signals-scout-a-daily-digest", old_body, None)
+        history = {ScoutTemplateKey.DAILY_DIGEST: frozenset({hashlib.sha256(normalized.encode()).hexdigest()})}
+
+        with patch("products.replay_vision.backend.scout_template_sync.LEGACY_TEMPLATE_BODY_HASHES", history):
+            self._refresh("signals-scout-a-daily-digest")
+
+        assert self._skill("signals-scout-a-daily-digest").body == self._template_body("daily-digest")

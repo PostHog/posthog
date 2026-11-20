@@ -2,8 +2,8 @@ import { MakeLogicType, connect, kea, listeners, path } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { captureAuthStepViewed, pendingOAuthConnectionProperties } from 'scenes/authentication/shared/authStepViewed'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { PreflightStatus } from '../../../types'
 import type { AuthEntry } from '../shared/authStepViewed'

@@ -1,7 +1,8 @@
 import { type ReactElement, useCallback, useState } from 'react'
 import { ScrollView, Text, View } from 'react-native'
 
-import { formatMonthDay, parseBucketStart } from '@/lib/dates'
+import { formatClock, formatMonthDay, parseBucketStart } from '@/lib/dates'
+import { useClockPreference } from '@/lib/useClockPreference'
 import { groupThousands, plural } from '@/model/adapters/text'
 import type { RetentionCohortView, RetentionPeriodUnit, RetentionView } from '@/model/views'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -9,7 +10,7 @@ import { createStyles, useTheme } from '@/ui/theme'
 import { lineHeight, type } from '@/ui/tokens'
 
 import { useItemChartAccessibility } from './accessibility/useChartAccessibility'
-import { formatAxisDate, formatClockTime } from './chartMath'
+import { formatAxisDate } from './chartMath'
 import { seriesColor } from './palette'
 import { useItemSelection } from './selection/useItemSelection'
 import type { ChartAccessibilityAction, ChartTrackingContext } from './types'
@@ -17,7 +18,7 @@ import type { ChartAccessibilityAction, ChartTrackingContext } from './types'
 /** Periods a grid in a card shows. Full screen shows all of them. */
 export const INLINE_RETENTION_PERIODS = 8
 
-const COHORT_WIDTH = 96
+const MIN_COHORT_WIDTH = 96
 const CELL_WIDTH = 54
 const CELL_HEIGHT = 34
 const CELL_GAP = 2
@@ -35,10 +36,10 @@ interface RetentionGridProps {
 }
 
 /** The cohort's start in the project's wall-clock time, such as "Sep 13" or "Sep 2026". */
-export function cohortLabel(date: string, period: RetentionPeriodUnit): string {
+export function cohortLabel(date: string, period: RetentionPeriodUnit, uses24hourClock?: boolean): string {
     if (period === 'hour') {
-        const at = parseBucketStart(date.slice(0, 16).replace('T', ' '))
-        return `${formatMonthDay(new Date(at))}, ${formatClockTime(at)}`
+        const at = new Date(parseBucketStart(date.slice(0, 16).replace('T', ' ')))
+        return `${formatMonthDay(at)}, ${formatClock(at, uses24hourClock)}`
     }
     return formatAxisDate(parseBucketStart(date.slice(0, 10)), period)
 }
@@ -66,11 +67,16 @@ function cellShade(percent: number, base: string, card: string): { background: s
     return { background: `rgb(${blend(1)}, ${blend(3)}, ${blend(5)})`, mix }
 }
 
-function cohortSentence(cohort: RetentionCohortView, labels: readonly string[], period: RetentionPeriodUnit): string {
+function cohortSentence(
+    cohort: RetentionCohortView,
+    labels: readonly string[],
+    period: RetentionPeriodUnit,
+    uses24hourClock: boolean
+): string {
     const cells = cohort.cells
         .slice(1)
         .map((cell, index) => `${labels[index + 1] ?? `Period ${index + 1}`} ${percentText(cell.percent)}`)
-    const head = `${cohortLabel(cohort.date, period)} cohort, ${plural(cohort.size, 'person', 'people')}`
+    const head = `${cohortLabel(cohort.date, period, uses24hourClock)} cohort, ${plural(cohort.size, 'person', 'people')}`
     return cells.length > 0 ? `${head}. ${cells.join(', ')}.` : `${head}.`
 }
 
@@ -100,6 +106,7 @@ export function RetentionGrid({
 }: RetentionGridProps): ReactElement {
     const { colors, chartPalette, scheme } = useTheme()
     const styles = useStyles()
+    const uses24hourClock = useClockPreference()
     const base = seriesColor(0, chartPalette)
     const { cohorts, period, periodLabels } = retention
     const columns = periodLabels.slice(0, maxPeriods)
@@ -115,9 +122,9 @@ export function RetentionGrid({
     const describe = useCallback(
         (index: number) => {
             const cohort = cohorts[index]
-            return cohort ? cohortSentence(cohort, periodLabels, period) : ''
+            return cohort ? cohortSentence(cohort, periodLabels, period, uses24hourClock) : ''
         },
-        [cohorts, periodLabels, period]
+        [cohorts, periodLabels, period, uses24hourClock]
     )
     const mean = firstReturnMean(retention)
     const a11y = useItemChartAccessibility({
@@ -176,7 +183,7 @@ export function RetentionGrid({
                                 style={[styles.cohortDate, selection.selected === index && styles.cohortSelected]}
                                 numberOfLines={1}
                             >
-                                {cohortLabel(cohort.date, period)}
+                                {cohortLabel(cohort.date, period, uses24hourClock)}
                             </Text>
                             <Text style={styles.cohortSize} numberOfLines={1}>
                                 {plural(cohort.size, 'person', 'people')}
@@ -234,7 +241,7 @@ export function RetentionGrid({
             </View>
             {pickedCohort && pickedCell && picked ? (
                 <Text style={styles.callout} testID={testID ? `${testID}-callout` : undefined}>
-                    {cohortLabel(pickedCohort.date, period)} cohort, {columns[picked.period]}:{' '}
+                    {cohortLabel(pickedCohort.date, period, uses24hourClock)} cohort, {columns[picked.period]}:{' '}
                     {percentText(pickedCell.percent)}, {groupThousands(pickedCell.count)} of{' '}
                     {plural(
                         retention.reference === 'previous' && picked.period > 0
@@ -258,7 +265,7 @@ const useStyles = createStyles(({ colors }) => ({
         flexDirection: 'row',
     },
     cohorts: {
-        width: COHORT_WIDTH,
+        minWidth: MIN_COHORT_WIDTH,
         paddingRight: 6,
     },
     cohort: {

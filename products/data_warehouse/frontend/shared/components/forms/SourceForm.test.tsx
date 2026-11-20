@@ -9,7 +9,7 @@ import {
     SourceFieldSwitchGroupConfigApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import { sourceFieldToElement } from './SourceForm'
+import { LOCKED_FIELD_REASON, sourceFieldToElement } from './SourceForm'
 
 // The two field types that carry a caption, both routed through the same caption-to-help contract.
 type CaptionField = SourceFieldSelectConfigApi | SourceFieldInputConfigApi
@@ -91,8 +91,49 @@ const connectionStringWarns = (value: string): boolean => {
     return screen.queryByText(/Couldn't read that connection string/) !== null
 }
 
+const HOST_FIELD: SourceFieldInputConfigApi = {
+    type: 'text',
+    name: 'host',
+    label: 'Host',
+    required: true,
+    placeholder: '',
+    secret: false,
+}
+
 describe('sourceFieldToElement', () => {
     afterEach(cleanup)
+
+    it.each([
+        ['locked', { host: 'db.example.com' }, LOCKED_FIELD_REASON],
+        ['not locked', { port: '5432' }, undefined],
+    ])('renders a %s field read-only only when the locked values name it', (_name, locked, expectedReason) => {
+        const element = sourceFieldToElement(
+            HOST_FIELD,
+            POSTGRES_CONFIG,
+            undefined,
+            false,
+            undefined,
+            undefined,
+            locked
+        )
+        const input = element.props.children({ value: 'db.example.com', onChange: jest.fn() })
+        expect(input.props.disabledReason).toEqual(expectedReason)
+    })
+
+    it('hides the connection string while values are locked, since parsing it overwrites them', () => {
+        const element = sourceFieldToElement(
+            CONNECTION_STRING_FIELD,
+            POSTGRES_CONFIG,
+            undefined,
+            false,
+            undefined,
+            undefined,
+            {
+                host: 'db.example.com',
+            }
+        )
+        expect(element.props.children).toBeUndefined()
+    })
 
     it.each([
         ['select', SELECT_FIELD],

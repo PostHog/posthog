@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, cast
 
-import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
 
@@ -11,7 +10,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.snowflake_connection_cache import cached_snowflake_connection
 
@@ -119,8 +118,7 @@ def validate_snowflake_account_id(account_id: str | None) -> str:
 
 
 def ensure_read_only_raw_snowflake_statement(sql: str) -> str:
-    sql = ensure_single_direct_statement(sql)
-    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    statements = parse_direct_statements(sql, dialect="snowflake")
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
     # Snowflake has no read-only session/transaction switch — the Postgres path sets

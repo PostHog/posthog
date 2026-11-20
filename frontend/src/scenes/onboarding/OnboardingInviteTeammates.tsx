@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { inviteLogic } from 'lib/logic/inviteLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 import { InvitesTable } from 'scenes/settings/organization/Invites'
 

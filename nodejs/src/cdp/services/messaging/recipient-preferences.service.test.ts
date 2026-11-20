@@ -13,10 +13,14 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
-import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
+import { FrequencyCap, TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import {
+    EmailSuppressionService,
+    SuppressionLookupError,
+    emailSuppressionConfigFromEnv,
+} from './email-suppression.service'
 import { createFrequencyCapValkeyPool } from './frequency-cap-valkey-pool'
-import { RecipientPreferencesService } from './recipient-preferences.service'
+import { FrequencyCapCheck, RecipientPreferencesService } from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -161,6 +165,7 @@ describe('RecipientPreferencesService', () => {
                 expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
                     teamId: team.id,
                     identifier: 'test@example.com',
+                    anyCase: true,
                 })
                 expect(mockRecipientsManagerGetPreference).toHaveBeenCalledWith(
                     recipient,
@@ -182,6 +187,18 @@ describe('RecipientPreferencesService', () => {
                 ])
 
                 expect(result).toBe(expected)
+            })
+
+            it('uses an opt-out this run made for another spelling of the address', async () => {
+                const action = createEmailAction('Test@Example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createFunctionStepInvocation(action)
+                mockRecipientsManagerGet.mockResolvedValue(null)
+
+                const result = await service.shouldSkipAction(invocation, action, [
+                    { identifier: 'test@example.com', categoryId: '$all' },
+                ])
+
+                expect(result).toBe('opted_out')
             })
 
             it('should return false if recipient is opted in', async () => {
@@ -226,6 +243,7 @@ describe('RecipientPreferencesService', () => {
                 expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
                     teamId: team.id,
                     identifier: 'test@example.com',
+                    anyCase: true,
                 })
                 expect(mockRecipientsManagerGetPreference).not.toHaveBeenCalled()
             })
@@ -398,24 +416,52 @@ describe('RecipientPreferencesService', () => {
                     expect(result).toBe(expected)
                 })
 
+                it('runs the step when the list cannot be read, so the send path can hold the email', async () => {
+                    jest.spyOn(mockEmailSuppressionService, 'isSuppressed').mockRejectedValue(
+                        new SuppressionLookupError()
+                    )
+                    const action = createEmailAction('unreadable@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                    const invocation = createFunctionStepInvocation(action)
+
+                    const result = await service.shouldSkipAction(invocation, action)
+
+                    expect(result).toBeNull()
+                })
+
                 // Suppressed cc and bcc addresses are removed at send time, and a deliverable cc address
                 // replaces a suppressed `to`. The step is skipped only when no cc address is left.
                 it.each([
-                    ['a suppressed cc', 'legit-to@example.com', { cc: 'suppressed-cc@example.com' }, null],
-                    ['a suppressed bcc', 'legit-to@example.com', { bcc: 'suppressed-bcc@example.com' }, null],
+                    ['a suppressed cc', 'legit-to@example.com', { cc: 'suppressed-cc@example.com' }, {}, null],
+                    ['a suppressed bcc', 'legit-to@example.com', { bcc: 'suppressed-bcc@example.com' }, {}, null],
                     [
                         'a suppressed to with a deliverable cc',
                         'suppressed-to@example.com',
                         { cc: 'ok@example.com' },
+                        {},
                         null,
                     ],
                     [
                         'a suppressed to with only bcc left',
                         'suppressed-to@example.com',
                         { bcc: 'ok@example.com' },
+                        {},
                         'suppressed',
                     ],
-                ] as const)('handles %s', async (_label, to, extraInputs, expected) => {
+                    [
+                        "a suppressed to with a code send's deliverable cc",
+                        'suppressed-to@example.com',
+                        {},
+                        { cc: ['ok@example.com'] },
+                        null,
+                    ],
+                    [
+                        "a suppressed to with only a code send's bcc left",
+                        'suppressed-to@example.com',
+                        {},
+                        { bcc: ['ok@example.com'] },
+                        'suppressed',
+                    ],
+                ] as const)('handles %s', async (_label, to, extraInputs, copies, expected) => {
                     await insertSuppressionRow('suppressed-cc@example.com')
                     await insertSuppressionRow('suppressed-bcc@example.com')
                     await insertSuppressionRow('suppressed-to@example.com')
@@ -424,6 +470,7 @@ describe('RecipientPreferencesService', () => {
                     // Inject the cc/bcc into the resolved invocation inputs (this is what the
                     // executor sees at send time after template resolution).
                     Object.assign(invocation.state.globals!.inputs!.email as object, extraInputs)
+                    invocation.state.send = { tracking: { captureEngagement: false }, ...copies }
                     mockRecipientsManagerGet.mockResolvedValue(null)
 
                     const result = await service.shouldSkipAction(invocation, action)
@@ -584,6 +631,26 @@ describe('RecipientPreferencesService', () => {
                 }
             )
 
+            it('keeps a push distinct ID that looks like an email address case-sensitive for run opt-outs', async () => {
+                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                const invocation = createFunctionStepInvocation(action)
+                invocation.state.globals.person = {
+                    ...invocation.state.globals.person!,
+                    distinct_id: 'User@example.com',
+                }
+                mockRecipientsManagerGet.mockResolvedValue(null)
+
+                const result = await service.shouldSkipAction(invocation, action, [
+                    { identifier: 'user@example.com', categoryId: '$all' },
+                ])
+
+                expect(result).toBeNull()
+                expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
+                    teamId: team.id,
+                    identifier: 'User@example.com',
+                })
+            })
+
             it('should return false for a transactional push without checking preferences', async () => {
                 const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'transactional')
                 const invocation = createFunctionStepInvocation(action)
@@ -658,9 +725,9 @@ describe('RecipientPreferencesService', () => {
         })
     })
 
-    describe('isFrequencyCapped', () => {
+    describe('checkFrequencyCap', () => {
         let valkey: RedisV2
-        let frequencyCap: { max_messages: number | null; window_days: number | null }
+        let frequencyCap: FrequencyCap
         let teamWorkflowsConfig: TeamWorkflowsConfigService
         let cappedService: RecipientPreferencesService
         let persons: { getCyclotronPerson: jest.Mock }
@@ -691,7 +758,7 @@ describe('RecipientPreferencesService', () => {
 
         beforeEach(async () => {
             await deleteKeysWithPrefix(valkey, `@posthog/workflows-frequency-cap/${team.id}/`)
-            frequencyCap = { max_messages: 2, window_days: 7 }
+            frequencyCap = { max_messages: 2, window_days: 7, hold_hours: null }
             teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
             jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockImplementation(() => Promise.resolve(frequencyCap))
             persons = { getCyclotronPerson: jest.fn().mockResolvedValue(null) }
@@ -702,10 +769,11 @@ describe('RecipientPreferencesService', () => {
             })
         })
 
-        const sendAt = async (action: HogFlowAction, at: number): Promise<boolean> => {
+        const checkAt = async (action: HogFlowAction, at: number): Promise<FrequencyCapCheck> => {
             jest.spyOn(Date, 'now').mockReturnValue(at)
-            return cappedService.isFrequencyCapped(createFunctionStepInvocation(action as any), action)
+            return cappedService.checkFrequencyCap(createFunctionStepInvocation(action as any), action)
         }
+        const sendAt = async (action: HogFlowAction, at: number): Promise<boolean> => (await checkAt(action, at)).capped
 
         it('caps marketing sends past the limit until the window moves past the oldest send', async () => {
             const day = 24 * 60 * 60 * 1000
@@ -713,33 +781,42 @@ describe('RecipientPreferencesService', () => {
 
             expect(await sendAt(emailAction(), start)).toBe(false)
             expect(await sendAt(emailAction(), start + day)).toBe(false)
-            expect(await sendAt(emailAction(), start + 2 * day)).toBe(true)
+            expect(await checkAt(emailAction(), start + 2 * day)).toEqual({
+                capped: true,
+                nextSlotAt: start + 7 * day,
+                holdHours: null,
+            })
             expect(await sendAt(emailAction(), start + 7 * day + 1)).toBe(false)
         })
 
         it('lets a re-entered step visit keep its slot from the send time and counts a later visit', async () => {
-            frequencyCap = { max_messages: 1, window_days: 1 }
+            frequencyCap = { max_messages: 1, window_days: 1, hold_hours: 12 }
             const hour = 60 * 60 * 1000
             const start = 1_800_000_000_000
             const action = emailAction()
             const invocation = createFunctionStepInvocation(action)
             invocation.state.actionId = action.id
             invocation.state.actionStepCount = 1
-            const checkAt = async (at: number): Promise<boolean> => {
+            const visitAt = async (at: number): Promise<FrequencyCapCheck> => {
                 jest.spyOn(Date, 'now').mockReturnValue(at)
-                return cappedService.isFrequencyCapped(invocation, action)
+                return cappedService.checkFrequencyCap(invocation, action)
             }
 
             // The email queue runs the step a second time after the hog queue routed it there and paced it.
-            expect(await checkAt(start)).toBe(false)
-            expect(await checkAt(start + 23 * hour)).toBe(false)
+            expect(await visitAt(start)).toEqual({ capped: false })
+            expect(await visitAt(start + 23 * hour)).toEqual({ capped: false })
 
+            // The slot frees a day after the second run moved it, not a day after the first check.
             invocation.state.actionStepCount = 3
-            expect(await checkAt(start + 25 * hour)).toBe(true)
+            expect(await visitAt(start + 25 * hour)).toEqual({
+                capped: true,
+                nextSlotAt: start + 47 * hour,
+                holdHours: 12,
+            })
         })
 
         it('counts a push to a named person against that person, not the run person', async () => {
-            frequencyCap = { max_messages: 1, window_days: 7 }
+            frequencyCap = { max_messages: 1, window_days: 7, hold_hours: null }
             persons.getCyclotronPerson.mockResolvedValue({ id: 'named-person-id' })
             const pushToNamed: Extract<HogFlowAction, { type: 'function_push' }> = {
                 id: 'push',
@@ -758,6 +835,82 @@ describe('RecipientPreferencesService', () => {
             expect(await sendAt(emailAction(), 1_800_000_000_002)).toBe(false)
         })
 
+        describe('for an email the email worker will skip', () => {
+            const at = 1_800_000_000_000
+
+            type Unsendable = {
+                suspendedAt?: string
+                providerStatus?: string
+                pausedAt?: string
+                to?: { email: string } | null
+            }
+
+            const capOneMessageAWeek = async ({ suspendedAt, providerStatus }: Unsendable = {}): Promise<void> => {
+                jest.mocked(teamWorkflowsConfig.getFrequencyCap).mockRestore()
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, marketing_frequency_cap_max_messages,
+                         marketing_frequency_cap_window_days, email_sending_suspended_at, ses_tenant_sending_status)
+                     VALUES ($1, false, 'off', '', 1, 7, $2, $3)`,
+                    [team.id, suspendedAt ?? null, providerStatus ?? ''],
+                    'test-cap-one-message-a-week'
+                )
+            }
+            const checkEmailAt = (sendAt: number, { pausedAt, to }: Unsendable = {}): Promise<FrequencyCapCheck> => {
+                const action = emailAction()
+                if (to !== undefined) {
+                    action.config.inputs.email.value.to = to
+                }
+                const invocation = createFunctionStepInvocation(action)
+                if (pausedAt) {
+                    invocation.hogFunction.metadata = { email_sending_paused_at: pausedAt }
+                }
+                jest.spyOn(Date, 'now').mockReturnValue(sendAt)
+                return cappedService.checkFrequencyCap(invocation, action)
+            }
+            const push: Extract<HogFlowAction, { type: 'function_push' }> = {
+                id: 'push',
+                name: 'Send push',
+                description: '',
+                type: 'function_push',
+                filters: null,
+                config: { template_id: 'template-native-push', inputs: {} },
+                created_at: Date.now(),
+                updated_at: Date.now(),
+            }
+            const pausedWorkflow: Unsendable = { pausedAt: '2026-11-17T00:00:00Z' }
+
+            it.each<[string, Unsendable]>([
+                ['a team that staff suspended', { suspendedAt: '2026-11-17T00:00:00Z' }],
+                ['a team whose provider paused sending', { providerStatus: 'DISABLED' }],
+                ['a workflow with paused email', pausedWorkflow],
+                ['a blank recipient address', { to: { email: ' ' } }],
+                ['no recipient', { to: null }],
+            ])('takes no slot for %s', async (_, unsendable) => {
+                await capOneMessageAWeek(unsendable)
+
+                expect(await checkEmailAt(at, unsendable)).toEqual({ capped: false })
+                expect(await sendAt(push, at + 1)).toBe(false)
+            })
+
+            it('lets it through at the cap, so the email worker records why it did not send', async () => {
+                await capOneMessageAWeek()
+                expect(await sendAt(emailAction(), at)).toBe(false)
+                expect(await sendAt(emailAction(), at + 1)).toBe(true)
+
+                expect(await checkEmailAt(at + 2, pausedWorkflow)).toEqual({ capped: false })
+            })
+
+            it('still counts a push on a team with suspended email', async () => {
+                await capOneMessageAWeek({ suspendedAt: '2026-11-17T00:00:00Z' })
+
+                expect(await sendAt(push, at)).toBe(false)
+                expect(await sendAt(push, at + 1)).toBe(true)
+            })
+        })
+
         it.each([
             [
                 'the config lookup',
@@ -770,9 +923,17 @@ describe('RecipientPreferencesService', () => {
         })
 
         it.each([
-            ['transactional sends', emailAction('transactional'), { max_messages: 0, window_days: 7 }],
-            ['marketing sends that skip the cap', emailAction('marketing', true), { max_messages: 1, window_days: 7 }],
-            ['teams with no cap', emailAction(), { max_messages: null, window_days: null }],
+            [
+                'transactional sends',
+                emailAction('transactional'),
+                { max_messages: 0, window_days: 7, hold_hours: null },
+            ],
+            [
+                'marketing sends that skip the cap',
+                emailAction('marketing', true),
+                { max_messages: 1, window_days: 7, hold_hours: null },
+            ],
+            ['teams with no cap', emailAction(), { max_messages: null, window_days: null, hold_hours: null }],
         ])('never caps %s', async (_, action, cap) => {
             frequencyCap = cap
             for (let i = 0; i < 3; i++) {

@@ -1,6 +1,7 @@
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Context, Decimal
 from typing import Self
 
 from posthog.dataclasses import frozen
@@ -9,7 +10,7 @@ from ...facade.contracts import EvaluationOutcome
 from ...models.evaluation_configs import OutputType
 from ...models.evaluation_outcomes import EvaluationReportOutcomeDefinition, get_outcome_definition
 from .evaluation_result_queries import EvaluationResultRow
-from .trace_queries import canonical_uuid, read_flag, read_number, read_text
+from .trace_queries import read_flag, read_number, read_text
 
 _SENTIMENT_OUTCOMES: dict[str, EvaluationOutcome] = {"positive": "pass", "neutral": "unrated", "negative": "fail"}
 UNKNOWN_EVALUATION_NAME = "Unknown evaluation"
@@ -48,7 +49,10 @@ def _graded(passed: bool | None, label: str) -> _Display:
 
 
 def _format_score(score: float) -> str:
-    rounded = float(f"{score:.2f}") if abs(score) >= 1 else float(f"{score:.2g}")
+    # Ties round away from zero, like `toFixed` and `toPrecision` in the evaluation pages.
+    exact = Decimal(score)
+    significant_digits = exact.adjusted() + 3 if abs(score) >= 1 else 2
+    rounded = float(Context(prec=significant_digits, rounding=ROUND_HALF_UP).plus(exact))
     return str(int(rounded)) if rounded.is_integer() else repr(rounded)
 
 
@@ -171,7 +175,7 @@ class EvaluationResult:
         display = raw.display(_outcome_definition(raw.result_type, output_config))
         return cls(
             id=row.uuid,
-            evaluation_id=row.evaluation_id if row.evaluation_id and canonical_uuid(row.evaluation_id) else None,
+            evaluation_id=row.evaluation_id if row.evaluation_uuid else None,
             name=read_text(row.evaluation_name) or UNKNOWN_EVALUATION_NAME,
             target_node_id=read_text(row.target_event_id) or trace_id,
             outcome=display.outcome,

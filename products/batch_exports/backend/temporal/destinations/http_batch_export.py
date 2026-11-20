@@ -11,12 +11,14 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.hogql.printer.events_json_document import event_document_sql
+
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.service import (
     BatchExportEventsCustomModel,
@@ -32,7 +34,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     execute_batch_export_insert_activity,
     get_data_interval,
     iter_records,
-    reads_native_events_source,
+    reads_native_events_table,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
@@ -43,12 +45,6 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 
 NON_RETRYABLE_ERROR_TYPES = ("NonRetryableResponseError", "InvalidDestinationURLError")
 LOGGER = get_logger(__name__)
-_NATIVE_MUTATION_PROPERTIES = {
-    "$set": "set",
-    "$set_once": "set_once",
-    "$unset": "unset",
-    "$group_set": "group_set",
-}
 
 
 class RetryableResponseError(Exception):
@@ -89,20 +85,30 @@ async def raise_for_status(response: aiohttp.ClientResponse):
             raise NonRetryableResponseError(response.status, text)
 
 
-def http_default_fields(reads_native_source: bool = False) -> list[BatchExportField]:
-    """Return default fields used in HTTP batch export, currently supporting only migrations."""
-    fields = [
+def http_default_fields(*, reads_native_events: bool = False) -> list[BatchExportField]:
+    """Return default fields used in HTTP batch export, currently supporting only migrations.
+
+    A migration sends events to another PostHog instance, which ingests them again. That instance needs the
+    properties an SDK sent, `$set` and `$feature/<key>` included, so on the native table this export rebuilds the
+    legacy document instead of sending the stored one. `$set` and the other keys kept in `temporary_properties` come
+    back only for events inserted in the last 60 days, because ClickHouse clears that column after that. For an event
+    without `$set`, the export sends its person properties as `$set` instead.
+    """
+    properties = (
+        event_document_sql("events.properties", "events.temporary_properties", "events.properties.`$feature_flags`")
+        if reads_native_events
+        else "nullIf(properties, '')"
+    )
+    return [
         BatchExportField(expression="uuid", alias="uuid"),
         BatchExportField(expression="timestamp", alias="timestamp"),
         BatchExportField(expression="_inserted_at", alias="_inserted_at"),
         BatchExportField(expression="event", alias="event"),
-        BatchExportField(expression="nullIf(properties, '')", alias="properties"),
+        BatchExportField(expression=properties, alias="properties"),
+        BatchExportField(expression="person_properties", alias="person_properties"),
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="elements_chain", alias="elements_chain"),
     ]
-    if reads_native_source:
-        fields.extend(BatchExportField(expression=alias, alias=alias) for alias in _NATIVE_MUTATION_PROPERTIES.values())
-    return fields
 
 
 class HeartbeatDetails:
@@ -216,29 +222,27 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if not isinstance(model, BatchExportEventsModel):
             raise NotImplementedError("HTTP export only supports the events model")
 
-        use_native_schema = await database_sync_to_async(use_new_events_schema)(inputs.team_id)
+        use_native_schema = batch_exports_read_new_events_table()
 
         interval_start = await maybe_resume_from_heartbeat(inputs)
 
         is_backfill = inputs.get_is_backfill()
 
-        # Only the native source projects the mutation columns; a legacy table carries the same keys
-        # in its `properties`.
-        native_source = reads_native_events_source(
-            use_new_events_schema=use_native_schema,
+        native_source = reads_native_events_table(
             team_id=inputs.team_id,
             interval_start=interval_start,
             interval_end=inputs.data_interval_end,
+            use_new_events_schema=use_native_schema,
             is_backfill=is_backfill,
             backfill_details=inputs.backfill_details,
         )
-        fields = http_default_fields(native_source)
+        fields = http_default_fields(reads_native_events=native_source)
         columns = [field["alias"] for field in fields]
 
         filters = model.filters
         if filters:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-                filters, team_id=inputs.team_id, values=None
+                filters, team_id=inputs.team_id, values=None, use_new_events_schema=native_source
             )
         else:
             filters_str = ""
@@ -330,9 +334,10 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
                         properties = row["properties"]
                         properties = json.loads(properties) if properties else {}
-                        for property_name, column in _NATIVE_MUTATION_PROPERTIES.items():
-                            if value := row.get(column):
-                                properties[property_name] = json.loads(value)
+                        if "$set" not in properties and row["person_properties"]:
+                            person_properties = json.loads(row["person_properties"])
+                            if person_properties:
+                                properties["$set"] = person_properties
                         properties["$geoip_disable"] = True
 
                         if row["event"] == "$autocapture" and row["elements_chain"] is not None:

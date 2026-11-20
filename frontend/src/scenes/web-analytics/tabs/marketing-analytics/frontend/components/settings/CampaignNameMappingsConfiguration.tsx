@@ -9,8 +9,6 @@ import { TeamMembershipLevel } from 'lib/constants'
 
 import { MatchField, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
-import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
     getGlobalCampaignMapping,
@@ -157,9 +155,7 @@ export function CampaignNameMappingsConfiguration({
         updateCampaignNameMappings(newMappings)
     }
 
-    const availableSources = Object.values(ExternalDataSourceTypeEnumApi).filter((source) =>
-        VALID_NATIVE_MARKETING_SOURCES.includes(source as any)
-    )
+    const availableSources = VALID_NATIVE_MARKETING_SOURCES
 
     return (
         <div className="space-y-4">

@@ -13,26 +13,30 @@ import {
     NetworkError,
     type NetworkFailureReason,
     readableErrorMessage,
+    requestIdFromHeaders,
     ResponseBodyReadError,
 } from 'lib/api-error'
 import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { SURVEY_PAGE_SIZE } from 'lib/constants'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
-import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
+import { retryWithBackoff } from 'lib/utils/async'
+import { HogQLQueryString } from 'lib/utils/hogql'
+import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
+import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
+import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     AggregatedSpanRow,
     AnyResponseType,
@@ -69,7 +73,6 @@ import {
     SpanTreeNode,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -129,6 +132,7 @@ import {
     ExternalDataSourceRevenueAnalyticsConfig,
     ExternalDataSourceSchema,
     ExternalDataSourceSyncSchema,
+    type ExternalDataSourceType,
     FeatureFlagType,
     FileSystemDeleteResponse,
     GoogleAdsConversionActionType,
@@ -168,8 +172,6 @@ import {
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
     ProductTour,
-    ProductTourAIGenerationResponse,
-    ProductTourStep,
     ProjectSecretAPIKeyRequest,
     ProjectType,
     PropertyDefinition,
@@ -229,7 +231,7 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import {
+import type {
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
@@ -241,11 +243,7 @@ import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import type {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigMapResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
-import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { SourceConfigMapResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -344,6 +342,20 @@ export class RecordingDeletedError extends Error {
     }
 }
 
+export class NotAReplayBlockError extends Error {
+    constructor() {
+        super('Block fetch returned something other than a block')
+        this.name = 'NotAReplayBlockError'
+    }
+}
+
+function asRecordingDeletedError(e: unknown): unknown {
+    if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
+        return new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
+    }
+    return e
+}
+
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
 
 export function getCookie(name: string): string | null {
@@ -432,6 +444,7 @@ export async function getJSONFromSuccessResponse(
             status: response.status,
             is_shared_view: isSharedView(),
             failure_reason: 'response_body_read',
+            http_request_id: requestIdFromHeaders(response.headers),
         })
         throw new ResponseBodyReadError(`Failed to read response body ${requestContext()}`)
     }
@@ -455,6 +468,10 @@ export class ApiConfig {
             throw new Error('Organization ID is not known.')
         }
         return this._currentOrganizationId
+    }
+
+    static hasCurrentOrganizationId(): boolean {
+        return !!this._currentOrganizationId
     }
 
     static setCurrentOrganizationId(id: OrganizationType['id'] | null): void {
@@ -554,11 +571,6 @@ export class ApiRequest {
     }
 
     // API-aware endpoint composition
-
-    // # Utils
-    public current(): ApiRequest {
-        return this.addPathComponent('@current')
-    }
 
     // # Organizations
     public organizations(): ApiRequest {
@@ -782,10 +794,6 @@ export class ApiRequest {
 
     public event(id: EventType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.events(teamId).addPathComponent(id)
-    }
-
-    public tags(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('tags')
     }
 
     // # Logs
@@ -1049,7 +1057,7 @@ export class ApiRequest {
 
     // # Roles
     public roles(): ApiRequest {
-        return this.organizations().current().addPathComponent('roles')
+        return this.organizationsDetail().addPathComponent('roles')
     }
 
     public rolesDetail(roleId: RoleType['id']): ApiRequest {
@@ -1066,7 +1074,7 @@ export class ApiRequest {
 
     // # OrganizationMembers
     public organizationMembers(): ApiRequest {
-        return this.organizations().current().addPathComponent('members')
+        return this.organizationsDetail().addPathComponent('members')
     }
 
     public organizationMembersForAccount(): ApiRequest {
@@ -1624,16 +1632,11 @@ export class ApiRequest {
 
     // # Organization Integrations
     public organizationIntegrations(): ApiRequest {
-        return this.organizations().current().addPathComponent('integrations')
+        return this.organizationsDetail().addPathComponent('integrations')
     }
 
     public organizationIntegrationsDetail(id: IntegrationType['id']): ApiRequest {
         return this.organizationIntegrations().addPathComponent(id)
-    }
-
-    // # Organization OAuth Applications
-    public organizationOAuthApplications(): ApiRequest {
-        return this.organizations().current().addPathComponent('oauth_applications')
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
@@ -1874,7 +1877,7 @@ export class ApiRequest {
     }
 
     public addProductIntent(): ApiRequest {
-        return this.projects().current().addPathComponent('add_product_intent')
+        return this.projectsDetail().addPathComponent('add_product_intent')
     }
 
     // Max Core Memory
@@ -1942,10 +1945,6 @@ export class ApiRequest {
 
     public hogFlowTemplate(hogFlowTemplateId: HogFlowTemplate['id']): ApiRequest {
         return this.hogFlowTemplates().addPathComponent(hogFlowTemplateId)
-    }
-
-    public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId).addPathComponent('evaluation_runs')
     }
 
     // Heatmap screenshots
@@ -2035,6 +2034,42 @@ function tracingHeaders({ includeDistinctId = false } = {}): Record<string, stri
         ...(sessionId ? { 'X-POSTHOG-SESSION-ID': sessionId } : {}),
         ...(distinctId ? { 'X-POSTHOG-DISTINCT-ID': distinctId } : {}),
     }
+}
+
+/**
+ * The frontend build, so the server can count requests from a tab on another build than the pod
+ * that answers. Same-origin only: other targets (the agent proxy, a remote region) have their own
+ * CORS allowlists, and an unlisted header fails the preflight.
+ */
+function clientBuildHeader(url: string): Record<string, string> {
+    const clientBuild = window.POSTHOG_APP_CONTEXT?.commit_sha
+    if (!clientBuild || new URL(url, window.location.origin).origin !== window.location.origin) {
+        return {}
+    }
+    return { 'X-PostHog-Client-Build': clientBuild }
+}
+
+// pinned: a URL parameter in shared links, and the cookie name that NewEventsSchemaCookieMiddleware reads
+export const NEW_EVENTS_SCHEMA = 'ph_new_events_schema'
+
+// Read once when the page loads, because pages such as the SQL editor rewrite their URL without it.
+const requestedNewEventsTable = new URLSearchParams(window.location.search).get(NEW_EVENTS_SCHEMA)
+
+export function getPageNewEventsTable(): boolean | null {
+    return requestedNewEventsTable === '1' ? true : requestedNewEventsTable === '0' ? false : null
+}
+
+/**
+ * Two tabs of one browser share one cookie, so each page sends the table its link asked for.
+ * Same-origin only, for the same CORS reason as the build header.
+ */
+function newEventsTableHeader(url: string): Record<string, string> {
+    const requested = getPageNewEventsTable()
+    if (requested === null || new URL(url, window.location.origin).origin !== window.location.origin) {
+        return {}
+    }
+    // pinned: NewEventsSchemaCookieMiddleware reads this header name and the values "1" and "0"
+    return { 'X-PostHog-New-Events-Schema': requested ? '1' : '0' }
 }
 
 const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
@@ -2351,6 +2386,7 @@ const api = {
             createdAtLt,
             searchNameOnly,
             includeTags,
+            tags,
             signal,
         }: {
             parent?: string
@@ -2368,6 +2404,7 @@ const api = {
             createdAtLt?: string
             searchNameOnly?: boolean
             includeTags?: boolean
+            tags?: string[]
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
@@ -2388,6 +2425,7 @@ const api = {
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
                     include_tags: includeTags,
+                    tags: tags?.length ? tags : undefined,
                 })
                 .get({ signal })
         },
@@ -2803,6 +2841,8 @@ const api = {
                 flatSpans?: boolean
                 // true omits the per-span attribute maps — use when only scalar span fields are read.
                 excludeAttributes?: boolean
+                // true adds each span's OTel events. The column is large, so keep `limit` small.
+                includeEvents?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -3009,12 +3049,6 @@ const api = {
         ): string {
             const params: EventsListQueryParams = { ...filters, limit }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
-        },
-    },
-
-    tags: {
-        async list(projectId: TeamType['id'] = ApiConfig.getCurrentProjectId()): Promise<string[]> {
-            return new ApiRequest().tags(projectId).get()
         },
     },
 
@@ -3445,6 +3479,7 @@ const api = {
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
+                headers: newEventsTableHeader(url),
                 openWhenHidden: true,
                 onopen: async (response) => {
                     apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
@@ -3660,16 +3695,6 @@ const api = {
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
         },
-        async resetPersonDistinctId(distinctId: string): Promise<void> {
-            return await new ApiRequest()
-                .persons()
-                .withAction('reset_person_distinct_id')
-                .create({
-                    data: {
-                        distinct_id: distinctId,
-                    },
-                })
-        },
         async getByDistinctIds(distinctIds: string[]): Promise<Record<string, PersonType>> {
             const response = await new ApiRequest()
                 .persons()
@@ -3764,22 +3789,24 @@ const api = {
                 insightId,
                 recordingId,
                 notebookShortId,
+                teamId,
             }: {
                 dashboardId?: DashboardType['id']
                 insightId?: InsightModel['id']
                 recordingId?: SessionRecordingType['id']
                 notebookShortId?: NotebookType['short_id']
+                teamId?: TeamType['id']
             },
             data: Partial<SharingConfigurationType>
         ): Promise<SharingConfigurationType | null> {
             return dashboardId
-                ? new ApiRequest().dashboardSharing(dashboardId).update({ data })
+                ? new ApiRequest().dashboardSharing(dashboardId, teamId).update({ data })
                 : insightId
-                  ? new ApiRequest().insightSharing(insightId).update({ data })
+                  ? new ApiRequest().insightSharing(insightId, teamId).update({ data })
                   : recordingId
-                    ? new ApiRequest().recordingSharing(recordingId).update({ data })
+                    ? new ApiRequest().recordingSharing(recordingId, teamId).update({ data })
                     : notebookShortId
-                      ? new ApiRequest().notebookSharing(notebookShortId).update({ data })
+                      ? new ApiRequest().notebookSharing(notebookShortId, teamId).update({ data })
                       : null
         },
 
@@ -4392,7 +4419,11 @@ const api = {
             recordingId: SessionRecordingType['id'],
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            try {
+                return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
+            } catch (e) {
+                throw asRecordingDeletedError(e)
+            }
         },
 
         async getSnapshots(
@@ -4408,10 +4439,7 @@ const api = {
                     .withQueryString(params)
                     .getResponse({ headers })
             } catch (e) {
-                if (e instanceof ApiError && e.status === 410 && e.data?.error === 'recording_deleted') {
-                    throw new RecordingDeletedError(e.data?.deleted_at ?? null, e.data?.deleted_by ?? null)
-                }
-                throw e
+                throw asRecordingDeletedError(e)
             }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
@@ -4434,6 +4462,90 @@ const api = {
                 console.error('Failed to decode snapshot response as text:', error)
             }
             return []
+        },
+
+        /**
+         * Fetches blocks straight from recording-api, one request per block so the browser caches each one. Returns
+         * the same length-prefixed bytes as getSnapshots with decompress=false.
+         */
+        async getBlocksDirectly(urls: string[], token: string): Promise<Uint8Array> {
+            // One failed block fails the batch, so the other downloads stop too. The deadline matches Django's upstream
+            // read limit, so a stalled block falls back instead of holding the loader forever.
+            const controller = new AbortController()
+            const deadline = setTimeout(() => controller.abort(), 30_000)
+            const fetchBlock = async (url: string): Promise<Uint8Array> => {
+                const response = await fetch(url, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    credentials: 'omit',
+                    // A long page URL as the Referer pushes the headers past recording-api's size limit, which answers 431.
+                    referrerPolicy: 'no-referrer',
+                    signal: controller.signal,
+                })
+                if (!response.ok) {
+                    const data = await response.json().catch(() => null)
+                    throw asRecordingDeletedError(
+                        new ApiError('Block fetch failed', response.status, response.headers, data)
+                    )
+                }
+                // Without a route to recording-api the app shell answers with HTML, which is not a block.
+                if (!response.headers.get('Content-Type')?.startsWith('application/octet-stream')) {
+                    throw new NotAReplayBlockError()
+                }
+                return new Uint8Array(await response.arrayBuffer())
+            }
+            // Blocks still waiting out a 429. While one waits, the batch fails as rate limited, because reading the
+            // batch through the snapshots endpoint would get round the limit.
+            const pendingRateLimits = new Map<string, ApiError>()
+            let reportedRateLimit = false
+            const blocks = await Promise.all(
+                urls.map(async (url) => {
+                    try {
+                        // recording-api refills each viewer's budget every second, so only the limited block waits
+                        // and retries while the rest of the batch keeps downloading.
+                        const block = await retryWithBackoff(() => fetchBlock(url), {
+                            maxAttempts: 4,
+                            initialDelayMs: 1000,
+                            backoffMultiplier: 2,
+                            signal: controller.signal,
+                            shouldRetry: (e) => e instanceof ApiError && e.status === 429,
+                            getDelayMs: (e) => {
+                                // Runs only when a retry follows, so the event counts rate-limited batches.
+                                if (!reportedRateLimit) {
+                                    reportedRateLimit = true
+                                    posthog.capture('replay direct block fetch rate limited')
+                                }
+                                pendingRateLimits.set(url, e as ApiError)
+                                const seconds = Number((e as ApiError).headers?.get('Retry-After'))
+                                return seconds > 0 ? seconds * 1000 : undefined
+                            },
+                        })
+                        pendingRateLimits.delete(url)
+                        return block
+                    } catch (e) {
+                        // Only an aborted wait leaves the block rate limited; any other answer replaces the 429.
+                        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+                            pendingRateLimits.delete(url)
+                        }
+                        controller.abort()
+                        throw e
+                    }
+                })
+            )
+                .catch((e) => {
+                    // A sibling's failure or the deadline cuts the wait short, and must not turn into a fallback.
+                    const pendingRateLimit = pendingRateLimits.values().next().value
+                    throw pendingRateLimit && !(e instanceof RecordingDeletedError) ? pendingRateLimit : e
+                })
+                .finally(() => clearTimeout(deadline))
+            const framed = new Uint8Array(blocks.reduce((total, block) => total + 4 + block.length, 0))
+            const view = new DataView(framed.buffer)
+            let offset = 0
+            for (const block of blocks) {
+                view.setUint32(offset, block.length)
+                framed.set(block, offset + 4)
+                offset += 4 + block.length
+            }
+            return framed
         },
 
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
@@ -4926,12 +5038,16 @@ const api = {
             scout?: string
             /** Scout skill_name prefix — matches every scout in the family. */
             scout_prefix?: string
+            /** Comma-separated report tag slugs. A report matches when it carries any of them. */
+            tags?: string
             /** true returns only the filtered total: `results` is empty and no rows are serialized. */
             count_only?: 'true' | 'false'
             /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */
             include_source_metadata?: 'true' | 'false'
             /** ISO 8601 datetime. Keeps reports created at or after it. */
             created_after?: string
+            /** For `sort=personal`: the `ranking_id` of the first page, so later pages keep its order. */
+            ranking_id?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -5359,15 +5475,6 @@ const api = {
         async delete(tourId: ProductTour['id']): Promise<void> {
             await new ApiRequest().productTour(tourId).delete()
         },
-        async generateContent(
-            tourId: ProductTour['id'],
-            title: ProductTour['name'],
-            steps: ProductTourStep[],
-            goal: string
-        ): Promise<ProductTourAIGenerationResponse> {
-            const apiRequest = new ApiRequest().productTour(tourId).withAction('generate')
-            return await apiRequest.create({ data: { title, steps, goal } })
-        },
         async saveDraft(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
             return await new ApiRequest().productTour(tourId).withAction('draft').update({ data })
         },
@@ -5396,9 +5503,6 @@ const api = {
         },
         async get(tableId: DataWarehouseTable['id']): Promise<DataWarehouseTable> {
             return await new ApiRequest().dataWarehouseTable(tableId).get()
-        },
-        async create(data: Partial<DataWarehouseTable>): Promise<DataWarehouseTable> {
-            return await new ApiRequest().dataWarehouseTables().create({ data })
         },
         async delete(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).delete()
@@ -5456,6 +5560,7 @@ const api = {
             data: Partial<DataWarehouseSavedQuery> & {
                 types?: string[][]
                 edited_history_id?: string
+                acknowledge_breaking_changes?: boolean
             }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
@@ -5687,7 +5792,7 @@ const api = {
             return await new ApiRequest().externalDataSource(sourceId).update({ data })
         },
         async database_schema(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             payload: Record<string, any>
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5699,7 +5804,7 @@ const api = {
             return await new ApiRequest().externalDataSources().withAction('wizard').get()
         },
         async source_prefix(
-            source_type: ExternalDataSourceTypeEnumApi,
+            source_type: ExternalDataSourceType,
             prefix: string
         ): Promise<ExternalDataSourceSyncSchema[]> {
             return await new ApiRequest()
@@ -5709,7 +5814,7 @@ const api = {
         },
         async check_cdc_prerequisites(
             payload: {
-                source_type: ExternalDataSourceTypeEnumApi
+                source_type: ExternalDataSourceType
                 cdc_management_mode: 'posthog' | 'self_managed'
                 tables?: string[]
                 cdc_slot_name?: string | null
@@ -6110,12 +6215,6 @@ const api = {
         },
     },
 
-    organizationOAuthApplications: {
-        async list(params?: Record<string, any>): Promise<PaginatedResponse<OrganizationOAuthApplicationApi>> {
-            return await new ApiRequest().organizationOAuthApplications().withQueryString(params).get()
-        },
-    },
-
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
@@ -6289,8 +6388,7 @@ const api = {
                 ...(scope !== undefined ? { scope } : {}),
             }
             return await new ApiRequest()
-                .projects()
-                .current()
+                .projectsDetail()
                 .withAction('settings_as_of')
                 .withQueryString(toParams(params, true))
                 .get()
@@ -6379,14 +6477,6 @@ const api = {
             }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
-        },
-        async publishHogFlow(
-            hogFlowId: HogFlow['id'],
-            // Without `confirm` this only previews the impact and returns a `confirm_token`; a confirmed
-            // publish must send that token back.
-            data: { confirm: boolean; confirm_token?: string }
-        ): Promise<HogFlowPublishResponseApi> {
-            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create({ data })
         },
         async discardHogFlowDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()
@@ -6531,22 +6621,33 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
+        const data = {
+            query,
+            client_query_id: queryOptions?.clientQueryId,
+            refresh: queryOptions?.refresh,
+            filters_override: queryOptions?.filtersOverride,
+            variables_override: queryOptions?.variablesOverride,
+            limit_context: queryOptions?.limitContext,
+        }
+        if (bodyKind === NodeKind.ActorsQuery && query.source?.kind === NodeKind.AccountUsersQuery) {
+            const { getAccountsPersonsQueryCreateUrl } =
+                await import('products/customer_analytics/frontend/generated/api')
+            return await api.create(
+                getAccountsPersonsQueryCreateUrl(
+                    String(ApiConfig.getCurrentTeamId()),
+                    encodeURIComponent(query.source.accountId)
+                ),
+                data,
+                queryOptions?.requestOptions
+            )
+        }
+
         const apiRequest =
             bodyKind === NodeKind.AccountsTableQuery
                 ? new ApiRequest().accountsTableQuery()
                 : new ApiRequest().query(undefined, bodyKind)
 
-        return await apiRequest.create({
-            ...queryOptions?.requestOptions,
-            data: {
-                query,
-                client_query_id: queryOptions?.clientQueryId,
-                refresh: queryOptions?.refresh,
-                filters_override: queryOptions?.filtersOverride,
-                variables_override: queryOptions?.variablesOverride,
-                limit_context: queryOptions?.limitContext,
-            },
-        })
+        return await apiRequest.create({ ...queryOptions?.requestOptions, data })
     },
 
     async queryHogQL<T = any[]>(
@@ -6695,30 +6796,17 @@ const api = {
                     .update({ data: { content } })
             },
 
-            delete(conversationId: string, queueId: string): Promise<ConversationQueueResponse> {
-                return new ApiRequest().conversation(conversationId).withAction(`queue/${queueId}`).delete()
+            async delete(conversationId: string, queueId: string): Promise<ConversationQueueResponse> {
+                const response = await new ApiRequest()
+                    .conversation(conversationId)
+                    .withAction(`queue/${queueId}`)
+                    .delete()
+                return response.json()
             },
 
             clear(conversationId: string): Promise<ConversationQueueResponse> {
                 return new ApiRequest().conversation(conversationId).withAction('queue/clear').create({ data: {} })
             },
-        },
-    },
-
-    evaluationRuns: {
-        async create(data: {
-            evaluation_id: string
-            target_event_id: string
-            timestamp: string
-            event: string
-            distinct_id?: string
-        }): Promise<{
-            workflow_id: string
-            status: string
-            evaluation: { id: string; name: string }
-            target_event_id: string
-        }> {
-            return await new ApiRequest().evaluationRuns().create({ data })
         },
     },
 
@@ -6779,6 +6867,8 @@ const api = {
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...tracingHeaders({ includeDistinctId: true }),
+                    ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
@@ -6806,6 +6896,8 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
+                    ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
@@ -6850,6 +6942,8 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
+                    ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
@@ -6885,6 +6979,8 @@ const api = {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
+                    ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
             })
@@ -6941,6 +7037,8 @@ const api = {
                 ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                 ...tracingHeaders(),
+                ...clientBuildHeader(url),
+                ...newEventsTableHeader(url),
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
@@ -7182,6 +7280,10 @@ function captureClientRequestFailure(properties: {
     status: number
     is_shared_view: boolean
     failure_reason?: ClientRequestFailureReason
+    /** DRF error `code` from the response body, which separates failures that share a status. */
+    code?: string | null
+    /** Backend request UUID, equal to `request_id` on the backend logs. Absent when no response arrived. */
+    http_request_id?: string | null
 }): void {
     // when used inside the posthog toolbar, `posthog.capture` isn't loaded
     // check if the function is available before calling it.
@@ -7213,6 +7315,8 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
             ...objectClean(options?.headers ?? {}),
             'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             ...tracingHeaders(),
+            ...clientBuildHeader(url),
+            ...newEventsTableHeader(url),
             ...oauthAuthHeaders(url),
         }
         for (const [name, value] of Object.entries(headers)) {
@@ -7347,12 +7451,15 @@ async function handleFetch(
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
         const inSharedView = isSharedView()
+        const failure = await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
         captureClientRequestFailure({
             pathname,
             method,
             duration,
             status: response.status,
             is_shared_view: inSharedView,
+            code: failure.code,
+            http_request_id: failure.requestId,
         })
         if (inSharedView && (response.status === 401 || response.status === 403)) {
             const leakKey = `${method} ${pathname}`
@@ -7362,7 +7469,7 @@ async function handleFetch(
             }
         }
 
-        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
+        throw failure
     }
 
     return response

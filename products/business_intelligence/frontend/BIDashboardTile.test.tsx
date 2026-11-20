@@ -5,6 +5,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { InsightCard } from 'lib/components/Cards/InsightCard/InsightCard'
 
 import { useMocks } from '~/mocks/jest'
+import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import { BIConfig, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { HogQLQuery, NodeKind, RefreshType } from '~/queries/schema/schema-general'
 import { insightOnDashboard, tileFromInsight } from '~/scenes/dashboard/dashboardLogic.testHelpers'
@@ -16,6 +17,10 @@ import { BIDashboardTile } from './BIDashboardTile'
 import { buildBIQuery, DEFAULT_BI_CONFIG } from './biEditorTypes'
 
 describe('dashboard worksheet query execution', () => {
+    beforeAll(async () => {
+        await Promise.all([InsightVizRenderer.preload(), DataVisualizationRenderer.preload()])
+    })
+
     afterEach(cleanup)
 
     it.each(['tile', 'card'])(

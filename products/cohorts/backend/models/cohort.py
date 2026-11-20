@@ -43,7 +43,8 @@ from products.cohorts.backend.models.leaf_shape import (
     extract_person_composition_hash,
     extract_person_leaf_shape_hash,
 )
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.models.team_access import RealtimeCohortLevel
+from products.cohorts.backend.realtime_teams import is_processing_team, realtime_level, team_honors_readiness_stamps
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -151,6 +152,16 @@ COHORT_RECALCULATION_FIELDS = frozenset(
         "last_import_total_count",
         "last_import_unmatched_count",
     }
+)
+
+
+# Written by turning realtime on or off, by the backfill finalizer, and by save() when an edit moves a
+# shape hash. A save of a whole row read before one of those writes would put the old value back.
+COHORT_REALTIME_SWITCH_FIELDS = (
+    "realtime_enabled_at",
+    "last_backfill_events_at",
+    "last_backfill_person_properties_at",
+    "last_realtime_cohort_calculation_at",
 )
 
 
@@ -272,6 +283,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     behavioral_filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     person_filters_shape_hash = models.CharField(max_length=64, null=True, blank=True)
     last_realtime_cohort_calculation_at = models.DateTimeField(blank=True, null=True)
+    # Null while realtime is off. The choice survives a save that makes the cohort ineligible, so the
+    # pipeline loads a cohort only when it is both `realtime` and on.
+    realtime_enabled_at = models.DateTimeField(blank=True, null=True)
 
     last_import_total_count = models.IntegerField(
         blank=True,
@@ -370,11 +384,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         self._person_shape_changed = False
         maintained_update_fields = set(update_fields) if update_fields is not None else None
         try:
-            if not self.team_id or not is_realtime_cohort_team(self.team_id):
-                return maintained_update_fields
             if self.cohort_type != CohortType.REALTIME or self.is_static or self.deleted:
                 return maintained_update_fields
             if maintained_update_fields is not None and "filters" not in maintained_update_fields:
+                return maintained_update_fields
+            # Read the row, not the cached snapshot: right after a grant, a stale snapshot would skip
+            # the supersede for an edit while the uncached run creators already accept the team.
+            if not self.team_id or not is_processing_team(self.team_id, fresh=True):
                 return maintained_update_fields
 
             new_shape_hash = extract_leaf_shape_hash(self.filters)
@@ -608,12 +624,22 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Every backfill its current filters need has to have landed: person property and
         person_metadata filters need `last_backfill_person_properties_at`, behavioral event filters
         need `last_backfill_events_at`, and a cohort with both needs both.
+
+        Stamps do not count on a team whose access row is below `serving`
+        (`team_honors_readiness_stamps`). The pipeline stamps a `processing` team's cohorts, but the
+        flags service reads no membership for it, and its users must not see realtime cohorts.
         """
-        if self.cohort_type != CohortType.REALTIME:
+        if self.cohort_type != CohortType.REALTIME or not self.realtime_enabled:
             return False
 
         stamps = self._required_backfill_stamps()
-        return bool(stamps) and all(stamp is not None for stamp in stamps.values())
+        if not stamps or any(stamp is None for stamp in stamps.values()):
+            return False
+        return team_honors_readiness_stamps(self.team_id)
+
+    @property
+    def realtime_enabled(self) -> bool:
+        return self.realtime_enabled_at is not None
 
     @property
     def realtime_ready_at(self) -> Optional[datetime]:
@@ -694,6 +720,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return PropertyGroup(PropertyOperatorType.AND, cast(list[Property], []))
 
     def get_analytics_metadata(self):
+        level = realtime_level(self.team_id) if self.team_id else RealtimeCohortLevel.OFF
         return {
             "filters": self.properties.to_dict(),
             "name_length": len(self.name) if self.name else 0,
@@ -704,9 +731,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "cohort_type": self.cohort_type,
             "condition_type": self.condition_type,
             # `cohort_type` reads `realtime` whenever the filters are realtime-eligible, on every
-            # team. This reports whether the team runs the realtime pipeline at all, so a consumer
-            # can tell an eligible cohort from one that realtime membership is maintained for.
-            "realtime_enabled": bool(self.team_id) and is_realtime_cohort_team(self.team_id),
+            # team. This reports the cohort's own switch, so a consumer can tell an eligible cohort
+            # from one that realtime membership is maintained for.
+            "realtime_enabled": self.realtime_enabled,
+            # `processing` teams run the pipeline while their users see none of it, so adoption
+            # counts only `serving`.
+            "realtime_level": level.value,
         }
 
     def _safe_reset_calculating_state(self, completed_version: int) -> None:
@@ -1157,6 +1187,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
         from products.cohorts.backend.models.util import insert_cohort_members, insert_static_cohort
+        from products.cohorts.backend.static_reconciliation import clear_static_cohort_member_removals
 
         if not id_uuid_pairs:
             return
@@ -1173,6 +1204,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         person_uuids = [person_uuid for _, person_uuid in deduped_pairs]
 
         if insert_in_clickhouse:
+            # An explicit addition undoes an earlier removal, so a repair must not delete these members.
+            clear_static_cohort_member_removals(cohort_id=self.pk, person_uuids=person_uuids)
             existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
             new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
             if new_uuids:
@@ -1222,6 +1255,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             is_person_in_cohort,
             remove_person_from_static_cohort,
         )
+        from products.cohorts.backend.static_reconciliation import record_static_cohort_member_removal
 
         try:
             # Only person.id/uuid are used (to resolve and remove the row), so skip the distinct-id fetch.
@@ -1232,6 +1266,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             # Check if person is in the cohort via personhog.
             is_member = is_person_in_cohort(team_id=team_id, person_id=person.id, cohort_id=self.id)
+
+            # The ClickHouse delete is asynchronous, so the reconciliation must not copy the member back meanwhile.
+            record_static_cohort_member_removal(cohort_id=self.id, person_id=person.id, person_uuid=str(person.uuid))
 
             # Delete from PostgreSQL first (source of truth), then ClickHouse.
             # This order ensures if PG delete fails, we don't create inverse inconsistency.
@@ -1306,6 +1343,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "is_static": self.is_static,
             "cohort_type": self.cohort_type,
             "condition_type": self.condition_type,
+            "realtime_enabled": self.realtime_enabled,
             "created_by_id": self.created_by_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,

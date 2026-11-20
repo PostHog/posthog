@@ -15,6 +15,7 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
+import { applyComparisonDimming } from '../../utils/comparison-dimming'
 import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart/LineChart'
@@ -24,6 +25,7 @@ import {
     type MovingAverageConfig,
     type TrendLineConfig,
 } from '../utils/use-derived-series'
+import { useTimeScale } from '../utils/use-time-scale'
 import { useGoalLines, useTimeSeries, useValueBounds } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
@@ -50,6 +52,8 @@ export interface TimeSeriesLineChartConfig {
     percentStackView?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Defaults to true. */
+    syncHover?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
@@ -59,6 +63,13 @@ export interface TimeSeriesLineChartConfig {
     showTickMarks?: boolean
     /** Line interpolation: `linear` (default) or `monotone` (smooth curve through every point). */
     curve?: 'linear' | 'monotone'
+    /** `time` places each point at its time, so uneven spacing and gaps in time show. Labels must
+     *  be ascending. Moving averages still use sample order. Defaults to `index`. */
+    xScale?: 'index' | 'time'
+    /** With `xScale: 'time'`, the axis span as `[from, to]` epoch ms. Defaults to the label range. */
+    xDomain?: readonly [number, number]
+    /** Draw lines and areas across missing (non-finite) values instead of breaking them. */
+    connectNulls?: boolean
     /** Tooltip behaviour and built-in content options. A `tooltip` render prop replaces the content. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
@@ -113,13 +124,18 @@ export function TimeSeriesLineChart<Meta = unknown>({
         comparisonOf,
         percentStackView,
         showCrosshair,
+        syncHover = true,
         showGrid,
         showAxisLines,
         showTickMarks,
         curve,
+        xScale,
+        xDomain,
+        connectNulls,
         tooltip: tooltipConfig,
         legend,
     } = config ?? {}
+    const timeScale = useTimeScale(xScale === 'time', labels, xAxis?.timezone ?? 'UTC', xDomain)
     const {
         xTickFormatter,
         yTickFormatter,
@@ -129,15 +145,28 @@ export function TimeSeriesLineChart<Meta = unknown>({
         valueLabelFormatter,
         primaryYAxis,
         yAxes,
-    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    } = useTimeSeries(series, labels, theme, {
+        xAxis,
+        yAxis,
+        valueLabels,
+        legend,
+        isPercent: !!percentStackView,
+    })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
+    const timeXs = useMemo(() => (timeScale ? labels.map(timeScale.parse) : undefined), [timeScale, labels])
     const finalSeries = useDerivedSeries(chartSeries, {
         confidenceIntervals,
         movingAverage,
         trendLines,
         comparisonOf,
+        xs: timeXs,
     })
+
+    const legendItems = useMemo(
+        () => applyComparisonDimming(legendProps.items, comparisonOf),
+        [legendProps.items, comparisonOf]
+    )
 
     // Goal lines scale against the drawn (post-derived) series, unlike bar/combo.
     const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, finalSeries)
@@ -167,8 +196,11 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showAxisLines,
         showTickMarks,
         curve,
+        timeScale,
+        connectNulls,
         percentStackView,
         showCrosshair,
+        syncHover,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,
         floatBaseline,
@@ -176,7 +208,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     }
 
     return (
-        <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-line-legend">
+        <ChartLegend {...legendProps} items={legendItems} legendDataAttr="hog-chart-timeseries-line-legend">
             <LineChart
                 series={finalSeries}
                 labels={labels}

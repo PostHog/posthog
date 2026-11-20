@@ -24,7 +24,13 @@ const props = {
     dateTo: '2026-09-28T00:00:00Z',
     refreshKey: 0,
 }
-const page: OfflineHistoryPageApi = { results: overviewHistory(overviewScorers[0]), count: 6, next_cursor: null }
+const page: OfflineHistoryPageApi = {
+    results: overviewHistory(overviewScorers[0]),
+    count: 6,
+    next: null,
+    previous: null,
+    next_cursor: null,
+}
 const retrieve = jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve)
 const history = jest.mocked(api.aiObservabilityOfflineScorersHistoryList)
 
@@ -48,6 +54,8 @@ describe('offlineOverviewTrendLogic', () => {
         jest.mocked(api.aiObservabilityOfflineExperimentsList).mockResolvedValue({
             results: [],
             count: 0,
+            next: null,
+            previous: null,
             next_cursor: null,
         })
     })
@@ -150,7 +158,7 @@ describe('offlineOverviewTrendLogic', () => {
         }))
         history
             .mockResolvedValueOnce({ ...page, count: 8, next_cursor: 'older' })
-            .mockResolvedValueOnce({ results: olderPoints, count: 8, next_cursor: null })
+            .mockResolvedValueOnce({ results: olderPoints, count: 8, next: null, previous: null, next_cursor: null })
         const logic = offlineOverviewTrendLogic(trendProps)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -169,7 +177,13 @@ describe('offlineOverviewTrendLogic', () => {
             Date.parse(props.dateTo),
         ])
 
-        history.mockResolvedValueOnce({ results: page.results.slice(0, 1), count: 1, next_cursor: null })
+        history.mockResolvedValueOnce({
+            results: page.results.slice(0, 1),
+            count: 1,
+            next: null,
+            previous: null,
+            next_cursor: null,
+        })
         overviewLogic.actions.setFilters({ date_from: '2026-09-20T00:00:00Z' })
         offlineOverviewTrendLogic({
             ...trendProps,
@@ -192,6 +206,8 @@ describe('offlineOverviewTrendLogic', () => {
                     experiment: { ...page.results[0].experiment, id: `${scorerId}-${offset + index}` },
                 })),
                 count: 1000,
+                next: null,
+                previous: null,
                 next_cursor: String(offset + 100),
             }
         })

@@ -21,6 +21,8 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    PushTokenImportRowFailureReason,
+    PushTokenImportStatus,
     SetupStepKey,
     WorkflowImportNoteLevel,
     WorkflowProposalStatus,
@@ -29,6 +31,18 @@ from products.workflows.backend.facade.enums import (
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.models.user import User
+
+
+@frozen
+class WorkflowViewAccess:
+    viewable_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+    can_view_deleted: bool
+
+    def allows(self, workflow_id: str) -> bool:
+        if workflow_id in self.viewable_ids:
+            return True
+        return self.can_view_deleted and bool(workflow_id) and workflow_id not in self.blocked_ids
 
 
 @frozen
@@ -183,6 +197,20 @@ class ProcessedSchedules:
     failed: list[str]
 
 
+@frozen
+class WorkflowReplayTarget:
+    """What staff tooling needs to decide whether a workflow's failed runs can be replayed."""
+
+    id: str
+    team_id: int
+    name: str
+    status: str
+    # Templates of the workflow's function steps, so template filters can match a workflow.
+    template_ids: tuple[str, ...]
+    # The rerun worker skips runs of these workflows, because their message data was not stored.
+    sends_sensitive_email: bool
+
+
 @dataclass(frozen=True)
 class HogFlowReference:
     id: str
@@ -235,6 +263,17 @@ class RealtimeCohortStatus:
 
 
 @frozen
+class RateLimitedAudienceAllowance:
+    """How far a sending rate limit can raise an email batch audience above its tier's cap."""
+
+    # The fastest rate that qualifies. A faster rate keeps the tier's cap.
+    max_emails_per_hour: int
+    max_days: int
+    # The audience a send at max_emails_per_hour reaches in max_days.
+    limit: int
+
+
+@frozen
 class AudienceSize:
     """How many recipients a batch audience matches, and the most a batch trigger may send to."""
 
@@ -246,6 +285,8 @@ class AudienceSize:
     realtime_cohort: RealtimeCohortStatus | None = None
     # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
     realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
+    # Set when a sending rate limit can raise this audience's limit. None when no rate can.
+    rate_limited: RateLimitedAudienceAllowance | None = None
 
 
 @frozen
@@ -271,14 +312,35 @@ class PeopleImportSummary:
     dropped_invalid_email: int
     dropped_duplicate_email: int
     dropped_too_large: int
+    # Rows no person matched, left out because the import doesn't create new people.
+    skipped_new_people: int = 0
+    # How the people that rows matched by email spell that email in PostHog.
+    person_emails: tuple[str, ...] = ()
+
+
+@frozen
+class ProviderContactsResult:
+    """What importing one provider list of contacts did. Notes say what to fix when it failed."""
+
+    status: Literal["created", "skipped", "failed"]
+    cohort_id: int | None = None
+    cohort_name: str = ""
+    # Contacts sent to become or update a person. Ingestion adds them to the cohort a few minutes later.
+    people: int = 0
+    new_people: int = 0
+    skipped_new_people: int = 0
+    # Contacts without a valid email address, or repeating an earlier one.
+    dropped: int = 0
+    notes: tuple[str, ...] = ()
+    # How the people the contacts matched spell their email in PostHog, which can differ from the provider's.
+    person_emails: tuple[str, ...] = ()
 
 
 @frozen
 class EmailSendingTierLimits:
-    """What a trust tier allows: two send-rate caps and a maximum batch audience."""
+    """What a trust tier allows: a daily send cap and a maximum batch audience."""
 
     tier: int
-    per_hour: int
     per_day: int
     max_batch_audience: int
 
@@ -304,6 +366,8 @@ class EmailSendingState:
     tier: int
     tier_pinned: bool
     tier_updated_at: datetime | None
+    provider_paused: bool = False
+    provider_reputation_impact: str = ""
 
 
 @frozen
@@ -311,11 +375,13 @@ class EmailSendingSuspensionChange:
     """The outcome of a suspend or unsuspend request.
 
     ``changed_at`` is set only when this request flipped the state. ``previously_suspended_at`` is
-    set when a suspend request found the team already suspended.
+    set when a suspend request found the team already suspended. ``notification_failed`` is set when
+    the state flipped but the email or the in-app notification to the team could not be sent.
     """
 
     changed_at: datetime | None
     previously_suspended_at: datetime | None = None
+    notification_failed: bool = False
 
 
 @frozen
@@ -324,12 +390,12 @@ class EmailSendingAllowance:
 
     tier: int
     max_tier: int
-    emails_per_hour: int
     emails_per_day: int
     max_batch_audience: int
-    emails_sent_last_hour: int
     emails_sent_last_day: int
     enforced: bool
+    # The largest batch a slow enough sending rate limit allows. None when no rate raises the cap.
+    rate_limited_max_batch_audience: int | None = None
 
 
 class StaffPausedError(Exception):
@@ -511,6 +577,10 @@ class EmailProviderUnavailableError(Exception):
     """The email provider could not be reached or refused the read, so the domain's state is unknown."""
 
 
+class TwilioCredentialsRejected(Exception):
+    """Twilio answered 401: the account SID or auth token is wrong."""
+
+
 class TwilioPhoneNumber(TypedDict):
     """The fields callers read. The Twilio payload has more keys."""
 
@@ -681,6 +751,8 @@ class WorkflowRef:
     has_email_step: bool
 
 
+EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"
+
 # Engagement tracking and message assets key on this id, so it stays stable across versions.
 TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
 
@@ -706,8 +778,32 @@ class TransactionalEmailContent:
     reply_to: str = ""
 
 
+@frozen
+class SendingDomainSetup:
+    setup_url: str
+    unverified_sender_id: int | None
+
+
+@frozen
+class CodeEmailWorkflow:
+    """The labels on the hidden workflow behind an email sent from code under a `template_key`."""
+
+    id: UUID
+    description: str
+    tags: tuple[str, ...]
+    sensitive: bool
+
+
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
+
+
+class SandboxSenderUnavailable(Exception):
+    pass
+
+
+class TransactionalEmailSenderRequired(Exception):
+    """The project has several verified email senders and no default, so the send has to name one."""
 
 
 class TransactionalEmailContentInvalid(Exception):
@@ -726,7 +822,7 @@ class WorkflowArchived(Exception):
 class WorkflowListQuery:
     """What a workflow list asks for. The view validates each value before it builds one.
 
-    ``field_filters`` holds the raw exact-match and ``optimization_enabled`` query parameters. The
+    ``field_filters`` holds the raw exact-match, ``name`` and ``optimization_enabled`` query parameters. The
     service validates them and raises WorkflowListFiltersInvalid when one does not parse.
     """
 
@@ -742,14 +838,6 @@ class WorkflowListQuery:
     tags: frozenset[str] = frozenset()
     latest_send_first: bool = False
     field_filters: Mapping[str, str] = field(default_factory=dict)
-
-
-@frozen
-class WorkflowPage:
-    """One limit/offset page of a workflow list, and how many workflows the whole list holds."""
-
-    count: int
-    results: list[Workflow]
 
 
 @frozen
@@ -787,6 +875,7 @@ class WorkflowEditState:
     team_id: int
     name: str | None
     status: str
+    disabled_from_active: bool
     version: int
     origin_product: str | None
     created_by: "User | None"
@@ -993,8 +1082,8 @@ class AudienceSuggestion:
     window_days: int
     # How many times the event must happen in the window. Set only for regulars.
     min_count: int | None
-    # People in the audience with an email address, counted when the suggestion was made.
-    reachable_count: int
+    # Roughly how many people in the audience have an email address. None until counted, or when the count failed.
+    reachable_count: int | None
     cohort_filters: dict[str, Any]
 
 
@@ -1056,6 +1145,49 @@ class TranslatedWorkflow:
 
 
 @frozen
+class ImportedEmail:
+    """An email another tool's automation sends, already converted to Liquid."""
+
+    subject: str
+    html: str
+    text: str = ""
+    from_email: str = ""
+    from_name: str = ""
+    # The team's PostHog sender with that address, when it has one.
+    sender_integration_id: int | None = None
+    reply_to: str = ""
+    # What to review about the email.
+    notes: tuple[str, ...] = ()
+    # Variables the tool fills from the contact by itself, when a step doesn't set them.
+    contact_variables: tuple[str, ...] = ()
+    # What to review about the sender, which doesn't apply when a step sets its own.
+    sender_notes: tuple[str, ...] = ()
+    # What to review about the subject, which doesn't apply when a step sets its own.
+    subject_notes: tuple[str, ...] = ()
+
+
+@frozen
+class ImportedStepEmail:
+    """What one automation step changes about the email it sends, already converted to Liquid."""
+
+    subject: str = ""
+    contact_variables: tuple[str, ...] = ()
+    from_email: str = ""
+    from_name: str = ""
+    sender_integration_id: int | None = None
+    reply_to: str = ""
+    notes: tuple[str, ...] = ()
+
+
+@frozen
+class ProviderAutomationResult:
+    # `skipped` when an earlier import of it still has its workflow.
+    status: Literal["created", "skipped", "failed"]
+    workflow_id: str | None
+    notes: tuple[str, ...]
+
+
+@frozen
 class CampaignSource:
     """A Customer.io automation as its Journeys UI API returns it, with the templates its messages use."""
 
@@ -1086,6 +1218,16 @@ class ImportSegment:
     name: str
     # Customer.io's segment type: `dynamic`, or `static`/`manual` for a list people are added to by hand.
     type: str
+    # The segment's rules, from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members.
+    conditions: dict[str, Any] | None = None
+
+
+@frozen
+class SegmentCohortFilters:
+    """A Customer.io segment's rules as cohort filters, or the rules no cohort filter matches exactly."""
+
+    filters: dict[str, Any] | None
+    untranslated: tuple[str, ...] = ()
 
 
 @frozen
@@ -1104,6 +1246,8 @@ class ImportOptions:
     topic_categories: dict[str, ImportCategory] = field(default_factory=dict)
     # Customer.io segment id to its name and type.
     segments: dict[str, ImportSegment] = field(default_factory=dict)
+    # In a preview, the Customer.io segments a real import would turn into cohorts.
+    pending_segment_cohorts: frozenset[str] = frozenset()
 
 
 @frozen
@@ -1119,9 +1263,10 @@ class ImportContent:
 
 @dataclass(frozen=False)
 class SnippetRoom:
-    """How many more bytes of snippet content one import request may inline, shared by every automation in it.
+    """How many more bytes of snippet and subject content one import request may inline, shared by every automation.
 
-    Snippets are inlined by copy, so a short template that repeats a large one could grow without bound.
+    Snippets and `{{ message.subject }}` are inlined by copy, so a short template that repeats a large one could grow
+    without bound.
     """
 
     remaining: int = 5_000_000
@@ -1166,3 +1311,48 @@ class WorkflowImportRecord:
     notes: tuple[dict[str, Any], ...]
     updated_at: datetime
     hog_flow_created_by_id: int | None = None
+
+
+class PushTokenImportInvalid(Exception):
+    """The upload cannot be used. The message is shown to the person who sent it."""
+
+
+class PushTokenImportNotFound(LookupError):
+    pass
+
+
+@frozen
+class PushTokenImportRowFailure:
+    line: int
+    distinct_id: str
+    device_token_suffix: str
+    reason: PushTokenImportRowFailureReason
+    detail: str
+
+
+@frozen
+class PushTokenImportRecord:
+    id: UUID
+    integration_id: int
+    status: PushTokenImportStatus
+    create_missing_persons: bool
+    total_devices: int
+    processed_devices: int
+    imported_devices: int
+    failed_devices: int
+    unknown_person_devices: int
+    duplicate_lines: int
+    failures: tuple[PushTokenImportRowFailure, ...]
+    can_import_unknown_persons: bool
+    error: str
+    created_at: datetime
+    finished_at: datetime | None
+
+
+@frozen
+class SandboxSenderStatus:
+    integration_id: int | None
+    from_address: str
+    display_name: str
+    organization_blocked: bool
+    adoption_enabled: bool

@@ -8,17 +8,24 @@ from typing import Any, Literal, Optional, Union, cast
 
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_json_path
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.models.event import Selector
 from posthog.models.property import Property, PropertyGroup, PropertyIdentifier, PropertyName
+from posthog.models.property.parse import parse_property_group_data
 
-from products.actions.backend.models.action import Action
-from products.actions.backend.models.util import get_action_tables_and_properties
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import Action
+
+_JSON_EVENTS_DECLARED_TYPES = {
+    "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+}
 
 
 def get_property_string_expr(
@@ -53,7 +60,8 @@ def get_property_string_expr(
 
     if use_new_events_schema and table == "events":
         if materialised_table_column in ("properties", "person_properties"):
-            return _json_events_property_expr(property_name, var, f"{table_string}{column}")
+            declared_type = _JSON_EVENTS_DECLARED_TYPES.get(column, {}).get(property_name, "")
+            return _json_events_property_expr(property_name, f"{table_string}{column}", declared_type)
         # The JSON events table has no mat_* columns at all; group columns there stay String blobs.
         allow_denormalized_props = False
 
@@ -77,45 +85,17 @@ def get_property_string_expr(
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
 
-def _json_events_to_json_string_expr(value: str) -> str:
-    serialized = f"toJSONString({value})"
-    # With slash escaping disabled, a backslash before '/' belongs to the value and must survive.
-    return f"if(getSetting('output_format_json_escape_forward_slashes'), replaceAll({serialized}, '\\\\/', '/'), {serialized})"
-
-
-def _json_events_property_expr(property_name: PropertyName, var: str, column_ref: str) -> tuple[str, bool]:
-    scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
-    object_value = _json_events_to_json_string_expr(
-        _json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)
-    )
-    scalar_string = f"toString({scalar_value})"
-    # Arrays and maps read as JSON text. Their plain text starts with '[' or '{', which a string can too, but a
-    # string's JSON form starts with '"' (see the HogQL resolver).
-    scalar_json = _json_events_to_json_string_expr(scalar_value)
-    # 91 and 123 are '[' and '{'; compared by code so no brace literal reaches callers that str.format the SQL.
-    is_container = f"ascii({scalar_string}) IN (91, 123) AND ascii({scalar_json}) IN (91, 123)"
-    raw_value = (
-        f"if({object_value} != '{{}}', {object_value}, "
-        f"if({is_container}, nullIf(nullIf({scalar_json}, '[]'), '{{}}'), {scalar_string}))"
-    )
-    return f"ifNull({raw_value}, '')", False
-
-
-def _json_events_subcolumn_expr(
-    property_name: PropertyName, var: str, column_ref: str, *, sub_object: bool = False
-) -> str:
-    if "%" not in property_name and "." not in property_name:
-        separator = ".^" if sub_object else "."
-        return f"{column_ref}{separator}{escape_clickhouse_identifier(property_name)}"
-
+def _json_events_property_expr(property_name: PropertyName, column_ref: str, declared_type: str) -> tuple[str, bool]:
     # A dot inside one key is stored as `%2E` (EVENTS_JSON_INSERT_SETTINGS), so it must not read as a path
-    # separator. `%` is spelled char(37) because callers run this SQL through parameter substitution, where a
-    # literal `%` is a format directive.
-    escaped_dots = f"replaceAll({var}, '.', concat(char(37), '2E'))"
-    escaped_backticks = f"replaceAll({escaped_dots}, char(96), concat(char(96), char(96)))"
-    quoted_subcolumn = f"concat(char(96), {escaped_backticks}, char(96))"
-    subcolumn = f"concat('^', {quoted_subcolumn})" if sub_object else escaped_dots
-    return f"getSubcolumn({column_ref}, {subcolumn})"
+    # separator. The path prints inline with its `%` as a `\x25` escape, which passes unchanged through the
+    # parameter substitution and str.format that callers run this SQL through.
+    path = f"{column_ref}.{escape_clickhouse_json_path(property_name.replace('.', '%2E'))}"
+    # `_json_property_text` in the HogQL resolver explains why the text of the path is the value in each form.
+    if declared_type == "String":
+        return f"ifNull(toString({path}), '')", False
+    if declared_type == "LowCardinality(String)":
+        return f"CAST(ifNull(toString({path}), ''), 'String')", False
+    return f"ifNull(CAST({path}, 'Nullable(String)'), '')", False
 
 
 def box_value(value: Any, remove_spaces=False) -> list[Any]:
@@ -221,13 +201,27 @@ class HogQLPropertyChecker(TraversingVisitor):
             self.person_properties.append(str(node.chain[3]))
 
 
+def get_action_tables_and_properties(action: Action) -> TCounter[PropertyIdentifier]:
+    result: TCounter[PropertyIdentifier] = Counter()
+
+    for action_step in action.steps:
+        if action_step.url:
+            result[("$current_url", "event", None)] += 1
+        result += extract_tables_and_properties(
+            parse_property_group_data(action_step.properties or []).flat,
+            team_id=action.team_id,
+        )
+
+    return result
+
+
 def extract_tables_and_properties(props: list[Property], team_id: int) -> TCounter[PropertyIdentifier]:
     counters: list[tuple] = []
     for prop in props:
         if prop.type == "hogql":
             counters.extend(count_hogql_properties(prop.key))
         elif prop.type == "behavioral" and prop.event_type == "actions":
-            action = Action.objects.get(pk=prop.key, team_id=team_id)
+            action = get_action(action_id=int(prop.key), team_id=team_id)
             action_counter = get_action_tables_and_properties(action)
             counters.extend(action_counter)
         else:

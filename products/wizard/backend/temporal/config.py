@@ -14,6 +14,11 @@ FINALIZATION_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 PROVISION_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 PREPARATION_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 EXECUTION_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
-HANDOFF_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
+HANDOFF_RETRY_POLICY = RetryPolicy(
+    initial_interval=timedelta(seconds=30),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=2),
+    maximum_attempts=5,
+)
 LOCAL_PACKAGE_PREPARATION_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 CLEANUP_RETRY_POLICY = RetryPolicy(maximum_attempts=3)

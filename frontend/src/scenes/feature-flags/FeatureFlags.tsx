@@ -44,13 +44,12 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Noun, groupsModel } from '~/models/groupsModel'
-import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
-    BaseMathType,
     FeatureFlagConfig,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
@@ -60,12 +59,15 @@ import {
     cohortCanBeRestored,
     deletedCohortDisabledReason,
     deletedCohortFilters,
+    restoreChecksCohorts,
 } from 'products/feature_flags/frontend/deletedCohortFilters'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
+    RESTORE_UNAVAILABLE_DISABLED_REASON,
     UNSUPPORTED_CONFIG_DISABLED_REASON,
     canArchiveFeatureFlag,
+    canRestoreFeatureFlag,
     featureFlagConfigFormat,
     featureFlagConfigFormatLabel,
     featureFlagDeleteOptions,
@@ -73,6 +75,7 @@ import {
     isV1FeatureFlagConfig,
     rulesV2CreateDisabledReason,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { featureFlagBreakdownInsightUrl, keyBeforeDelete } from 'products/feature_flags/frontend/featureFlagKeyLinks'
 import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
@@ -134,6 +137,14 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
                         Updating
                     </span>
                 </LemonTag>
+            ) : featureFlag.deleted ? (
+                <Tooltip title="This flag is deleted, so it can't be evaluated. Restore it from the row menu to use it again.">
+                    <span>
+                        <LemonTag type="danger" className="uppercase cursor-default">
+                            Deleted
+                        </LemonTag>
+                    </span>
+                </Tooltip>
             ) : featureFlag.archived ? (
                 <Tooltip title="This flag is done for good. It's hidden from the flag list by default, but linked experiments and surveys keep their data.">
                     <span>
@@ -198,7 +209,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const { currentProjectId } = useValues(projectLogic)
     const flagLogic = featureFlagsLogic({})
     const { featureFlagsUpdating, filters } = useValues(flagLogic)
-    const { toggleFeatureFlagActive, updateFeatureFlagArchived, loadFeatureFlags } = useActions(flagLogic)
+    const { toggleFeatureFlagActive, updateFeatureFlagArchived, loadFeatureFlags, restoreFeatureFlag } =
+        useActions(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
@@ -206,26 +218,68 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const isV1Config = configFormat === 'v1'
     const deletedCohortReason = deletedCohortDisabledReason(deletedCohortFilters(featureFlag.filters))
 
-    const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
-        const query: InsightVizNode = {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        event: '$pageview',
-                        name: '$pageview',
-                        kind: NodeKind.EventsNode,
-                        math: BaseMathType.UniqueUsers,
-                    },
-                ],
-                breakdownFilter: {
-                    breakdown_type: 'event',
-                    breakdown: `$feature/${featureFlag.key}`,
-                },
-            },
-        }
-        return urls.insightNew({ query })
+    // Both menus open with these, so a deleted row's View keeps the list's filters like a live row's does.
+    const viewAndCopyKeyItems = (
+        <>
+            {featureFlag.id && (
+                <LemonButton
+                    to={featureFlagUrlFromList(featureFlag.id, filters)}
+                    data-attr="feature-flag-view"
+                    fullWidth
+                >
+                    View
+                </LemonButton>
+            )}
+            <LemonButton
+                onClick={() => {
+                    void copyToClipboard(keyBeforeDelete(featureFlag), 'feature flag key')
+                }}
+                fullWidth
+            >
+                Copy key
+            </LemonButton>
+        </>
+    )
+
+    // A deleted flag serves nobody, so the only change it takes is a restore.
+    if (featureFlag.deleted) {
+        return (
+            <More
+                overlay={
+                    <>
+                        {viewAndCopyKeyItems}
+                        {featureFlag.id && (
+                            <>
+                                <LemonDivider />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.FeatureFlag}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={featureFlag.user_access_level}
+                                >
+                                    <LemonButton
+                                        data-attr={`feature-flag-${featureFlag.key}-restore`}
+                                        onClick={() => featureFlag.id && restoreFeatureFlag({ id: featureFlag.id })}
+                                        fullWidth
+                                        loading={isUpdating}
+                                        disabledReason={
+                                            isUpdating
+                                                ? 'Updating…'
+                                                : !canRestoreFeatureFlag(featureFlag.filters)
+                                                  ? RESTORE_UNAVAILABLE_DISABLED_REASON
+                                                  : restoreChecksCohorts(featureFlag)
+                                                    ? deletedCohortReason
+                                                    : undefined
+                                        }
+                                    >
+                                        Restore
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </>
+                        )}
+                    </>
+                }
+            />
+        )
     }
 
     return (
@@ -233,24 +287,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
             <More
                 overlay={
                     <>
-                        {featureFlag.id && (
-                            <LemonButton
-                                to={featureFlagUrlFromList(featureFlag.id, filters)}
-                                data-attr="feature-flag-view"
-                                fullWidth
-                            >
-                                View
-                            </LemonButton>
-                        )}
-
-                        <LemonButton
-                            onClick={() => {
-                                void copyToClipboard(featureFlag.key, 'feature flag key')
-                            }}
-                            fullWidth
-                        >
-                            Copy key
-                        </LemonButton>
+                        {viewAndCopyKeyItems}
 
                         {featureFlag.id && isV1Config && (
                             <AccessControlAction
@@ -282,7 +319,12 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             </LemonButton>
                         )}
 
-                        <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth targetBlank>
+                        <LemonButton
+                            to={featureFlagBreakdownInsightUrl(featureFlag.key)}
+                            data-attr="usage"
+                            fullWidth
+                            targetBlank
+                        >
                             Try out in Insights
                         </LemonButton>
 
@@ -443,6 +485,7 @@ export function OverviewTab({
         shouldShowEmptyState,
         filtersChanged,
         hasActiveFilters,
+        switchingDeletedView,
     } = useValues(flagLogic)
     const { setFeatureFlagsFilters, resetFilters } = useActions(flagLogic)
 
@@ -697,15 +740,21 @@ export function OverviewTab({
                     })
                 }
                 bulkSelection={{
+                    // Deleted rows can't be selected, so a selection carried in from another view would act on hidden live flags.
+                    clearSelectionKey: filters.deleted,
                     getKey: (flag: FeatureFlagType): number => flag.id ?? -1,
                     isRowSelectable: (flag: FeatureFlagType) =>
                         flag.id === null
                             ? false
-                            : !isV1FeatureFlagConfig(flag.filters)
-                              ? { disabledReason: 'Bulk actions are not available for this flag yet.' }
-                              : flag.can_edit
-                                ? true
-                                : { disabledReason: "You don't have permission to edit this feature flag." },
+                            : switchingDeletedView
+                              ? { disabledReason: 'Wait for the list to finish loading.' }
+                              : flag.deleted
+                                ? { disabledReason: 'Restore deleted flags one at a time from the row menu.' }
+                                : !isV1FeatureFlagConfig(flag.filters)
+                                  ? { disabledReason: 'Bulk actions are not available for this flag yet.' }
+                                  : flag.can_edit
+                                    ? true
+                                    : { disabledReason: "You don't have permission to edit this feature flag." },
                     rowAriaLabel: (flag: FeatureFlagType) => `Select feature flag ${flag.key}`,
                     headerAriaLabel: 'Select all feature flags on this page',
                     noun: ['flag', 'flags'],
@@ -806,7 +855,7 @@ export function OverviewTab({
                                     icon={<IconTrash />}
                                     loading={bulkDeleteResponseLoading}
                                     onClick={() => {
-                                        const description = `Are you sure you want to delete ${ctx.selectedCount} feature flag${ctx.selectedCount !== 1 ? 's' : ''}? This action cannot be undone.`
+                                        const description = `Are you sure you want to delete ${ctx.selectedCount} feature flag${ctx.selectedCount !== 1 ? 's' : ''}? You can restore most flags from the results that open next. Flags on the newer configuration format can't be restored yet.`
                                         LemonDialog.open({
                                             title: `Delete ${ctx.selectedCount} feature flag${ctx.selectedCount !== 1 ? 's' : ''}?`,
                                             description,

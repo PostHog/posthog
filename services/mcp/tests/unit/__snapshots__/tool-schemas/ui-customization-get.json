@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "context": {
+            "description": "The UI surface to customize. Each supported context defines its layout schema and defaults.",
+            "enum": ["analytics_sidebar"],
+            "type": "string"
+        }
+    },
+    "required": ["context"],
+    "type": "object"
+}

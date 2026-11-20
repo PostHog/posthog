@@ -164,7 +164,7 @@ class TestClassifyTaskNeedsRepo:
     ) -> bool:
         fake_client = _fake_messages_client(content)
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_anthropic_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_anthropic_client",
             return_value=fake_client,
         ):
             result = classify_task_needs_repo(
@@ -180,7 +180,7 @@ class TestClassifyTaskNeedsRepo:
         """A flaky LLM call must not wall users behind the Connect-GitHub gate."""
         text = "something the heuristic can't classify on its own"
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_anthropic_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_anthropic_client",
             side_effect=RuntimeError("boom"),
         ):
             result = classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)])
@@ -191,13 +191,12 @@ class TestClassifyTaskNeedsRepo:
         text = "ambiguous ask the heuristic does not catch"
         fake_client = _fake_messages_client('{"needs_repo": true}')
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_anthropic_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_anthropic_client",
             return_value=fake_client,
         ) as build_client:
             assert classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)]) is True
 
         build_client.assert_called_once_with(
-            product="slack_app_routing",
             ai_product="slack_app",
             trace_id=None,
             properties={CLASSIFIER_PROPERTY: "task_needs_repo"},
@@ -217,7 +216,7 @@ class TestClassifyTaskNeedsRepo:
             MagicMock(type="text", text='{"needs_repo": true}'),
         ]
         with patch(
-            "products.slack_app.backend.temporal.activities.classifiers.build_anthropic_client",
+            "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_anthropic_client",
             return_value=fake_client,
         ):
             assert classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)]) is True
@@ -242,7 +241,7 @@ def test_needs_repo_activity_feeds_team_rules_to_the_classifier(team):
 
     fake_client = _fake_messages_client('{"needs_repo": true}')
     with patch(
-        "products.slack_app.backend.temporal.activities.classifiers.build_anthropic_client",
+        "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_anthropic_client",
         return_value=fake_client,
     ):
         result = classify_posthog_code_task_needs_repo_activity(

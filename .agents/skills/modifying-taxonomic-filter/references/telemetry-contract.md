@@ -31,7 +31,9 @@ Mixing them up makes reachable groups look unused.
 
 - `taxonomic filter closed`: `dwellMs`, `hadSelection`, `categoryRailDocked`, `groupType`.
   Sent only when `hadInteraction` is true.
-- `taxonomic filter item selected`: `groupType`, `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`, `hadSearchInput`, `position`, `query`, `wasStale`, `wasUrlContainsShortcut`.
+- `taxonomic filter item selected`: `groupType`, `sourceGroupType`, `wasFromRecents`, `wasFromPinnedList`, `wasQuickFilter`, `wasHiddenEventStandIn`, `hadSearchInput`, `position`, `query`, `wasStale`, `wasUrlContainsShortcut`.
+  `wasHiddenEventStandIn` is true when the pick was the stand-in row for an event hidden from query builders, such as `$feature_flag_called` on a team whose flag calls moved to `flag_evaluations`.
+  Older events have no `wasHiddenEventStandIn`.
   `wasUrlContainsShortcut` is sent only on a quick filter, with `filterName`, `propertyKey`, `operator`, `filterValue`, `propertyFilterType` and `eventName`.
 - `taxonomic_filter_search_query`: `searchQuery`, `groupType`, `inputMode`, `pastedFraction`, `excludeStale`.
 - `taxonomic filter empty result`: `groupType`, `searchQuery`, `scope`.

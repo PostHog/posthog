@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
 import { Query } from '~/queries/Query/Query'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import {
     DocumentBlock,
     ErrorBlock,
@@ -32,7 +33,6 @@ import {
 } from '~/queries/schema/schema-assistant-artifacts'
 import { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 
 import { MarkdownMessage, MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 

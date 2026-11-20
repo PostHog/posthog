@@ -77,8 +77,8 @@ class TestMultimodalBlessedPath:
         encoded = json.dumps(recorded_event["properties"]["$ai_input"])
         data_url = re.search(r"data:image/png;base64,([A-Za-z0-9+/=]+)", encoded)
         assert data_url, "fixture has no inline base64 image"
-        assert len(data_url.group(1)) > 20480, (
+        assert len(data_url.group(1)) > 20000, (
             f"fixture image is {len(data_url.group(1))} base64 chars, at or under "
-            "AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH (20480), so ingestion would not offload it"
+            "AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH (20000), so ingestion would not offload it"
         )
         assert base64.b64decode(data_url.group(1)), "inline image is not valid base64"

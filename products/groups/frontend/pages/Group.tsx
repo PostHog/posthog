@@ -15,6 +15,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tryDecodeURIComponent } from 'lib/utils/url'
+import { FlagCallsList } from 'scenes/feature-flags/FlagCallsList'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,6 +27,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { Query } from '~/queries/Query/Query'
 import type { ActionFilter } from '~/types'
 import {
@@ -70,14 +73,19 @@ export function Group(): JSX.Element {
         groupTab,
         groupEventsQuery,
         groupEventsQueryIsDirty,
+        showFlagCallsTab,
+        groupFlagCallsQuery,
+        groupFlagCallsReachPastRetention,
         backTo,
         backNavigation,
     } = useValues(mountedGroupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery, resetGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
+    const { setGroupEventsQuery, resetGroupEventsQuery, setGroupFlagCallsQuery, editProperty, deleteProperty } =
+        useActions(mountedGroupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const groupProfileVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.GROUP_PROFILE_EXPERIMENT)
+    const groupTitle = useTodayPeopleTitle('group')
     const isProfileEnabled = groupProfileVariant === 'test'
     const showProfile = featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || isProfileEnabled
 
@@ -90,8 +98,9 @@ export function Group(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
+                nameAction={<TodayScenePinButton />}
                 name={groupDisplayId(groupData.group_key, groupData.group_properties)}
-                resourceType={{ type: 'group' }}
+                resourceType={groupTitle?.resourceType ?? { type: 'group' }}
                 forceBackTo={backTo}
                 actions={
                     <>
@@ -191,6 +200,23 @@ export function Group(): JSX.Element {
                             <Spinner />
                         ),
                     },
+                    ...(showFlagCallsTab
+                        ? [
+                              {
+                                  key: PersonsTabType.FLAG_CALLS,
+                                  label: <span data-attr="groups-flag-calls-tab">Flag calls</span>,
+                                  content: (
+                                      <FlagCallsList
+                                          uniqueKey="group-flag-calls"
+                                          attachTo={mountedGroupLogic}
+                                          query={groupFlagCallsQuery}
+                                          setQuery={setGroupFlagCallsQuery}
+                                          reachesPastRetention={groupFlagCallsReachPastRetention}
+                                      />
+                                  ),
+                              },
+                          ]
+                        : []),
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
                         label: <span data-attr="group-session-recordings-tab">Recordings</span>,

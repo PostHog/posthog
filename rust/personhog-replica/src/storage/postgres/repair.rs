@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
+use personhog_common::query_tag;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
@@ -49,7 +50,7 @@ impl PersonRepair for PostgresStorage {
             .unzip();
         if !raise_ids.is_empty() {
             sqlx::query!(
-                r#"
+                r#"/* service='personhog-replica', operation='raise_person_version_floors' */
                 UPDATE posthog_person p
                 SET version = f.min_version
                 FROM UNNEST($2::bigint[], $3::bigint[]) AS f(id, min_version)
@@ -120,12 +121,11 @@ impl PersonRepair for PostgresStorage {
             HashMap::new()
         } else {
             sqlx::query!(
-                r#"
-                INSERT INTO posthog_person (uuid, team_id, properties, properties_last_updated_at,
-                                            properties_last_operation, created_at, version,
+                r#"/* service='personhog-replica', operation='restore_persons_insert_persons' */
+                INSERT INTO posthog_person (uuid, team_id, properties, created_at, version,
                                             is_identified, is_deleted)
-                SELECT f.uuid, $1, f.properties::jsonb, '{}'::jsonb, '{}'::jsonb, f.created_at,
-                       f.version, f.is_identified, false
+                SELECT f.uuid, $1, f.properties::jsonb, f.created_at, f.version, f.is_identified,
+                       false
                 FROM UNNEST($2::uuid[], $3::text[], $4::timestamptz[], $5::bigint[], $6::bool[])
                     AS f(uuid, properties, created_at, version, is_identified)
                 ON CONFLICT (team_id, uuid) DO NOTHING
@@ -159,7 +159,7 @@ impl PersonRepair for PostgresStorage {
             .collect();
         if !unreachable.is_empty() {
             sqlx::query!(
-                "DELETE FROM posthog_person WHERE team_id = $1 AND id = ANY($2::bigint[])",
+                "/* service='personhog-replica', operation='restore_persons_delete_unreachable' */ DELETE FROM posthog_person WHERE team_id = $1 AND id = ANY($2::bigint[])",
                 team_id as i32,
                 &unreachable
             )
@@ -279,7 +279,7 @@ impl PersonRepair for PostgresStorage {
             // Insert in distinct id order, so two calls racing on the same ids cannot deadlock.
             inserts.sort_unstable_by(|(a, _), (b, _)| a.distinct_id.cmp(&b.distinct_id));
             let inserted: HashSet<String> = sqlx::query_scalar!(
-                r#"
+                r#"/* service='personhog-replica', operation='write_distinct_ids_insert' */
                 INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version, is_deleted)
                 SELECT f.distinct_id, f.person_id, $1, f.version, false
                 FROM UNNEST($2::text[], $3::bigint[], $4::bigint[]) AS f(distinct_id, person_id, version)
@@ -308,7 +308,7 @@ impl PersonRepair for PostgresStorage {
 
         if !updates.is_empty() {
             sqlx::query!(
-                r#"
+                r#"/* service='personhog-replica', operation='write_distinct_ids_update' */
                 UPDATE posthog_persondistinctid d
                 SET version = f.version, is_deleted = f.is_deleted
                 FROM UNNEST($2::text[], $3::bigint[], $4::bool[]) AS f(distinct_id, version, is_deleted)
@@ -363,7 +363,7 @@ async fn insert_restored_distinct_ids(
     // Insert in distinct id order, so two calls racing on the same ids cannot deadlock.
     rows.sort_unstable_by(|a, b| a.0.cmp(b.0));
     let done: HashSet<String> = sqlx::query_scalar!(
-        r#"
+        r#"/* service='personhog-replica', operation='insert_restored_distinct_ids' */
         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version, is_deleted)
         SELECT f.distinct_id, f.person_id, $1, f.version, false
         FROM UNNEST($2::text[], $3::bigint[], $4::bigint[]) AS f(distinct_id, person_id, version)
@@ -405,6 +405,7 @@ struct LockedRow {
 
 /// Decide one mapping write from the locked person and mapping rows. Raise acts only on a live row
 /// of the named live person (holding `expected_version` when given); insert only where no row exists.
+/// Tombstone acts only on a stray: a live row of the named person while that person is tombstoned.
 fn plan_write(
     write: &DistinctIdWrite,
     person: Option<&LockedPerson>,
@@ -413,10 +414,9 @@ fn plan_write(
     let Some(person) = person else {
         return Planned::Done(DistinctIdWriteOutcome::PersonNotLive);
     };
-    if person.is_deleted {
-        return Planned::Done(DistinctIdWriteOutcome::PersonNotLive);
-    }
     match (write.action, row) {
+        (DistinctIdWriteAction::Tombstone, row) => plan_tombstone(write, person, row),
+        _ if person.is_deleted => Planned::Done(DistinctIdWriteOutcome::PersonNotLive),
         (DistinctIdWriteAction::Insert, None) => Planned::Insert(person.id),
         (DistinctIdWriteAction::Insert, Some(_)) => {
             Planned::Done(DistinctIdWriteOutcome::PreconditionFailed)
@@ -439,20 +439,53 @@ fn plan_write(
     }
 }
 
+/// A live person's row is refused, because tombstoning it would leave the person without that
+/// distinct id; moving an id off a live person is a split. A row already tombstoned on the person at
+/// or above `min_version` is `Unchanged`, so a retry after a lost reply converges.
+fn plan_tombstone(
+    write: &DistinctIdWrite,
+    person: &LockedPerson,
+    row: Option<&LockedRow>,
+) -> Planned {
+    let Some(row) = row else {
+        return Planned::Done(DistinctIdWriteOutcome::PreconditionFailed);
+    };
+    if !person.is_deleted || row.person_id != person.id {
+        return Planned::Done(DistinctIdWriteOutcome::PreconditionFailed);
+    }
+    if row.is_deleted {
+        return Planned::Done(if row.version >= write.min_version {
+            DistinctIdWriteOutcome::Unchanged
+        } else {
+            DistinctIdWriteOutcome::PreconditionFailed
+        });
+    }
+    if write.expected_version.is_some_and(|v| v != row.version) {
+        return Planned::Done(DistinctIdWriteOutcome::PreconditionFailed);
+    }
+    Planned::Update {
+        version: (row.version + 1).max(write.min_version),
+        is_deleted: true,
+    }
+}
+
 async fn begin_with_lock_timeout(
     storage: &PostgresStorage,
 ) -> StorageResult<Transaction<'static, Postgres>> {
     let mut tx = storage.bulk_primary_pool.begin().await?;
     // A held row means a merge, revival or delete in flight: fail fast and let the
     // caller retry instead of queueing behind it.
-    sqlx::query("SET LOCAL lock_timeout = '2s'")
+    sqlx::query(&query_tag!("lock_timeout", "SET LOCAL lock_timeout = '2s'"))
         .execute(&mut *tx)
         .await?;
     // Ingestion waits on these rows with no lock timeout of its own, so no statement may hold
     // them longer than this. It stays under the router's 5 s deadline and above lock_timeout.
-    sqlx::query("SET LOCAL statement_timeout = '4s'")
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(&query_tag!(
+        "statement_timeout",
+        "SET LOCAL statement_timeout = '4s'"
+    ))
+    .execute(&mut *tx)
+    .await?;
     Ok(tx)
 }
 
@@ -462,7 +495,7 @@ async fn lock_distinct_id_rows(
     distinct_ids: &[String],
 ) -> StorageResult<HashMap<String, LockedRow>> {
     Ok(sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='lock_distinct_id_rows' */
         SELECT distinct_id as "distinct_id!", person_id as "person_id!",
                COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
         FROM posthog_persondistinctid
@@ -494,7 +527,7 @@ async fn read_distinct_id_rows(
     distinct_ids: &[String],
 ) -> StorageResult<HashMap<String, DistinctIdRow>> {
     Ok(sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='read_distinct_id_rows' */
         SELECT d.distinct_id as "distinct_id!", d.person_id as "person_id!", p.uuid as "person_uuid?",
                COALESCE(d.version, 0)::bigint as "version!", d.is_deleted as "is_deleted!",
                p.is_deleted as "person_is_deleted?"
@@ -535,7 +568,7 @@ async fn lock_claimed_persons(
         return Ok(HashMap::new());
     }
     let rows = sqlx::query!(
-        r#"
+        r#"/* service='personhog-replica', operation='lock_claimed_persons' */
         SELECT id::bigint as "id!", uuid as "uuid!",
                COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
         FROM posthog_person

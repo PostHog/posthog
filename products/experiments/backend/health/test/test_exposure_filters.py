@@ -45,7 +45,7 @@ Code = ExperimentHealthFindingCode
 Severity = ExperimentHealthFindingSeverity
 DYNAMIC = ExposureCohort(id=7, name="Paying users", is_static=False)
 STATIC = ExposureCohort(id=8, name="QA team", is_static=True)
-NO_FILTERS = not_applicable("The exposure criteria have no cohort filter and no negated event property filter")
+NO_COHORT_FILTER = not_applicable("The exposure criteria have no cohort filter")
 
 
 def _filters(
@@ -115,21 +115,14 @@ class TestExposureFilters(TestCase):
                 COHORT_WARNING,
             ),
             ("dynamic_cohort_after_the_end", _filters(cohorts=(DYNAMIC,), **ENDED), COHORT_WARNING),
-            (
-                "dynamic_cohort_before_an_event_exclusion",
-                _filters(EXCLUDED_URL, cohorts=(STATIC, DYNAMIC)),
-                COHORT_WARNING,
-            ),
+            ("dynamic_cohort_next_to_a_static_cohort", _filters(cohorts=(STATIC, DYNAMIC)), COHORT_WARNING),
             ("static_cohort", _filters(cohorts=(STATIC,)), None),
             (
                 "deleted_cohort",
                 _filters(cohorts=(STATIC,), cohort_ids=(8, 9)),
                 not_checked("Couldn't check because a cohort in the exposure criteria is deleted or missing"),
             ),
-            ("event_exclusion", _filters(EXCLUDED_URL), (Code.EXPOSURE_FILTER_EXCLUDES_EVENTS, None, Severity.INFO)),
-            ("event_filter_that_selects", _filters(("event", "$current_url", PropertyOperator.ICONTAINS)), NO_FILTERS),
-            ("person_exclusion", _filters(("person", "email", PropertyOperator.NOT_ICONTAINS)), NO_FILTERS),
-            ("flag_key_exclusion", _filters(("event", "$feature_flag", PropertyOperator.IS_NOT)), NO_FILTERS),
+            ("event_exclusion_without_a_cohort", _filters(EXCLUDED_URL), NO_COHORT_FILTER),
             ("archived", _filters(cohorts=(DYNAMIC,), archived=True), not_applicable(NOT_ON_ARCHIVED)),
         ]
     )

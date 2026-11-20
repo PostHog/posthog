@@ -88,7 +88,7 @@ def _ensure_post_fork_init():
     from posthog.web_memory_sampler import start_web_memory_sampler
 
     start_continuous_profiling()
-    initialize_otel()
+    initialize_otel(instrument_outbound_calls=True)
     prewarm_query_cache_cluster_in_background()
     # Production runs ASGI, so the sampler — previously only started from wsgi.py — never
     # ran in prod, leaving posthog_web_worker_rss_mb empty. Start it here, post-fork.

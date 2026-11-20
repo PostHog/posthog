@@ -1,5 +1,4 @@
 import re
-import json
 import shlex
 import asyncio
 import logging
@@ -17,8 +16,9 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.github_integration_base import GitHubIntegrationError
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, GitLabIntegrationError
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -58,12 +58,14 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_run_backend,
     get_sandbox_class_for_sandbox_id,
     needs_full_history,
+    parse_clone_phases,
     parse_requested_sandbox_template,
     pinned_agent_version,
     redact_sandbox_command,
     sandbox_repo_path,
     workload_for_origin_product,
 )
+from products.tasks.backend.logic.services.sandbox_usage import enforce_active_session_cap
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -72,6 +74,7 @@ from products.tasks.backend.temporal.metrics import (
     increment_snapshot_usage,
     modal_sandbox_backend_label,
     record_network_enforcement,
+    record_repository_clone_phases_ms,
     record_sandbox_created,
     resume_mode_label,
     sandbox_runtime_label,
@@ -86,7 +89,10 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
     DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS,
 )
 from products.tasks.backend.temporal.process_task.organization import check_organization_execution
-from products.tasks.backend.temporal.process_task.sandbox_connection import persist_sandbox_connection
+from products.tasks.backend.temporal.process_task.sandbox_connection import (
+    persist_sandbox_connection,
+    prepare_sandbox_connection,
+)
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     apply_github_credentials_to_sandbox,
     replace_sandbox_credentials,
@@ -104,7 +110,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_name_for_task,
     get_sandbox_otel_env_vars,
     get_task_run_credential_user,
-    installation_confirms_repository_denied,
     mcp_exec_skills_env_vars,
     parse_run_state,
     resolve_installation_github_integration,
@@ -112,7 +117,8 @@ from products.tasks.backend.temporal.process_task.utils import (
     run_gateway_env_vars,
 )
 
-from .get_task_processing_context import TaskProcessingContext
+from .get_task_processing_context import CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY, TaskProcessingContext
+from .persist_agent_memory import MemoryEventIdentity, restore_agent_memory_into_sandbox
 
 logger = logging.getLogger(__name__)
 SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
@@ -149,6 +155,7 @@ class PrepareSandboxForRepositoryOutput:
     snapshot_source: str = "none"
     sandbox_creation_timeout_seconds: int = 300
     sandbox_creation_cancellable: bool = False
+    gitlab_token: str = ""
 
 
 @dataclass
@@ -167,6 +174,7 @@ class CreateSandboxForRepositoryOutput:
     jwt_kid: str | None = None
     ttl_expires_at: str | None = None
     dev_stack_preview_sized: bool = False
+    custom_image_fallback_reason: str | None = None
 
 
 @frozen
@@ -188,6 +196,7 @@ class GetSandboxForRepositoryOutput:
     agent_invoke_ms: int | None = None
     dev_stack_preview_sized: bool = False
     agent_shadow_launched: bool = False
+    custom_image_fallback_reason: str | None = None
 
 
 @dataclass
@@ -200,13 +209,14 @@ class CheckoutBranchInSandboxOutput:
     checkout_ms: int | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class CloneRepositoryInSandboxInput:
     context: TaskProcessingContext
     sandbox_id: str
     repository: str
     github_token: str
     shallow_clone: bool
+    gitlab_token: str = ""
 
 
 @dataclass
@@ -402,7 +412,7 @@ def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo:
     from whenever the snapshot was taken. A fresh clone with the read-only mint is the only tree
     that holds both guarantees.
     """
-    if not has_repo or ctx.custom_image_name or ctx.github_read_access:
+    if not has_repo or ctx.custom_image_name or ctx.github_read_access or ctx.github_token_scope is not None:
         return None
     return ctx.github_integration_id
 
@@ -491,12 +501,43 @@ def _resolve_sandbox_github_token(
         )
 
 
+def _resolve_sandbox_gitlab_token(ctx: TaskProcessingContext) -> str:
+    """The token a GitLab run clones and pushes with, or an empty string for any other run.
+
+    A repo-less run, such as a code-access-exempt Inbox chat, never gets one.
+    """
+    if ctx.repository_integration_id is None or not ctx.repositories:
+        return ""
+    error_context = {"repository_integration_id": ctx.repository_integration_id, "task_id": ctx.task_id}
+    try:
+        gitlab = GitLabIntegration(IntegrationManager.gitlab.token.get(ctx.team_id, ctx.repository_integration_id))
+        # The agent holds the token, so only the connected project's access token may reach it.
+        # Checked on every run, because the connection's token can be replaced after the task exists.
+        if not gitlab.token_reaches_only_connected_project():
+            raise CredentialUnavailableError(
+                "The GitLab token is not the connected project's access token", error_context, cause=None
+            )
+        return gitlab.credentials.access_token().token
+    except GitLabIntegrationError as e:
+        if e.transient:
+            raise ProcessTaskTransientError(
+                "GitLab is unavailable while checking the task's token", error_context, cause=e
+            )
+        raise CredentialUnavailableError(
+            "The GitLab connection for this task is missing or unusable", error_context, cause=e
+        )
+    except IntegrationNotFound as e:
+        raise CredentialUnavailableError(
+            "The GitLab connection for this task is missing or unusable", error_context, cause=e
+        )
+    except requests.RequestException as e:
+        raise ProcessTaskTransientError("Couldn't reach GitLab to check the task's token", error_context, cause=e)
+
+
 @StepTimer("load_task")
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        task = Task.objects.select_related("created_by", "github_integration", "github_user_integration", "team").get(
-            id=ctx.task_id
-        )
+        task = Task.objects.select_related("created_by", "github_user_integration", "team").get(id=ctx.task_id)
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
     context_ownership_version = (ctx.state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
@@ -564,7 +605,7 @@ def _sandbox_image_kind(image_source: str, custom_image_name: str | None) -> str
 
 @StepTimer("environment_variables")
 def _build_environment_variables(
-    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
+    ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str, gitlab_token: str = ""
 ) -> dict[str, str]:
     environment_variables = {
         "POSTHOG_PERSONAL_API_KEY": access_token,
@@ -596,14 +637,15 @@ def _build_environment_variables(
     if github_token:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
+    if gitlab_token:
+        # The agent reads these to push with plain git and open merge requests through the GitLab API.
+        environment_variables["POSTHOG_GIT_PROVIDER"] = "gitlab"
+        environment_variables["GITLAB_TOKEN"] = gitlab_token
 
     # BASH_ENV is intentionally NOT set in the container env: it's applied only to the
     # agent-server launch (see the sandbox services) so backend maintenance execs don't source
     # a script that a resume snapshot could control. It's blocked (constants.py) so a
     # user-supplied env var can't add it here.
-
-    if settings.SANDBOX_LLM_GATEWAY_URL:
-        environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
@@ -732,7 +774,11 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         # drop a custom base image or a non-default template. Resume snapshots were taken from
         # this task's own sandbox.
         snapshot_integration_id = _repository_snapshot_integration_id(ctx, has_repo=has_repo)
-        if snapshot_integration_id is not None and sandbox_template == SandboxTemplate.DEFAULT_BASE:
+        if (
+            snapshot_integration_id is not None
+            and sandbox_template == SandboxTemplate.DEFAULT_BASE
+            and not ctx.agent_egress_observation_config
+        ):
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
@@ -755,6 +801,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         github_token = _resolve_sandbox_github_token(
             ctx, task=task, actor_user=actor_user, repository=credential_repository, has_repo=has_repo
         )
+        gitlab_token = _resolve_sandbox_gitlab_token(ctx)
 
         try:
             with StepTimer("posthog_access_token"):
@@ -766,7 +813,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 cause=e,
             )
 
-        environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
+        environment_variables = _build_environment_variables(ctx, task, github_token, access_token, gitlab_token)
 
         resume_snapshot_external_id = run_state.snapshot_external_id
         if resume_snapshot_external_id:
@@ -830,6 +877,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             sandbox_name=get_sandbox_name_for_task(ctx.task_id),
             repository=repository,
             github_token=github_token,
+            gitlab_token=gitlab_token,
             branch=ctx.branch,
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id) if snapshot and not resume_snapshot_external_id else None,
@@ -853,18 +901,9 @@ def _pin_governs_sandbox_agent(ctx: TaskProcessingContext, config: SandboxConfig
 
 
 @StepTimer("sandbox_agent_version")
-def _persist_sandbox_agent_version(run_id: str, sandbox: SandboxBase, *, compare_with_pin: bool) -> None:
-    version: str | None = None
-    try:
-        result = sandbox.execute("cat /scripts/node_modules/@posthog/agent/package.json", timeout_seconds=10)
-        if result.exit_code == 0:
-            manifest = json.loads(result.stdout)
-            candidate = manifest.get("version") if isinstance(manifest, dict) else None
-            if isinstance(candidate, str) and candidate:
-                version = candidate
-    except Exception:
-        logger.warning("Failed to read sandbox agent version", extra={"run_id": run_id}, exc_info=True)
-
+def _persist_sandbox_agent_version(
+    run_id: str, sandbox: SandboxBase, version: str | None, *, compare_with_pin: bool
+) -> None:
     expected = pinned_agent_version() if compare_with_pin else None
     if version is not None and expected is not None and version != expected:
         logger.warning(
@@ -909,6 +948,17 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 raise ComputeBillingLimitError(
                     {"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id}, reason
                 )
+            # Not atomic: open_sandbox_session re-checks under the active-session locks after the
+            # create, so the loser of a race between two starts destroys the box it just provisioned.
+            enforce_active_session_cap(
+                origin_product=task.origin_product,
+                organization_id=task.team.organization_id,
+                created_by_id=task.created_by_id,
+                run_id=ctx.run_id,
+                context={"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id},
+                signal_report_id=task.signal_report_id,
+                task_id=task.id,
+            )
         _emit_image_source_log(ctx, prepared)
         log_with_activity_context(
             f"Provisioning sandbox from {prepared.image_source_label} (image build may take a few minutes on first run)",
@@ -937,6 +987,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
+            agent_egress_observation=bool(ctx.agent_egress_observation_config),
             use_hotplug_golden=ctx.use_hogland_hotplug_golden,
             **resource_overrides,
         )
@@ -1009,22 +1060,35 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "failure"
                 )
             raise
-        _persist_sandbox_agent_version(
-            ctx.run_id,
-            sandbox,
-            compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
-        )
+        custom_image_fallback_reason: str | None = None
+        if (
+            config.custom_image_name
+            and (ctx.state or {}).get("custom_image_id")
+            and not (ctx.state or {}).get(CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY)
+            and (sandbox.config.image_fallback or "").endswith("-> base image")
+        ):
+            custom_image_fallback_reason = "boot_failed"
+            try:
+                TaskRun.update_state_atomic(
+                    ctx.run_id, updates={CUSTOM_IMAGE_FALLBACK_REASON_STATE_KEY: custom_image_fallback_reason}
+                )
+            except Exception:
+                logger.warning("Failed to persist custom image fallback reason", extra={"run_id": ctx.run_id})
         try:
             if config.outbound_domain_allowlist is not None:
                 log_with_activity_context("Modal sandbox created with network policy requested", run_id=ctx.run_id)
                 record_network_enforcement(
                     "sandbox_creation_with_policy_request", runtime, "modal_requested", "success"
                 )
-            with StepTimer("cpu_sampler_start"):
-                if not sandbox.start_cpu_billing_sampler():
-                    activity.logger.warning(
-                        "Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id}
-                    )
+            connection = prepare_sandbox_connection(sandbox)
+            _persist_sandbox_agent_version(
+                ctx.run_id,
+                sandbox,
+                connection.housekeeping.agent_version,
+                compare_with_pin=_pin_governs_sandbox_agent(ctx, config, used_snapshot=actual_used_snapshot),
+            )
+            if not connection.housekeeping.cpu_billing_sampler_started:
+                activity.logger.warning("Failed to start sandbox CPU billing sampler", extra={"sandbox_id": sandbox.id})
             if sandbox.config.image_fallback:
                 emit_agent_log(
                     ctx.run_id,
@@ -1051,8 +1115,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 sandbox_backend=sandbox_backend,
             )
 
-            with StepTimer("sandbox_connect_credentials"):
-                credentials = sandbox.get_connect_credentials()
+            credentials = connection.credentials
             with StepTimer(
                 "persist_sandbox_connection",
                 origin_product=ctx.origin_product,
@@ -1066,6 +1129,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     sandbox_created_at=sandbox_created_at,
                     task_runtime=ctx.task_runtime,
                     sandbox_backend=ctx.sandbox_backend if ctx.sandbox_backend != "modal" else None,
+                    housekeeping=connection.housekeeping,
                 )
         except Exception:
             try:
@@ -1077,6 +1141,20 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             finally:
                 TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
             raise
+
+        # Every agent-server launch path runs after this activity returns, so the agent cannot
+        # observe or race a half-written memory directory.
+        if ctx.persist_agent_memory_enabled and ctx.task_created_by_id is not None:
+            with StepTimer("agent_memory_restore"):
+                restore_agent_memory_into_sandbox(
+                    sandbox,
+                    run_id=ctx.run_id,
+                    team_id=ctx.team_id,
+                    user_id=ctx.task_created_by_id,
+                    identity=MemoryEventIdentity(
+                        distinct_id=ctx.distinct_id, organization_id=ctx.organization_id, team_uuid=ctx.team_uuid
+                    ),
+                )
 
         log_with_activity_context(f"Sandbox provisioned: {sandbox.id}", run_id=ctx.run_id)
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={actual_used_snapshot})")
@@ -1090,6 +1168,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             ttl_expires_at=(sandbox_created_at + timedelta(seconds=sandbox.config.ttl_seconds)).isoformat(),
             jwt_kid=jwt_kid,
             dev_stack_preview_sized=ctx.dev_stack_preview_enabled,
+            custom_image_fallback_reason=custom_image_fallback_reason,
         )
 
 
@@ -1152,9 +1231,10 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
     raise cancellation
 
 
-def _redact_clone_output(output: str, github_token: str | None) -> str:
-    if github_token:
-        output = output.replace(github_token, "<redacted>")
+def _redact_clone_output(output: str, *tokens: str | None) -> str:
+    for token in tokens:
+        if token:
+            output = output.replace(token, "<redacted>")
     return redact_sandbox_command(output)[:500]
 
 
@@ -1174,9 +1254,9 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         log_with_activity_context(f"Cloning {input.repository} into sandbox", run_id=ctx.run_id)
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         github_token = input.github_token
-        if github_token and activity.info().attempt > 1:
+        if activity.info().attempt > 1:
             github_token = _reresolve_sandbox_github_token(ctx, input.repository)
-            if not github_token:
+            if input.github_token and not github_token:
                 raise RepositoryCloneError(
                     f"Could not refresh the GitHub token before retrying the clone of {input.repository}",
                     {
@@ -1203,6 +1283,8 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 shallow=input.shallow_clone,
                 branch=ctx.branch if is_resume else None,
                 blobless=blobless_clone,
+                baked_repo_clone=ctx.baked_repo_clone_enabled,
+                gitlab_token=input.gitlab_token,
             )
 
             if is_resume and ctx.branch and _is_missing_remote_branch_clone_error(clone_result):
@@ -1217,12 +1299,18 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     shallow=input.shallow_clone,
                     branch=None,
                     blobless=blobless_clone,
+                    baked_repo_clone=ctx.baked_repo_clone_enabled,
+                    gitlab_token=input.gitlab_token,
                 )
 
             if clone_result.exit_code != 0:
-                stderr = _redact_clone_output(clone_result.stderr, github_token)
-                stdout = _redact_clone_output(clone_result.stdout, github_token)
-                execution_error = _redact_clone_output(clone_result.error, github_token) if clone_result.error else None
+                stderr = _redact_clone_output(clone_result.stderr, github_token, input.gitlab_token)
+                stdout = _redact_clone_output(clone_result.stdout, github_token, input.gitlab_token)
+                execution_error = (
+                    _redact_clone_output(clone_result.error, github_token, input.gitlab_token)
+                    if clone_result.error
+                    else None
+                )
                 error_context = {
                     "repository": input.repository,
                     "sandbox_id": input.sandbox_id,
@@ -1244,23 +1332,21 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 retry_delay = _clone_retry_delay(activity.info().attempt)
                 if _is_repository_access_denied_clone_error(clone_result):
                     installation = _installation_behind_sandbox_token(ctx) if github_token else None
-                    if installation is not None and not installation_confirms_repository_denied(
-                        installation, input.repository
-                    ):
-                        _log_repository_clone_denied(ctx, input.repository, stderr, confirmed=False)
-                        forget_cached_github_tokens(installation, ctx.repositories)
-                        raise RepositoryCloneError(
-                            f"Could not clone {input.repository}: GitHub denied the sandbox token although the "
-                            "installation can read the repository",
+                    installation_unavailable = installation is not None and installation.installation_unavailable()
+                    _log_repository_clone_denied(ctx, input.repository, stderr, confirmed=installation_unavailable)
+                    if installation_unavailable:
+                        raise RepositoryAccessError(
+                            f"Could not clone {input.repository}: the GitHub app installation is unavailable. "
+                            "Check the app installation and try again.",
                             error_context,
-                            cause=RuntimeError(stderr[:200] or "GitHub denied access"),
-                            next_retry_delay=retry_delay,
                         )
-                    _log_repository_clone_denied(ctx, input.repository, stderr, confirmed=True)
-                    raise RepositoryAccessError(
-                        f"Could not clone {input.repository}: GitHub denied access. Check that the PostHog "
-                        "GitHub app is installed on this repository's account and can read this repository.",
+                    if installation is not None:
+                        forget_cached_github_tokens(installation, ctx.repositories)
+                    raise RepositoryCloneError(
+                        f"Could not clone {input.repository}: GitHub rejected the repository credentials",
                         error_context,
+                        cause=RuntimeError(stderr[:200] or "GitHub denied access"),
+                        next_retry_delay=retry_delay,
                     )
 
                 error_output = stderr or stdout or execution_error or "No output captured"
@@ -1284,6 +1370,15 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                         "lock_acquired": acquired,
                     },
                 )
+
+        clone_phases = parse_clone_phases(clone_result.stdout)
+        if clone_phases is not None:
+            record_repository_clone_phases_ms(
+                clone_phases.mode,
+                {"fetch": clone_phases.fetch_ms, "checkout": clone_phases.checkout_ms},
+                origin_product=ctx.origin_product,
+                runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox),
+            )
 
         # A fresh single-repository run checks its requested branch out in the next
         # activity. Resumes clone that branch directly, and multi-repo runs do not run
@@ -1320,12 +1415,12 @@ def _reresolve_sandbox_github_token(ctx: TaskProcessingContext, repository: str)
 
 def _installation_behind_sandbox_token(ctx: TaskProcessingContext) -> GitHubIntegration | None:
     if ctx.github_read_access:
-        return resolve_readonly_github_integration(ctx.team_id)
+        return resolve_readonly_github_integration(ctx.team_id, include_unavailable=True)
     if ctx.github_integration_id is None:
         return None
     if get_pr_authorship_mode(_load_task(ctx), ctx.state) != PrAuthorshipMode.BOT:
         return None
-    return resolve_installation_github_integration(ctx.github_integration_id)
+    return resolve_installation_github_integration(ctx.team_id, ctx.github_integration_id)
 
 
 def _is_repository_access_denied_clone_error(result: ExecutionResult) -> bool:
@@ -1366,8 +1461,7 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
         log_with_activity_context(f"Checking out branch {input.branch}", run_id=ctx.run_id)
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
-        org, repo = input.repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path = sandbox_repo_path(input.repository)
 
         if input.used_snapshot and input.github_token:
             update_remote = (
@@ -1533,8 +1627,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
         # each of them or the secondary checkouts keep the snapshot's expired token.
+        gitlab_token = _resolve_sandbox_gitlab_token(ctx)
         for repository in ctx.repositories or ([input.repository] if input.repository else []):
-            set_git_remote_token(sandbox, repository, github_token or None)
+            set_git_remote_token(sandbox, repository, github_token or None, gitlab_token=gitlab_token or None)
 
         # Replace both credential domains even when resolution returns no token,
         # so revoked credentials cannot survive in a resumed filesystem snapshot.

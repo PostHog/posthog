@@ -194,7 +194,7 @@ const ContextMenuCheckboxItem = React.forwardRef<
         >
             <span className="pointer-events-none absolute start-2 flex items-center justify-center">
                 <Checkbox size="sm" tabIndex={-1} />
-                <ContextMenuPrimitive.CheckboxItemIndicator className="absolute">
+                <ContextMenuPrimitive.CheckboxItemIndicator className="absolute inset-0 flex items-center justify-center">
                     <Checkbox size="sm" checked tabIndex={-1} />
                 </ContextMenuPrimitive.CheckboxItemIndicator>
             </span>
@@ -233,7 +233,7 @@ const ContextMenuRadioItem = React.forwardRef<
         >
             <span className="pointer-events-none absolute start-2 flex items-center justify-center">
                 <RadioIndicator size="sm" />
-                <ContextMenuPrimitive.RadioItemIndicator className="absolute">
+                <ContextMenuPrimitive.RadioItemIndicator className="absolute inset-0 flex items-center justify-center">
                     <RadioIndicator size="sm" checked />
                 </ContextMenuPrimitive.RadioItemIndicator>
             </span>

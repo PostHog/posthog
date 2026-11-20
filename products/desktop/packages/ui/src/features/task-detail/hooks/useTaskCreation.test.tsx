@@ -250,6 +250,30 @@ describe("useTaskCreation prompt records", () => {
     },
   );
 
+  it("accepts only one submit while preflight is pending and permits retry after refusal", async () => {
+    const preflight = Promise.withResolvers<boolean>();
+    assertCloudUsageAvailableMock.mockReturnValueOnce(preflight.promise);
+    createTaskMock.mockResolvedValueOnce({
+      success: true,
+      data: { task: fakeTask(), workspace: null },
+    });
+    const { result } = renderTaskCreation(
+      textToContent("Check the build"),
+      "cloud",
+    );
+    await act(async () => {
+      const first = result.current.handleSubmit();
+      expect(await result.current.handleSubmit()).toBe(false);
+      preflight.resolve(false);
+      expect(await first).toBe(false);
+    });
+    expect(createTaskMock).not.toHaveBeenCalled();
+    await act(async () => {
+      expect(await result.current.handleSubmit()).toBe(true);
+    });
+    expect(createTaskMock).toHaveBeenCalledOnce();
+  });
+
   it("still creates the task when the history write throws", async () => {
     const addPrompt = vi
       .spyOn(useTaskInputHistoryStore.getState(), "addPrompt")

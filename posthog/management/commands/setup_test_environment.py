@@ -26,6 +26,7 @@ from posthog.settings import (
 
 class Command(BaseCommand):
     help = "Set up databases for non-Python tests that depend on the Django server"
+    requires_system_checks: list[str] = []
 
     # has optional arg to only run postgres setup
     def add_arguments(self, parser):

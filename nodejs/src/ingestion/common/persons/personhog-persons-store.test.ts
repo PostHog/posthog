@@ -2,7 +2,11 @@ import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
-import { PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
+import {
+    PersonhogFencedError,
+    PersonhogPropertiesDepthError,
+    PersonhogPropertiesSizeError,
+} from '~/common/personhog/persons'
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
@@ -61,8 +65,6 @@ describe('PersonhogPersonsStore', () => {
             properties: { plan: 'free' },
             created_at: DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             version: 1,
-            properties_last_updated_at: {},
-            properties_last_operation: {},
             is_user_id: null,
             is_identified: false,
             last_seen_at: null,
@@ -765,8 +767,6 @@ describe('PersonhogPersonsStore', () => {
         const result = await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             { initial: 'props' },
-            {},
-            {},
             1,
             null,
             false,
@@ -809,8 +809,6 @@ describe('PersonhogPersonsStore', () => {
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 true,
@@ -843,8 +841,6 @@ describe('PersonhogPersonsStore', () => {
         await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             {},
-            {},
-            {},
             1,
             null,
             true,
@@ -874,8 +870,6 @@ describe('PersonhogPersonsStore', () => {
         await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             {},
-            {},
-            {},
             1,
             null,
             false,
@@ -891,6 +885,40 @@ describe('PersonhogPersonsStore', () => {
         expect(fetched?.properties).toEqual({ plan: 'fresh' })
         expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
         expect(repository.fetchPersonById).not.toHaveBeenCalled()
+    })
+
+    it("a create that finds a person without properties writes the event's properties as an update", async () => {
+        person.properties = {}
+        repository.getOrCreatePersonByDistinctId.mockResolvedValue({ person, created: false } as never)
+        repository.fetchPersonById.mockResolvedValue(person as never)
+        const bound = store.forBatch(0)
+
+        const result = await bound.createPerson(
+            DateTime.fromMillis(3_600_000, { zone: 'utc' }),
+            { plan: 'pro', first: 'x' },
+            1,
+            null,
+            false,
+            'advisory-uuid',
+            { distinctId: 'd1' },
+            undefined
+        )
+        if (!result.success) {
+            throw new Error('create did not succeed')
+        }
+        expect(result.created).toBe(false)
+        await bound.applyEventOps(
+            result.person,
+            ops({ $set: { plan: 'pro' }, $set_once: { first: 'x' } }, '$pageview'),
+            'd1'
+        )
+        await bound.flush()
+
+        expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        const sent = repository.updatePersonProperties.mock.calls[0][0]
+        expect(sent.personId).toEqual('7')
+        expect(sent.setProperties).toEqual({ plan: 'pro' })
+        expect(sent.setOnceProperties).toEqual({ first: 'x' })
     })
 
     it('a create answer declined by a purge still clears the absence it contradicts', async () => {
@@ -910,8 +938,6 @@ describe('PersonhogPersonsStore', () => {
         const creating = bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
             { seed: 'value' },
-            {},
-            {},
             1,
             null,
             false,
@@ -1002,8 +1028,11 @@ describe('PersonhogPersonsStore', () => {
         expect(edgeOf('1:d1')).toBeUndefined()
     })
 
-    it('drops a size-rejected segment from the lane rather than retrying it forever', async () => {
-        repository.updatePersonProperties.mockRejectedValue(new PersonhogPropertiesSizeError('too big', 1, '7'))
+    it.each([
+        ['size', new PersonhogPropertiesSizeError('too big', 1, '7')],
+        ['nesting', new PersonhogPropertiesDepthError('too deep', 1, '7')],
+    ])('drops a %s-rejected segment from the lane rather than retrying it forever', async (_limit, refusal) => {
+        repository.updatePersonProperties.mockRejectedValue(refusal)
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         await bound.flush()
@@ -1547,8 +1576,6 @@ describe('PersonhogPersonsStore', () => {
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 false,
@@ -1610,8 +1637,6 @@ describe('PersonhogPersonsStore', () => {
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
                 {},
-                {},
-                {},
                 1,
                 null,
                 false,
@@ -1651,22 +1676,22 @@ describe('PersonhogPersonsStore', () => {
             expect(hasProjection('1:7')).toBe(false)
         })
 
-        it('a person gone from identity fails the flush to redeliver, releasing the id', async () => {
+        it('a person gone from identity drops its ops without failing the flush, releasing the id', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { k: 'A' } }), 'd1')
             expect(edgeOf('1:d1')).toBe('1:7')
             // The person is deleted rather than merged, so the redirect's
-            // resolve answers nobody. Redelivery recreates through the
-            // normal pipeline, as Postgres does; dropping here would lose
-            // the ops.
+            // resolve answers nobody. Postgres drops the update here; a
+            // failed flush would restart the processor instead.
             repository.updatePersonProperties.mockRejectedValue(new NoRowsUpdatedError('deleted') as never)
             repository.resolvePersonsByDistinctIds.mockResolvedValue([] as never)
 
-            await expect(bound.flush()).rejects.toThrow(/resolves to nobody/)
+            await bound.flush()
 
-            expect((store as any).entries.get('1:7').segments).toHaveLength(1)
-            // Released, so the redelivered events re-resolve rather than
-            // folding onto the deleted person again.
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+            expect((store as any).entries.get('1:7')?.segments ?? []).toHaveLength(0)
+            // Released, so later events re-resolve rather than folding onto
+            // the deleted person again.
             expect(edgeOf('1:d1')).toBeUndefined()
             expect(hasProjection('1:7')).toBe(false)
         })
@@ -1718,8 +1743,6 @@ describe('PersonhogPersonsStore', () => {
 
             const result = await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-                {},
-                {},
                 {},
                 1,
                 null,
@@ -2445,21 +2468,63 @@ describe('PersonhogPersonsStore', () => {
     })
 
     describe('convergence closures', () => {
-        it('a fence bounce counts as coordination, not on the flush error series', async () => {
+        it('a fence bounce waits for the fence to clear and then writes the lane', async () => {
             personhogStoreFlushCounter.reset()
             personhogStoreFlushErrorCounter.reset()
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
-            repository.updatePersonProperties.mockRejectedValue(
-                new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
-            )
+            jest.useFakeTimers()
+            try {
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
+                repository.updatePersonProperties.mockRejectedValueOnce(
+                    new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
+                )
 
-            await expect(bound.flush()).rejects.toThrow(PersonhogFencedError)
+                const flushing = bound.flush()
+                await jest.advanceTimersByTimeAsync(1_000)
+                await expect(flushing).resolves.toEqual([])
 
-            const outcomes = (await personhogStoreFlushCounter.get()).values
-            expect(outcomes.find((entry) => entry.labels.outcome === 'fenced')?.value).toBe(1)
-            expect(outcomes.find((entry) => entry.labels.outcome === 'error')?.value ?? 0).toBe(0)
-            expect(await counterTotal(personhogStoreFlushErrorCounter)).toBe(0)
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(0)
+                const outcomes = (await personhogStoreFlushCounter.get()).values
+                expect(outcomes.find((entry) => entry.labels.outcome === 'fenced')?.value).toBe(1)
+                expect(outcomes.find((entry) => entry.labels.outcome === 'error')?.value ?? 0).toBe(0)
+                expect(await counterTotal(personhogStoreFlushErrorCounter)).toBe(0)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('a fence that outlasts the merge timeout fails the flush with the lane kept', async () => {
+            personhogStoreFlushCounter.reset()
+            jest.useFakeTimers()
+            try {
+                store = new PersonhogPersonsStore(repository, { requestTimeoutMs: 1_000, mergeTimeoutMs: 20_000 })
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
+                repository.updatePersonProperties.mockRejectedValue(
+                    new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
+                )
+
+                const flushing = bound.flush()
+                const settled = flushing.then(
+                    () => 'acked' as const,
+                    (error: Error) => error.message
+                )
+                let done = false
+                void settled.then(() => {
+                    done = true
+                })
+                await jest.advanceTimersByTimeAsync((store as any).flushWaitBudgetMs + 1_000)
+                expect(done).toBe(false)
+
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(await settled).toMatch(/still fenced by a lifecycle op/)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+                const outcomes = (await personhogStoreFlushCounter.get()).values
+                expect(outcomes.find((entry) => entry.labels.outcome === 'fence_exhausted')?.value).toBe(1)
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         const mergeReq = (sources = ['anon-1']) => ({
@@ -2549,8 +2614,6 @@ describe('PersonhogPersonsStore', () => {
             const bound = store.forBatch(0)
             const result = await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-                {},
-                {},
                 {},
                 1,
                 null,
@@ -2806,11 +2869,12 @@ describe('PersonhogPersonsStore', () => {
                 return [] as never
             })
 
-            await expect(bound.flush()).rejects.toThrow(/resolves to nobody/)
+            await bound.flush()
 
+            // The deleted person's owed segment drops; the fold this pass
+            // never attempted stays for the next one.
             const sets = (store as any).entries.get('1:7').segments.map((segment: EventOps) => segment.set)
-            expect(sets).toContainEqual({ later: 'fold' })
-            expect(sets).toContainEqual({ b: '2' })
+            expect(sets).toEqual([{ later: 'fold' }])
         })
 
         it('a replayed merged verdict purges again and keeps the live lane', async () => {
@@ -2875,8 +2939,6 @@ describe('PersonhogPersonsStore', () => {
             const bound = store.forBatch(0)
             await bound.createPerson(
                 DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-                {},
-                {},
                 {},
                 1,
                 null,
@@ -3243,8 +3305,6 @@ describe('PersonhogPersonsStore', () => {
         const bound = store.forBatch(0)
         await bound.createPerson(
             DateTime.fromMillis(3_600_000, { zone: 'utc' }),
-            {},
-            {},
             {},
             1,
             null,

@@ -18,7 +18,7 @@ _GATEWAY_RESTRICTED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
     "zai-org/glm-5.2": frozenset({"posthog_code"}),
     "zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
     "zai-org/glm-5.3-flash": frozenset({"posthog_code", "review_hog"}),
-    # Only ReviewHog's arm-set trial calls it, and the desktop pin has no room left under MAX_GATEWAY_PIN_LENGTH.
+    # Only ReviewHog's arm-set trial calls it.
     "gpt-6.1-terra": frozenset({"review_hog"}),
 }
 
@@ -33,7 +33,7 @@ def _first_party_pin(product: str) -> list[str]:
 
 
 # Ids the legacy gateway serves to PostHog Desktop that the catalog lacks; older app builds call them.
-_DESKTOP_LEGACY_MODELS: tuple[str, ...] = ("gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini")
+_DESKTOP_LEGACY_MODELS: tuple[str, ...] = ("gpt-5.4", "gpt-5.3-codex", "gpt-5-mini")
 
 
 def gateway_pin(models: list[str]) -> list[str]:
@@ -52,7 +52,7 @@ DESKTOP_AGENT_MODELS: list[str] = list(
     )
 )
 # The Go gateway refuses a pin longer than this at mint.
-MAX_GATEWAY_PIN_LENGTH = 32
+MAX_GATEWAY_PIN_LENGTH = 64
 assert len(gateway_pin(DESKTOP_AGENT_MODELS)) <= MAX_GATEWAY_PIN_LENGTH, (
     "the desktop model pin outgrew the gateway limit"
 )
@@ -63,6 +63,7 @@ FREE_TIER_MODELS: list[str] = [
     "zai-org/glm-5.2",
     "deepseek-ai/deepseek-v4-flash-0731",
     "moonshotai/kimi-k3",
+    "moonshotai/kimi-k3.1-pro",
     "zai-org/glm-5.3-flash",
 ]
 
@@ -72,6 +73,9 @@ FREE_TIER_PIN_KEY = "posthog_code:free"
 PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
     "posthog_ai": _first_party_pin("posthog_ai"),
     "account_audit": _first_party_pin("account_audit"),
+    "onboarding": ["claude-sonnet-5", "claude-opus-4-8"],
+    "conversations": ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"],
+    "background_agents": _first_party_pin("background_agents"),
     "posthog_code": DESKTOP_AGENT_MODELS,
     FREE_TIER_PIN_KEY: FREE_TIER_MODELS,
     "review_hog": _first_party_pin("review_hog"),

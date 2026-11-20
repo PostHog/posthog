@@ -20,15 +20,23 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
 from posthog.plugins.access import can_configure_plugins, can_globally_manage_plugins, can_install_plugins
 from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
+from posthog.test.test_plugin_log_entry import create_plugin_log_entry
 
 from products.cdp.backend.api.plugin import SECRET_FIELD_VALUE
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
+from products.cdp.backend.models.plugin import (
+    Plugin,
+    PluginConfig,
+    PluginLogEntrySource,
+    PluginLogEntryType,
+    PluginSourceFile,
+)
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 
@@ -976,22 +984,22 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_listing_plugins_is_not_nplus1(self, _mock_get, _mock_reload) -> None:
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(8):
             self._assert_number_of_when_listed_plugins(0)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(8):
             self._assert_number_of_when_listed_plugins(1)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(8):
             self._assert_number_of_when_listed_plugins(2)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(8):
             self._assert_number_of_when_listed_plugins(3)
 
     def _assert_number_of_when_listed_plugins(self, expected_plugins_count: int) -> None:
@@ -1060,6 +1068,46 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"count": 0, "next": None, "previous": None, "results": []})
+
+    def test_retrieving_plugin_config_logs_second_page(self, mock_get, mock_reload):
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=self.team, order=0)
+        for index in range(3):
+            create_plugin_log_entry(
+                team_id=self.team.pk,
+                plugin_id=plugin.pk,
+                plugin_config_id=plugin_config.pk,
+                source=PluginLogEntrySource.CONSOLE,
+                type=PluginLogEntryType.INFO,
+                message=f"entry {index}",
+                instance_id=str(UUIDT()),
+            )
+        url = f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/"
+
+        first_page = self.client.get(url, {"limit": "2", "search": ""}).json()
+        second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
+        past_the_end = self.client.get(url, {"limit": 2, "offset": 5}).json()
+
+        self.assertEqual(first_page["count"], 3)
+        self.assertEqual(second_page["count"], 3)
+        self.assertEqual(past_the_end["count"], 3)
+        self.assertEqual(past_the_end["results"], [])
+        self.assertEqual(len(second_page["results"]), 1)
+        messages = {entry["message"] for entry in first_page["results"] + second_page["results"]}
+        self.assertEqual(messages, {"entry 0", "entry 1", "entry 2"})
+
+    @parameterized.expand(
+        [("after", "not-a-date"), ("before", "not-a-date"), ("type_filter", "NOT_A_TYPE"), ("limit", "5000")]
+    )
+    def test_retrieving_plugin_config_logs_rejects_bad_filter(self, mock_get, mock_reload, param, value):
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=self.team, order=0)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/", {param: value}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @time_machine.travel("2021-12-05T13:23:00Z", tick=False)
     def test_plugin_config_list(self, mock_get, mock_reload):
@@ -1179,7 +1227,16 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert hog_function[0].execution_order == 1
         assert hog_function[0].inputs == {}
 
-    def test_create_hog_function_from_plugin_config_with_inputs(self, mock_get, mock_reload):
+    @parameterized.expand(
+        [
+            ("multipart", True, {"defaultNamingConvention": {"order": 0, "value": "snake_case"}}),
+            ("json", True, {"defaultNamingConvention": {"order": 0, "value": "snake_case"}}),
+            ("json", False, {"defaultNamingConvention": {"order": 0, "value": "camelCase"}}),
+        ]
+    )
+    def test_create_hog_function_from_plugin_config_with_inputs(
+        self, mock_get, mock_reload, request_format, send_config, expected_inputs
+    ):
         mock_geoip_plugin = Plugin.objects.create(
             organization=self.organization,
             plugin_type="local",
@@ -1187,17 +1244,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             description="",
             url="https://github.com/PostHog/taxonomy-plugin",
         )
+        data: dict[str, Any] = {"plugin": mock_geoip_plugin.id, "enabled": True, "order": 0}
+        if send_config:
+            config = {"defaultNamingConvention": "snake_case", "other": "to be removed"}
+            data["config"] = json.dumps(config) if request_format == "multipart" else config
 
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": mock_geoip_plugin.id,
-                "enabled": True,
-                "order": 0,
-                "config": json.dumps({"defaultNamingConvention": "snake_case", "other": "to be removed"}),
-            },
-            format="multipart",
-        )
+        response = self.client.post("/api/plugin_config/", data, format=request_format)
 
         assert response.status_code == 201, response.json()
 
@@ -1205,12 +1257,40 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         hog_function = HogFunction.objects.all()
         assert hog_function.count() == 1
         assert hog_function[0].template_id == "plugin-taxonomy-plugin"
-        assert hog_function[0].inputs == {
-            "defaultNamingConvention": {
-                "order": 0,
-                "value": "snake_case",
-            },
-        }
+        assert hog_function[0].inputs == expected_inputs
+
+    @parameterized.expand(
+        [
+            ("multipart", "{"),
+            ("multipart", ""),
+            ("json", "{"),
+            ("json", "[]"),
+            ("json", []),
+            ("json", False),
+            ("json", 0),
+            ("json", ""),
+            ("json", None),
+        ]
+    )
+    def test_create_plugin_config_rejects_config_that_is_not_a_json_object(
+        self, mock_get, mock_reload, request_format, config
+    ):
+        plugin = Plugin.objects.create(
+            organization=self.organization,
+            plugin_type="local",
+            name="Taxonomy",
+            url="https://github.com/PostHog/taxonomy-plugin",
+        )
+
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin.id, "enabled": True, "order": 0, "config": config},
+            format=request_format,
+        )
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "config"
+        assert HogFunction.objects.count() == 0
 
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(

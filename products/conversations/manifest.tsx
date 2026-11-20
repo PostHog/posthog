@@ -2,11 +2,27 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Support',
+    globalModals: {
+        ComposeTicketModal: () =>
+            import('./frontend/components/ComposeTicket/ComposeTicketModalHost').then(
+                (module) => module.ComposeTicketModalHost
+            ),
+    },
+    activityDescribers: {
+        [ActivityScope.TICKET]: () =>
+            import('./frontend/activityDescriber').then((module) => module.ticketActivityDescriber),
+    },
     scenes: {
+        SupportOverview: {
+            name: 'Support overview',
+            import: () => import('./frontend/scenes/overview/SupportOverviewScene'),
+            projectBased: true,
+            layout: 'app-container',
+        },
         SupportTickets: {
             name: 'Ticket list',
             description:
@@ -39,13 +55,11 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        '/support': ['SupportOverview', 'supportOverview'],
         '/support/tickets': ['SupportTickets', 'supportTickets'],
         '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
         '/support/settings': ['SupportSettings', 'supportSettings'],
         '/my-tickets': ['MyTickets', 'myTickets'],
-    },
-    redirects: {
-        '/support': '/support/tickets',
     },
     urls: {
         supportDashboard: (): string => '/support',

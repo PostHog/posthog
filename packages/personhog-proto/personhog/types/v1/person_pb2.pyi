@@ -68,6 +68,7 @@ class DistinctIdWriteAction(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DISTINCT_ID_WRITE_ACTION_UNSPECIFIED: _ClassVar[DistinctIdWriteAction]
     DISTINCT_ID_WRITE_ACTION_INSERT: _ClassVar[DistinctIdWriteAction]
     DISTINCT_ID_WRITE_ACTION_RAISE: _ClassVar[DistinctIdWriteAction]
+    DISTINCT_ID_WRITE_ACTION_TOMBSTONE: _ClassVar[DistinctIdWriteAction]
 
 class DistinctIdWriteOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -104,6 +105,7 @@ RESTORE_OUTCOME_NO_DISTINCT_ID: RestoreOutcome
 DISTINCT_ID_WRITE_ACTION_UNSPECIFIED: DistinctIdWriteAction
 DISTINCT_ID_WRITE_ACTION_INSERT: DistinctIdWriteAction
 DISTINCT_ID_WRITE_ACTION_RAISE: DistinctIdWriteAction
+DISTINCT_ID_WRITE_ACTION_TOMBSTONE: DistinctIdWriteAction
 DISTINCT_ID_WRITE_OUTCOME_UNSPECIFIED: DistinctIdWriteOutcome
 DISTINCT_ID_WRITE_OUTCOME_APPLIED: DistinctIdWriteOutcome
 DISTINCT_ID_WRITE_OUTCOME_UNCHANGED: DistinctIdWriteOutcome
@@ -116,8 +118,6 @@ class Person(_message.Message):
         "uuid",
         "team_id",
         "properties",
-        "properties_last_updated_at",
-        "properties_last_operation",
         "created_at",
         "version",
         "is_identified",
@@ -129,8 +129,6 @@ class Person(_message.Message):
     UUID_FIELD_NUMBER: _ClassVar[int]
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]
     PROPERTIES_FIELD_NUMBER: _ClassVar[int]
-    PROPERTIES_LAST_UPDATED_AT_FIELD_NUMBER: _ClassVar[int]
-    PROPERTIES_LAST_OPERATION_FIELD_NUMBER: _ClassVar[int]
     CREATED_AT_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
@@ -141,8 +139,6 @@ class Person(_message.Message):
     uuid: str
     team_id: int
     properties: bytes
-    properties_last_updated_at: bytes
-    properties_last_operation: bytes
     created_at: int
     version: int
     is_identified: bool
@@ -155,8 +151,6 @@ class Person(_message.Message):
         uuid: _Optional[str] = ...,
         team_id: _Optional[int] = ...,
         properties: _Optional[bytes] = ...,
-        properties_last_updated_at: _Optional[bytes] = ...,
-        properties_last_operation: _Optional[bytes] = ...,
         created_at: _Optional[int] = ...,
         version: _Optional[int] = ...,
         is_identified: bool = ...,

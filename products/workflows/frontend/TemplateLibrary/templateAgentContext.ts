@@ -1,6 +1,6 @@
 import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 
 import { MessageTemplate } from './types'
 

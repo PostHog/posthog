@@ -1,6 +1,6 @@
 import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
-import { isEventsNode } from '~/queries/utils'
+import { isEventsNode } from '~/queries/schema/node-guards'
 import { InsightLogicProps } from '~/types'
 
 export const CUSTOMER_ANALYTICS_LOGIC_KEY = 'customerAnalytics'

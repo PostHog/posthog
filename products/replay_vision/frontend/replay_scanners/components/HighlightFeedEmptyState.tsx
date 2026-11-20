@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
+import { RECORDINGS_BLOCK_CAUSE } from '../../logics/replayRecordingsLogic'
 import { HIGHLIGHT_FEED_BLOCKS, type HighlightFeedEmptyReason, isHighlightFeedBlock } from '../highlightFeedEmptyState'
 import { feedWindowPhrase, longerFeedWindow, highlightFeedLogic } from '../highlightFeedLogic'
 import { HighlightFeedIntro } from './HighlightFeedIntro'
@@ -28,6 +29,15 @@ export function HighlightFeedEmptyState({ reason }: { reason: HighlightFeedEmpty
 
     if (reason === 'no-scanners') {
         return <HighlightFeedIntro />
+    }
+
+    // The recordings banner above the tabs carries the fix, so the note only names the cause.
+    if (reason === 'replay-off' || reason === 'no-recordings') {
+        return (
+            <DashedNote>
+                <span>No sessions to show. {RECORDINGS_BLOCK_CAUSE[reason]}.</span>
+            </DashedNote>
+        )
     }
 
     if (isHighlightFeedBlock(reason)) {

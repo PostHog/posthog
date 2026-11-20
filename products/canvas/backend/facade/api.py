@@ -46,9 +46,9 @@ from products.canvas.backend.layout import (
     validate_layout_references as validate_layout_references,
 )
 from products.canvas.backend.logic.canvases import (
-    count_canvases as count_canvases,
     create_canvas as create_canvas,
     delete_canvas as delete_canvas,
+    editable_canvas_ids as editable_canvas_ids,
     get_canvas as get_canvas,
     home_canvas as home_canvas,
     list_canvases as list_canvases,
@@ -101,6 +101,7 @@ from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,
     seed_teaching_canvas as seed_teaching_canvas,
 )
+from products.canvas.backend.web_authoring import blocks_session_action as blocks_session_action
 
 
 def render_canvas_artifact(*, host: str, token: str, artifact_path: str, if_none_match: str | None) -> CanvasArtifact:

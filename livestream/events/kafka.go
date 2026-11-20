@@ -102,6 +102,36 @@ type PostHogEventWrapper struct {
 	Data       string         `json:"data"`
 	Token      string         `json:"token"`
 	Timestamp  string         `json:"timestamp"`
+	// Set only by capture v1. Read from the outer message: `data` is client-controlled.
+	Options CaptureOptions `json:"options,omitempty"`
+}
+
+// CaptureOptions keeps every key capture v1 publishes, so capture can add an
+// option without a livestream change. A value that is not an object is skipped
+// rather than failing the decode of the rest of the message.
+type CaptureOptions map[string]interface{}
+
+func (o *CaptureOptions) UnmarshalEasyJSON(in *jlexer.Lexer) {
+	if !in.IsDelim('{') {
+		in.SkipRecursive()
+		return
+	}
+	in.Delim('{')
+	options := make(CaptureOptions)
+	for !in.IsDelim('}') {
+		key := in.String()
+		in.WantColon()
+		options[key] = in.Interface()
+		in.WantComma()
+	}
+	in.Delim('}')
+	*o = options
+}
+
+func (o *CaptureOptions) UnmarshalJSON(data []byte) error {
+	in := jlexer.Lexer{Data: data}
+	o.UnmarshalEasyJSON(&in)
+	return in.Error()
 }
 
 //easyjson:json
@@ -296,6 +326,48 @@ func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 	}
 }
 
+// The option keys are the capture v1 contract and must match what capture publishes.
+var captureOptionOverrides = []struct {
+	key      string
+	property string
+	isBool   bool
+}{
+	{"session_id", "$session_id", false},
+	{"window_id", "$window_id", false},
+	{"cookieless_mode", "$cookieless_mode", true},
+	{"disable_skew_correction", "$ignore_sent_at", true},
+	{"product_tour_id", "$product_tour_id", false},
+	{"process_person_profile", "$process_person_profile", true},
+}
+
+func applyCaptureOptions(options CaptureOptions, properties map[string]interface{}) {
+	for _, o := range captureOptionOverrides {
+		switch value := options[o.key].(type) {
+		case string:
+			if !o.isBool {
+				properties[o.property] = value
+			}
+		case bool:
+			if o.isBool {
+				properties[o.property] = value
+			}
+		}
+	}
+
+	lib, libOk := options["req_lib"].(string)
+	libVersion, libVersionOk := options["req_lib_version"].(string)
+	if !libOk || !libVersionOk || strings.TrimSpace(lib) == "" || strings.TrimSpace(libVersion) == "" {
+		return
+	}
+	current, _ := properties["$lib"].(string)
+	if current == "" {
+		properties["$lib"] = lib
+		properties["$lib_version"] = libVersion
+	} else if version, _ := properties["$lib_version"].(string); current == lib && version == "" {
+		properties["$lib_version"] = libVersion
+	}
+}
+
 func parse(geolocator geo.GeoLocator, classifier *bot.Classifier, kafkaMessage []byte) PostHogEvent {
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
@@ -312,6 +384,13 @@ func parse(geolocator geo.GeoLocator, classifier *bot.Classifier, kafkaMessage [
 	data := []byte(wrapperMessage.Data)
 	if err := json.Unmarshal(data, &phEvent); err != nil {
 		log.Printf("Error decoding JSON %s: %v", err, string(data))
+	}
+
+	if len(wrapperMessage.Options) > 0 {
+		if phEvent.Properties == nil {
+			phEvent.Properties = make(map[string]interface{})
+		}
+		applyCaptureOptions(wrapperMessage.Options, phEvent.Properties)
 	}
 
 	phEvent.Uuid = wrapperMessage.Uuid

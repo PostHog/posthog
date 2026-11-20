@@ -42,6 +42,14 @@ const PRODUCT_ICONS: Record<string, TodayRowIcon> = {
     workflows: { color: 'var(--color-product-workflows-light)', glyph: <IconDecisionTree /> },
 }
 
+export const WATCHED_PRODUCT_ICONS: TodayRowIcon[] = [
+    PRODUCT_ICONS.alerts,
+    PRODUCT_ICONS.experiments,
+    PRODUCT_ICONS.feature_flags,
+    PRODUCT_ICONS.workflows,
+    PRODUCT_ICONS.conversations,
+]
+
 // Rage clicks come from web analytics, but the row opens the recordings.
 const SOURCE_ICONS: Record<string, TodayRowIcon> = {
     rage: REPLAY,

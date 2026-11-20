@@ -6,6 +6,8 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -20,7 +22,6 @@ import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistr
 import { extractQueryResult } from '../components/tool/widgets/extractors'
 import { turnSuggestionsStateRetrieve } from '../generated/api'
 import { defaultPermissionDecision } from '../policy/toolPolicy'
-import type { AttachedContextItem } from '../types/contextTypes'
 import type { ThreadItem } from '../types/streamTypes'
 import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
@@ -28,7 +29,6 @@ import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContext
 import { resolveToolCall } from '../utils/toolResolver'
 import { SUGGESTION_FRAMES } from '../utils/turnSuggestionFixtures'
 import { computeTurnTrailers } from '../utils/turnTrailers'
-import { attachedContextLogic } from './attachedContextLogic'
 import {
     appendToRunLog,
     emptyRunLog,
@@ -1203,6 +1203,15 @@ describe('runStreamLogic', () => {
             expect(logic.values.toolInvocations.get('b')).toEqual(
                 expect.objectContaining({ status: 'failed', output: 'b1b2' })
             )
+        })
+    })
+
+    describe('reply suggestions', () => {
+        it('keeps the newer turn when an older frame lands late', () => {
+            logic.actions.setReplySuggestions({ turnIndex: 3, replies: ['Newer'] })
+            logic.actions.setReplySuggestions({ turnIndex: 2, replies: ['Older'] })
+
+            expect(logic.values.replySuggestionsFrame).toEqual({ turnIndex: 3, replies: ['Newer'] })
         })
     })
 
@@ -3664,6 +3673,23 @@ describe('runStreamLogic', () => {
             expect(
                 logic.values.log.entries.some(({ entry }) => entry.notification.method === '_posthog/task_notification')
             ).toBe(true)
+        })
+
+        it('reconciles and deduplicates coalesced thought chunks', () => {
+            const thought = (text: string, id: string, first?: string): StoredLogEntry => ({
+                ...sessionUpdate({ sessionUpdate: 'agent_thought_chunk', content: { text } }),
+                event_id: id,
+                first_event_id: first,
+            })
+            const saved = thought('abc', 'boot-3', 'boot-1')
+            const chunks = [thought('a', 'boot-1'), thought('b', 'boot-2'), thought('c', 'boot-3')]
+            const result = reconcileRunLog([saved], [], [...chunks, saved])
+            expect(result.entries.map(({ entry }) => entry)).toEqual([saved])
+            const merged = mergeCoalescedRunLog(
+                { entries: chunks.map((entry) => ({ entry, source: 'live' as const })), toolUpdateIndex: {} },
+                saved
+            )
+            expect(merged.entries.map(({ entry }) => entry)).toEqual([saved])
         })
 
         it('merges a coalesced frame into a long transcript without losing unrelated entries', () => {

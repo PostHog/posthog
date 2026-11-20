@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { type ErrorInfo, useMemo } from 'react'
+import { type ErrorInfo, useMemo, useRef } from 'react'
 
 import { type PointClickData, StackedBarList, type TooltipContext } from '@posthog/quill-charts'
 
@@ -29,6 +29,7 @@ import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelBarListDropOff } from './FunnelBarListDropOff'
 import { FunnelBarListLabel } from './FunnelBarListLabel'
 import { FunnelBarListValue } from './FunnelBarListValue'
+import { useFunnelBarListDetail } from './useFunnelBarListDetail'
 
 interface FunnelBarListRow {
     stepIndex: number
@@ -95,6 +96,8 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
     const labels = useMemo(() => rows.map((row) => `${row.stepIndex}:${row.period ?? 'all'}`), [rows])
     const series = useMemo(() => mergeFunnelBarHorizontalRows(rows.map((row) => row.bar)), [rows])
     const rowKeys = useMemo(() => rows.map((row) => new Set(row.bar.series.map((s) => s.key))), [rows])
+    const chartRef = useRef<HTMLDivElement>(null)
+    const detail = useFunnelBarListDetail(chartRef, rows)
 
     if (steps.length === 0) {
         return null
@@ -125,6 +128,7 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                 step={steps[row.stepIndex]}
                 stepIndex={row.stepIndex}
                 firstStep={steps[0]}
+                querySource={querySource}
                 breakdownFilter={breakdownFilter}
                 isPartialBreakdownSelection={hasPartialBreakdownSelection}
                 groupTypeLabel={groupTypeLabel}
@@ -170,7 +174,7 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                     </div>
                 ))}
             </div>
-            <div className="@container min-w-0 flex-1">
+            <div ref={chartRef} className="@container min-w-0 flex-1">
                 <StackedBarList
                     labels={labels}
                     series={series}
@@ -187,16 +191,18 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                                 step={steps[rows[rowIndex].stepIndex]}
                                 stepIndex={rows[rowIndex].stepIndex}
                                 period={rows[rowIndex].period}
+                                querySource={querySource}
                                 isUnordered={isUnordered}
                                 isOptional={isStepOptional(rows[rowIndex].stepIndex + 1)}
                                 showStepPaths={showStepPaths}
                             />
-                            <span className="ml-1 shrink-0 whitespace-nowrap text-sm leading-4">
+                            <span className="ml-1 shrink-0 whitespace-nowrap text-xs">
                                 <FunnelBarListValue
                                     step={steps[rows[rowIndex].stepIndex]}
                                     firstStep={steps[0]}
                                     period={rows[rowIndex].period}
                                     aggregationTargetLabel={aggregationTargetLabel}
+                                    detail={detail}
                                 />
                             </span>
                         </>
@@ -207,6 +213,7 @@ export function FunnelBarListChart({ showPersonsModal: showPersonsModalProp = tr
                             stepIndex={rows[rowIndex].stepIndex}
                             period={rows[rowIndex].period}
                             aggregationTargetLabel={aggregationTargetLabel}
+                            detail={detail}
                         />
                     )}
                     tooltip={renderTooltip}

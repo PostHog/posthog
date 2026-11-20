@@ -8,6 +8,7 @@ export type BootPhase =
     | 'app_modules_loaded'
     | 'css_ready'
     | 'app_booted'
+    | 'scene_prefetched'
     | 'app_first_render'
     | 'app_ready'
     | 'scene_loaded'
@@ -15,9 +16,10 @@ export type BootPhase =
 
 export interface BootContext {
     scene?: string
+    prefetched_scene?: string
     logged_in?: boolean
     deferred_app_context?: boolean
-    deferred_app_context_variant?: string
+    early_user_context_reads?: string[]
 }
 
 const phaseTimes: Partial<Record<BootPhase, number>> = {}
@@ -63,10 +65,8 @@ async function sendBootTiming(): Promise<void> {
     // Not `$device_id`: posthog-js gives it a new value on each page load of a user bootstrapped with
     // `identity_distinct_id`. The distinct ID changes only at login, so a user stays in or out across page loads.
     const distinctId = posthog.get_distinct_id()
-    // An experiment on boot time needs every page load of its users, not the 5% sample.
-    const sampleRate = context.deferred_app_context_variant ? 1 : SAMPLE_RATE
     // hashCodeForString returns 0 for an empty string, which would put every such page load in the sample.
-    if (!distinctId?.trim() || hashCodeForString(distinctId) % 100 >= sampleRate * 100) {
+    if (!distinctId?.trim() || hashCodeForString(distinctId) % 100 >= SAMPLE_RATE * 100) {
         return
     }
     const durations = Object.fromEntries(
@@ -77,7 +77,7 @@ async function sendBootTiming(): Promise<void> {
         ...context,
         ...getNavigationProperties(),
         page_was_hidden: pageWasHidden,
-        sample_rate: sampleRate,
+        sample_rate: SAMPLE_RATE,
     })
 }
 
@@ -103,12 +103,26 @@ export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): voi
     }
     Object.assign(context, phaseContext)
     if (phase === 'scene_rendered') {
+        sceneRenderedListeners.forEach((listener) => listener())
+        sceneRenderedListeners.clear()
         void sendBootTiming().catch(() => {})
     }
 }
 
+const sceneRenderedListeners = new Set<() => void>()
+
+/** Calls `listener` once on the first scene render, or at once if that happened or boot timing does not run. */
+export function onFirstSceneRendered(listener: () => void): () => void {
+    if (phaseTimes.entry === undefined || phaseTimes.scene_rendered !== undefined) {
+        listener()
+        return () => {}
+    }
+    sceneRenderedListeners.add(listener)
+    return () => sceneRenderedListeners.delete(listener)
+}
+
 export interface SceneRenderedMark {
-    /** Holds the mark while a Suspense fallback stands in for the scene's lazy content. Returns the release. */
+    /** Holds the mark while content is pending, including Suspense and data loads. Returns an idempotent release. */
     holdUntilContent: () => () => void
     sceneCommitted: () => void
     sceneUncommitted: () => void
@@ -118,21 +132,31 @@ export interface SceneRenderedMark {
  * Marks `scene_rendered` when the scene has committed and no fallback for its lazy content is on screen.
  * Without this, a scene that wraps its content in its own Suspense marks the commit of its spinner.
  */
-export function createSceneRenderedMark(): SceneRenderedMark {
+export function createSceneRenderedMark(
+    onReady: () => void = () => markBootPhase('scene_rendered')
+): SceneRenderedMark & {
+    getReadyVersion: () => number | null
+} {
     let committed = false
     let holds = 0
+    let ready = false
+    let version = 0
     const markIfReady = (): void => {
         if (committed && holds === 0) {
             queueMicrotask(() => {
-                if (committed && holds === 0) {
-                    markBootPhase('scene_rendered')
+                if (committed && holds === 0 && !ready) {
+                    ready = true
+                    onReady()
                 }
             })
         }
     }
     return {
+        getReadyVersion: () => (ready ? version : null),
         holdUntilContent: () => {
             holds++
+            ready = false
+            version++
             let released = false
             return () => {
                 if (!released) {
@@ -148,6 +172,8 @@ export function createSceneRenderedMark(): SceneRenderedMark {
         },
         sceneUncommitted: () => {
             committed = false
+            ready = false
+            version++
         },
     }
 }

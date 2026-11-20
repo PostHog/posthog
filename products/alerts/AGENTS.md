@@ -13,16 +13,20 @@ The AI detector makes a charged model call on every check, so most of these rule
 - A change that adds a model call to a check needs a cost story first. Calls per day are enabled AI alerts multiplied by cadence ticks per day.
 - The AI detector is not available as an ensemble member, on the real-time cadence, or on breakdown insights. Each of these would multiply calls per check, or exceed the evaluate activity's time budget.
 - `llm_detector_access_error` (rollout flag plus AI data processing consent) runs in simulate, in every alert writer, and inside the judge on every scheduled check. Keep all three calls. The per-check call is what makes turning the flag off stop the spend.
+- A refused access check or an exhausted AI credit budget inside the judge raises `LLMDetectorPausedError`. Both evaluation stacks record an errored check and leave the alert enabled, so turning the flag off is a safe rollback. Only a missing creator (`LLMDetectorMisconfiguredError`) disables an AI alert.
 - The rollout is checked for the alert's creator, because the check runs as the creator. Do not check the last editor.
 - Every writer that can put an alert on the AI detector (the API and the Max tool) calls `admit_llm_alert_write` inside its own transaction, after it locks the alert row. Do not add the cadence, access, or cap rules to a writer directly.
 - The per-project cap is `max_llm_alerts_per_team` in the flag payload. It counts only enabled AI alerts, and it is checked only on a write that adds one, so lowering it never blocks an edit.
+- The flag is boolean, so every release condition serves one payload. A cap for one project or organization goes in the payload's `team_configs` or `organization_configs` map, not in a release condition.
 - Simulate with the AI detector is a charged call. It needs `alert:write` and is throttled per project.
 
 ### One question per check
 
 - Every check asks the model one question: is the latest point anomalous, given its history? The verdict is the fire decision. There is no score, no confidence, and no threshold.
 - The lookback follows the insight interval (`llm_detector_lookback`). The config has no window.
-- The prompt marks the points that earlier AI checks of the alert fired on, with each check's rationale. Errored and statistical checks are left out. The verdict memo key covers these flags.
+- The config's optional `model` names one entry of `LLM_DETECTOR_MODELS` in [`backend/judge/llm.py`](backend/judge/llm.py), whose keys must match `LLMDetectorModel` in the schema. A config with no model uses `LLM_DETECTOR_DEFAULT_MODEL`, so older alerts keep their model. A model changes the price of the one call per check, not the number of calls, and every model runs behind the same access, credit, slot, timeout, and retry guards.
+- Each check stores its model in `triggered_metadata.model`, and the verdict memo key covers the model.
+- The prompt marks the points that earlier AI checks of the alert fired on, and lists the rationales of only the most recent ones. Errored and statistical checks are left out. The verdict memo key covers these flags.
 - Simulate makes one live check of the latest point. It never scans the history.
 
 ### Evaluation
@@ -30,6 +34,7 @@ The AI detector makes a charged model call on every check, so most of these rule
 - A check that cannot reach a verdict records an error. It never returns "no anomaly", because an alert that silently stops firing looks healthy.
 - A series with fewer than five points is never sent to the model.
 - Every detector check stores `detector_type`, `insight_id` and `series_index` as provenance, so an investigation reads the check the way it was produced after the alert changes.
+- On a breakdown check, `series_index` is the position of the breakdown value that fired, which the alert chart reads. The check also stores `breakdown_label`, which the investigation uses to find the value that fired.
 - Metric metadata and earlier rationales in the prompt are escaped and marked as data.
 
 ### Where the code lives

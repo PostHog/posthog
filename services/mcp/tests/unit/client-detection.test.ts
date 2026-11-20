@@ -404,6 +404,14 @@ describe('MCPClientProfile', () => {
             expect(new MCPClientProfile(input).isRenderUiHost()).toBe(false)
         })
 
+        it('follows the MCP Apps declaration from the Claude desktop Code tab', () => {
+            const profile = new MCPClientProfile({
+                userAgent: 'claude-code/2.1.309 (claude-desktop, agent-sdk/0.3.309)',
+                uiSupported: true,
+            })
+            expect(profile.isRenderUiHost()).toBe(true)
+        })
+
         it('Claude Code stays a coding agent and is not a UI host', () => {
             const profile = new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' })
             expect(profile.isCliModeEnabled()).toBe(true)
@@ -440,6 +448,23 @@ describe('MCPClientProfile', () => {
 
         it('is false when no vendor client is set (the user-agent is not a fallback here)', () => {
             expect(new MCPClientProfile({ userAgent: 'Claude-User' }).isInlineExecUiHost()).toBe(false)
+        })
+    })
+
+    describe('drawsTimeSeriesCharts()', () => {
+        it.each([
+            [{ userAgent: 'claude-code/2.1.326 (cli)' }, true],
+            [{ userAgent: 'claude-code/2.1.326 (cli, agent-sdk/0.2.1)' }, true],
+            [{ vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }, true],
+            [{ userAgent: 'claude-code/2.1.326 (claude-desktop, agent-sdk/0.2.1)' }, false],
+            [{ userAgent: 'claude-code/2.1.326 (claude-vscode, agent-sdk/0.2.1)' }, false],
+            [{ userAgent: 'claude-code/2.1.326 (sdk-cli)' }, false],
+            [{ userAgent: 'claude-code/2.1.326 (sdk-ts, agent-sdk/0.2.1)' }, false],
+            [{ vendorClient: 'Cowork', userAgent: 'Claude-User' }, false],
+            [{ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }, false],
+            [{ userAgent: 'Claude-User' }, false],
+        ])('reads %j as a chart-drawing client: %s', (input, expected) => {
+            expect(new MCPClientProfile(input).drawsTimeSeriesCharts()).toBe(expected)
         })
     })
 

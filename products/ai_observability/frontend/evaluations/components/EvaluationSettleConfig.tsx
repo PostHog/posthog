@@ -36,14 +36,14 @@ export function EvaluationSettleConfig(): JSX.Element | null {
     return (
         <>
             {settlingStrategyEnabled && (
-                <LemonField.Pure label="Evaluate when">
+                <LemonField.Pure label="Start the run when">
                     <LemonSelect<EvaluationSettleStrategy>
                         value={effectiveStrategy}
                         onChange={setSettleStrategy}
                         options={[
                             {
                                 value: 'fixed_window',
-                                label: 'A fixed delay has passed',
+                                label: 'A set time has passed',
                             },
                             {
                                 value: 'inactivity',
@@ -55,7 +55,14 @@ export function EvaluationSettleConfig(): JSX.Element | null {
                 </LemonField.Pure>
             )}
             {effectiveStrategy === 'fixed_window' ? (
-                <LemonField.Pure label="Wait before evaluating">
+                <LemonField.Pure
+                    label="Wait for"
+                    info={
+                        isSessionTarget
+                            ? 'Counted from the first matching generation, 10 seconds to 7 days. Runs already scheduled keep their wait.'
+                            : 'Counted from the first matching generation, 10 seconds to 2 hours. Runs already scheduled keep their wait.'
+                    }
+                >
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <DurationPicker
                             value={
@@ -71,16 +78,18 @@ export function EvaluationSettleConfig(): JSX.Element | null {
                                 })
                             }}
                         />
-                        <p className="text-muted text-xs mb-0 flex-1 basis-60">
-                            {isSessionTarget
-                                ? 'After the first matching generation, from 10 seconds to 7 days. Runs already scheduled keep the wait they started with.'
-                                : 'After the first matching generation, from 10 seconds to 2 hours. Runs already scheduled keep the wait they started with.'}
-                        </p>
                     </div>
                 </LemonField.Pure>
             ) : (
                 <>
-                    <LemonField.Pure label="Quiet period">
+                    <LemonField.Pure
+                        label="Quiet period"
+                        info={
+                            isSessionTarget
+                                ? 'It runs once the session has no new activity for this long, 10 seconds to 24 hours. Conversations pause, so a longer wait judges fewer unfinished sessions.'
+                                : 'It runs once the trace has no new activity for this long, 10 seconds to 30 minutes.'
+                        }
+                    >
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <DurationPicker
                                 value={
@@ -95,14 +104,16 @@ export function EvaluationSettleConfig(): JSX.Element | null {
                                     })
                                 }
                             />
-                            <p className="text-muted text-xs mb-0 flex-1 basis-60">
-                                {isSessionTarget
-                                    ? 'Evaluate once the session has had no new activity for this long (10s to 24 hours). Sessions often pause for a while mid-conversation, so a longer quiet period means fewer verdicts on a session that was not finished.'
-                                    : 'Evaluate once the trace has had no new activity for this long (10 seconds to 30 minutes).'}
-                            </p>
                         </div>
                     </LemonField.Pure>
-                    <LemonField.Pure label="Evaluate by">
+                    <LemonField.Pure
+                        label="Run no later than"
+                        info={
+                            isSessionTarget
+                                ? "It runs once the session is this old, even if it's still active. 1 minute to 7 days."
+                                : "It runs once the trace is this old, even if it's still active. 1 minute to 2 hours."
+                        }
+                    >
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                             <DurationPicker
                                 value={
@@ -115,11 +126,6 @@ export function EvaluationSettleConfig(): JSX.Element | null {
                                     })
                                 }
                             />
-                            <p className="text-muted text-xs mb-0 flex-1 basis-60">
-                                {isSessionTarget
-                                    ? 'Always evaluate once the session is this old, even if it is still active (1m to 7 days).'
-                                    : "Always evaluate once the trace is this old, even if it's still active (1 minute to 2 hours)."}
-                            </p>
                         </div>
                     </LemonField.Pure>
                 </>

@@ -2,6 +2,9 @@ import json
 import time
 import uuid
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, fields
 from datetime import datetime
 from typing import Any, Literal, Optional
@@ -46,6 +49,27 @@ FLIGHT_POLL_INTERVAL = 0.25
 FLIGHT_MAX_POLL_INTERVAL = 1.0
 # Acquiring the lock drops the previous result, so the result can safely outlive a stalled follower.
 FLIGHT_RESULT_TTL = 60
+
+_SKIPPED: ContextVar[bool] = ContextVar("query_single_flight_skipped", default=False)
+
+
+@contextmanager
+def skip_query_single_flight() -> Iterator[None]:
+    """Runs every blocking query in the block on its own, neither leading nor following a flight.
+
+    For a caller that runs the same query beside a run in another flight partition. Both write one
+    cache entry, so the other run can replace the leader's entry before a follower reads it, and the
+    follower then has nothing to serve."""
+    token = _SKIPPED.set(True)
+    try:
+        yield
+    finally:
+        _SKIPPED.reset(token)
+
+
+def query_single_flight_skipped() -> bool:
+    return _SKIPPED.get()
+
 
 # Acquiring the lock also drops the result the previous leader published, so a result can only ever
 # belong to the flight that is currently in progress or just ended.

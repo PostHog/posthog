@@ -15,7 +15,6 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("ee", "0059_scimprovisioneduser_unique_config"),
         ("posthog", "1340_drop_userproductlist_reason_columns"),
     ]
 

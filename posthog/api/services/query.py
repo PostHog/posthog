@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import time
-from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Optional, overload
 
 import structlog
 import pydantic_core
-import posthoganalytics
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, ValidationError
 
@@ -18,16 +15,12 @@ from posthog.schema import (
     DataWarehouseViewLink,
     HogLanguage,
     HogQLAutocomplete,
-    HogQLAutocompleteResponse,
     HogQLMetadata,
-    HogQLMetadataResponse,
-    HogQLNotice,
-    HogQLQuery,
     HogQLVariable,
     HogQuery,
     HogQueryResponse,
     QuerySchemaRoot,
-    QueryTiming,
+    QueryStatus,
 )
 
 from posthog.hogql.autocomplete import get_hogql_autocomplete
@@ -35,19 +28,8 @@ from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import resolve_database_for_connection
-from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS, EDITOR_ASSIST_RESPONSES_TOTAL
+from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
-from posthog.hogql.language_service import (
-    CATALOG_REVISION_PREFIX,
-    CatalogMissing,
-    LanguageServiceClient,
-    LanguageServiceError,
-    LanguageServiceResult,
-    MalformedLanguageServiceResponse,
-    build_catalog,
-    coordinate_catalog_publication,
-    is_language_service_enabled,
-)
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
@@ -79,256 +61,6 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
-
-
-@frozen
-class _DatabaseSchemaCatalog:
-    response: DatabaseSchemaQueryResponse
-    database: Database
-
-
-type _EditorAssistReason = Literal["served", "ineligible", "service_error", "invalid_response"]
-type _EditorAssistOperation = Literal["autocomplete", "metadata"]
-type _MalformedResponseStage = Literal["http_response", "response_mapping"]
-
-
-@frozen
-class _EditorAssistRoute:
-    enabled: bool
-    result: LanguageServiceResult | None
-    reason: _EditorAssistReason
-    malformed_stage: _MalformedResponseStage | None = None
-
-
-def _is_current_catalog_revision(revision: object) -> bool:
-    return isinstance(revision, str) and revision.startswith(CATALOG_REVISION_PREFIX)
-
-
-def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
-    common = (
-        query.language.value == "hogQL"
-        and query.connectionId is None
-        and query.globals is None
-        and query.filters is None
-        and query.modifiers is None
-    )
-    if isinstance(query, HogQLMetadata):
-        return (
-            common
-            and (query.sourceQuery is None or isinstance(query.sourceQuery, HogQLQuery))
-            and query.variables is None
-            and not query.debug
-            and not query.includeOutputTypes
-        )
-    return common and (query.sourceQuery is None or isinstance(query.sourceQuery, HogQLQuery))
-
-
-def _language_service_call(
-    team: Team,
-    user: User,
-    query: HogQLAutocomplete | HogQLMetadata,
-    timings: HogQLTimings | None = None,
-) -> _EditorAssistRoute:
-    try:
-        client = LanguageServiceClient()
-
-        def call() -> LanguageServiceResult:
-            if isinstance(query, HogQLAutocomplete):
-                return client.autocomplete(team.pk, user.pk, query.query, query.endPosition)
-            return client.validate(team.pk, user.pk, query.query)
-
-        with timings.measure("language_service_initial") if timings is not None else nullcontext():
-            result = call()
-    except CatalogMissing:
-        result = None
-    except MalformedLanguageServiceResponse:
-        return _EditorAssistRoute(enabled=True, result=None, reason="invalid_response", malformed_stage="http_response")
-    except LanguageServiceError:
-        return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
-
-    if result is not None:
-        if _is_current_catalog_revision(result.body.get("catalogRevision")):
-            return _EditorAssistRoute(enabled=True, result=result, reason="served")
-
-    publication_succeeded = False
-
-    def publish_catalog() -> None:
-        nonlocal publication_succeeded
-        with timings.measure("catalog_schema") if timings is not None else nullcontext():
-            schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
-        revision = f"{CATALOG_REVISION_PREFIX}{time.time_ns()}"
-        with timings.measure("catalog_build") if timings is not None else nullcontext():
-            catalog = build_catalog(
-                team,
-                user,
-                schema_catalog.response,
-                database=schema_catalog.database,
-            )
-        with timings.measure("catalog_publish") if timings is not None else nullcontext():
-            client.publish(team.pk, user.pk, revision, catalog)
-        publication_succeeded = True
-
-    def check_catalog() -> LanguageServiceResult | None:
-        try:
-            current = call()
-        except CatalogMissing:
-            return None
-        if not _is_current_catalog_revision(current.body.get("catalogRevision")):
-            if publication_succeeded:
-                raise MalformedLanguageServiceResponse("language service returned an incompatible catalog revision")
-            return None
-        return current
-
-    try:
-        with timings.measure("catalog_coordination") if timings is not None else nullcontext():
-            result = coordinate_catalog_publication(
-                team.pk,
-                user.pk,
-                client.base_url,
-                check_catalog,
-                publish_catalog,
-                timings=timings,
-            )
-    except MalformedLanguageServiceResponse:
-        return _EditorAssistRoute(enabled=True, result=None, reason="invalid_response", malformed_stage="http_response")
-    except (DatabaseSchemaUnavailable, LanguageServiceError):
-        return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
-    if result is None:
-        return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
-    return _EditorAssistRoute(enabled=True, result=result, reason="served")
-
-
-def _route_editor_assist(
-    team: Team,
-    user: User | None,
-    query: HogQLAutocomplete | HogQLMetadata,
-    timings: HogQLTimings | None = None,
-) -> _EditorAssistRoute:
-    with timings.measure("routing") if timings is not None else nullcontext():
-        if user is None or not is_language_service_enabled(team, user):
-            return _EditorAssistRoute(enabled=False, result=None, reason="ineligible")
-        if not _language_service_eligible(query):
-            return _EditorAssistRoute(enabled=True, result=None, reason="ineligible")
-    return _language_service_call(team, user, query, timings=timings)
-
-
-def _capture_malformed_language_service_response(
-    operation: _EditorAssistOperation, stage: _MalformedResponseStage
-) -> None:
-    try:
-        with posthoganalytics.new_context(fresh=True, capture_exceptions=False):
-            posthoganalytics.set_capture_exception_code_variables_context(False)
-            posthoganalytics.capture_exception(
-                RuntimeError("HogQL language service returned a malformed response"),
-                properties={
-                    "component": "hogql_language_service",
-                    "operation": operation,
-                    "stage": stage,
-                },
-            )
-    except Exception:
-        logger.warning("hogql_language_service_error_tracking_failed")
-
-
-def _record_editor_assist_backend(
-    route: _EditorAssistRoute,
-    operation: _EditorAssistOperation,
-    backend: Literal["language_service", "python"],
-    reason: _EditorAssistReason,
-) -> None:
-    if not route.enabled:
-        return
-    try:
-        EDITOR_ASSIST_RESPONSES_TOTAL.labels(operation=operation, backend=backend, reason=reason).inc()
-    except Exception:
-        logger.warning("hogql_editor_assist_metric_failed")
-
-
-def _autocomplete_response_from_language_service(
-    language_result: LanguageServiceResult,
-) -> HogQLAutocompleteResponse:
-    body = language_result.body
-    if not isinstance(body.get("suggestions"), list):
-        raise TypeError("suggestions must be a list")
-    kind_map = {
-        "field": "Field",
-        "function": "Function",
-        "keyword": "Keyword",
-        "operator": "Operator",
-        "property": "Property",
-        "table": "Class",
-    }
-    return HogQLAutocompleteResponse(
-        suggestions=[
-            {
-                "label": suggestion["label"],
-                "insertText": suggestion.get("insertText", suggestion["label"]),
-                "kind": kind_map.get(suggestion["kind"], "Text"),
-                "detail": suggestion.get("detail"),
-                "sortText": suggestion.get("sortText"),
-            }
-            for suggestion in body["suggestions"]
-        ],
-        incomplete_list=bool(body.get("nextCursor")),
-        timings=[
-            QueryTiming(k="language_service_http", t=language_result.duration_seconds),
-            QueryTiming(k="language_service_go", t=body["durationMicros"] / 1_000_000),
-        ],
-    )
-
-
-def _metadata_response_from_language_service(
-    query: HogQLMetadata, language_result: LanguageServiceResult
-) -> HogQLMetadataResponse:
-    body = language_result.body
-    if not isinstance(body.get("diagnostics"), list):
-        raise TypeError("diagnostics must be a list")
-    raw_notices = body.get("notices", [])
-    if not isinstance(raw_notices, list):
-        raise TypeError("notices must be a list")
-    query_length_utf16 = len(query.query.encode("utf-16-le", errors="surrogatepass")) // 2
-    errors: list[HogQLNotice] = []
-    warnings: list[HogQLNotice] = []
-    for diagnostic in body["diagnostics"]:
-        notice = HogQLNotice(
-            message=diagnostic["message"],
-            start=diagnostic["start"],
-            end=diagnostic["end"],
-            fix=diagnostic["suggestions"][0]["label"] if diagnostic.get("suggestions") else None,
-        )
-        if diagnostic["code"] == "unknown_property":
-            warnings.append(notice)
-        else:
-            errors.append(notice)
-    notices: list[HogQLNotice] = []
-    for raw_notice in raw_notices:
-        if not isinstance(raw_notice, dict):
-            raise TypeError("notice must be an object")
-        message = raw_notice["message"]
-        start = raw_notice["start"]
-        end = raw_notice["end"]
-        fix = raw_notice.get("fix")
-        if (
-            not isinstance(message, str)
-            or not isinstance(start, int)
-            or isinstance(start, bool)
-            or not isinstance(end, int)
-            or isinstance(end, bool)
-            or start < 0
-            or end <= start
-            or end > query_length_utf16
-            or (fix is not None and not isinstance(fix, str))
-        ):
-            raise TypeError("invalid notice")
-        notices.append(HogQLNotice(message=message, start=start, end=end, fix=fix))
-    return HogQLMetadataResponse(
-        isValid=not errors,
-        query=query.query,
-        errors=errors,
-        warnings=warnings,
-        notices=notices,
-        table_names=body.get("tableNames", []),
-    )
 
 
 @dataclass(frozen=True)
@@ -365,6 +97,7 @@ def process_query_dict(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = ...,
     allow_raw_results: Literal[False] = ...,
 ) -> dict | BaseModel: ...
 
@@ -387,6 +120,7 @@ def process_query_dict(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse: ...
 
@@ -408,6 +142,7 @@ def process_query_dict(
     cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
     upgraded_query_json = upgrade(query_json)
@@ -440,10 +175,7 @@ def process_query_dict(
 
     tag_queries(query=upgraded_query_json)
 
-    dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
-    variables_override = (
-        [HogQLVariable.model_validate(n) for n in variables_override_json.values()] if variables_override_json else None
-    )
+    dashboard_filters, variables_override = _parse_overrides(dashboard_filters_json, variables_override_json)
 
     return process_query_model(
         team,
@@ -461,6 +193,7 @@ def process_query_dict(
         cache_age_seconds=cache_age_seconds,
         pagination_cursor=pagination_cursor,
         analytics_props=analytics_props,
+        query_status=query_status,
         allow_raw_results=allow_raw_results,
     )
 
@@ -476,12 +209,12 @@ def process_database_schema_query(
         except Exception as error:
             capture_exception(error, {"team_id": team.pk, "query_kind": "DatabaseSchemaQuery"})
             raise DatabaseSchemaUnavailable() from error
-    return _build_database_schema_query(team, query, user=user).response
+    return _build_database_schema_query(team, query, user=user)
 
 
 def _build_database_schema_query(
     team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
-) -> _DatabaseSchemaCatalog:
+) -> DatabaseSchemaQueryResponse:
     try:
         _, database = resolve_database_for_connection(
             team,
@@ -530,9 +263,124 @@ def _build_database_schema_query(
             )
         )
 
-    return _DatabaseSchemaCatalog(
-        response=DatabaseSchemaQueryResponse(tables=serialized_tables, joins=join_models), database=database
+    return DatabaseSchemaQueryResponse(tables=serialized_tables, joins=join_models)
+
+
+@frozen
+class PlannedQuery:
+    """A query's runner, configured with the request's filters and overrides, before it runs.
+
+    Planning first lets a caller compute the cache keys of several queries and read their entries in one round trip.
+    """
+
+    query_runner: QueryRunner
+    upgraded_query: dict
+    cache_key: str
+
+
+def plan_query_dict(
+    team: Team,
+    query_json: dict,
+    *,
+    dashboard_filters_json: Optional[dict],
+    variables_override_json: Optional[dict],
+    limit_context: Optional[LimitContext],
+    user: Optional[User],
+    user_access_control: Optional[UserAccessControl],
+    allow_raw_results: bool,
+) -> Optional[PlannedQuery]:
+    """The runner `process_query_dict` would run `query_json` with, configured the same way.
+
+    None when the query doesn't validate or no runner handles it. The caller then goes through `process_query_dict`,
+    which reports the error or handles the query as before.
+    """
+    upgraded_query = upgrade(query_json)
+    try:
+        query = QuerySchemaRoot.model_validate(upgraded_query).root
+    except pydantic_core.ValidationError:
+        return None
+    query_runner, _ = _find_query_runner(
+        query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
     )
+    if query_runner is None:
+        return None
+    dashboard_filters, variables_override = _parse_overrides(dashboard_filters_json, variables_override_json)
+    _configure_query_runner(
+        query_runner,
+        dashboard_filters=dashboard_filters,
+        variables_override=variables_override,
+        pagination_cursor=None,
+        is_query_service=False,
+        allow_raw_results=allow_raw_results,
+    )
+    # run() applies the user before it builds the key. Some runners are built without the user, so apply it here too.
+    if user is not None:
+        query_runner.set_user(user)
+    return PlannedQuery(
+        query_runner=query_runner, upgraded_query=upgraded_query, cache_key=query_runner.plan_cache_key()
+    )
+
+
+def _parse_overrides(
+    dashboard_filters_json: Optional[dict], variables_override_json: Optional[dict]
+) -> tuple[Optional[DashboardFilter], Optional[list[HogQLVariable]]]:
+    dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
+    variables_override = (
+        [HogQLVariable.model_validate(n) for n in variables_override_json.values()] if variables_override_json else None
+    )
+    return dashboard_filters, variables_override
+
+
+def _find_query_runner(
+    query: BaseModel,
+    team: Team,
+    *,
+    limit_context: Optional[LimitContext],
+    user: Optional[User],
+    user_access_control: Optional[UserAccessControl],
+) -> tuple[Optional[QueryRunner], BaseModel]:
+    """The runner `process_query_model` runs `query` with: the query's own, or else that of the first source down its
+    `source` chain that has one. Also returns the query the search stopped at. The runner is None where
+    `process_query_model` handles that query without a runner: editor queries, Hog queries and unsupported kinds.
+    """
+    if isinstance(query, HogQLAutocomplete | HogQLMetadata | DatabaseSchemaQuery):
+        return None, query
+    query_runner = get_query_runner_or_none(
+        query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
+    )
+    if query_runner is None and hasattr(query, "source") and isinstance(query.source, BaseModel):
+        return _find_query_runner(
+            unwrapped_source(query, query.source),
+            team,
+            limit_context=limit_context,
+            user=user,
+            user_access_control=user_access_control,
+        )
+    return query_runner, query
+
+
+def run_planned_query(
+    planned: PlannedQuery,
+    *,
+    execution_mode: ExecutionMode,
+    user: Optional[User],
+    insight_id: Optional[int],
+    dashboard_id: Optional[int],
+    cache_age_seconds: Optional[int],
+    analytics_props: Optional[AnalyticsProps],
+) -> dict | BaseModel | RawCachedQueryResponse:
+    """Run a planned query as `process_query_dict` would have run it."""
+    tag_queries(query=planned.upgraded_query)
+    query_runner = planned.query_runner
+    result = query_runner.run(
+        execution_mode=execution_mode,
+        user=user,
+        insight_id=insight_id,
+        dashboard_id=dashboard_id,
+        cache_age_seconds=cache_age_seconds,
+        analytics_props=analytics_props,
+    )
+    return _with_raw_results(query_runner, result)
 
 
 @overload
@@ -553,6 +401,7 @@ def process_query_model(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = ...,
     allow_raw_results: Literal[False] = ...,
 ) -> dict | BaseModel: ...
 
@@ -575,6 +424,7 @@ def process_query_model(
     cache_age_seconds: Optional[int] = ...,
     pagination_cursor: Optional[str] = ...,
     analytics_props: Optional[AnalyticsProps] = ...,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse: ...
 
@@ -596,49 +446,30 @@ def process_query_model(
     cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool = False,
 ) -> dict | BaseModel | RawCachedQueryResponse:
     if isinstance(query, HogQLAutocomplete):
         timings = HogQLTimings()
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="autocomplete").time():
             with timings.measure("editor_assist"):
-                route = _route_editor_assist(team, user, query, timings=timings)
-                python_reason = route.reason
-                autocomplete_response: HogQLAutocompleteResponse | None = None
-                if (language_result := route.result) is not None:
-                    try:
-                        with timings.measure("response_mapping"):
-                            autocomplete_response = _autocomplete_response_from_language_service(language_result)
-                    except (AttributeError, KeyError, TypeError, ValueError):
-                        logger.warning("hogql_language_service_invalid_autocomplete_response")
-                        python_reason = "invalid_response"
-                    else:
-                        _record_editor_assist_backend(route, "autocomplete", "language_service", "served")
-                    if autocomplete_response is None:
-                        with timings.measure("fallback_error_tracking"):
-                            _capture_malformed_language_service_response("autocomplete", "response_mapping")
-                elif route.malformed_stage is not None:
-                    with timings.measure("fallback_error_tracking"):
-                        _capture_malformed_language_service_response("autocomplete", route.malformed_stage)
-                if autocomplete_response is None:
-                    database: Database | None = None
-                    # Hog and template languages answer from globals, so building the schema is wasted work.
-                    if query.language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_EXPR):
-                        with timings.measure("fallback_database"):
-                            _, database = resolve_database_for_connection(
-                                team,
-                                query.connectionId,
-                                user=user,
-                                error_factory=ValidationError,
-                                modifiers=create_default_modifiers_for_team(team),
-                                # Editor-assist only: query execution never reads cached sources.
-                                use_cached_sources=True,
-                            )
-                    with timings.measure("fallback_python_autocomplete"):
-                        autocomplete_response = get_hogql_autocomplete(
-                            query=query, team=team, database_arg=database, user=user
+                database: Database | None = None
+                # Hog and template languages answer from globals, so building the schema is wasted work.
+                if query.language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_EXPR):
+                    with timings.measure("database"):
+                        _, database = resolve_database_for_connection(
+                            team,
+                            query.connectionId,
+                            user=user,
+                            error_factory=ValidationError,
+                            modifiers=create_default_modifiers_for_team(team),
+                            # Editor-assist only: query execution never reads cached sources.
+                            use_cached_sources=True,
                         )
-                    _record_editor_assist_backend(route, "autocomplete", "python", python_reason)
+                with timings.measure("autocomplete"):
+                    autocomplete_response = get_hogql_autocomplete(
+                        query=query, team=team, database_arg=database, user=user
+                    )
             autocomplete_response.timings = [
                 *(autocomplete_response.timings or []),
                 *timings.to_list(back_out_stack=False),
@@ -647,29 +478,13 @@ def process_query_model(
 
     if isinstance(query, HogQLMetadata):
         with EDITOR_ASSIST_DURATION_SECONDS.labels(kind="metadata").time():
-            route = _route_editor_assist(team, user, query)
-            python_reason = route.reason
-            if (language_result := route.result) is not None:
-                try:
-                    metadata_response = _metadata_response_from_language_service(query, language_result)
-                except (AttributeError, KeyError, TypeError, ValueError):
-                    logger.warning("hogql_language_service_invalid_metadata_response")
-                    python_reason = "invalid_response"
-                else:
-                    _record_editor_assist_backend(route, "metadata", "language_service", "served")
-                    return metadata_response
-                _capture_malformed_language_service_response("metadata", "response_mapping")
-            elif route.malformed_stage is not None:
-                _capture_malformed_language_service_response("metadata", route.malformed_stage)
             metadata_query = HogQLMetadata.model_validate(query)
-            metadata_response = get_hogql_metadata(query=metadata_query, team=team, user=user)
-            _record_editor_assist_backend(route, "metadata", "python", python_reason)
-            return metadata_response
+            return get_hogql_metadata(query=metadata_query, team=team, user=user)
 
     if isinstance(query, DatabaseSchemaQuery):
         return process_database_schema_query(team, query, user=user)
 
-    query_runner = get_query_runner_or_none(
+    query_runner, runner_query = _find_query_runner(
         query, team, limit_context=limit_context, user=user, user_access_control=user_access_control
     )
     if query_runner is not None:  # Query runner available - it will handle execution as well as caching
@@ -684,16 +499,18 @@ def process_query_model(
             dashboard_id=dashboard_id,
             is_query_service=is_query_service,
             cache_age_seconds=cache_age_seconds,
-            pagination_cursor=pagination_cursor,
+            # The cursor applies to the query as sent, so a runner found down its source chain runs without it.
+            pagination_cursor=pagination_cursor if runner_query is query else None,
             analytics_props=analytics_props,
+            query_status=query_status,
             allow_raw_results=allow_raw_results,
         )
 
     # This query doesn't run via query runner
-    if hasattr(query, "source") and isinstance(query.source, BaseModel):
+    if runner_query is not query:
         return process_query_model(
             team,
-            unwrapped_source(query, query.source),
+            runner_query,
             dashboard_filters=dashboard_filters,
             variables_override=variables_override,
             limit_context=limit_context,
@@ -706,6 +523,7 @@ def process_query_model(
             is_query_service=is_query_service,
             cache_age_seconds=cache_age_seconds,
             analytics_props=analytics_props,
+            query_status=query_status,
             allow_raw_results=allow_raw_results,
         )
     if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
@@ -747,8 +565,45 @@ def _run_query_runner(
     cache_age_seconds: Optional[int],
     pagination_cursor: Optional[str],
     analytics_props: Optional[AnalyticsProps],
+    query_status: QueryStatus | None = None,
     allow_raw_results: bool,
 ) -> dict | BaseModel | RawCachedQueryResponse:
+    _configure_query_runner(
+        query_runner,
+        dashboard_filters=dashboard_filters,
+        variables_override=variables_override,
+        pagination_cursor=pagination_cursor,
+        is_query_service=is_query_service,
+        allow_raw_results=allow_raw_results,
+    )
+
+    # The worker rebuilds the runner, so enqueue-time labels can describe a different access snapshot.
+    labels = query_runner.query_status_labels() if query_status is not None else None
+    result = query_runner.run(
+        execution_mode=execution_mode,
+        user=user,
+        query_id=query_id,
+        insight_id=insight_id,
+        dashboard_id=dashboard_id,
+        cache_age_seconds=cache_age_seconds,
+        analytics_props=analytics_props,
+    )
+    if query_status is not None and labels is not None:
+        query_status.labels = [*labels, *(["chained"] if "chained" in (query_status.labels or []) else [])]
+    return _with_raw_results(query_runner, result)
+
+
+def _configure_query_runner(
+    query_runner: QueryRunner,
+    *,
+    dashboard_filters: Optional[DashboardFilter],
+    variables_override: Optional[list[HogQLVariable]],
+    pagination_cursor: Optional[str],
+    is_query_service: bool,
+    allow_raw_results: bool,
+) -> None:
+    """Everything that shapes a runner's query and cache key before it runs. Planning a query configures it here too,
+    so a planned key is the key the run reads."""
     if dashboard_filters:
         query_runner.apply_dashboard_filters(dashboard_filters)
         # A tag, so it reaches the async worker, which rebuilds the runner from the query alone.
@@ -761,15 +616,8 @@ def _run_query_runner(
     if allow_raw_results:
         query_runner.serve_raw_cached_results = True
 
-    result = query_runner.run(
-        execution_mode=execution_mode,
-        user=user,
-        query_id=query_id,
-        insight_id=insight_id,
-        dashboard_id=dashboard_id,
-        cache_age_seconds=cache_age_seconds,
-        analytics_props=analytics_props,
-    )
+
+def _with_raw_results(query_runner: QueryRunner, result: dict | BaseModel) -> dict | BaseModel | RawCachedQueryResponse:
     raw_results = query_runner.raw_cached_results_bytes
     if raw_results is not None and isinstance(result, BaseModel):
         return RawCachedQueryResponse(response=result, raw_results=raw_results)

@@ -21,8 +21,8 @@ class Command(PlatformBackfillCommand):
         parser.add_argument(
             "--include-ai-detector",
             action="store_true",
-            help="Also copy AI detector alerts. Each of their checks makes a model call the project pays for, "
-            "so a copy doubles that cost while both stacks run.",
+            help="Also copy AI and forecast detector alerts. Each of their checks calls the AI gateway, which "
+            "the project pays for, so a copy doubles that cost while both stacks run.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:

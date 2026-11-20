@@ -1,7 +1,7 @@
 import type { LogRecord } from '../log-record-avro'
 import { compileMetricRules } from './compile-metric-rules'
 import { buildMetricRulesOtlpPayload } from './otlp-payload'
-import { createBatchTallies, tallyRecords } from './tally'
+import { DEFAULT_HISTOGRAM_BOUNDS, MAX_LABEL_SETS_PER_RULE, createBatchTallies, tallyRecords } from './tally'
 
 const NOW_MS = 1_700_000_000_123
 // Snapped down to the enclosing 10s bucket, in nanos.
@@ -69,7 +69,7 @@ describe('buildMetricRulesOtlpPayload', () => {
         expect(errorPoint.timeUnixNano).toBe(SNAPPED_NANOS)
     })
 
-    it('emits a value-attribute rule as a delta histogram carrying count and sum', () => {
+    it('emits a value-attribute rule as a delta histogram with explicit bucket counts', () => {
         const payload = build([distributionRule], [record(), record({ attributes: { duration_ms: '7.5' } })])
         const metric = payload.resourceMetrics[0].scopeMetrics[0].metrics[0]
         expect(metric.name).toBe('log.request_duration')
@@ -77,9 +77,31 @@ describe('buildMetricRulesOtlpPayload', () => {
         const dp = metric.histogram.dataPoints[0]
         expect(dp.count).toBe(2)
         expect(dp.sum).toBe(20)
-        expect(dp.explicitBounds).toEqual([])
-        expect(dp.bucketCounts).toEqual([2])
+        expect(dp.explicitBounds).toEqual(DEFAULT_HISTOGRAM_BOUNDS)
+        const expectedCounts = new Array(DEFAULT_HISTOGRAM_BOUNDS.length + 1).fill(0)
+        expectedCounts[2] = 1 // 7.5 falls in (5, 10]
+        expectedCounts[3] = 1 // 12.5 falls in (10, 25]
+        expect(dp.bucketCounts).toEqual(expectedCounts)
+        expect(dp.attributes).toEqual([{ key: 'posthog.bucket_layout', value: { stringValue: 'otel_default_v1' } }])
         expect(dp.timeUnixNano).toBe(SNAPPED_NANOS)
+        expect(metric.unit).toBeUndefined()
+    })
+
+    it('emits a span duration rule with the ms unit', () => {
+        const span = { ...record(), end_time: NOW_MS * 1000 + 40_000 } as LogRecord
+        const payload = build([{ ...distributionRule, source: 'spans', value_attribute: 'duration_ms' }], [span])
+        expect(payload.resourceMetrics[0].scopeMetrics[0].metrics[0].unit).toBe('ms')
+    })
+
+    it('emits the overflow series with only the otel.metric.overflow attribute and no service', () => {
+        const records = Array.from({ length: MAX_LABEL_SETS_PER_RULE + 2 }, (_, i) =>
+            record({ service_name: `svc-${i}` })
+        )
+        const payload = build([{ ...countRule, group_by: ['service_name', 'severity_text'] }], records)
+        const overflowResource = payload.resourceMetrics.find((rm: any) => rm.resource.attributes.length === 0)
+        const dp = overflowResource.scopeMetrics[0].metrics[0].sum.dataPoints[0]
+        expect(dp.attributes).toEqual([{ key: 'otel.metric.overflow', value: { boolValue: true } }])
+        expect(dp.asDouble).toBe(2)
     })
 
     it('strips the attributes. prefix from group-by label names', () => {

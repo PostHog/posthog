@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { Dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { YcCreditsState, billingLogic } from 'lib/logic/billing/billingLogic'
 
 import { BillingPlan, BillingProductV2Type, StartupProgramLabel } from '~/types'
 
@@ -16,7 +17,6 @@ import planStartup from 'public/plan_startup.svg'
 import planTeams from 'public/plan_teams.png'
 import planYc from 'public/plan_yc.svg'
 
-import { YcCreditsState, billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlanComparisonModal } from './PlanComparison'

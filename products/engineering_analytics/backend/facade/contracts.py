@@ -22,13 +22,16 @@ intentionally absent until the warehouse data that backs them lands.
 """
 
 from dataclasses import field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from typing import Any
 
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
 
 from posthog.enums import LabeledStrEnum
+
+from products.data_modeling.backend.facade.managed_viewset_hooks import DEFAULT_MANAGED_VIEW_SYNC_FREQUENCY
 
 
 class CIEngine(LabeledStrEnum):
@@ -58,7 +61,7 @@ class GitHubSourceNotConnectedError(Exception):
 ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 # Evaluated per organization, not per person: the view sync runs with no user, and a materialized view
 # spends the team's warehouse compute, so no team gets one without opting in.
-FRICTION_VIEW_FEATURE_FLAG = "engineering-analytics-friction"
+MATERIALIZED_VIEWS_FEATURE_FLAG = "engineering-analytics-friction"
 
 
 # The default labels would equal the choices of data_warehouse's backfill lifecycle state. Two classes with
@@ -269,6 +272,13 @@ class GitHubTeamMembership:
 
 
 @dataclass(frozen=True)
+class DepotCIRepoUsage:
+    repo: str
+    elapsed_seconds: float
+    estimated_cost_usd: float
+
+
+@dataclass(frozen=True)
 class GitHubTeamRoster:
     """Every synced org team membership, and whether there was a snapshot to read at all.
 
@@ -297,6 +307,8 @@ class ExpectedWarehouseView:
     query: str
     fields: dict[str, FieldOrTable]
     materialized: bool = False
+    sync_frequency: timedelta = DEFAULT_MANAGED_VIEW_SYNC_FREQUENCY
+    incremental_config: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -1424,6 +1436,60 @@ class RevertShareBucket:
     reverting_pr_count: int
     # None when nothing merged in the bucket.
     revert_share: float | None
+
+
+class PullRequestAuthorship(LabeledStrEnum):
+    BOT = "bot", "Bot account"
+    AGENT_CONTEXT = "agent_context", "Agent context filled in"
+    NO_AGENT_CONTEXT = "no_agent_context", "No agent context"
+
+
+class PullRequestApproval(LabeledStrEnum):
+    HUMAN = "human", "Approved by a person"
+    AUTOMATED_ONLY = "automated_only", "Approved by bots only"
+    NONE = "none", "No approval before merge"
+
+
+@dataclass(frozen=True)
+class AuthorshipRevertOutcome:
+    authorship: PullRequestAuthorship
+    merged_pr_count: int
+    reverted_pr_count: int
+    reverted_share: float | None
+
+
+@dataclass(frozen=True)
+class ApprovalRevertOutcome:
+    approval: PullRequestApproval
+    merged_pr_count: int
+    reverted_pr_count: int
+    reverted_share: float | None
+
+
+@dataclass(frozen=True)
+class RevertedPullRequest:
+    number: int
+    title: str
+    merged_at: datetime
+    authorship: PullRequestAuthorship
+    approval: PullRequestApproval | None
+    reverting_pr_number: int
+    reverted_at: datetime
+    merge_to_revert_seconds: int
+
+
+@dataclass(frozen=True)
+class RevertOutcomes:
+    merged_pr_count: int
+    reverted_pr_count: int | None
+    reverted_share: float | None
+    body_data_available: bool
+    review_data_available: bool
+    by_authorship: list[AuthorshipRevertOutcome]
+    by_approval: list[ApprovalRevertOutcome]
+    reverted_pull_requests: list[RevertedPullRequest]
+    truncated: bool
+    limit: int
 
 
 class DeliveryStage(LabeledStrEnum):

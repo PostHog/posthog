@@ -277,6 +277,46 @@ class DiskSource:
         return "dir" if stat.S_ISDIR(mode) else "file"
 
 
+class GitRefSource:
+    """Ownership files as a git ref holds them, for a check on what a push carries rather than the worktree."""
+
+    def __init__(self, repo_root: Path, ref: str = "HEAD") -> None:
+        self._git = ["git", "-C", str(repo_root)]
+        self.ref = ref
+        listing = subprocess.run([*self._git, "ls-tree", "-r", "-z", ref], capture_output=True, text=True, check=True)
+        entries = (entry.split("\t", 1) for entry in listing.stdout.split("\0") if entry)
+        self._blobs = {path: mode_type_blob.split()[2] for mode_type_blob, path in entries}
+        self.files: frozenset[str] = frozenset(self._blobs)
+        self._texts_by_name: dict[str, dict[str, str]] = {}
+
+    def read(self, path: str) -> str | None:
+        if path not in self.files:
+            return None
+        name = path.rsplit(SEP, 1)[-1]
+        if name not in self._texts_by_name:
+            self._texts_by_name[name] = self._cat([p for p in self.files if p.rsplit(SEP, 1)[-1] == name])
+        return self._texts_by_name[name][path]
+
+    def _cat(self, paths: list[str]) -> dict[str, str]:
+        """One ``git cat-file --batch`` per file name. The resolver asks for an ownership file per
+        directory, and a ``git show`` for each takes seconds on this repo."""
+        batch = subprocess.run(
+            [*self._git, "cat-file", "--batch"],
+            input="".join(f"{self._blobs[path]}\n" for path in paths).encode(),
+            capture_output=True,
+            check=True,
+        ).stdout
+        texts: dict[str, str] = {}
+        position = 0
+        for path in paths:
+            header_end = batch.index(b"\n", position)
+            size = int(batch[position:header_end].rsplit(b" ", 1)[-1])
+            position = header_end + 1
+            texts[path] = batch[position : position + size].decode()
+            position += size + 1
+        return texts
+
+
 def first_new_path(path: str, path_kind: Callable[[str], PathKind | None]) -> str | None:
     """The part of ``path`` nearest the root that the tree does not hold, or None when the tree
     holds ``path``. An ancestor counts as new unless the tree holds it as a directory, so a change
@@ -474,9 +514,9 @@ class OwnersResolver:
             return None
         return Addition(path=new_path, additions=self._merge(new_path).additions)
 
-    def resolve(self, path: str) -> Resolution:
+    def resolve(self, path: str, *, include_added: bool = True) -> Resolution:
         norm = normalize_path(path)
-        return self._build_resolution(norm, self._merge(norm), self._added(norm))
+        return self._build_resolution(norm, self._merge(norm), self._added(norm) if include_added else None)
 
     def _teams_registry(self) -> dict[str, TeamEntry]:
         """The root file's ``teams:`` Slack registry (team slug -> its declared channels),

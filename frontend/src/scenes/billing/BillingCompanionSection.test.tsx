@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -15,7 +16,6 @@ import { BillingProductV2Type, BillingType } from '~/types'
 
 import { Billing } from './Billing'
 import { BillingCompanionSection } from './BillingCompanionSection'
-import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { PlanComparison } from './PlanComparison'
 

@@ -5,6 +5,7 @@ implementation is ``products.alerts.backend.judge.llm.LLMSeriesJudge``.
 """
 
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     MAX_CONCURRENT_MODEL_CALLS,
@@ -14,6 +15,7 @@ from products.alerts.backend.judge.contract import (
     JudgeAttribution,
     LLMDetectorError,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudge,
@@ -21,6 +23,7 @@ from products.alerts.backend.judge.contract import (
 )
 
 __all__ = [
+    "LLM_DETECTOR_PAUSED_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
     "MAX_CONCURRENT_MODEL_CALLS",
@@ -30,6 +33,7 @@ __all__ = [
     "JudgeAttribution",
     "LLMDetectorError",
     "LLMDetectorMisconfiguredError",
+    "LLMDetectorPausedError",
     "LLMDetectorUnavailableError",
     "SeriesContext",
     "SeriesJudge",

@@ -25,7 +25,7 @@ STAGING = _project(team_id=41, integration_id=410, name="Staging")
 PRODUCTION = _project(team_id=42, integration_id=420, name="Production")
 PROJECTS = [STAGING, PRODUCTION]
 
-CLASSIFIER = "products.slack_app.backend.temporal.activities.classifiers.build_openai_client"
+CLASSIFIER = "products.slack_app.backend.temporal.activities.classifiers.build_ai_gateway_openai_client"
 
 
 class TestClassifySlackAppProjectRoute:

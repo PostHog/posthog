@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.scoping import team_scope
+from posthog.paging import PageRequest
 
 from products.customer_analytics.backend.facade import (
     api as facade,
@@ -700,16 +701,16 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         workflow = self._create_workflow_setting(str(plan.id))
 
         with team_scope(self.team.id):
-            page, _ = facade.list_custom_property_definitions(
-                self.team.id, offset=0, limit=50, user_access_control=self._uac()
+            page = facade.list_custom_property_definitions(
+                self.team.id, page=PageRequest(limit=50), user_access_control=self._uac()
             )
-        by_id = {view.id: view for view in page}
+        by_id = {view.id: view for view in page.results}
 
         assert [(r.id, r.name, r.status, r.type) for r in by_id[plan.id].references] == [
             (str(workflow.id), "Onboarding", "active", "workflow")
         ]
         assert by_id[plan.id].has_workflow_reference is True
-        unused = next(v for v in page if v.name == "Unused")
+        unused = next(v for v in page.results if v.name == "Unused")
         assert unused.references == []
         assert unused.has_workflow_reference is False
 
@@ -719,11 +720,11 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         self._create_workflow_setting(str(uuid4()))
 
         with team_scope(self.team.id):
-            page, _ = facade.list_custom_property_definitions(
-                self.team.id, offset=0, limit=50, user_access_control=self._uac()
+            page = facade.list_custom_property_definitions(
+                self.team.id, page=PageRequest(limit=50), user_access_control=self._uac()
             )
 
-        assert next(v for v in page if v.id == plan.id).references == []
+        assert next(v for v in page.results if v.id == plan.id).references == []
 
     def test_get_attaches_workflow_references_for_single_definition(self):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
@@ -765,14 +766,14 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         self._create_workflow_setting(str(plan.id))
 
         with team_scope(self.team.id):
-            page, _ = facade.list_custom_property_definitions(
-                self.team.id, offset=0, limit=50, user_access_control=self._uac(can_read_workflows=False)
+            page = facade.list_custom_property_definitions(
+                self.team.id, page=PageRequest(limit=50), user_access_control=self._uac(can_read_workflows=False)
             )
             view = facade.get_custom_property_definition(
                 self.team.id, str(plan.id), user_access_control=self._uac(can_read_workflows=False)
             )
 
-        list_view = next(v for v in page if v.id == plan.id)
+        list_view = next(v for v in page.results if v.id == plan.id)
         assert list_view.references == []
         assert list_view.has_workflow_reference is True
         assert view is not None

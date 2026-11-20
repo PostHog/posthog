@@ -1,17 +1,14 @@
-"""The issue summary prompt, response schema and category question.
+"""The issue summary prompt and response schema.
 
 The generator and the offline quality check both import this module, so the two cannot drift.
-Bump `ISSUE_SUMMARY_PROMPT_VERSION` on any change here: it is part of the input hash, so stored
-summaries regenerate on their next read.
+Bump `ISSUE_SUMMARY_PROMPT_VERSION` on any change here: it is part of the input hash, so summaries
+written by different prompt versions have different hashes. A bump does not regenerate stored
+summaries. Only summaries written after the deploy use the new prompt.
 """
 
 from pydantic import BaseModel, ConfigDict
 
-from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
-from products.ml_inference.backend.facade.contracts import DecisionQuestion
-from products.ml_inference.backend.facade.enums import DecisionQuestionType
-
-ISSUE_SUMMARY_PROMPT_VERSION = "v4"
+ISSUE_SUMMARY_PROMPT_VERSION = "v5"
 
 ISSUE_SUMMARY_SYSTEM_PROMPT = """\
 You summarise one error tracking issue for an engineer who is deciding what to do about it.
@@ -57,18 +54,3 @@ class IssueSummaryResponse(BaseModel):
     likely_cause: str
     who_is_affected: str
     suggested_next_step: str
-
-
-ISSUE_SUMMARY_CATEGORY_QUESTION_ID = "category"
-ISSUE_SUMMARY_CATEGORY_QUESTION = DecisionQuestion(
-    type=DecisionQuestionType.CHOICE,
-    instructions="Which best describes where this error comes from?",
-    criteria={
-        IssueSummaryCategory.OWN_CODE.value: "A bug in the application's own code",
-        IssueSummaryCategory.THIRD_PARTY.value: "A third-party script, browser extension or dependency",
-        IssueSummaryCategory.NETWORK.value: "A network or connectivity failure",
-        IssueSummaryCategory.BOTS.value: "Bots, crawlers or automated traffic",
-        IssueSummaryCategory.EXPECTED.value: "Expected or handled behaviour that does not need a fix",
-        IssueSummaryCategory.UNCLEAR.value: "Unclear from the stack trace",
-    },
-)

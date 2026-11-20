@@ -12,6 +12,7 @@ import {
     IconGithub,
     IconGraph,
     IconList,
+    IconPerson,
     IconReceipt,
     IconRefresh,
     IconStack,
@@ -26,20 +27,19 @@ import type {
     InboxSortDirection,
     InboxSortField,
 } from './logics/inboxFiltersLogic'
-import { SignalReportPriority } from './types'
+import { SignalReportActionability, SignalReportPriority } from './types'
 import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
 
 /**
- * Single source of truth for per-priority color. P0–P4 each get a DISTINCT hue so
- * users can tell them apart at a glance (red → orange → amber → blue → gray).
- * Consumed by the priority badge, the priority monogram, and the filter dots.
+ * Per-priority LemonTag type, for surfaces that render a LemonTag. Keep in step with
+ * `PRIORITY_ACCENT`, which holds the same colors as raw CSS vars.
  */
 export const PRIORITY_TAG_TYPE: Record<SignalReportPriority, LemonTagType> = {
-    P0: 'danger', // red
-    P1: 'warning', // orange
-    P2: 'caution', // amber
-    P3: 'highlight', // blue
-    P4: 'muted', // gray
+    P0: 'danger',
+    P1: 'warning',
+    P2: 'caution',
+    P3: 'highlight',
+    P4: 'muted',
 }
 
 /**
@@ -58,13 +58,24 @@ export const PRIORITY_MEANING: Record<SignalReportPriority, { label: string; des
     P4: { label: 'Minimal', description: 'Cosmetic or negligible impact, or an optional investigation.' },
 }
 
-/** Matching CSS accent per priority, for non-LemonTag surfaces (filter dots, monograms). */
+/** Shared by the actionability badge and the editable actionability row, so both name a value the same way. */
+export const ACTIONABILITY_LABEL: Record<SignalReportActionability, string> = {
+    immediately_actionable: 'Actionable',
+    requires_human_input: 'Needs input',
+    not_actionable: 'Not actionable',
+}
+
+/**
+ * Single source of truth for per-priority color, as raw CSS vars mirroring `PRIORITY_TAG_TYPE`'s
+ * LemonTag colors. Theme-aware, so contrast holds in both modes. Shared by the priority badge and
+ * the filter dots so the two always match.
+ */
 export const PRIORITY_ACCENT: Record<SignalReportPriority, string> = {
-    P0: 'var(--red-9, #e5484d)',
-    P1: 'var(--orange-9, #f76b15)',
-    P2: 'var(--amber-9, #ffc53d)',
-    P3: 'var(--blue-9, #3b9eff)',
-    P4: 'var(--muted, #8f8f8f)',
+    P0: 'var(--danger)',
+    P1: 'var(--warning)',
+    P2: 'var(--danger-lighter)',
+    P3: 'var(--color-accent)',
+    P4: 'var(--color-text-secondary)',
 }
 
 // Port of desktop `@posthog/ui/features/inbox/filterOptions`. Drives the Source /
@@ -107,6 +118,8 @@ export interface InboxRankingScore {
     /** The short word the card tag uses after a probability with no lift ("12% fix"). Staff only. */
     tagLabel: string
     description: string
+    /** Replaces `description` in the score hover card only. The sort menu and the artefact log keep `description`. */
+    hoverCardDescription?: string
 }
 
 export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
@@ -136,6 +149,7 @@ export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
         sortLabel: 'Most likely to be fixed',
         tagLabel: 'fix',
         description: 'Someone fixes the problem within 30 days.',
+        hoverCardDescription: 'Someone fixes the problem within 30 days (as best we can tell).',
     },
 ]
 
@@ -147,6 +161,18 @@ export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_RANKING_SCORES.
     icon: <IconBrain />,
     description: score.description,
 }))
+
+/** The `personal_tier` values the personal ranking writes, keyed by value. */
+export const INBOX_PERSONAL_TIERS: Record<string, { label: string }> = {
+    top: { label: 'Top' },
+    worth_a_look: { label: 'Worth a look' },
+    later: { label: 'Later' },
+}
+
+/** The sorts the server orders with a ranker, whose rows carry `inbox_merge_key`. */
+export function isMergeKeySortField(field: InboxSortField): field is 'recommended' {
+    return field === 'recommended'
+}
 
 const RANKING_SCORE_BY_FIELD = Object.fromEntries(INBOX_RANKING_SCORES.map((score) => [score.field, score])) as Record<
     InboxRankingSortField,
@@ -194,6 +220,7 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
         icon: <IconGear />,
     },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
+    { value: 'user_authored', label: 'Team member', icon: <IconPerson /> },
 ]
 
 /** Priority codes in rank order (P0 highest → P4 lowest), driving the Priority filter popover. */

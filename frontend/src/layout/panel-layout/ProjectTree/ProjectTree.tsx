@@ -14,13 +14,13 @@ import {
 } from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -41,7 +41,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortMenuItems } from './TreeSortMenuItems'
-import { calculateMovePath, isProjectTreeItemActive, resolveProjectTreeDrop } from './utils'
+import { calculateMovePath, isProjectTreeItemActive, resolveProjectTreeDrop, shortcutTelemetryName } from './utils'
 
 // Product menus that open on a create action or a picker show a matching hint instead of the ellipsis
 const PRODUCT_MENU_BUTTON_ICONS: Record<string, JSX.Element> = {
@@ -261,7 +261,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 if (item?.id.startsWith('shortcuts')) {
                     posthog.capture('navbar starred item clicked', {
                         item_type: item?.record?.type || 'unknown',
-                        item_name: item?.name || 'unknown',
+                        item_name: shortcutTelemetryName(item?.record?.type, item?.name || 'unknown'),
                     })
                 }
 

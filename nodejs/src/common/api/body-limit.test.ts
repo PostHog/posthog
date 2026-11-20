@@ -1,16 +1,29 @@
+import { randomBytes, randomUUID } from 'crypto'
 import supertest from 'supertest'
 import type { Application, Request, Response } from 'ultimate-express'
+import { brotliCompressSync, deflateSync, gzipSync } from 'zlib'
 
-import { setupExpressApp } from '~/common/api/router'
+import { ModifiedRequest, setupExpressApp } from '~/common/api/router'
+import { defaultConfig } from '~/common/config/config'
+import { ServerCommands } from '~/common/utils/commands'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PubSub } from '~/common/utils/pubsub'
+import { compressTwoPartsApart, compressWithoutEnding } from '~/tests/helpers/compression'
+import { waitForExpect } from '~/tests/helpers/expectations'
+import { RedisPool } from '~/types'
 
 describe('setupExpressApp JSON body limit', () => {
     let app: Application
     let server: ReturnType<Application['listen']>
 
     beforeAll(() => {
-        app = setupExpressApp({ jsonBodyLimit: '1kb' })
+        app = setupExpressApp({ jsonBodyLimit: '1kb', readOnlyPathPrefixes: ['/read-only/'] })
         app.post('/echo', (req: Request, res: Response) => {
             res.status(200).json({ ok: true })
+        })
+        app.post('/body', (req: ModifiedRequest, res: Response) => {
+            res.status(200).json({ parsed: req.body, raw: req.rawBody })
         })
         server = app.listen(0, () => {})
     })
@@ -34,10 +47,221 @@ describe('setupExpressApp JSON body limit', () => {
         expect(res.body).toEqual({ status: 'error', error: 'Request entity too large' })
     })
 
+    const checkFailedGzip = (): Buffer => {
+        const body = gzipSync(JSON.stringify({ data: randomBytes(3 * 1024 * 1024).toString('base64') }))
+        body[body.length - 1] ^= 0xff
+        return body
+    }
+
+    it.each([
+        ['a JSON body', {}, () => Buffer.from(JSON.stringify({ data: 'x'.repeat(2 * 1024 * 1024) }))],
+        ['a gzip JSON body that fails its check', { 'Content-Encoding': 'gzip' }, checkFailedGzip],
+    ] as const)(
+        'answers %s over the limit, sent in chunks, with one 413, and keeps serving',
+        async (_case, headers, makeBody) => {
+            const body = makeBody()
+            const upload = supertest(app)
+                .post('/echo')
+                .set({ 'Content-Type': 'application/json', ...headers })
+            for (let offset = 0; offset < body.length; offset += 64 * 1024) {
+                upload.write(body.subarray(offset, offset + 64 * 1024))
+            }
+            const oversized = await upload
+            const next = await supertest(app).post('/echo').send({ data: 'x' })
+
+            expect({ oversized: oversized.status, next: next.status }).toEqual({ oversized: 413, next: 200 })
+        }
+    )
+
+    it('refuses a write to a read-only prefix before parsing its body', async () => {
+        const res = await supertest(app)
+            .post('/read-only/anything')
+            .send({ data: 'x'.repeat(2048) })
+
+        expect(res.status).toEqual(405)
+    })
+
     it('accepts a JSON body under the limit', async () => {
         const res = await supertest(app).post('/echo').send({ data: 'x' })
 
         expect(res.status).toEqual(200)
         expect(res.body).toEqual({ ok: true })
+    })
+
+    const atLimit = JSON.stringify({ data: 'x'.repeat(1024 - JSON.stringify({ data: '' }).length) })
+    const encoders = [
+        ['gzip', gzipSync],
+        ['deflate', deflateSync],
+        ['br', brotliCompressSync],
+    ] as const
+
+    it.each(
+        encoders.flatMap(([encoding, compress]) => [
+            [
+                `a ${encoding} JSON body at the limit`,
+                encoding,
+                compress(atLimit),
+                200,
+                { parsed: parseJSON(atLimit), raw: atLimit },
+            ],
+            [
+                `a ${encoding} JSON body one byte over the limit`,
+                encoding,
+                compress(atLimit.replace('"data":"', '"data":"x')),
+                413,
+                { status: 'error', error: 'Request entity too large' },
+            ],
+            [
+                `a malformed ${encoding} body`,
+                encoding,
+                Buffer.from('this is not compressed data'),
+                400,
+                { status: 'error', error: 'Malformed compressed body' },
+            ],
+        ])
+    )('answers %s, then keeps serving', async (_case, encoding, body, status, responseBody) => {
+        const req = supertest(app)
+            .post('/body')
+            .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+        req.write(body)
+        const res = await req
+        const next = await supertest(app).post('/echo').send({ data: 'x' })
+
+        expect({ response: [res.status, res.body], next: next.status }).toEqual({
+            response: [status, responseBody],
+            next: 200,
+        })
+    })
+
+    it.each(['gzip', 'deflate', 'br'] as const)(
+        'answers a %s JSON body that decodes past the limit with 413 before it reaches an invalid end',
+        async (encoding) => {
+            const decodesPastLimit = await compressWithoutEnding(encoding, Buffer.alloc(64 * 1024, ' '), 64)
+            const upload = supertest(app)
+                .post('/echo')
+                .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+            upload.write(Buffer.concat([decodesPastLimit, Buffer.alloc(16, 0xff)]))
+            const oversized = await upload
+            const next = await supertest(app).post('/echo').send({ data: 'x' })
+
+            expect({ oversized: [oversized.status, oversized.body], next: next.status }).toEqual({
+                oversized: [413, { status: 'error', error: 'Request entity too large' }],
+                next: 200,
+            })
+        }
+    )
+
+    describe('with a limit larger than one decoded block', () => {
+        let largerLimitApp: Application
+        let largerLimitServer: ReturnType<Application['listen']>
+
+        beforeAll(() => {
+            largerLimitApp = setupExpressApp({ jsonBodyLimit: '64kb' })
+            largerLimitApp.post('/echo', (req: Request, res: Response) => {
+                res.status(200).json({ ok: true })
+            })
+            largerLimitServer = largerLimitApp.listen(0, () => {})
+        })
+
+        afterAll(() => {
+            largerLimitServer.close()
+        })
+
+        it.each(['gzip', 'deflate'] as const)(
+            'answers a %s JSON body whose later read decodes past the bytes left under the limit with 413',
+            async (encoding) => {
+                const twoReads = await compressTwoPartsApart(encoding, 48 * 1024, (4 * 1024 + 32) * 1024)
+                const upload = supertest(largerLimitApp)
+                    .post('/echo')
+                    .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+                upload.write(Buffer.concat([twoReads, Buffer.alloc(16, 0xff)]))
+                const oversized = await upload
+
+                expect([oversized.status, oversized.body]).toEqual([
+                    413,
+                    { status: 'error', error: 'Request entity too large' },
+                ])
+            }
+        )
+    })
+
+    describe('on the command route', () => {
+        let redisPool: RedisPool
+        let pubSub: PubSub
+        let commandsApp: Application
+        let commandsServer: ReturnType<Application['listen']>
+
+        beforeAll(async () => {
+            redisPool = createRedisPoolFromConfig({
+                connection: { url: defaultConfig.REDIS_URL },
+                poolMinSize: 1,
+                poolMaxSize: 3,
+            })
+            pubSub = new PubSub(redisPool)
+            await pubSub.start()
+            commandsApp = setupExpressApp({})
+            commandsApp.use(new ServerCommands(pubSub).router())
+            commandsServer = commandsApp.listen(0, () => {})
+        })
+
+        afterAll(async () => {
+            commandsServer.close()
+            await pubSub.stop()
+            await redisPool.drain()
+            await redisPool.clear()
+        })
+
+        it.each([
+            ['gzip', gzipSync],
+            ['deflate', deflateSync],
+        ] as const)(
+            'publishes nothing for a %s command that fails its check after earlier chunks decoded',
+            async (encoding, compress) => {
+                const channel = `compressed-command-${encoding}-${randomUUID()}`
+                const subscriber = await redisPool.acquire()
+                const published: string[] = []
+                subscriber.on('message', (_channel: string, message: string) => published.push(message))
+                const pad = randomBytes(512 * 1024).toString('base64')
+                const trailingWhitespace = Buffer.from(
+                    randomBytes(2 * 1024 * 1024).map((byte) => ' \t\n\r'.charCodeAt(byte & 3))
+                )
+                const commandBody = (attempt: string): Buffer =>
+                    compress(
+                        Buffer.concat([
+                            Buffer.from(JSON.stringify({ command: channel, message: { attempt, pad } })),
+                            trailingWhitespace,
+                        ])
+                    )
+                const checkFailed = commandBody('check failed')
+                checkFailed[checkFailed.length - 1] ^= 0xff
+                const post = (body: Buffer) => {
+                    const req = supertest(commandsApp)
+                        .post('/api/commands')
+                        .set({ 'Content-Type': 'application/json', 'Content-Encoding': encoding })
+                    req.write(body)
+                    return req
+                }
+
+                try {
+                    await subscriber.subscribe(channel)
+                    const failed = await post(checkFailed)
+                    const passed = await post(commandBody('valid'))
+                    await waitForExpect(() => expect(published.length).toBeGreaterThan(0))
+
+                    expect({
+                        failed: [failed.status, failed.body],
+                        passed: [passed.status, passed.body],
+                        published: published.map((message) => parseJSON(message).attempt),
+                    }).toEqual({
+                        failed: [400, { status: 'error', error: 'Malformed compressed body' }],
+                        passed: [200, { success: true }],
+                        published: ['valid'],
+                    })
+                } finally {
+                    subscriber.removeAllListeners('message')
+                    await subscriber.unsubscribe(channel).finally(() => redisPool.release(subscriber))
+                }
+            }
+        )
     })
 })

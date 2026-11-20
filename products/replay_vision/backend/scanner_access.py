@@ -13,15 +13,20 @@ from django.db.models import Q
 
 from rest_framework.exceptions import NotFound, PermissionDenied
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerDisabledReason
+from products.replay_vision.backend.scope.load import (
+    EXPERIMENT_ID_SNAPSHOT_STORES,
+    experiment_id_of,
+    snapshot_experiment_id,
+)
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
-
-    from posthog.models.user import User
 
     from products.replay_vision.backend.models.replay_observation import ReplayObservation
 
@@ -32,6 +37,38 @@ def is_uuid(value: str) -> bool:
     except (ValueError, TypeError):
         return False
     return True
+
+
+# Error code clients key on to offer taking over a scanner whose creator lost recording access.
+SCANNER_CREATOR_LOST_ACCESS_CODE = "scanner_creator_lost_access"
+
+
+def recording_viewer_access(user: User | None, team: Team) -> UserAccessControl | None:
+    """The user's access in the project, when they are active, a member and can view its recordings."""
+    if user is None or not user.is_active:
+        return None
+    if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
+        return None
+    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access.has_project_access:
+        return None
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        return None
+    return access
+
+
+def creator_can_scan(scanner: ReplayScanner) -> bool:
+    """Whether the sweep, which reads recordings as the scanner's creator, can still read them."""
+    return scanner.created_by is None or recording_viewer_access(scanner.created_by, scanner.team) is not None
+
+
+def unrunnable_reason(scanner: ReplayScanner) -> ScannerDisabledReason | None:
+    """Why the sweep can never spend for this scanner, or None when it can."""
+    if not scanner.team.organization.is_ai_data_processing_approved:
+        return ScannerDisabledReason.NO_AI_CONSENT
+    if not creator_can_scan(scanner):
+        return ScannerDisabledReason.CREATOR_LOST_ACCESS
+    return None
 
 
 def scanners_for_reading_observations(team_id: int) -> "QuerySet[ReplayScanner]":
@@ -107,16 +144,19 @@ def snapshot_experiment_scope_q(
     observation through a relation, such as `observation__` from a label."""
     if prefix not in _OBSERVATION_PREFIXES:
         raise ValueError(f"unsupported observation prefix {prefix!r}")
-    targeting = f"{prefix}scanner_snapshot__experiment_targeting__experiment_id"
-    config = f"{prefix}scanner_snapshot__scanner_config__experiment_id"
+    # Built from the shared store list, so a store added later reaches this gate without an edit.
+    # Leaving one out would read a snapshot held only in that store as naming no experiment, and
+    # the `unrestricted` branch would hand its rows to a caller denied that experiment.
+    paths = [f"{prefix}scanner_snapshot__{store}__experiment_id" for store in EXPERIMENT_ID_SNAPSHOT_STORES]
     q = Q()
     if unrestricted:
-        # nosemgrep: orm-field-injection (both paths are fixed strings; prefix is allowlisted above)
-        q |= Q(**{f"{targeting}__isnull": True, f"{config}__isnull": True})
+        # nosemgrep: orm-field-injection (every path is built from fixed strings; prefix is allowlisted above)
+        q |= Q(**{f"{path}__isnull": True for path in paths})
     ids = list(experiment_ids)
     if ids:
-        # nosemgrep: orm-field-injection (both paths are fixed strings; prefix is allowlisted above)
-        q |= Q(**{f"{targeting}__in": ids}) | Q(**{f"{config}__in": ids})
+        for path in paths:
+            # nosemgrep: orm-field-injection (every path is built from fixed strings; prefix is allowlisted above)
+            q |= Q(**{f"{path}__in": ids})
     return q
 
 
@@ -143,12 +183,8 @@ def accessible_observations(
 def can_read_observation(access: UserAccessControl, team_id: int, observation: "ReplayObservation") -> bool:
     """`accessible_observations` for one loaded row, read off its snapshot: no query for an untargeted scan,
     and one targeted lookup otherwise, instead of every accessible experiment in the project."""
-    snapshot = observation.scanner_snapshot or {}
-    experiment_ids = {
-        experiment_id
-        for store in ("experiment_targeting", "scanner_config")
-        if (experiment_id := (snapshot.get(store) or {}).get("experiment_id")) is not None
-    }
+    experiment_id = snapshot_experiment_id(observation.scanner_snapshot)
+    experiment_ids = {experiment_id} if experiment_id is not None else set()
     return not experiment_ids or bool(accessible_experiment_ids(access, team_id, experiment_ids) & experiment_ids)
 
 
@@ -163,16 +199,12 @@ def readable_observation_scanner_ids(access: UserAccessControl, team_id: int) ->
     """
     scanners = list(
         access.filter_queryset_by_access_level(scanners_for_reading_observations(team_id)).only(
-            "id", "scanner_type", "scanner_config", "experiment_targeting"
+            "id", "scanner_type", "scanner_config", "experiment_targeting", "scope"
         )
     )
-    targeted = {eid for s in scanners if (eid := (s.experiment_scope() or {}).get("experiment_id")) is not None}
+    targeted = {eid for s in scanners if (eid := experiment_id_of(s)) is not None}
     accessible = accessible_experiment_ids(access, team_id, targeted)
-    return [
-        s.id
-        for s in scanners
-        if (eid := (s.experiment_scope() or {}).get("experiment_id")) is None or eid in accessible
-    ]
+    return [s.id for s in scanners if (eid := experiment_id_of(s)) is None or eid in accessible]
 
 
 def can_read_targeted_experiment(access: UserAccessControl, team_id: int, scanner: ReplayScanner) -> bool:
@@ -182,10 +214,10 @@ def can_read_targeted_experiment(access: UserAccessControl, team_id: int, scanne
     reads as not-found. Row-level history within an accessible scanner is gated separately by
     `accessible_observations`, which follows each row's snapshot. A scanner with no targeting passes.
     """
-    scope = scanner.experiment_scope()
-    if not scope or scope.get("experiment_id") is None:
+    experiment_id = experiment_id_of(scanner)
+    if experiment_id is None:
         return True
-    return is_experiment_accessible(access, team_id, scope["experiment_id"])
+    return is_experiment_accessible(access, team_id, experiment_id)
 
 
 def scanner_for_reading_observations(team_id: int, scanner_id: "str | uuid.UUID") -> ReplayScanner | None:
@@ -243,3 +275,21 @@ def scanner_for_recording_derived_read(
     if not can_read_targeted_experiment(viewset.user_access_control, viewset.team_id, scanner):
         raise NotFound()
     return scanner
+
+
+def readable_scanner_ids_in_scope(access: UserAccessControl, team_id: int, scanner_id: uuid.UUID | None) -> list[str]:
+    """The one scanner asked for, or every scanner the caller may read observations of."""
+    # Observations expose recording-derived output, so reading them across scanners requires session_recording read.
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        raise PermissionDenied("Reading replay observations requires session_recording read access.")
+    if scanner_id is not None:
+        scanner = scanner_for_reading_observations(team_id, scanner_id)
+        # Not-found doubles as no-access so the response never leaks the scanner or its experiment.
+        if (
+            scanner is None
+            or not access.check_access_level_for_object(scanner, "viewer")
+            or not can_read_targeted_experiment(access, team_id, scanner)
+        ):
+            raise NotFound("Scanner not found.")
+        return [str(scanner.id)]
+    return [str(sid) for sid in readable_observation_scanner_ids(access, team_id)]

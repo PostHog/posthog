@@ -24,14 +24,17 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { cdpFiltersToSeries, seriesToCdpFilters } from 'scenes/hog-functions/filters/cdpFilterSeries'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
-import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, ChartDisplayCategory } from '~/types'
 
 import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
+    UsageMetricEventFilters,
     UsageMetricFiltersDataWarehouse,
     UsageMetricFormData,
     actionFilterValueToSavedFilters,
@@ -106,7 +109,10 @@ function UsageMetricsTable(): JSX.Element {
                                 label: 'Edit',
                                 onClick: () => {
                                     openModal()
-                                    setUsageMetricValues({ ...metric, filters: (metric.filters ?? {}) as FilterType })
+                                    setUsageMetricValues({
+                                        ...metric,
+                                        filters: (metric.filters ?? {}) as UsageMetricEventFilters,
+                                    })
                                     reportUsageMetricsUpdateButtonClicked()
                                 },
                                 disabledReason: restrictedReason,
@@ -258,12 +264,15 @@ function UsageMetricsForm(): JSX.Element {
                             const actionFilterValue = savedFiltersToActionFilterValue(value)
                             return (
                                 <>
-                                    <ActionFilter
+                                    <SeriesActionFilter
                                         bordered
-                                        filters={actionFilterValue}
-                                        setFilters={(payload) => {
-                                            onChange(actionFilterValueToSavedFilters(payload, source))
+                                        series={cdpFiltersToSeries(actionFilterValue)}
+                                        onChange={(series) => {
+                                            onChange(
+                                                actionFilterValueToSavedFilters(seriesToCdpFilters(series), source)
+                                            )
                                         }}
+                                        trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                         typeKey="usage-metric-filters"
                                         mathAvailability={MathAvailability.None}
                                         hideRename
@@ -280,10 +289,10 @@ function UsageMetricsForm(): JSX.Element {
                                             { key: 'timestamp_field', label: 'Timestamp column', allowHogQL: true },
                                             { key: 'key_field', label: 'Group key column' },
                                         ]}
-                                        addFilterDefaultOptions={{
-                                            id: '$pageview',
+                                        newSeriesDefaults={{
+                                            kind: NodeKind.EventsNode,
+                                            event: '$pageview',
                                             name: '$pageview',
-                                            type: EntityTypes.EVENTS,
                                         }}
                                         buttonCopy={
                                             (actionFilterValue?.events ?? []).length > 0

@@ -561,7 +561,7 @@ async fn unmap(
     // acquisition on both sides (the writer sorts its flush batches the
     // same way) makes a cycle impossible.
     let lock_persons_sql = format!(
-        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR NO KEY UPDATE",
         person_table = tables.person,
     );
     sqlx::query(&query_tag!("delete_unmap_lock_persons", lock_persons_sql))
@@ -662,8 +662,8 @@ async fn unmap(
         UPDATE {person_table} p
         SET is_deleted = true,
             properties = '{{}}'::jsonb,
-            properties_last_updated_at = '{{}}'::jsonb,
-            properties_last_operation = '{{}}'::jsonb,
+            properties_last_updated_at = NULL,
+            properties_last_operation = NULL,
             version = GREATEST(COALESCE(p.version, 0) + 1, (lop.sealed->>'version')::bigint + 1)
         FROM {lop_table} lop
         WHERE lop.op_id = $1 AND lop.status = 'sealed'

@@ -22,10 +22,12 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.constants import EventDefinitionType
-from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
+from posthog.models import ActivityLog, Organization, Tag, Team
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.taxonomy import definition_search
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventDefinition
 
 
 @time_machine.travel("2020-01-02", tick=False)
@@ -199,6 +201,16 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    def test_list_event_definitions_caps_the_limit_for_rows_and_next_link(self):
+        with patch("posthog.api.event_definition.CappedCountLimitOffsetPagination.max_limit", 2):
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=5")
+
+        body = response.json()
+        assert response.status_code == status.HTTP_200_OK, body
+        assert len(body["results"]) == 2
+        assert "offset=2" in body["next"]
+        assert "limit=2" in body["next"]
 
     @parameterized.expand(
         [
@@ -650,7 +662,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert whitespace_search_names == default_names
 
     def test_event_type_event(self):
-        action = Action.objects.create(team=self.demo_team, name="action1_app")
+        action = create_action(team=self.demo_team, name="action1_app")
 
         response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
         assert response.status_code == status.HTTP_200_OK
@@ -993,6 +1005,79 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert not ActivityLog.objects.filter(scope="EventDefinition", item_id=str(ed.id)).exists()
+
+
+class TestScoutEventDefinitionWrites(APIBaseTest):
+    def _authenticate(self, *, scout: bool) -> None:
+        application = OAuthApplication.objects.create(
+            name="Event definition scout test",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        scopes = ["event_definition:read", "event_definition:write"]
+        if scout:
+            scopes.append("signal_scout_internal:write")
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_event_definition_scout_{scout}",
+            scope=" ".join(scopes),
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+    @parameterized.expand(
+        [
+            ("tags", True, "patch", "detail", {"tags": ["governance:no-description"]}, status.HTTP_200_OK),
+            ("tags_put", True, "put", "detail", {"tags": ["governance:no-description"]}, status.HTTP_403_FORBIDDEN),
+            ("description", True, "patch", "detail", {"description": "A purchase"}, status.HTTP_403_FORBIDDEN),
+            ("tags_and_verified", True, "patch", "detail", {"tags": [], "verified": True}, status.HTTP_403_FORBIDDEN),
+            ("hidden", True, "patch", "detail", {"hidden": True}, status.HTTP_403_FORBIDDEN),
+            ("create", True, "post", "event_definitions", {"name": "new_event"}, status.HTTP_403_FORBIDDEN),
+            ("delete", True, "delete", "detail", None, status.HTTP_403_FORBIDDEN),
+            ("bulk_add", True, "post", "bulk_update_tags", {"action": "add", "tags": ["x"]}, status.HTTP_200_OK),
+            ("bulk_set", True, "post", "bulk_update_tags", {"action": "set", "tags": ["x"]}, status.HTTP_403_FORBIDDEN),
+            ("bulk_verify", True, "post", "bulk_update_verified", {"verified": True}, status.HTTP_403_FORBIDDEN),
+            ("event_schema", True, "post", "event_schemas", {}, status.HTTP_403_FORBIDDEN),
+            ("property_group", True, "post", "schema_property_groups", {"name": "Checkout"}, status.HTTP_403_FORBIDDEN),
+            ("media_preview", True, "post", "object_media_previews", {}, status.HTTP_403_FORBIDDEN),
+            ("person_delete", False, "delete", "detail", None, status.HTTP_204_NO_CONTENT),
+            (
+                "person_bulk_set",
+                False,
+                "post",
+                "bulk_update_tags",
+                {"action": "set", "tags": ["x"]},
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_scout_may_change_only_tags(
+        self, _name: str, scout: bool, method: str, target: str, body: dict | None, expected_status: int
+    ) -> None:
+        definition = EventDefinition.objects.create(team=self.team, name="purchase")
+        self._authenticate(scout=scout)
+        base = f"/api/projects/{self.team.id}"
+        path = {
+            "detail": f"{base}/event_definitions/{definition.id}/",
+            "bulk_update_tags": f"{base}/event_definitions/bulk_update_tags/",
+            "bulk_update_verified": f"{base}/event_definitions/bulk_update_verified/",
+        }.get(target, f"{base}/{target}/")
+        if target.startswith("bulk_") and body is not None:
+            body = {"ids": [str(definition.id)], **body}
+
+        response = getattr(self.client, method)(path, body)
+
+        assert response.status_code == expected_status, response.content
+        assert EventDefinition.objects.filter(id=definition.id).exists() == (
+            expected_status != status.HTTP_204_NO_CONTENT
+        )
 
 
 class TestCreateEventDefinitionsSql(SimpleTestCase):

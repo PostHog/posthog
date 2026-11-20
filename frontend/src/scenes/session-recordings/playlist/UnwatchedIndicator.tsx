@@ -7,25 +7,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { unwatchedIndicatorAriaLabel, unwatchedIndicatorTooltip } from './unwatchedIndicatorTooltip'
+
 export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: number }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const isExcludedFromHideRecordingsMenu = featureFlags[FEATURE_FLAGS.REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU]
-
-    // If person wished to be excluded from the hide recordings menu, we don't show the tooltip
-    const tooltip = isExcludedFromHideRecordingsMenu ? (
-        <span>You have not watched this recording yet.</span>
-    ) : otherViewersCount ? (
-        <span>
-            You have not watched this recording yet. {otherViewersCount} other{' '}
-            {otherViewersCount === 1 ? 'person has' : 'people have'}.
-        </span>
-    ) : (
-        <span>Nobody has watched this recording yet.</span>
-    )
+    const isExcludedFromHideRecordingsMenu = !!featureFlags[FEATURE_FLAGS.REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU]
 
     return (
-        <Tooltip title={tooltip}>
+        <Tooltip title={unwatchedIndicatorTooltip(otherViewersCount, isExcludedFromHideRecordingsMenu)}>
             <div
                 className={clsx(
                     'UnwatchedIndicator w-2 h-2 rounded-full',
@@ -35,13 +24,7 @@ export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: n
                           ? 'UnwatchedIndicator--secondary'
                           : 'UnwatchedIndicator--primary'
                 )}
-                aria-label={
-                    isExcludedFromHideRecordingsMenu
-                        ? 'unwatched-recording-by-you-label'
-                        : otherViewersCount
-                          ? 'unwatched-recording-by-you-label'
-                          : 'unwatched-recording-by-everyone-label'
-                }
+                aria-label={unwatchedIndicatorAriaLabel(otherViewersCount, isExcludedFromHideRecordingsMenu)}
             />
         </Tooltip>
     )

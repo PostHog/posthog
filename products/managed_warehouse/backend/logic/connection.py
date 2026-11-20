@@ -172,7 +172,7 @@ def _set_dynamic_source_auth(source: ExternalDataSource, *, lifecycle_generation
             "access_method",
             "direct_query_enabled",
             "connection_metadata",
-            "job_inputs",
+            *SourceInputsStore.update_fields,
             "deleted",
             "deleted_at",
             "updated_at",

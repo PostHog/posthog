@@ -1,5 +1,6 @@
 import { Client, Connection, WorkflowExecutionAlreadyStartedError } from '@temporalio/client'
 
+import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
 import { EncryptionCodec } from '~/common/temporal/codec'
 import { RawKafkaEvent } from '~/types'
 
@@ -98,26 +99,78 @@ describe('TemporalService', () => {
             })
         })
 
-        it('configures an encryption codec when a secret key is set', async () => {
-            config.TEMPORAL_SECRET_KEY = 'test-secret-key-for-codec-000000'
-            config.TEMPORAL_FALLBACK_SECRET_KEYS = 'fallback-key-one-000000000000000,fallback-key-two-000000000000000'
+        it.each([
+            {
+                name: 'configures an encryption codec when a temporal secret key is set',
+                env: {
+                    CLOUD_DEPLOYMENT: 'US',
+                    TEMPORAL_SECRET_KEY: 'test-secret-key-for-codec-000000',
+                    TEMPORAL_FALLBACK_SECRET_KEYS: 'fallback-key-one-000000000000000,fallback-key-two-000000000000000',
+                },
+                expected: { encryptionCodecs: [true] },
+            },
+            {
+                name: 'sends payloads unencrypted when no secret key is set',
+                env: {},
+                expected: { encryptionCodecs: undefined },
+            },
+            {
+                name: 'does not use SECRET_KEY as the codec key on self-hosted',
+                env: { NODE_ENV: 'production', SECRET_KEY: 'app-secret-key-not-for-temporal-00' },
+                expected: { encryptionCodecs: undefined },
+            },
+            {
+                name: 'refuses to start on cloud without a temporal secret key',
+                env: { CLOUD_DEPLOYMENT: 'US', SECRET_KEY: 'app-secret-key-not-for-temporal-00' },
+                expected: { error: expect.stringContaining('TEMPORAL_SECRET_KEY is required') },
+            },
+        ])('$name', async ({ env, expected }) => {
+            const names = [
+                'CLOUD_DEPLOYMENT',
+                'SECRET_KEY',
+                'TEMPORAL_SECRET_KEY',
+                'TEMPORAL_FALLBACK_SECRET_KEYS',
+                ...Object.keys(env),
+            ]
+            const original = Object.fromEntries(names.map((name) => [name, process.env[name]]))
+            for (const name of names) {
+                delete process.env[name]
+            }
+            Object.assign(process.env, env)
 
-            const newService = new TemporalService(config)
-            await newService.startEvaluationRunWorkflow('test', createMockEvent({ uuid: 'test-uuid' }), 'llm_judge')
+            try {
+                const startWorkflow = async (): Promise<boolean[] | undefined> => {
+                    const { TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_SECRET_KEYS } = getDefaultAIObservabilityConfig()
+                    const newService = new TemporalService({
+                        ...config,
+                        TEMPORAL_SECRET_KEY,
+                        TEMPORAL_FALLBACK_SECRET_KEYS,
+                    })
+                    await newService.startEvaluationRunWorkflow(
+                        'test',
+                        createMockEvent({ uuid: 'test-uuid' }),
+                        'llm_judge'
+                    )
+                    const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
+                    return clientOptions.dataConverter?.payloadCodecs.map(
+                        (codec: unknown) => codec instanceof EncryptionCodec
+                    )
+                }
+                const outcome = await startWorkflow().then(
+                    (encryptionCodecs) => ({ encryptionCodecs }),
+                    (error: Error) => ({ error: error.message })
+                )
 
-            const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
-            expect(clientOptions.dataConverter.payloadCodecs).toHaveLength(1)
-            expect(clientOptions.dataConverter.payloadCodecs[0]).toBeInstanceOf(EncryptionCodec)
-        })
-
-        it('sends payloads unencrypted when no secret key is set', async () => {
-            config.TEMPORAL_SECRET_KEY = undefined
-
-            const newService = new TemporalService(config)
-            await newService.startEvaluationRunWorkflow('test', createMockEvent({ uuid: 'test-uuid' }), 'llm_judge')
-
-            const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
-            expect(clientOptions.dataConverter).toBeUndefined()
+                expect(outcome).toEqual(expected)
+            } finally {
+                for (const name of names) {
+                    if (original[name] === undefined) {
+                        delete process.env[name]
+                    } else {
+                        process.env[name] = original[name]
+                    }
+                }
+            }
         })
 
         it('disconnects client properly', async () => {

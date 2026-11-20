@@ -13,21 +13,33 @@ import json
 import uuid
 import hashlib
 import threading
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from django.core.cache import cache
 
 import numpy as np
+import openai
+import anthropic
 import structlog
+from openai.types.chat import ChatCompletionContentPartParam
 
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client
+from posthog.schema import LLMDetectorModel
+
+from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import (
+    GatewayNotConfiguredError,
+    build_ai_gateway_anthropic_client,
+    build_ai_gateway_openai_client,
+    resolve_ai_gateway_config,
+)
 from posthog.tasks.alerts.detector import LLM_DETECTOR_MIN_POINTS, llm_detector_lookback
 
 from products.alerts.backend.judge.contract import (
     MAX_CONCURRENT_MODEL_CALLS,
     MAX_PROMPT_POINTS,
     JudgeAttribution,
-    LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudgment,
@@ -41,6 +53,9 @@ from products.alerts.backend.judge.prompt import (
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.llm_detector_limits import llm_detector_access_error
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 logger = structlog.get_logger(__name__)
 
 
@@ -51,16 +66,34 @@ def prompt_window(interval: str | None) -> int:
 
 MIN_POINTS_TO_JUDGE = LLM_DETECTOR_MIN_POINTS
 
-# One constant. Not exposed per alert: a per-alert model field is a cost lever we
-# don't want in the alert editor yet.
-LLM_DETECTOR_MODEL = "claude-haiku-5-5"
+# An alert with no model in its config uses this one, so alerts saved before the choice existed keep their model.
+LLM_DETECTOR_DEFAULT_MODEL = LLMDetectorModel.CLAUDE_HAIKU_5_5
 
 # Own product key in LLM analytics, so this judge's spend is separable from the
 # investigation agent's.
 LLM_DETECTOR_AI_PRODUCT = "alert_llm_detector"
 
+LLM_DETECTOR_PAUSED_SUFFIX = (
+    "This alert is still on and starts checking again once that changes. To keep it running now, "
+    "switch it to a statistical detector."
+)
+
+LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE = (
+    "This alert can't be checked because your organization has used all its AI credits. Add credits in "
+    "billing settings, or switch the alert to a statistical detector. The alert is still on and starts "
+    "checking again once credits are available."
+)
+
 # The verdict schema is a handful of fields; this only needs to cover that.
 MAX_OUTPUT_TOKENS = 1024
+
+# GPT-6 Luna is a reasoning model, and its reasoning tokens count against the completion cap. The cap leaves
+# room for that reasoning plus the verdict, so a long reasoning pass does not cut the verdict off.
+MAX_REASONING_OUTPUT_TOKENS = 4096
+
+LLM_DETECTOR_UNKNOWN_MODEL_MESSAGE = (
+    "This alert uses an AI model that is no longer available. Edit the alert and pick another model."
+)
 
 # Bounded so a stalled model call cannot spend the evaluate activity's whole budget,
 # which would kill the check before the Temporal retry gets a real attempt.
@@ -85,7 +118,7 @@ VERDICT_MEMO_TTL_SECONDS = 20 * 60
 
 
 def _verdict_memo_key(
-    series: SeriesContext, attribution: JudgeAttribution, *, data: np.ndarray, window: int
+    series: SeriesContext, attribution: JudgeAttribution, *, data: np.ndarray, window: int, model: str
 ) -> str | None:
     """The memo key for one check's verdict, or None when there is nothing to memoize.
 
@@ -108,7 +141,7 @@ def _verdict_memo_key(
                 series.instructions,
                 window,
                 earlier_flag_column(series, length=len(data), window=window),
-                LLM_DETECTOR_MODEL,
+                model,
                 PROMPT_REVISION,
                 SYSTEM_PROMPT,
             ],
@@ -116,6 +149,117 @@ def _verdict_memo_key(
         ).encode()
     )
     return f"alerts:llm_detector:verdict:{fingerprint.hexdigest()}"
+
+
+def _is_over_ai_credit_budget(team: "Team") -> bool:
+    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the facade import path
+        is_team_over_ai_credit_budget,
+    )
+
+    try:
+        return is_team_over_ai_credit_budget(team.api_token)
+    except Exception:
+        # A Redis outage must not error every AI alert of a team that has credits, so this fails open.
+        logger.warning("alerts.llm_detector.ai_credit_check_failed", team_id=team.pk, exc_info=True)
+        return False
+
+
+def _is_gateway_credit_refusal(error: Exception) -> bool:
+    # The gateway marks its own credit refusals with X-PostHog-Denial. A 402 without that header is the
+    # provider blocking the gateway's workspace, which more credits for the organization cannot fix.
+    return (
+        isinstance(error, anthropic.APIStatusError | openai.APIStatusError)
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
+
+
+@frozen
+class _ModelRequest:
+    """One model call, before it is shaped for a provider's client."""
+
+    model: str
+    trace_id: str
+    team_id: int
+    user_content: str | list[str | dict[Any, Any]]
+    extra_headers: dict[str, str]
+
+
+def _ask_anthropic(request: _ModelRequest) -> object:
+    client = build_ai_gateway_anthropic_client(
+        ai_product=LLM_DETECTOR_AI_PRODUCT, trace_id=request.trace_id, team_id=request.team_id
+    )
+    with client:
+        # One in-request retry absorbs a transient blip inside the check's own budget;
+        # the Temporal evaluate retry is the outer net.
+        response = client.with_options(max_retries=1, timeout=REQUEST_TIMEOUT_SECONDS).messages.parse(
+            model=request.model,
+            max_tokens=MAX_OUTPUT_TOKENS,
+            # No temperature: Haiku 5.5 rejects non-default sampling params with a 400. Disabled
+            # thinking is accepted only at effort "high" or below, so do not raise the effort past it.
+            thinking={"type": "disabled"},
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": request.user_content}],  # type: ignore[typeddict-item]
+            output_format=LLMDetectionVerdict,
+            extra_headers=request.extra_headers,
+        )
+    return response.parsed_output
+
+
+def _openai_content(content: str | list[str | dict[Any, Any]]) -> str | list[ChatCompletionContentPartParam]:
+    """The prompt's content blocks in the Chat Completions shape, with the chart as a data URL."""
+    if isinstance(content, str):
+        return content
+    parts: list[ChatCompletionContentPartParam] = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append({"type": "text", "text": block})
+        elif block.get("type") == "image":
+            source = block["source"]
+            parts.append(
+                {"type": "image_url", "image_url": {"url": f"data:{source['media_type']};base64,{source['data']}"}}
+            )
+        else:
+            parts.append({"type": "text", "text": block["text"]})
+    return parts
+
+
+def _ask_openai(request: _ModelRequest) -> object:
+    # Resolved the same way as the Anthropic client, so a misconfigured gateway fails both models the same way.
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    # The Anthropic client labels the generation with team_id itself. This client takes the label as a
+    # property, so the gateway charges the same team either way.
+    client = build_ai_gateway_openai_client(
+        gateway.api_key,
+        ai_product=LLM_DETECTOR_AI_PRODUCT,
+        trace_id=request.trace_id,
+        properties={"team_id": str(request.team_id)},
+    )
+    with client:
+        response = client.with_options(max_retries=1, timeout=REQUEST_TIMEOUT_SECONDS).chat.completions.parse(
+            model=request.model,
+            max_completion_tokens=MAX_REASONING_OUTPUT_TOKENS,
+            # One verdict on one point needs little reasoning, and the lowest effort keeps the call inside the
+            # check's time budget.
+            reasoning_effort="low",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": _openai_content(request.user_content)},
+            ],
+            response_format=LLMDetectionVerdict,
+            extra_headers=request.extra_headers,
+        )
+    return response.choices[0].message.parsed
+
+
+# Every model an alert can choose, and how the judge asks it. The keys must match LLMDetectorModel in the schema,
+# which is what the alert API accepts.
+LLM_DETECTOR_MODELS: dict[str, Callable[[_ModelRequest], object]] = {
+    LLMDetectorModel.CLAUDE_HAIKU_5_5.value: _ask_anthropic,
+    LLMDetectorModel.GPT_6_LUNA.value: _ask_openai,
+}
 
 
 def _memoized_verdict(memo_key: str | None) -> LLMDetectionVerdict | None:
@@ -147,10 +291,12 @@ def _memoize_verdict(memo_key: str | None, verdict: LLMDetectionVerdict) -> None
 class LLMSeriesJudge:
     """Config:
     instructions: str - the author's description of what counts as unusual (optional)
+    model: str - a key of LLM_DETECTOR_MODELS (optional, defaults to LLM_DETECTOR_DEFAULT_MODEL)
     """
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
+        self.model = str(config.get("model") or LLM_DETECTOR_DEFAULT_MODEL.value)
 
     def judge_latest(
         self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
@@ -165,7 +311,7 @@ class LLMSeriesJudge:
             fires=verdict.is_anomaly,
             kind=verdict.kind,
             rationale=verdict.rationale[:MAX_RATIONALE_CHARS],
-            model=LLM_DETECTOR_MODEL,
+            model=self.model,
         )
 
     def _ask_model(
@@ -183,12 +329,17 @@ class LLMSeriesJudge:
             distinct_id=str(attribution.user.distinct_id), organization=attribution.team.organization
         )
         if access_error:
-            raise LLMDetectorMisconfiguredError(
-                f"{access_error} This alert cannot be checked until that changes. Switch it to a statistical "
-                "detector to keep it running."
-            )
+            raise LLMDetectorPausedError(f"{access_error} {LLM_DETECTOR_PAUSED_SUFFIX}")
+        # A call that is not billable charges no credits, so only a billable call needs them.
+        if attribution.is_agent_billable and _is_over_ai_credit_budget(attribution.team):
+            raise LLMDetectorPausedError(LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE)
 
-        memo_key = _verdict_memo_key(series, attribution, data=data, window=window)
+        ask = LLM_DETECTOR_MODELS.get(self.model)
+        if ask is None:
+            # The API accepts only registered models, so this is a stored config whose model was later removed.
+            raise LLMDetectorPausedError(LLM_DETECTOR_UNKNOWN_MODEL_MESSAGE)
+
+        memo_key = _verdict_memo_key(series, attribution, data=data, window=window, model=self.model)
         memoized = _memoized_verdict(memo_key)
         if memoized is not None:
             logger.info("alerts.llm_detector.verdict_reused", is_anomaly=memoized.is_anomaly)
@@ -198,56 +349,40 @@ class LLMSeriesJudge:
         from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
         instructions_present = bool(series.instructions)
-        try:
-            client = build_ai_gateway_anthropic_client(
-                ai_product=LLM_DETECTOR_AI_PRODUCT,
-                trace_id=f"alert-llm-detector-{uuid.uuid4()}",
-                team_id=attribution.team.id,
-            )
-        except ValueError as error:
-            raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
-
         extra_headers: dict[str, str] = {}
         if not attribution.is_agent_billable:
             extra_headers["X-PostHog-Billable"] = "false"
         if is_privacy_mode_enabled(attribution.team):
             extra_headers["X-PostHog-Privacy-Mode"] = "true"
 
-        with client:
-            if not _model_call_slots.acquire(timeout=MODEL_CALL_SLOT_WAIT_SECONDS):
-                raise LLMDetectorUnavailableError(
-                    f"The AI detector is already running {MAX_CONCURRENT_MODEL_CALLS} model calls on this worker."
-                )
-            try:
-                # One in-request retry absorbs a transient blip inside the check's own budget;
-                # the Temporal evaluate retry is the outer net.
-                response = client.with_options(max_retries=1, timeout=REQUEST_TIMEOUT_SECONDS).messages.parse(
-                    model=LLM_DETECTOR_MODEL,
-                    max_tokens=MAX_OUTPUT_TOKENS,
-                    # No temperature: Haiku 5.5 rejects non-default sampling params with a 400. Disabled
-                    # thinking is accepted only at effort "high" or below, so do not raise the effort past it.
-                    thinking={"type": "disabled"},
-                    system=SYSTEM_PROMPT,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": build_human_message(data=data, context=series, window=window),  # type: ignore[typeddict-item]
-                        }
-                    ],
-                    output_format=LLMDetectionVerdict,
+        if not _model_call_slots.acquire(timeout=MODEL_CALL_SLOT_WAIT_SECONDS):
+            raise LLMDetectorUnavailableError(
+                f"The AI detector is already running {MAX_CONCURRENT_MODEL_CALLS} model calls on this worker."
+            )
+        try:
+            verdict = ask(
+                _ModelRequest(
+                    model=self.model,
+                    trace_id=f"alert-llm-detector-{uuid.uuid4()}",
+                    team_id=attribution.team.id,
+                    user_content=build_human_message(data=data, context=series, window=window),
                     extra_headers=extra_headers,
                 )
-                verdict = response.parsed_output
-            except LLM_API_EXCEPTIONS as error:
-                # Provider credentials, permissions, and model availability are shared across
-                # alerts. Disabling an individual alert cannot fix a provider failure.
-                raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
-            except Exception as error:
-                raise LLMDetectorUnavailableError(
-                    f"The AI detector could not read the model response: {error}"
-                ) from error
-            finally:
-                _model_call_slots.release()
+            )
+        except GatewayNotConfiguredError as error:
+            raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
+        except LLM_API_EXCEPTIONS as error:
+            # The in-app budget check above fails open and can read a stale budget, so the gateway's
+            # refusal is the backstop and pauses the check the same way.
+            if _is_gateway_credit_refusal(error):
+                raise LLMDetectorPausedError(LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE) from error
+            # Provider credentials, permissions, and model availability are shared across
+            # alerts. Disabling an individual alert cannot fix a provider failure.
+            raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
+        except Exception as error:
+            raise LLMDetectorUnavailableError(f"The AI detector could not read the model response: {error}") from error
+        finally:
+            _model_call_slots.release()
 
         if not isinstance(verdict, LLMDetectionVerdict):
             raise LLMDetectorUnavailableError(
@@ -256,6 +391,7 @@ class LLMSeriesJudge:
 
         logger.info(
             "alerts.llm_detector.verdict",
+            model=self.model,
             is_anomaly=verdict.is_anomaly,
             kind=verdict.kind,
             instructions_present=instructions_present,

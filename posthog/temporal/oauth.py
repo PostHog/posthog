@@ -11,15 +11,14 @@ from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import OAuthApplication
 from posthog.models.oauth import mint_oauth_access_token
 from posthog.models.team.team import Team
-from posthog.scopes import (
+from posthog.scopes.catalog import (
     API_SCOPE_OBJECTS,
-    INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
-    OAUTH_HIDDEN_SCOPE_OBJECTS,
     SCOUT_MONITORING_RESULT_SCOPE,
     SLACK_RUN_SCOPE,
-    resolve_ceiling,
 )
+from posthog.scopes.ceilings import resolve_ceiling
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
 from posthog.utils import get_instance_region
 
 from products.security.backend.facade.api import access_refused as security_access_refused
@@ -107,12 +106,13 @@ McpScopePreset = Literal[
     "signals_scout_reports",
     "signals_scout_experiment",
     "signals_research",
+    "signals_assessment",
     "signals_implementation",
 ]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 
 # Granted only to sandbox runs a person started by hand (see `interactive_run` in
-# posthog/scopes.py). Kept out of `INTERNAL_SCOPES` so a scheduled run never carries it.
+# posthog/scopes/exposure.py). Kept out of `INTERNAL_SCOPES` so a scheduled run never carries it.
 INTERACTIVE_RUN_SCOPE = "interactive_run:read"
 
 
@@ -228,6 +228,15 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          written to the task's activity history. An update can reassign a task
 #                          to any member of the project, so the scout's body has to say whose
 #                          tasks it tends.
+#   account_note:write     Every note on every Customer analytics account in the scout's project:
+#                          create, and replace its tags. It reaches nothing else on the account
+#                          (name, properties, relationships), which stay on `account:write`. A note
+#                          a scout writes or retags here is tagged `scout` and `scout-<skill name>`
+#                          server-side, a scout cannot remove those tags, and the account notes API
+#                          refuses a scout's delete (`products/customer_analytics/backend/
+#                          presentation/scout_notes.py`). An account note is also a notebook, so
+#                          the default `notebook:write` still edits and soft-deletes one through
+#                          the notebooks API, without the scout tags.
 #   hog_flow_proposal:write
 #                          Queue a suggested change on a workflow whose owner opted in, for a
 #                          person to approve or reject. Deliberately not `hog_flow:write`, which
@@ -265,6 +274,15 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          rollout. The extra scopes in `dangerously_get_required_scopes` still
 #                          apply, so the grant alone cannot disable a flag on archive or set the
 #                          team default repository. It can also create an exposure cohort.
+#   event_definition:write Tags on every event definition in the scout's project, and nothing
+#                          else. The scope object also covers creating, describing, verifying,
+#                          hiding, and deleting a definition, its owner and schema enforcement, and
+#                          the property groups and media previews attached to it. Delete is
+#                          PERMANENT and a schema can make ingestion reject events, so
+#                          `posthog/taxonomy/scout_writes.py` refuses all of that for scouts. A
+#                          PATCH may carry `tags` alone, and it replaces the whole list, so a scout
+#                          reads the current tags first. A bulk tag change may add or remove, but
+#                          not set. Every change is in the definition's activity history.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -287,6 +305,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "annotation:write",
         "alert:write",
         "customer_task:write",
+        "account_note:write",
         "llm_skill:write",
         "warehouse_view:write",
         "warehouse_table:write",
@@ -295,6 +314,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "ticket:write",
         "canvas:write",
         "experiment:write",
+        "event_definition:write",
     }
 )
 
@@ -307,7 +327,7 @@ SCOUT_DEFAULT_WRITE_SCOPES: frozenset[str] = frozenset({"notebook:write"})
 # Derived from posthog.scopes so the token issued to a sandboxed agent cannot
 # drift out of subset of what the MCP server advertises in
 # `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
-# `get_oauth_scopes_supported()` via `posthog/scopes_projection.py`). Scopes
+# `OAUTH_SCOPES_SUPPORTED` via `posthog/scopes_projection.py`). Scopes
 # already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
 # emit duplicates.
 def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
@@ -456,13 +476,13 @@ def resolve_scopes(
             # writes code and logs its work on the report, so the scratchpad adds reach into
             # one more surface rather than a new class of capability.
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal, *scratchpad]
-        elif scopes == "signals_research":
+        elif scopes in {"signals_research", "signals_assessment"}:
             # The report research run: reads, plus durable memory, and nothing else. See
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` and `inbox:write` come back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             if include_internal_scopes:
                 reads.append("signal_scout_internal:read")
-            resolved = [*reads, *scratchpad]
+            resolved = [*reads, *(scratchpad if scopes == "signals_research" else [])]
         elif scopes == "signals_scout_experiment":
             # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
             reads = [

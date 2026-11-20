@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -31,6 +31,7 @@ export interface endpointLogicValues {
     endpoint: EndpointVersionType | null
     endpointDescription: string | null
     endpointLoading: boolean
+    endpointMissing: boolean
     endpointName: string | null
     isUpdateMode: boolean
     materializationStatus: EndpointType['materialization'] | null
@@ -145,6 +146,9 @@ export interface endpointLogicActions {
     setEndpointDescription: (endpointDescription: string | null) => {
         endpointDescription: string | null
     }
+    setEndpointMissing: () => {
+        value: true
+    }
     setEndpointName: (endpointName: string) => {
         endpointName: string
     }
@@ -248,6 +252,7 @@ export const endpointLogic = kea<endpointLogicType>([
         deleteEndpointFailure: (errorObject?: any) => ({ errorObject }),
         confirmToggleActive: (endpoint: EndpointType) => ({ endpoint }),
         saveTagsInline: (tags: string[]) => ({ tags }),
+        setEndpointMissing: true,
     }),
     reducers({
         endpointName: [null as string | null, { setEndpointName: (_, { endpointName }) => endpointName }],
@@ -309,6 +314,13 @@ export const endpointLogic = kea<endpointLogicType>([
                 loadEndpoint: () => [],
             },
         ],
+        endpointMissing: [
+            false,
+            {
+                loadEndpoint: () => false,
+                setEndpointMissing: () => true,
+            },
+        ],
         // Extend the loader reducer to clear on action
         materializationStatus: [
             null as EndpointType['materialization'] | null,
@@ -325,7 +337,15 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
-                    return await api.endpoint.get(name)
+                    try {
+                        return await api.endpoint.get(name)
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 404) {
+                            actions.setEndpointMissing()
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],

@@ -4,17 +4,14 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { PushRound, pushRoundColor, pushRoundVerdictLabel } from '../lib/pushRounds'
 
 export interface PushHistorySparklineProps {
-    /** CI rounds oldest first — one bar per push. */
+    /** Oldest first. */
     rounds: PushRound[]
-    /** Accessible name for the chart (role="img"); screen readers can't read the per-bar titles. */
     ariaLabel?: string
-    /** Minimum bar slots; fewer pushes right-align as narrow bars instead of stretching fat. */
+    /** Fewer pushes than this right-align as narrow bars instead of stretching. */
     minSlots?: number
     className?: string
 }
 
-// Same unit-grid-on-a-dotted-baseline language as FailureSparkline, but each bar is one push:
-// height = that push's wall-clock CI time (scaled to the slowest push), color = its verdict.
 const VIEW_HEIGHT = 100
 const BASELINE_Y = 96
 const TOP_PAD = 6
@@ -22,11 +19,6 @@ const TOP_PAD = 6
 const MIN_BAR_HEIGHT = 10
 const BAR_INSET = 0.18
 
-/**
- * Push-history sparkline: one bar per CI round on a PR, oldest first. Bar height reads as "how long
- * CI took on that push", color as "did it go red". Renders nothing without rounds, so callers can
- * drop it in unconditionally.
- */
 export function PushHistorySparkline({
     rounds,
     ariaLabel = 'Push CI history',

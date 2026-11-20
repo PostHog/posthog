@@ -7,15 +7,16 @@ import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-ana
 import type { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
 import { initKeaTests } from '~/test/init'
 
-import { defaultOverviewMetricConfiguration, overviewMetricsForGroup } from './overviewMetricConfiguration'
+import { moveOverviewMetric, shownOverviewMetrics, toggleOverviewMetric } from './overviewMetricConfiguration'
 import { overviewMetricsLogic } from './overviewMetricsLogic'
 
-const items: OverviewMetricCardItem[] = [
-    { key: 'Cost', value: 100, kind: 'currency' },
-    { key: 'Clicks', value: 200, kind: 'unit' },
-    { key: 'Trial started', value: 20, kind: 'unit' },
-    { key: 'Cost Per Trial started', value: 5, kind: 'currency' },
-]
+const platformItems: OverviewMetricCardItem[] = ['Cost', 'Clicks', 'Impressions', 'CPC', 'CTR', 'Reported ROAS'].map(
+    (key) => ({ key, value: 1, kind: 'unit' })
+)
+const posthogItems: OverviewMetricCardItem[] = ['Trial started', 'Cost Per Trial started', 'Demo booked'].map(
+    (key) => ({ key, value: 1, kind: 'unit' })
+)
+const items = [...platformItems, ...posthogItems]
 
 describe('overview metric configuration', () => {
     beforeEach(() => {
@@ -23,99 +24,99 @@ describe('overview metric configuration', () => {
         initKeaTests()
     })
 
-    it('discards canceled edits and persists applied visibility, order, and collapsed groups for the view', () => {
+    it('discards canceled edits and persists the applied selection for the view only', () => {
         const logic = overviewMetricsLogic({ viewKey: 'ad-performance' })
         const unmount = logic.mount()
-        logic.actions.configureMetrics(logic.values.configuration)
-        logic.actions.updateDraftGroup('platforms', { hidden: ['Cost'], order: ['Clicks', 'Cost'] })
-        expect(logic.values.configuration.platforms.hidden).toEqual([])
-        logic.actions.closeConfiguration()
-        expect(logic.values.configuration.platforms.hidden).toEqual([])
-        logic.actions.configureMetrics(logic.values.configuration)
-        logic.actions.updateDraftGroup('platforms', { hidden: ['Cost'], order: ['Clicks', 'Cost'] })
-        logic.actions.applyConfiguration(logic.values.draftConfiguration!)
-        logic.actions.setGroupCollapsed('posthog', true)
-        const saved = logic.values.configuration
+        logic.actions.openEditor()
+        logic.actions.setDraftSelection(['Cost'])
+        logic.actions.closeEditor()
+        expect(logic.values.selection).toBeNull()
+        logic.actions.openEditor()
+        expect(logic.values.draftSelection).toBeNull()
+        logic.actions.setDraftSelection(['Clicks', 'Cost', 'Trial started'])
+        logic.actions.applySelection(logic.values.draftSelection!)
+        expect(logic.values.editorOpen).toBe(false)
         unmount()
         const restored = overviewMetricsLogic({ viewKey: 'ad-performance' })
         const unmountRestored = restored.mount()
-        expect(restored.values.configuration).toEqual(saved)
-        expect(restored.values.draftConfiguration).toBeNull()
+        expect(restored.values.selection).toEqual(['Clicks', 'Cost', 'Trial started'])
+        expect(restored.values.draftSelection).toBeNull()
         expect(
             JSON.parse(
                 localStorage.getItem(
-                    `${MOCK_TEAM_ID}__.products.marketingAnalytics.overviewMetricsLogic.ad-performance.configuration`
+                    `${MOCK_TEAM_ID}__.products.marketingAnalytics.overviewMetricsLogic.ad-performance.selection`
                 )!
             )
-        ).toEqual(saved)
+        ).toEqual(['Clicks', 'Cost', 'Trial started'])
         const anotherView = overviewMetricsLogic({ viewKey: 'another-view' })
         const unmountOther = anotherView.mount()
-        expect(anotherView.values.configuration).toEqual(defaultOverviewMetricConfiguration())
+        expect(anotherView.values.selection).toBeNull()
         unmountOther()
         unmountRestored()
     })
 
-    it.each([
-        ['none', [], []],
-        ['platforms', ['Cost'], []],
-        ['posthog', [], ['Trial started']],
-        ['both', ['Cost'], ['Trial started']],
-    ])(
-        'reports %s when applying with those groups hidden, and nothing on cancel',
-        async (value, platforms, posthogHidden) => {
-            const logic = overviewMetricsLogic({ viewKey: 'ad-performance' })
-            const unmount = logic.mount()
-            logic.actions.configureMetrics(logic.values.configuration)
-            logic.actions.updateDraftGroup('platforms', { hidden: platforms })
-            logic.actions.updateDraftGroup('posthog', { hidden: posthogHidden })
-            await expectLogic(logic, () => logic.actions.closeConfiguration()).toNotHaveDispatchedActions([
-                'reportDashboardControlUsed',
-            ])
-            logic.actions.configureMetrics(logic.values.configuration)
-            logic.actions.updateDraftGroup('platforms', { hidden: platforms })
-            logic.actions.updateDraftGroup('posthog', { hidden: posthogHidden })
-            await expectLogic(logic, () =>
-                logic.actions.applyConfiguration(logic.values.draftConfiguration!)
-            ).toDispatchActions([
-                marketingAnalyticsLogic.actionCreators.reportDashboardControlUsed(
-                    'overview',
-                    'metric_configuration_applied',
-                    value
-                ),
-            ])
-            unmount()
-        }
-    )
-
-    it('keeps platform metrics separate, appends new goals, and drops removed metrics from saved ordering', () => {
-        const configuration = defaultOverviewMetricConfiguration()
-        configuration.platforms.order = ['Clicks', 'Cost']
-        configuration.posthog.order = ['Removed goal', 'Cost Per Trial started', 'Trial started']
-        expect(overviewMetricsForGroup(items, 'platforms', configuration).map((item) => item.key)).toEqual([
-            'Clicks',
+    it('toggles and moves metrics, ignoring additions past five', () => {
+        const five = ['Cost', 'Clicks', 'Impressions', 'CPC', 'CTR']
+        expect(toggleOverviewMetric(five, 'Trial started')).toEqual(five)
+        expect(toggleOverviewMetric(toggleOverviewMetric(five, 'CTR'), 'Trial started')).toEqual([
             'Cost',
+            'Clicks',
+            'Impressions',
+            'CPC',
+            'Trial started',
         ])
-        expect(
-            overviewMetricsForGroup(
-                [...items, { key: 'New goal', value: 10, kind: 'unit' }],
-                'posthog',
-                configuration
-            ).map((item) => item.key)
-        ).toEqual(['Cost Per Trial started', 'Trial started', 'New goal'])
+        expect(moveOverviewMetric(five, 'Clicks', -1).slice(0, 2)).toEqual(['Clicks', 'Cost'])
+        expect(moveOverviewMetric(five, 'Cost', -1)).toEqual(five)
     })
 
-    it('resets a saved hidden section without changing it until Apply', () => {
+    it.each([
+        ['none', ['Cost', 'Trial started']],
+        ['posthog', ['Cost', 'Clicks']],
+        ['platforms', ['Trial started']],
+    ])('reports %s hidden when applying that selection, and nothing on cancel', async (value, selection) => {
         const logic = overviewMetricsLogic({ viewKey: 'ad-performance' })
         const unmount = logic.mount()
-        const configuration = defaultOverviewMetricConfiguration()
-        configuration.platforms = { hidden: ['Cost', 'Clicks'], order: ['Clicks', 'Cost'], collapsed: true }
-        logic.actions.applyConfiguration(configuration)
-        logic.actions.configureMetrics(logic.values.configuration)
-        logic.actions.resetDraft()
-        expect(logic.values.configuration.platforms.collapsed).toBe(true)
-        expect(logic.values.draftConfiguration).toEqual(defaultOverviewMetricConfiguration())
-        logic.actions.applyConfiguration(logic.values.draftConfiguration!)
-        expect(logic.values.configuration).toEqual(defaultOverviewMetricConfiguration())
+        logic.actions.openEditor()
+        logic.actions.setDraftSelection(selection)
+        await expectLogic(logic, () => logic.actions.closeEditor()).toNotHaveDispatchedActions([
+            'reportDashboardControlUsed',
+        ])
+        await expectLogic(logic, () => logic.actions.applySelection(selection)).toDispatchActions([
+            marketingAnalyticsLogic.actionCreators.reportDashboardControlUsed(
+                'overview',
+                'metric_configuration_applied',
+                value
+            ),
+        ])
         unmount()
+    })
+
+    it.each([
+        [
+            'defaults to three platform and two PostHog metrics',
+            items,
+            null,
+            ['Cost', 'Clicks', 'Impressions', 'Trial started', 'Cost Per Trial started'],
+        ],
+        [
+            'defaults to five platform metrics without goals',
+            platformItems,
+            null,
+            ['Cost', 'Clicks', 'Impressions', 'CPC', 'CTR'],
+        ],
+        [
+            'keeps the saved order and drops removed goals',
+            items,
+            ['Removed goal', 'Demo booked', 'Cost'],
+            ['Demo booked', 'Cost'],
+        ],
+        [
+            'falls back to the default when no saved metric remains',
+            platformItems,
+            ['Removed goal'],
+            ['Cost', 'Clicks', 'Impressions', 'CPC', 'CTR'],
+        ],
+    ])('%s', (_, available, selection, expected) => {
+        expect(shownOverviewMetrics(available, selection).map((item) => item.key)).toEqual(expected)
     })
 })

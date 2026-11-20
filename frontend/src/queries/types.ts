@@ -16,10 +16,13 @@ import { InsightLogicProps, TrendResult } from '~/types'
 
 import { ColumnFeature } from './nodes/DataTable/DataTable'
 import { DataTableRow } from './nodes/DataTable/dataTableLogic'
+import { SampleRowsSource } from './nodes/DataTable/sampleRows'
 import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    onLoadingChange?: (loading: boolean) => void
+    externalLoadingIndicator?: boolean
     onSelectBIMark?: (record: Record<string, unknown>) => void
     isBIMarkActiveFilter?: (record: Record<string, unknown>) => boolean
     getBIMarkDashboardUrl?: (record: Record<string, unknown>) => string
@@ -42,6 +45,11 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     emptyStateDetail?: string | JSX.Element
     emptyStateIcon?: JSX.Element
     renderEmptyStateAsSkeleton?: boolean
+    /**
+     * Fills the sample-data card of an empty data table with invented values for the table's columns, before
+     * the project ingests its first event. Without it, the card shows its own made-up rows.
+     */
+    dataTableSampleRows?: SampleRowsSource
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**
      * Displayed in insight tooltip's "Click to view {groupTypeLabel}".
@@ -73,11 +81,15 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableMaxPaginationLimit?: number
     /** Stop Data Table pagination after this many accumulated rows. */
     dataTableMaxPaginationRows?: number
+    dataTableCaptureQueryTelemetry?: boolean
+    dataTableRenderPlainText?: boolean
     /** Keep the Data Table toolbar fixed while its table content scrolls. */
     dataTableAllowContentScroll?: boolean
     /** Virtualize rows in an embedded SQL result table with a bounded height. */
     dataVisualizationTableVirtualized?: boolean
     dataVisualizationTableVirtualizationCellThreshold?: number
+    /** Sort a Data Table column with one header click, besides the column menu. */
+    dataTableSortOnHeaderClick?: boolean
     /** Keep the Data Table header row visible while the page scrolls. See `LemonTable`'s `stickyHeader`. */
     dataTableStickyHeader?: boolean
     /** Override the nouns used by Data Table counts and pagination. */
@@ -85,6 +97,11 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Expected total row count from another source. The footer shows "X of Y" when all rows are loaded and the counts differ. */
     dataTableExpectedTotalRows?: number
     compactDataTableToolbar?: boolean
+    dataTableToolbarClassName?: string
+    /** Rendered between the toolbar and the results table, e.g. a chart scoped by the toolbar's filters. */
+    dataTableBelowToolbar?: ReactNode
+    dataTableExportIconOnly?: boolean
+    dataTableHideLoadNextWhenComplete?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>

@@ -1,7 +1,10 @@
+from dataclasses import replace
 from uuid import uuid4
 
 import pytest
 from unittest.mock import patch
+
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -91,7 +94,10 @@ async def test_startup_failure_is_durable_when_notification_delivery_fails(ateam
     "charts_enabled,charts,expected_chart_count",
     [(True, [CHART_PAYLOAD], 1), (False, None, 0)],
 )
-async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, charts, expected_chart_count):
+@pytest.mark.parametrize("preserve_pending", [False, True])
+async def test_started_and_ready_fire_expected_captures(
+    ateam, charts_enabled, charts, expected_chart_count, preserve_pending
+):
     driver = uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -99,30 +105,39 @@ async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, c
         signal_count=2,
         total_weight=1.2,
         triggering_signal_id=driver,
+        pending_triggering_signal_id=driver,
     )
     report_id = str(report.id)
     source_products = ["conversations", "zendesk"]
 
+    environment = ActivityEnvironment()
+    environment.info = replace(environment.info, workflow_run_id="example-workflow-run")
     with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
-        await mark_report_in_progress_activity(
+        await environment.run(
+            mark_report_in_progress_activity,
             MarkReportInProgressInput(
                 team_id=ateam.id,
                 report_id=report_id,
                 signal_count=2,
                 source_products=source_products,
-            )
+                preserve_pending_refresh=preserve_pending,
+            ),
         )
-        await mark_report_ready_activity(
+        await database_sync_to_async(report.refresh_from_db)()
+        assert (report.pending_triggering_signal_id == driver) is preserve_pending
+        await environment.run(
+            mark_report_ready_activity,
             MarkReportReadyInput(
                 team_id=ateam.id,
                 report_id=report_id,
                 title="title",
                 summary="summary",
                 processed_signal_count=2,
+                processed_pending_signal_id=str(driver) if preserve_pending else None,
                 source_products=source_products,
                 charts=charts,
                 charts_enabled=charts_enabled,
-            )
+            ),
         )
 
     # Model-level signal_report_status_changed labels ride the same analytics client; this test
@@ -132,6 +147,7 @@ async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, c
     for e in events:
         assert e["distinct_id"] == str(ateam.uuid)
         assert e["properties"]["report_id"] == report_id
+        assert e["properties"]["workflow_run_id"] == "example-workflow-run"
         assert e["properties"]["signal_count"] == 2
         assert e["properties"]["source_products"] == source_products
         assert "run_count" in e["properties"]
@@ -152,10 +168,11 @@ async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, c
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_failed_fires_completed_with_failure_reason(ateam):
+@pytest.mark.parametrize("initial_status", [SignalReport.Status.IN_PROGRESS, SignalReport.Status.CANDIDATE])
+async def test_failed_fires_completed_with_failure_reason(ateam, initial_status):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
+        status=initial_status,
         signal_count=3,
         total_weight=2.0,
     )
@@ -182,6 +199,9 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
     assert kwargs["properties"]["signal_count"] == 3
     assert kwargs["properties"]["source_products"] == ["zendesk"]
+    await report.arefresh_from_db()
+    assert report.status == SignalReport.Status.FAILED
+    assert report.error == "Failed safety review: contains PII"
 
 
 @pytest.mark.asyncio
@@ -288,6 +308,80 @@ async def test_ready_is_idempotent_after_partial_commit(ateam, preexisting_statu
     assert refreshed.status == preexisting_status
     assert refreshed.title == "existing title"
     assert refreshed.summary == "existing summary"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "report_status",
+    [
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.POTENTIAL,
+        SignalReport.Status.CLOSED,
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.DELETED,
+    ],
+)
+@pytest.mark.parametrize("outcome", ["ready", "pending_input", "potential", "failed"])
+async def test_research_completion_preserves_user_status(
+    ateam: Team, report_status: SignalReport.Status, outcome: str
+) -> None:
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        title="Existing title",
+        summary="Existing summary",
+        error="Existing reason",
+        signal_count=3,
+        total_weight=2.0,
+        run_count=1,
+    )
+    if report_status in (SignalReport.Status.SUPPRESSED, SignalReport.Status.POTENTIAL):
+        updated_fields = report.transition_to(report_status, snooze_for=5)
+        await database_sync_to_async(report.save)(update_fields=updated_fields)
+    else:
+        await SignalReport.objects.filter(id=report.id).aupdate(status=report_status)
+    original = await SignalReport.objects.values().aget(id=report.id)
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
+        match outcome:
+            case "ready":
+                has_new_signals = await mark_report_ready_activity(
+                    MarkReportReadyInput(
+                        team_id=ateam.id,
+                        report_id=report_id,
+                        title="New title",
+                        summary="New summary",
+                        processed_signal_count=1,
+                        charts=[CHART_PAYLOAD],
+                    )
+                )
+                assert has_new_signals is None
+            case "pending_input":
+                await mark_report_pending_input_activity(
+                    MarkReportPendingInput(
+                        team_id=ateam.id,
+                        report_id=report_id,
+                        title="New title",
+                        summary="New summary",
+                        reason="New reason",
+                        charts=[CHART_PAYLOAD],
+                        note="Research needs input",
+                    )
+                )
+            case "potential":
+                await reset_report_to_potential_activity(
+                    ResetReportToPotentialInput(team_id=ateam.id, report_id=report_id, reason="New reason")
+                )
+            case "failed":
+                await mark_report_failed_activity(
+                    MarkReportFailedInput(team_id=ateam.id, report_id=report_id, error="Research failed")
+                )
+
+    assert await SignalReport.objects.values().aget(id=report.id) == original
+    assert not await SignalReportArtefact.objects.filter(report_id=report.id).aexists()
+    capture.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -460,23 +554,27 @@ def _seed_check_lane(team: Team) -> None:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("run_count", "processed_signal_count", "signal_count", "expected_loop", "has_pending_driver"),
+    ("run_count", "processed_signal_count", "signal_count", "expected_loop", "has_pending_driver", "pending_processed"),
     [
         # Signals landed mid-run and carried the report to its next bucket: loop rather than make
         # them wait for a signal that arrives after the run.
-        (1, 1, 2, True, True),
-        (1, 1, 9, True, True),
-        (1, 1, 2, True, False),
+        (1, 1, 2, True, True, False),
+        (1, 1, 9, True, True, False),
+        (1, 1, 2, True, False, False),
         # Signals landed but the report is still short of its next bucket, so the run settles.
-        (2, 2, 3, False, False),
-        (3, 4, 9, False, False),
+        (2, 2, 3, False, False, False),
+        (3, 4, 9, False, False, False),
+        (3, 4, 5, True, True, False),
+        (4, 10, 11, True, True, False),
+        (2, 4, 4, False, True, True),
+        (2, 4, 5, False, True, True),
         # No new signals at all.
-        (2, 2, 2, False, False),
+        (2, 2, 2, False, False, False),
         # This pass covered the last bucket: the report stays READY however far past it grew.
-        (4, 10, 15, False, False),
+        (4, 10, 15, False, False, False),
         # Attempts are not passes: a report whose run_count was spent on runs that paused before
         # researching still loops when this pass leaves it at a bucket.
-        (9, 1, 2, True, True),
+        (9, 1, 2, True, True, False),
     ],
 )
 async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
@@ -486,6 +584,7 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     signal_count: int,
     expected_loop: bool,
     has_pending_driver: bool,
+    pending_processed: bool,
 ) -> None:
     driver, pending_driver = uuid4(), uuid4()
     await database_sync_to_async(_seed_check_lane)(ateam)
@@ -508,6 +607,7 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
                 title="title",
                 summary="summary",
                 processed_signal_count=processed_signal_count,
+                processed_pending_signal_id=str(pending_driver) if pending_processed else None,
                 source_products=["zendesk"],
                 checks=[
                     {
@@ -529,7 +629,7 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
     expected_status = SignalReport.Status.CANDIDATE if expected_loop else SignalReport.Status.READY
     assert refreshed.status == expected_status
-    assert refreshed.triggering_signal_id == (pending_driver if has_pending_driver else driver)
+    assert refreshed.triggering_signal_id == (pending_driver if has_pending_driver and expected_loop else driver)
     # Stamped by the pass that just completed, so the next bucket is measured against what this run
     # actually covered rather than against how many times the workflow has started.
     assert refreshed.signals_researched == processed_signal_count

@@ -4,10 +4,11 @@ import re
 import json
 import uuid
 from datetime import timedelta
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -20,7 +21,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.models import PropertyDefinition
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
     get_person_ids_and_uuids_by_uuids,
@@ -32,6 +32,7 @@ from posthog.storage import object_storage
 
 from products.access_control.backend.property_access_control import get_non_writable_property_names
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import PeopleImportInvalid, PeopleImportSummary
 
 logger = get_logger(__name__)
@@ -88,6 +89,8 @@ class StagedPerson(TypedDict):
 
     distinct_id: str
     properties: dict[str, str]
+    # Only fills properties the person doesn't have yet.
+    fill_only: NotRequired[bool]
 
 
 @frozen
@@ -99,7 +102,25 @@ class _CleanedRows:
     dropped_too_large: int
 
 
-def start_people_import(*, team: Team, user: User | None, name: str, rows: list[dict[str, str]]) -> PeopleImportSummary:
+def start_people_import(
+    *,
+    team: Team,
+    user: User | None,
+    name: str,
+    rows: list[dict[str, str]],
+    cohort_id: int | None = None,
+    create_missing: bool = True,
+    send_events: bool = True,
+    fill_only: bool = False,
+) -> PeopleImportSummary:
+    """Create or update a person per row, then add them to a new static cohort called `name`, or to `cohort_id`.
+
+    Without `create_missing`, a row no person matches is left out instead of becoming a new person. Without
+    `send_events`, the import only fills the cohort: another import of the same rows creates and updates the people.
+    With `fill_only`, a person keeps the values they have, and the import sets only the properties they lack.
+    """
+    if cohort_id is None and not create_missing:
+        raise ValueError("An import that leaves out new people adds the rest to an existing cohort.")
     if len(rows) > MAX_PEOPLE_IMPORT_ROWS:
         raise PeopleImportInvalid(
             f"This file has {len(rows):,} rows. A file can have up to {MAX_PEOPLE_IMPORT_ROWS:,}."
@@ -110,54 +131,107 @@ def start_people_import(*, team: Team, user: User | None, name: str, rows: list[
         raise PeopleImportInvalid("No row has a valid email address.")
     _check_writable_columns(team, user, cleaned.columns)
 
-    distinct_ids = _resolve_distinct_ids(team, user, cleaned.rows)
+    resolved_people = _resolve_distinct_ids(team, user, cleaned.rows)
+    distinct_ids = resolved_people.distinct_ids
+    person_emails = tuple(sorted({spelling for spelled in resolved_people.spellings.values() for spelling in spelled}))
     people: list[StagedPerson] = []
     seen_distinct_ids: set[str] = set()
     dropped_duplicate_distinct_id = 0
+    skipped_new_people = 0
     for row, distinct_id in zip(cleaned.rows, distinct_ids):
+        if distinct_id is None and not create_missing:
+            skipped_new_people += 1
+            continue
         # A row with no person yet becomes one, keyed by the CSV's distinct_id or else its email.
         resolved = distinct_id or row["email"]
         if resolved in seen_distinct_ids:
             dropped_duplicate_distinct_id += 1
             continue
         seen_distinct_ids.add(resolved)
-        people.append({"distinct_id": resolved, "properties": row})
+        people.append(
+            {"distinct_id": resolved, "properties": row, "fill_only": True}
+            if fill_only
+            else {"distinct_id": resolved, "properties": row}
+        )
 
+    if not people:
+        # Every row was left out, so there is nothing to send and the cohort stays as it is.
+        assert cohort_id is not None
+        return PeopleImportSummary(
+            cohort_id=cohort_id,
+            row_count=0,
+            new_people=0,
+            columns=cleaned.columns,
+            dropped_invalid_email=cleaned.dropped_invalid_email,
+            dropped_duplicate_email=cleaned.dropped_duplicate_email,
+            dropped_too_large=cleaned.dropped_too_large,
+            skipped_new_people=skipped_new_people,
+            person_emails=person_emails,
+        )
     existing = existing_distinct_ids(team.id, [person["distinct_id"] for person in people])
-    cohort = Cohort.objects.create(team_id=team.id, name=name, is_static=True, is_calculating=True, created_by=user)
-    storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{cohort.pk}-{uuid.uuid4()}.json"
+    target_id = _start_filling(team, user, name, cohort_id)
+    storage_key = f"{_STORAGE_FOLDER}/team-{team.id}/{target_id}-{uuid.uuid4()}.json"
 
     # The task module imports this one, so a module-level import would be circular.
     from products.workflows.backend.tasks.people_import import (  # noqa: PLC0415
         capture_people_import,
         fail_people_import_if_stalled,
+        schedule_people_import_fill,
     )
 
     try:
         object_storage.write(storage_key, json.dumps(people))
-        capture_people_import.delay(team_id=team.id, cohort_id=cohort.pk, storage_key=storage_key)
-        # A worker that dies mid-task, or a task that can't schedule the next one, leaves the cohort calculating.
-        # The stuck-cohort sweep resets an uploaded cohort only after SOURCELESS_STATIC_COHORT_STUCK_AFTER. The sweep
-        # does not delete the stored rows. This check ends the import sooner and deletes them.
+        # Scheduled before the caller commits, so the stored rows are deleted even when its transaction rolls back
+        # or the dispatch below never runs. A worker that dies mid-task leaves the cohort calculating too, and the
+        # stuck-cohort sweep resets an uploaded cohort only after SOURCELESS_STATIC_COHORT_STUCK_AFTER without
+        # deleting the rows.
         fail_people_import_if_stalled.apply_async(
-            kwargs={"team_id": team.id, "cohort_id": cohort.pk, "storage_key": storage_key},
+            kwargs={"team_id": team.id, "cohort_id": target_id, "storage_key": storage_key},
             countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
         )
     except Exception:
-        # No task would finish this cohort. The stuck-cohort sweep would leave it calculating until
-        # SOURCELESS_STATIC_COHORT_STUCK_AFTER passes.
-        fail_people_import(team.id, cohort.pk, storage_key)
+        fail_people_import(team.id, target_id, storage_key)
         raise
 
+    def dispatch() -> None:
+        try:
+            if send_events:
+                capture_people_import.delay(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
+            else:
+                schedule_people_import_fill(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
+        except Exception:
+            # No task would finish this cohort. The stuck-cohort sweep would leave it calculating until
+            # SOURCELESS_STATIC_COHORT_STUCK_AFTER passes.
+            fail_people_import(team.id, target_id, storage_key)
+            raise
+
+    # A caller's transaction can still roll back the cohort, and events sent before that can't be taken back.
+    transaction.on_commit(dispatch)
+
     return PeopleImportSummary(
-        cohort_id=cohort.pk,
+        cohort_id=target_id,
         row_count=len(people),
         new_people=sum(1 for person in people if person["distinct_id"] not in existing),
         columns=cleaned.columns,
         dropped_invalid_email=cleaned.dropped_invalid_email,
         dropped_duplicate_email=cleaned.dropped_duplicate_email + dropped_duplicate_distinct_id,
         dropped_too_large=cleaned.dropped_too_large,
+        skipped_new_people=skipped_new_people,
+        person_emails=person_emails,
     )
+
+
+def _start_filling(team: Team, user: User | None, name: str, cohort_id: int | None) -> int:
+    """The cohort the import fills, marked as calculating until the import adds its people."""
+    if cohort_id is None:
+        return Cohort.objects.create(
+            team_id=team.id, name=name, is_static=True, is_calculating=True, created_by=user
+        ).pk
+    if not Cohort.objects.filter(team_id=team.id, pk=cohort_id, is_static=True, deleted=False).update(
+        is_calculating=True
+    ):
+        raise PeopleImportInvalid("The cohort for this import was deleted or isn't static anymore.")
+    return cohort_id
 
 
 def read_people(storage_key: str) -> list[StagedPerson]:
@@ -181,7 +255,8 @@ def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
 
 
 def fail_stalled_people_import(team_id: int, cohort_id: int, storage_key: str) -> bool:
-    if not Cohort.objects.filter(pk=cohort_id, team_id=team_id, is_calculating=True).exists():
+    # A finished import deletes its rows. Checking them, not the cohort, leaves a later import of the cohort alone.
+    if object_storage.read(storage_key, missing_ok=True) is None:
         return False
     fail_people_import(team_id, cohort_id, storage_key)
     return True
@@ -279,27 +354,47 @@ def _check_writable_columns(team: Team, user: User | None, columns: list[str]) -
         )
 
 
-def _resolve_distinct_ids(team: Team, user: User | None, rows: list[dict[str, str]]) -> list[str | None]:
+@frozen
+class _ResolvedPeople:
+    # The distinct ID each row writes to, or None for a row no person matches.
+    distinct_ids: list[str | None]
+    # How the people that rows matched by email spell that email, by lowercased email.
+    spellings: dict[str, tuple[str, ...]]
+
+
+def _resolve_distinct_ids(team: Team, user: User | None, rows: list[dict[str, str]]) -> _ResolvedPeople:
     """The distinct ID each row writes to: its own column first, then an existing person with the email."""
     emails = [row["email"].lower() for row in rows if not row.get("distinct_id")]
     by_email: dict[str, str] = {}
+    spellings: dict[str, tuple[str, ...]] = {}
     for start in range(0, len(emails), EMAIL_LOOKUP_CHUNK_SIZE):
-        by_email.update(_distinct_ids_by_email(team, user, emails[start : start + EMAIL_LOOKUP_CHUNK_SIZE]))
+        matched = _distinct_ids_by_email(team, user, emails[start : start + EMAIL_LOOKUP_CHUNK_SIZE])
+        by_email.update(matched.distinct_ids)
+        spellings.update(matched.spellings)
     resolved: list[str | None] = []
     for row in rows:
         distinct_id = row.pop("distinct_id", "")
         resolved.append(distinct_id or by_email.get(row["email"].lower()))
-    return resolved
+    return _ResolvedPeople(distinct_ids=resolved, spellings=spellings)
 
 
-def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> dict[str, str]:
+@frozen
+class _MatchedEmails:
+    distinct_ids: dict[str, str]
+    spellings: dict[str, tuple[str, ...]]
+
+
+def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> _MatchedEmails:
     if not emails:
-        return {}
+        return _MatchedEmails(distinct_ids={}, spellings={})
     # Querying persons directly lets HogQL filter people by email before it groups their versions.
     # The lowest person ID per email is the same person the email dedupe of a filtered audience picks.
     query = parse_select(
         """
-        SELECT lower(trim(toString(properties.email))) AS normalized_email, min(id) AS person_uuid
+        SELECT
+            lower(trim(toString(properties.email))) AS normalized_email,
+            min(id) AS person_uuid,
+            groupUniqArray(trim(toString(properties.email))) AS spellings
         FROM persons
         WHERE lower(trim(toString(properties.email))) IN {emails}
         GROUP BY normalized_email
@@ -311,7 +406,8 @@ def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> 
     tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
     # With the user, property access rules that hide email from the team default still let this user match.
     response = execute_hogql_query(query=query, team=team, user=user, workload=Workload.OFFLINE)
-    uuid_by_email = {email: uuid.UUID(str(person_uuid)) for email, person_uuid in response.results}
+    uuid_by_email = {email: uuid.UUID(str(person_uuid)) for email, person_uuid, _ in response.results}
+    spellings = {email: tuple(sorted(spelled)) for email, _, spelled in response.results}
     id_by_uuid = {
         uuid.UUID(str(person_uuid)): person_id
         for person_id, person_uuid in get_person_ids_and_uuids_by_uuids(
@@ -325,7 +421,9 @@ def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> 
         person_id = id_by_uuid.get(person_uuid)
         if person_id is not None and distinct_ids.get(person_id):
             matched[email] = distinct_ids[person_id][0]
-    return matched
+    return _MatchedEmails(
+        distinct_ids=matched, spellings={email: spellings[email] for email in matched if email in spellings}
+    )
 
 
 def _loose_header(header: object) -> str:

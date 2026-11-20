@@ -4,6 +4,7 @@ import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppConte
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import type {
     ActionsNode,
     EventsNode,
@@ -12,7 +13,6 @@ import type {
     ExperimentMetric,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
     ChartDisplayType,

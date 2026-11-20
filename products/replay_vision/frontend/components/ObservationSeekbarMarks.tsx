@@ -8,7 +8,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import type { TimelineMarker } from '../utils/recordingTimeline'
-import { visionSurfaceShown } from '../utils/visionSurface'
+import { useVisionSurfaceShown } from '../utils/useVisionSurfaceShown'
 
 interface ObservationSeekbarMarksProps {
     endTimeMs: number
@@ -18,8 +18,9 @@ interface ObservationSeekbarMarksProps {
 export const ObservationSeekbarMarks = React.memo(function ObservationSeekbarMarks(
     props: ObservationSeekbarMarksProps
 ): JSX.Element | null {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    if (!visionSurfaceShown(logicProps) || !sessionRecordingId) {
+    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
+    const visionSurfaceShown = useVisionSurfaceShown()
+    if (!visionSurfaceShown || !sessionRecordingId) {
         return null
     }
     return <ObservationSeekbarMarksContent sessionId={sessionRecordingId} {...props} />

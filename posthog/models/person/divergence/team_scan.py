@@ -482,6 +482,7 @@ def _classify_mappings_page(plan: ScanPlan, after: str, last: str, first: bool) 
     }
     owners = sorted({ch[distinct_id].winner_person_uuid for distinct_id in needs_owner})
     owner_states = observe.pg_person_states(plan.team_id, owners) if plan.team_exists and owners else {}
+    owner_ch = observe.owner_ch_states(plan.team_id, pg, ch)
     rows: list[dict[str, Any]] = []
     counts: Counter[str] = Counter()
     for distinct_id, ch_state in ch.items():
@@ -489,7 +490,13 @@ def _classify_mappings_page(plan: ScanPlan, after: str, last: str, first: bool) 
         owner_state = (
             observe.person_pg_state(owner_states, ch_state.winner_person_uuid) if distinct_id in needs_owner else None
         )
-        verdict = classify_mapping(pg_row, ch_state, ch_owner_pg_state=owner_state, team_exists=plan.team_exists)
+        verdict = classify_mapping(
+            pg_row,
+            ch_state,
+            ch_owner_pg_state=owner_state,
+            team_exists=plan.team_exists,
+            owner_ch=owner_ch.get(distinct_id),
+        )
         counts[_count_key("mapping", verdict)] += 1
         if _reported(verdict):
             rows.append(

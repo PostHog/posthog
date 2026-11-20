@@ -20,7 +20,6 @@ import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
-import { fullNameOrEmail } from 'lib/utils/strings'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -28,6 +27,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -45,10 +45,12 @@ import {
     signalsReportPrReviewCommentReactionsCreate,
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
+    signalsReportsActionabilityUpdate,
     signalsReportsFeedbackCreate,
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
     signalsReportsPriorityUpdate,
+    signalsReportsRepositoryUpdate,
     signalsReportsStateCreate,
     signalsReportsReviewersUpdate,
 } from 'products/signals/frontend/generated/api'
@@ -71,6 +73,7 @@ import type { SignalNodeApi } from 'products/signals/frontend/generated/api.sche
 
 import type { SignalReportFeedbackSentimentEnumApi } from '../../generated/api.schemas'
 import type { SignalReportStateEnumApi } from '../../generated/api.schemas'
+import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { deriveTaskPurpose, ReportTaskPurpose, TaskRunArtefactContent } from '../components/detail/artefactTypes'
 import {
     AvailableReviewerOption,
@@ -79,22 +82,35 @@ import {
 } from '../components/detail/reviewerDisplay'
 import {
     captureInboxReportAction,
+    captureInboxReportDecisionChanged,
     captureInboxReportFeedback,
     captureInboxReportFeedbackNote,
     InboxReportActionSurface,
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
-import { REPORT_AI_PANEL, ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
+import { ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
-import { isReportClaimable, reportClaimant, requestReportClaim } from '../utils/reportClaim'
+import { implementationClaimDisabledReason } from '../utils/reportActions'
+import { isReportClaimable, reportClaimant, requestReportClaim, teammateClaimHolder } from '../utils/reportClaim'
+import {
+    ReportActionabilityChange,
+    ReportDecisionAttributions,
+    reportActionabilityRequest,
+    reportDecisionAttributions,
+} from '../utils/reportDecisions'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { reportSpendLogic } from './reportSpendLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
-const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
+export const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [
+    TaskRunStatus.COMPLETED,
+    TaskRunStatus.FAILED,
+    TaskRunStatus.CANCELLED,
+]
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
@@ -104,22 +120,26 @@ const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
     shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
 }
 
-export type PrChecksError = {
+export type GitHubLoadError = {
     message: string
     remediationUrl: string | null
+    code: string | null
 }
 
-const GITHUB_CHECKS_PERMISSION_MISSING_CODE = 'github_checks_permission_missing'
+export const GITHUB_REPOSITORY_INACCESSIBLE_CODE = 'github_repository_inaccessible'
+// Errors a project admin fixes in the GitHub integration settings, so the server sends a link there.
+const GITHUB_REMEDIABLE_ERROR_CODES = ['github_checks_permission_missing', GITHUB_REPOSITORY_INACCESSIBLE_CODE]
 
-function prChecksErrorFrom(error: unknown): PrChecksError {
-    if (error instanceof ApiError && error.code === GITHUB_CHECKS_PERMISSION_MISSING_CODE) {
+function githubLoadErrorFrom(error: unknown, fallbackMessage: string): GitHubLoadError {
+    if (error instanceof ApiError && error.code && GITHUB_REMEDIABLE_ERROR_CODES.includes(error.code)) {
         const remediationUrl = (error.data as { remediation_url?: unknown } | null)?.remediation_url
         return {
             message: error.message,
             remediationUrl: typeof remediationUrl === 'string' ? remediationUrl : null,
+            code: error.code,
         }
     }
-    return { message: "Couldn't load the PR checks from GitHub.", remediationUrl: null }
+    return { message: fallbackMessage, remediationUrl: null, code: null }
 }
 
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
@@ -328,6 +348,7 @@ export interface inboxReportDetailLogicValues {
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     selectedTabOptions: string | null // sidePanelStateLogic
     actionabilityExplanation: string | null
+    actionabilitySaving: boolean
     addReviewerOptions: AvailableReviewerOption[]
     approvingCheckIds: string[]
     availableReviewers: AvailableReviewerOption[] | null
@@ -338,6 +359,7 @@ export interface inboxReportDetailLogicValues {
     chartsById: Map<string, ReportChartApi>
     claimSaving: boolean
     currentUserGithubLogin: string | null
+    decisionAttributions: ReportDecisionAttributions | null
     detailTab: ReportDetailTab
     diffArtefactId: string | null
     displayReviewers: EnrichedReviewer[] | null
@@ -373,12 +395,14 @@ export interface inboxReportDetailLogicValues {
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksBackedOff: boolean
     prChecksConsecutiveFailures: number
-    prChecksError: PrChecksError | null
+    prChecksError: GitHubLoadError | null
     prChecksFailing: boolean
     prChecksLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
-    prCommentsError: string | null
+    prCommentsError: GitHubLoadError | null
     prCommentsLoading: boolean
+    prConflictReported: boolean
+    prHasConflict: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
     prioritySaving: boolean
@@ -391,7 +415,7 @@ export interface inboxReportDetailLogicValues {
     reportChecksLoading: boolean
     reportClaimant: _UserApi | null
     reportDiff: CommitDiffResponseApi | null
-    reportDiffError: string | null
+    reportDiffError: GitHubLoadError | null
     reportDiffLoading: boolean
     reportReviewers: EnrichedReviewer[] | null
     reportSignals: SignalNode[] | null
@@ -401,6 +425,7 @@ export interface inboxReportDetailLogicValues {
     reportTaskToOpen: ReportTaskEntry | null
     reportTasks: ReportTaskEntry[] | null
     reportTasksLoading: boolean
+    repositorySaving: boolean
     savedFeedback: SignalReportFeedbackStateApi | null
     savedFeedbackLoading: boolean
     selectedPullRequest: ReportPullRequest
@@ -408,6 +433,7 @@ export interface inboxReportDetailLogicValues {
     selectedTask: ReportTaskEntry | null
     selectedTaskId: string | null
     shouldPollReportTasks: boolean
+    teammateClaimHolder: _UserApi | null
     trailingCharts: ReportChartApi[]
 }
 
@@ -695,6 +721,9 @@ export interface inboxReportDetailLogicActions {
     selectPullRequest: (url: string) => {
         url: string
     }
+    setActionabilitySaving: (saving: boolean) => {
+        saving: boolean
+    }
     setClaimSaving: (saving: boolean) => {
         saving: boolean
     }
@@ -716,16 +745,28 @@ export interface inboxReportDetailLogicActions {
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
+    setPrConflictReported: (hasConflict: boolean) => {
+        hasConflict: boolean
+    }
     setPrioritySaving: (saving: boolean) => {
         saving: boolean
     }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
-    setReportClaimed: (claimed: boolean) => {
+    setReportClaimed: (
+        claimed: boolean,
+        takeover?: boolean,
+        shownAssignee?: SignalReport['assignee']
+    ) => {
         claimed: boolean
+        shownAssignee: SignalReportAssigneeApi | null | undefined
+        takeover: boolean
     }
     setReportStateSaving: (saving: boolean) => {
+        saving: boolean
+    }
+    setRepositorySaving: (saving: boolean) => {
         saving: boolean
     }
     setSelectedTaskId: (taskId: string | null) => {
@@ -748,8 +789,14 @@ export interface inboxReportDetailLogicActions {
         commentId: string
         content: string
     }
+    updateActionability: (change: ReportActionabilityChange) => {
+        change: ReportActionabilityChange
+    }
     updatePriority: (priority: ReportPriorityApi) => {
         priority: ReportPriorityApi
+    }
+    updateRepository: (repository: string) => {
+        repository: string
     }
     updateReviewers: (
         content: Record<string, string>[],
@@ -793,6 +840,7 @@ export interface inboxReportDetailLogicMeta {
             selectedPullRequest: ReportPullRequest,
             prChecks: readonly PullRequestCheckApi[] | null
         ) => boolean
+        prHasConflict: (selectedPullRequest: ReportPullRequest, prConflictReported: boolean) => boolean
         prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
         currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
@@ -807,6 +855,10 @@ export interface inboxReportDetailLogicMeta {
         trailingCharts: (reportCharts: ReportChartApi[], chartPlacements: ChartPlacements) => ReportChartApi[]
         priorityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
         actionabilityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
+        decisionAttributions: (
+            report: SignalReport | null,
+            reportArtefacts: SignalReportArtefact[] | null
+        ) => ReportDecisionAttributions | null
         displayReviewers: (
             reportReviewers: EnrichedReviewer[] | null,
             optimisticReviewers: EnrichedReviewer[] | null,
@@ -819,12 +871,13 @@ export interface inboxReportDetailLogicMeta {
         isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
         reportClaimant: (report: SignalReport | null) => _UserApi | null
         isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
-        isReportClaimable: (report: SignalReport | null) => boolean
+        teammateClaimHolder: (report: SignalReport | null, user: null | import('~/types').UserType) => _UserApi | null
+        isReportClaimable: (report: SignalReport | null, user: null | import('~/types').UserType) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         implementationDisabledReason: (
             implementationSlotClaim: ImplementationSlotClaim | null,
-            reportClaimant: _UserApi | null,
-            isClaimedByMe: boolean
+            report: SignalReport | null,
+            user: null | import('~/types').UserType
         ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
@@ -900,12 +953,21 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Which comment is being edited inline (null = none).
         setEditingCommentId: (commentId: string | null) => ({ commentId }),
         selectPullRequest: (url: string) => ({ url }),
+        setPrConflictReported: (hasConflict: boolean) => ({ hasConflict }),
         setReport: (report: SignalReport | null) => ({ report }),
         updatePriority: (priority: ReportPriorityApi) => ({ priority }),
         setPrioritySaving: (saving: boolean) => ({ saving }),
+        updateRepository: (repository: string) => ({ repository }),
+        setRepositorySaving: (saving: boolean) => ({ saving }),
+        updateActionability: (change: ReportActionabilityChange) => ({ change }),
+        setActionabilitySaving: (saving: boolean) => ({ saving }),
         changeReportState: (state: SignalReportStateRequestApi['state']) => ({ state }),
         setReportStateSaving: (saving: boolean) => ({ saving }),
-        setReportClaimed: (claimed: boolean) => ({ claimed }),
+        setReportClaimed: (claimed: boolean, takeover: boolean = false, shownAssignee?: SignalReport['assignee']) => ({
+            claimed,
+            takeover,
+            shownAssignee,
+        }),
         setClaimSaving: (saving: boolean) => ({ saving }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
@@ -958,7 +1020,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         feedbackSaved: (feedback: SignalReportFeedbackStateApi) => ({ feedback }),
     }),
 
-    loaders(({ props, values, cache }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         savedFeedback: [
             null as SignalReportFeedbackStateApi | null,
             {
@@ -1137,7 +1199,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    return await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    const response = await signalsReportArtefactsDiff(String(teamId), props.reportId, artefactId)
+                    if (typeof response?.diff !== 'string') {
+                        throw new Error('Invalid diff response')
+                    }
+                    return response
                 },
             },
         ],
@@ -1163,6 +1229,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     if (values.selectedPullRequest.url !== pr.url) {
                         return null
                     }
+                    // A backend from before this field omits it, and kea rejects an undefined reducer value.
+                    actions.setPrConflictReported(response.has_conflict === true)
                     return response.checks
                 },
             },
@@ -1217,6 +1285,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
         prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
+        repositorySaving: [false, { setRepositorySaving: (_, { saving }) => saving }],
+        actionabilitySaving: [false, { setActionabilitySaving: (_, { saving }) => saving }],
         reportStateSaving: [false, { setReportStateSaving: (_, { saving }) => saving }],
         claimSaving: [false, { setClaimSaving: (_, { saving }) => saving }],
         report: [
@@ -1280,11 +1350,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag).
         reportDiffError: [
-            null as string | null,
+            null as GitHubLoadError | null,
             {
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () => "Couldn't load the diff. Try again, or open the pull request on GitHub.",
+                loadReportDiffFailure: (_, { errorObject }) =>
+                    githubLoadErrorFrom(
+                        errorObject,
+                        "Couldn't load the diff. Try again, or open the pull request on GitHub."
+                    ),
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
@@ -1300,10 +1374,20 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Cleared only on success (not on load start), so the section keeps showing the error while
         // a backed-off retry is in flight instead of flashing back to the loading skeleton.
         prChecksError: [
-            null as PrChecksError | null,
+            null as GitHubLoadError | null,
             {
                 loadPrChecksSuccess: () => null,
-                loadPrChecksFailure: (_, { errorObject }) => prChecksErrorFrom(errorObject),
+                loadPrChecksFailure: (_, { errorObject }) =>
+                    githubLoadErrorFrom(errorObject, "Couldn't load the PR checks from GitHub."),
+            },
+        ],
+        // What the last checks response said about conflicts on the selected PR. It arrives with the
+        // checks, so it adds no GitHub call. A failed poll keeps the last answer, as `prChecks` does.
+        prConflictReported: [
+            false,
+            {
+                setPrConflictReported: (_, { hasConflict }) => hasConflict,
+                selectPullRequest: () => false,
             },
         ],
         // Consecutive failed checks fetches — feeds `prChecksBackedOff`.
@@ -1315,11 +1399,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         prCommentsError: [
-            null as string | null,
+            null as GitHubLoadError | null,
             {
                 loadPrComments: () => null,
                 loadPrCommentsSuccess: () => null,
-                loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
+                loadPrCommentsFailure: (_, { errorObject }) =>
+                    githubLoadErrorFrom(errorObject, "Couldn't load the PR comments from GitHub."),
             },
         ],
         // Cleared only on success, so the error and its retry button stay visible while the retry runs.
@@ -1438,6 +1523,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 (prChecks ?? []).some(
                     (check) => check.status === 'completed' && FAILED_CHECK_CONCLUSIONS.includes(check.conclusion ?? '')
                 ),
+        ],
+        // Whether the selected PR conflicts with its base while it is still open, so it is worth updating.
+        prHasConflict: [
+            (s) => [s.selectedPullRequest, s.prConflictReported],
+            (pr: ReportPullRequest, prConflictReported: boolean): boolean =>
+                !pr.merged && pr.state !== 'closed' && pr.state !== 'merged' && prConflictReported,
         ],
         // True once GitHub has failed enough consecutive times that the 15s cadence stops being worth
         // it — the poll tick then drops to a slow retry (see PR_CHECKS_FAILURE_BACKOFF_TICKS).
@@ -1559,6 +1650,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (reportArtefacts: SignalReportArtefact[] | null): string | null =>
                 latestJudgmentExplanation(reportArtefacts, 'actionability_judgment'),
         ],
+        decisionAttributions: [
+            (s) => [s.report, s.reportArtefacts],
+            (
+                report: SignalReport | null,
+                reportArtefacts: SignalReportArtefact[] | null
+            ): ReportDecisionAttributions | null => reportDecisionAttributions(report?.decisions, reportArtefacts),
+        ],
         // The reviewer list to render: optimistic override (if any) wins over the artefact-derived list,
         // then the current user is pinned to the top. Mirrors desktop `displayReviewers`.
         displayReviewers: [
@@ -1633,9 +1731,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (claimant: _UserApi | null, user: { uuid: string } | null): boolean =>
                 !!claimant && !!user && claimant.uuid === user.uuid,
         ],
+        teammateClaimHolder: [
+            (s) => [s.report, userLogic.selectors.user],
+            (report: SignalReport | null, user: { uuid: string } | null): _UserApi | null =>
+                report ? teammateClaimHolder(report, user?.uuid ?? null) : null,
+        ],
         isReportClaimable: [
-            (s) => [s.report],
-            (report: SignalReport | null): boolean => (report ? isReportClaimable(report) : false),
+            (s) => [s.report, userLogic.selectors.user],
+            (report: SignalReport | null, user: { uuid: string } | null): boolean =>
+                report ? isReportClaimable(report, user?.uuid ?? null) : false,
         ],
         implementationSlotClaim: [
             (s) => [s.reportTasks],
@@ -1643,16 +1747,16 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 implementationSlotClaim(reportTasks),
         ],
         implementationDisabledReason: [
-            (s) => [s.implementationSlotClaim, s.reportClaimant, s.isClaimedByMe],
+            (s) => [s.implementationSlotClaim, s.report, userLogic.selectors.user],
             (
                 slotClaim: ImplementationSlotClaim | null,
-                claimant: _UserApi | null,
-                isClaimedByMe: boolean
+                report: SignalReport | null,
+                user: { uuid: string } | null
             ): string | null =>
                 slotClaim
                     ? SLOT_CLAIM_DISABLED_REASON[slotClaim]
-                    : claimant && !isClaimedByMe
-                      ? `${fullNameOrEmail(claimant)} is working on this report.`
+                    : report
+                      ? implementationClaimDisabledReason(report, user?.uuid)
                       : null,
         ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
@@ -1731,6 +1835,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             if (!teamId || !currentReport || values.prioritySaving || currentReport.priority === priority) {
                 return
             }
+            const previousAttribution = values.decisionAttributions?.priority ?? null
             actions.setPrioritySaving(true)
             let updated: SignalReportApi
             try {
@@ -1745,6 +1850,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 }
                 return
             }
+            captureInboxReportDecisionChanged({
+                report: currentReport,
+                decision: 'priority',
+                previousValue: currentReport.priority ?? null,
+                newValue: priority,
+                previousSetBy: previousAttribution ? (previousAttribution.person ? 'person' : 'agent') : null,
+                surface: 'detail_pane',
+            })
             inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
             if (!inboxReportDetailLogic.isMounted(props)) {
                 return
@@ -1752,6 +1865,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const report: SignalReport = {
                 ...(values.report ?? currentReport),
                 priority,
+                decisions: updated.decisions,
                 updated_at: updated.updated_at,
             }
             actions.setReport(report)
@@ -1762,7 +1876,114 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.loadReportArtefacts()
             actions.setPrioritySaving(false)
         },
-        setReportClaimed: async ({ claimed }) => {
+        updateRepository: async ({ repository }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.repositorySaving || currentReport.repo_slug === repository) {
+                return
+            }
+            const previousAttribution = values.decisionAttributions?.repository ?? null
+            actions.setRepositorySaving(true)
+            let updated: SignalReportApi
+            try {
+                updated = await withInboxWriteTimeout('repository', (options) =>
+                    signalsReportsRepositoryUpdate(String(teamId), props.reportId, { repository }, options)
+                )
+            } catch {
+                inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([props.reportId])
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setRepositorySaving(false)
+                    lemonToast.error("Couldn't save the repository. Try again.")
+                }
+                return
+            }
+            captureInboxReportDecisionChanged({
+                report: currentReport,
+                decision: 'repository',
+                previousValue: currentReport.repo_slug ?? null,
+                newValue: repository,
+                previousSetBy: previousAttribution ? (previousAttribution.person ? 'person' : 'agent') : null,
+                surface: 'detail_pane',
+            })
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
+            }
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                repo_slug: updated.repo_slug ?? repository,
+                research_context: updated.research_context,
+                decisions: updated.decisions,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setRepositorySaving(false)
+        },
+        updateActionability: async ({ change }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.actionabilitySaving) {
+                return
+            }
+            const request = reportActionabilityRequest(currentReport, change)
+            if (!request) {
+                return
+            }
+            const { decision, previousValue, newValue, body } = request
+            const previousAttribution = values.decisionAttributions?.[decision] ?? null
+            actions.setActionabilitySaving(true)
+            let updated: SignalReportApi
+            try {
+                updated = await withInboxWriteTimeout('actionability', (options) =>
+                    signalsReportsActionabilityUpdate(String(teamId), props.reportId, body, options)
+                )
+            } catch {
+                inboxBulkActionsLogic.findMounted()?.actions.reportWriteFailed([props.reportId])
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setActionabilitySaving(false)
+                    lemonToast.error(
+                        decision === 'actionability'
+                            ? "Couldn't save the actionability. Try again."
+                            : "Couldn't save whether this is already addressed. Try again."
+                    )
+                }
+                return
+            }
+            captureInboxReportDecisionChanged({
+                report: currentReport,
+                decision,
+                previousValue,
+                newValue,
+                previousSetBy: previousAttribution ? (previousAttribution.person ? 'person' : 'agent') : null,
+                surface: 'detail_pane',
+            })
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
+            }
+            // A new actionability can move the report between Ready and Needs input, so the status comes from the response.
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                actionability: updated.actionability as SignalReport['actionability'],
+                already_addressed: updated.already_addressed,
+                status: updated.status as SignalReport['status'],
+                decisions: updated.decisions,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setActionabilitySaving(false)
+        },
+        setReportClaimed: async ({ claimed, takeover, shownAssignee }) => {
             const teamId = teamLogic.values.currentTeamId
             const currentReport = values.report
             if (!teamId || !currentReport || values.claimSaving) {
@@ -1773,12 +1994,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 report: currentReport,
                 actionType: claimed ? 'claim' : 'unclaim',
                 surface: 'detail_pane',
+                extra: takeover ? { takeover: true } : undefined,
             })
             const scene = inboxSceneLogic.findMounted()
             const outcome = await requestReportClaim(
                 String(teamId),
-                { id: props.reportId, assignee: currentReport.assignee },
-                claimed
+                // A confirmed takeover names the claim the dialog showed, so a claim that changed since is refused.
+                { id: props.reportId, assignee: shownAssignee !== undefined ? shownAssignee : currentReport.assignee },
+                claimed,
+                { currentUserUuid: userLogic.values.user?.uuid ?? null, takeover }
             )
             if (!outcome.ok) {
                 if (inboxReportDetailLogic.isMounted(props)) {
@@ -2196,6 +2420,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             cache.sidebarAlignmentPending = false
         },
         loadReportTasksSuccess: (_, __, ___, previousState) => {
+            const previousTasks = selectors.reportTasks(previousState)
+            const spendLogic = reportSpendLogic({
+                teamId: teamLogic.values.currentTeamId ?? 0,
+                reportId: props.reportId,
+            })
+            if (previousTasks !== null && spendLogic.isMounted()) {
+                spendLogic.actions.refreshSpend()
+            }
             if (
                 cache.sidebarAlignmentPending &&
                 values.selectedTab === SidePanelTab.Max &&
@@ -2215,7 +2447,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     actions.warmReportDiscussion(values.report)
                 }
             }
-            const before = selectors.reportTasks(previousState) ?? []
+            const before = previousTasks ?? []
             const settled = (values.reportTasks ?? []).some((entry) => {
                 const run = entry.task.latest_run
                 const prior = before.find((row) => row.task.id === entry.task.id)?.task.latest_run
@@ -2235,6 +2467,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // never gets one going.
         createPrSuccess: () => {
             actions.loadReportArtefacts()
+            // The task claims the report for the person who pressed Create PR, so reload the claimant.
+            refreshSelectedReport(props.reportId)
         },
         discussReportSuccess: () => {
             actions.loadReportArtefacts()
@@ -2339,7 +2573,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             let tick = 0
             const interval = setInterval(() => {
                 tick += 1
-                if (!values.hasImplementationPr) {
+                // Polling can't fix a repository the GitHub connection can't reach. Only an admin can.
+                if (!values.hasImplementationPr || values.prChecksError?.code === GITHUB_REPOSITORY_INACCESSIBLE_CODE) {
                     return
                 }
                 // While backed off, only every Nth tick retries — enough for a transient GitHub

@@ -1,5 +1,5 @@
-import { buildUsageLimitApproachingMessage, buildUsageLimitReachedMessage } from 'scenes/billing/billing-utils'
-import type { BillingAlertConfig } from 'scenes/billing/billingLogic'
+import type { BillingAlertConfig } from 'lib/logic/billing/billingLogic'
+import { buildUsageLimitApproachingMessage, buildUsageLimitReachedMessage } from 'lib/logic/billing/usageLimits'
 
 import type { FakeBillingAlert } from './superpowersLogic'
 

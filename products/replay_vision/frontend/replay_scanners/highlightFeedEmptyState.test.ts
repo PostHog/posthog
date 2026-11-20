@@ -1,4 +1,5 @@
 import type { ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
+import type { RecordingsBlock } from '../logics/replayRecordingsLogic'
 import { type HighlightFeedEmptyReason, resolveHighlightFeedEmptyReason } from './highlightFeedEmptyState'
 
 const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
@@ -16,13 +17,19 @@ describe('resolveHighlightFeedEmptyReason', () => {
             VisionQuotaApi | null,
             boolean,
             HighlightFeedEmptyReason,
-            (boolean | null)?,
-            (boolean | null)?,
+            (RecordingsBlock | null)?,
         ]
     >([
         ['no scanners at all', [], quota(false), false, 'no-scanners'],
-        ['recording turned off, even with no scanners', [], quota(false), false, 'replay-off', false],
-        ['recording turned off, even with an exhausted budget', [scanner()], quota(true), false, 'replay-off', false],
+        ['recording turned off, even with no scanners', [], quota(false), false, 'replay-off', 'replay-off'],
+        [
+            'recording turned off, even with an exhausted budget',
+            [scanner()],
+            quota(true),
+            false,
+            'replay-off',
+            'replay-off',
+        ],
         [
             'an exhausted budget, even with every scanner off',
             [scanner({ enabled: false })],
@@ -65,16 +72,15 @@ describe('resolveHighlightFeedEmptyReason', () => {
         ],
         // Falls through rather than claiming a block it cannot see.
         ['a quiet window when the quota snapshot never answered', [scanner()], null, false, 'quiet-window'],
-        ['no recordings before any scanner exists', [], quota(false), false, 'no-recordings', null, false],
-        ['no recordings over a quiet window', [scanner()], quota(false), false, 'no-recordings', null, false],
+        ['no recordings before any scanner exists', [], quota(false), false, 'no-recordings', 'no-recordings'],
+        ['no recordings over a quiet window', [scanner()], quota(false), false, 'no-recordings', 'no-recordings'],
         [
             'a block before missing recordings',
             [scanner({ enabled: false })],
             quota(false),
             false,
             'all-disabled',
-            null,
-            false,
+            'no-recordings',
         ],
         [
             'a quiet window while the recordings probe is unanswered',
@@ -83,20 +89,15 @@ describe('resolveHighlightFeedEmptyReason', () => {
             false,
             'quiet-window',
             null,
-            null,
         ],
-    ])(
-        'blames %s',
-        (_name, scanners, quotaValue, hasFeedFilters, expected, sessionRecordingOptIn = null, hasRecordings = null) => {
-            expect(
-                resolveHighlightFeedEmptyReason({
-                    scanners,
-                    quota: quotaValue,
-                    sessionRecordingOptIn,
-                    hasFeedFilters,
-                    hasRecordings,
-                })
-            ).toBe(expected)
-        }
-    )
+    ])('blames %s', (_name, scanners, quotaValue, hasFeedFilters, expected, recordingsBlock = null) => {
+        expect(
+            resolveHighlightFeedEmptyReason({
+                scanners,
+                quota: quotaValue,
+                recordingsBlock,
+                hasFeedFilters,
+            })
+        ).toBe(expected)
+    })
 })

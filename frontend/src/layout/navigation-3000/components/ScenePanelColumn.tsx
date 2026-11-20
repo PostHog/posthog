@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '../../panel-layout/panelLayoutLogic'

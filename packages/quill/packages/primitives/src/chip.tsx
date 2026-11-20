@@ -43,10 +43,11 @@ const ChipClose = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeo
         return (
             <Button
                 ref={ref}
-                data-slot="chip-close"
                 size="icon-xs"
                 className={cn('quill-chip-close rounded-xs', className)}
                 {...props}
+                // After the spread because a wrapper such as TooltipTrigger passes its own data-slot through `render`, and the chip styles need this one.
+                data-slot="chip-close"
             >
                 {children ?? <XIcon />}
             </Button>

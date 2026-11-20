@@ -7,15 +7,16 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.customer_analytics.backend.logic.custom_property_source_health import MAX_CONSECUTIVE_SYNC_FAILURES
-from products.customer_analytics.backend.logic.person_property_runs import record_sync_run
+from products.customer_analytics.backend.logic.person_property_runs import record_sync_progress, record_sync_run
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition
-from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncRunRecord
+from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncProgress, PersonPropertySyncRunRecord
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 HEALTH_SERVICE = "products.customer_analytics.backend.logic.custom_property_source_health"
+RUN_ID = "00000000-0000-4000-8000-0000000000a1"
 
 
 class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
@@ -104,6 +105,29 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         assert run.status == "failed" and run.error == "boom"
         assert mock_notify.call_count == int(count_failure)
 
+    @parameterized.expand(
+        [
+            ("both_ids", "backfill-warehouse-person-properties-1", RUN_ID, RUN_ID),
+            ("run_id_is_not_a_uuid", "backfill-warehouse-person-properties-1", "not-a-uuid", None),
+            ("no_ids", None, None, None),
+        ]
+    )
+    def test_run_row_keeps_the_temporal_run_that_did_the_work(self, _name, workflow_id, workflow_run_id, expected_run):
+        record_sync_run(self._record(workflow_id=workflow_id, workflow_run_id=workflow_run_id))
+
+        run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source_id=self.source.id)
+        assert run.workflow_id == workflow_id
+        assert (str(run.workflow_run_id) if run.workflow_run_id else None) == expected_run
+        assert run.status == "completed"
+
+    def test_a_record_without_ids_does_not_clear_the_ids_of_the_run_row(self):
+        record_sync_run(self._record(status="running", workflow_id="wf-1", workflow_run_id=RUN_ID))
+        record_sync_run(self._record())
+
+        run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source_id=self.source.id)
+        assert (run.workflow_id, str(run.workflow_run_id)) == ("wf-1", RUN_ID)
+        assert run.status == "completed"
+
     def test_unknown_source_is_a_noop(self):
         # A run for a since-deleted source must not crash or orphan a row.
         record_sync_run(self._record(source_id=str(uuid4())))
@@ -180,6 +204,90 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         assert runs.count() == 1
         self.source.refresh_from_db()
         assert self.source.consecutive_failures == 1
+
+    def _progress(self, **overrides) -> PersonPropertySyncProgress:
+        kwargs: dict = {
+            "team_id": self.team.id,
+            "binding_kind": "schema",
+            "binding_id": self.schema_id,
+            "source_id": str(self.source.id),
+            "job_id": "job-1",
+            "trigger": "scheduled",
+            "rows_read": 10,
+            "changed": 8,
+            "existing": 0,
+            "produced": 0,
+            "skipped_missing_person": 0,
+        }
+        kwargs.update(overrides)
+        return PersonPropertySyncProgress(**kwargs)
+
+    @parameterized.expand([("job_id", "job-1", "scheduled"), ("no_job_id", None, "backfill")])
+    def test_chunk_progress_accumulates_across_attempts_and_survives_terminal_records(self, _name, job_id, trigger):
+        # A killed attempt records zero counts, and a retry only sees the rows still left to send. The
+        # row must still show everything delivered across the whole run.
+        zeros = {"rows_read": 0, "changed": 0, "existing": 0, "produced": 0, "skipped_missing_person": 0}
+        record_sync_run(self._record(job_id=job_id, trigger=trigger, status="running", finished_at="", **zeros))
+        # skipped_missing_person is the attempt's running total: a missing person is never snapshotted, so
+        # every retry skips it again and adding the reports up would count it once per attempt.
+        record_sync_progress(
+            self._progress(job_id=job_id, trigger=trigger, existing=2, produced=2, skipped_missing_person=1)
+        )
+        record_sync_progress(
+            self._progress(job_id=job_id, trigger=trigger, existing=2, produced=2, skipped_missing_person=2)
+        )
+        if job_id is not None:
+            record_sync_run(self._record(job_id=job_id, trigger=trigger, status="failed", error="killed", **zeros))
+            failed = CustomPropertySyncRun.objects.unscoped().get(source=self.source)
+            # The killed run still shows how far it got: 4 of the 8 changed rows.
+            assert (
+                failed.status,
+                failed.produced,
+                failed.existing,
+                failed.skipped_missing_person,
+                failed.rows_read,
+                failed.changed,
+            ) == ("failed", 4, 4, 2, 10, 8)
+            record_sync_run(self._record(job_id=job_id, trigger=trigger, status="running", finished_at="", **zeros))
+        # The retry diffs against the snapshot, so it sees only the 4 rows still left.
+        record_sync_progress(
+            self._progress(job_id=job_id, trigger=trigger, changed=4, existing=3, produced=3, skipped_missing_person=3)
+        )
+        record_sync_run(self._record(job_id=job_id, trigger=trigger, status="completed"))
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source=self.source)
+        assert run.status == "completed"
+        assert (run.rows_read, run.changed) == (10, 8)
+        assert (run.existing, run.produced, run.skipped_missing_person) == (7, 7, 3)
+
+    def test_overlapping_jobs_keep_their_progress_in_separate_rows(self):
+        opener = {"status": "running", "finished_at": "", "rows_read": 0, "changed": 0, "existing": 0, "produced": 0}
+        record_sync_run(self._record(job_id="job-a", **opener))
+        record_sync_progress(self._progress(job_id="job-a", changed=4, existing=4, produced=4))
+        record_sync_run(self._record(job_id="job-b", **opener))
+        record_sync_progress(self._progress(job_id="job-b", changed=6, existing=6, produced=6))
+
+        runs = CustomPropertySyncRun.objects.unscoped().filter(source=self.source)
+        assert {(run.job_id, run.changed, run.existing, run.produced) for run in runs} == {
+            ("job-a", 4, 4, 4),
+            ("job-b", 6, 6, 6),
+        }
+
+    def test_changed_never_reads_lower_than_what_was_delivered(self):
+        # A backfill retry re-reads the table and can find rows the interrupted attempt never saw, so its
+        # own changed count can undercount the deliveries added across attempts.
+        opener = {"status": "running", "finished_at": "", "rows_read": 0, "changed": 0, "existing": 0, "produced": 0}
+        record_sync_run(self._record(job_id=None, trigger="backfill", **opener))
+        record_sync_progress(self._progress(job_id=None, trigger="backfill", changed=2, existing=1, produced=1))
+        record_sync_progress(self._progress(job_id=None, trigger="backfill", changed=2, existing=2, produced=2))
+        run = CustomPropertySyncRun.objects.unscoped().get(source=self.source)
+        assert (run.changed, run.existing) == (3, 3)
+
+        record_sync_run(
+            self._record(job_id=None, trigger="backfill", status="completed", changed=2, existing=2, produced=2)
+        )
+        run.refresh_from_db()
+        assert (run.changed, run.existing) == (3, 3)
 
     def test_scheduled_retry_that_finally_succeeds_clears_the_failure(self):
         # A transient failure followed by a successful retry (same job_id) must resolve the row to

@@ -14,16 +14,16 @@ from rest_framework import status
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import EventDefinition, PersonalAPIKey
+from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.event_definitions.backend.models import EventDefinition
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory
-from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
@@ -58,6 +58,7 @@ from products.replay_vision.backend.scanner_draft import (
     _start_in_background,
     draft_scanner_from_goal,
 )
+from products.replay_vision.backend.tests.helpers import TEST_FREE_CREDITS
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.surveys.backend.models import Survey
 
@@ -457,6 +458,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 "estimate_scanner_session_volume",
                 {"return_value": ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)},
             ),
+            ("has_recent_matching_recording", {"return_value": True}),
         ]
         for target, kwargs in targets:
             patcher = patch(f"{_MODULE}.{target}", **kwargs)
@@ -513,12 +515,174 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             },
             "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",
             "query": {"kind": "RecordingsQuery", "filter_test_accounts": True},
-            "sampling_mode": "comprehensive",
+            "query_additions": None,
             "sampling_rate": 1.0,
             "model": "gemini-3-flash-preview",
             "estimated_monthly_observations": 300,
             **expected_spend,
         }
+
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_query_reaches_the_draft_without_its_date_range(self, mock_generate):
+        mock_generate.return_value = _draft()
+        chosen = {"kind": "RecordingsQuery", "filter_test_accounts": False}
+
+        resp = self.client.post(
+            self.draft_url,
+            data={"goal": "find rage clicks", "free_only": True, "query": {**chosen, "date_from": "-7d"}},
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["query"] == chosen
+        assert '"filter_test_accounts":false' in mock_generate.call_args.kwargs["user_content"]
+
+    @parameterized.expand(
+        [
+            (
+                "comment search",
+                {
+                    "kind": "RecordingsQuery",
+                    "comment_text": {
+                        "type": "recording",
+                        "key": "comment_text",
+                        "value": "checkout",
+                        "operator": "icontains",
+                    },
+                },
+                {},
+                "comment_text",
+            ),
+            (
+                "hide viewed recordings",
+                {"kind": "RecordingsQuery", "hide_viewed_recordings": "current-user"},
+                {},
+                "hide_viewed_recordings",
+            ),
+            (
+                "in-session exposure",
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1, "in_session": True}},
+                {},
+                "in-session",
+            ),
+            ("not an object", ["kind", "RecordingsQuery"], {}, "JSON object"),
+            (
+                "unloadable cohort",
+                {
+                    "kind": "RecordingsQuery",
+                    "properties": [{"type": "cohort", "key": "id", "value": 999999, "operator": "in"}],
+                },
+                {},
+                "cohort 999999",
+            ),
+            (
+                "conflicting experiment",
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1}},
+                {"experiment_id": 2},
+                "not the experiment",
+            ),
+            ("exposure without an experiment", {"kind": "RecordingsQuery", "experiment_exposure": {}}, {}, "invalid"),
+            ("exposure that is not an object", {"kind": "RecordingsQuery", "experiment_exposure": "x"}, {}, "invalid"),
+            (
+                "exposure with an empty variant list",
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1, "variants": []}},
+                {},
+                "at least one variant",
+            ),
+            (
+                "exposure with both variant forms",
+                {
+                    "kind": "RecordingsQuery",
+                    "experiment_exposure": {"experiment_id": 1, "variant": "test", "variants": ["control"]},
+                },
+                {},
+                "not both",
+            ),
+        ]
+    )
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_query_the_scanner_cannot_keep_is_refused(self, _name, query, extra, named, mock_generate):
+        resp = self.client.post(
+            self.draft_url,
+            data={"goal": "find rage clicks", "free_only": True, "query": query, **extra},
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert named in str(resp.json())
+        mock_generate.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("action", {"actions": [{"id": 999999, "type": "actions"}]}),
+            ("cohort", {"properties": [{"type": "cohort", "key": "id", "value": 999999, "operator": "in"}]}),
+        ]
+    )
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_query_naming_entities_the_token_cannot_read_is_refused(self, kind, filters, mock_generate):
+        # Refused before anything resolves, so a token without the scope learns nothing about which ids exist.
+        key = self._personal_api_key(["replay_scanner:write", "session_recording:read"])
+
+        resp = self.client.post(
+            self.draft_url,
+            data={"goal": "find rage clicks", "free_only": True, "query": {"kind": "RecordingsQuery", **filters}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert f"uses {kind}s" in str(resp.json())
+        assert "999999" not in str(resp.json())
+        mock_generate.assert_not_called()
+
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_query_scoped_to_an_experiment_keeps_its_variant(self, mock_generate):
+        experiment_id = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        mock_generate.return_value = _draft(
+            filter_experiment="Billing upgrade prompt", filter_experiment_variant="test"
+        )
+
+        resp = self.client.post(
+            self.draft_url,
+            data={
+                "goal": "find rage clicks",
+                "free_only": True,
+                "query": {
+                    "kind": "RecordingsQuery",
+                    "experiment_exposure": {"experiment_id": experiment_id, "variant": "control"},
+                },
+            },
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["scanner_type"] == "experiment"
+        assert resp.json()["scanner_config"]["experiment_id"] == experiment_id
+        assert resp.json()["scanner_config"]["variants"] == ["control"]
+        assert "experiment_exposure" not in resp.json()["query"]
+
+    # An empty name must be checked as a variant, or the scanner would widen to every variant.
+    @parameterized.expand([("unknown name", "holdout"), ("empty name", "")])
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_variant_the_experiment_lacks_is_refused(self, _name, variant, mock_generate):
+        experiment_id = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        mock_generate.return_value = _draft(filter_experiment="Billing upgrade prompt")
+
+        resp = self.client.post(
+            self.draft_url,
+            data={
+                "goal": "find rage clicks",
+                "free_only": True,
+                "query": {
+                    "kind": "RecordingsQuery",
+                    "experiment_exposure": {"experiment_id": experiment_id, "variant": variant},
+                },
+            },
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert resp.json()["detail"] == f"The experiment has no variant named {variant!r}."
 
     @parameterized.expand(
         [
@@ -579,8 +743,8 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("free_credits_left", FREE_TIER_MONTHLY_CREDITS - 1, 200),
-            ("free_credits_used", FREE_TIER_MONTHLY_CREDITS, 400),
+            ("free_credits_left", TEST_FREE_CREDITS - 1, 200),
+            ("free_credits_used", TEST_FREE_CREDITS, 400),
         ]
     )
     @patch(_GENERATE_PATH)
@@ -694,7 +858,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         else:
             experiment_id = _launched_experiment(
                 self.team, self.user, "Checkout test", launched=case == "token_without_experiment_read"
-            ).id
+            )
         if case == "token_without_experiment_read":
             headers["HTTP_AUTHORIZATION"] = (
                 f"Bearer {self._personal_api_key(['replay_scanner:write', 'session_recording:read'])}"
@@ -778,7 +942,7 @@ class TestEventsForGoal(_VisionAPITestCase):
         assert events[0] == "cta hit"
 
 
-def _launched_experiment(team, user, name: str, *, launched: bool = True):
+def _launched_experiment(team, user, name: str, *, launched: bool = True) -> int:
     flag = FeatureFlag.objects.create(
         team=team,
         key=name.lower().replace(" ", "-"),
@@ -793,11 +957,11 @@ def _launched_experiment(team, user, name: str, *, launched: bool = True):
             }
         },
     )
-    return Experiment.objects.create(
-        team=team,
+    return create_experiment(
+        team_id=team.id,
         name=name,
-        feature_flag=flag,
-        created_by=user,
+        feature_flag_id=flag.id,
+        created_by_id=user.id,
         start_date=timezone.now() if launched else None,
         exposure_criteria={},
     )
@@ -810,14 +974,14 @@ class TestGoalEntityMatches(_VisionAPITestCase):
     def test_an_experiment_named_in_the_goal_comes_back_with_its_variants(self):
         # Who a change was shown to is not in the taxonomy: no page or event filter separates the
         # participants who got the new experience from everyone else who reached the same screen.
-        experiment = _launched_experiment(self.team, self.user, "Onboarding checklist")
+        experiment_id = _launched_experiment(self.team, self.user, "Onboarding checklist")
 
         matches = _goal_entity_matches(
             self.team, "summarize sessions in the onboarding checklist experiment", _access_control(allow=True)
         )
 
         assert [(e.name, e.experiment_id, e.variants) for e in matches.experiments] == [
-            ("Onboarding checklist", experiment.id, ("control", "test"))
+            ("Onboarding checklist", experiment_id, ("control", "test"))
         ]
 
     def test_an_experiment_the_exposure_filter_would_refuse_never_reaches_the_briefing(self):
@@ -846,7 +1010,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
     def test_an_action_named_in_the_goal_comes_back_with_its_id(self):
         # An action is the team's own curated definition of a behavior, so a goal naming one is the
         # sharpest filter available and must come back with the id the query needs.
-        action = Action.objects.create(team=self.team, name="Completed checkout")
+        action = create_action(team=self.team, name="Completed checkout")
 
         matches = _goal_entity_matches(
             self.team, "sessions where someone completed checkout", _access_control(allow=True)
@@ -857,7 +1021,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
     def test_an_entity_the_caller_cannot_read_is_never_named_back(self):
         # Surveys and actions are access-controlled, so naming one back would leak its existence.
         self._survey("Pricing feedback")
-        Action.objects.create(team=self.team, name="Pricing feedback click")
+        create_action(team=self.team, name="Pricing feedback click")
 
         matches = _goal_entity_matches(self.team, "the pricing feedback survey", _access_control(allow=False))
         assert (matches.surveys, matches.actions, matches.cohorts) == ([], [], [])
@@ -880,7 +1044,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
         # A token with scanner and recording scopes but not survey:read must not learn a survey's
         # name or id through the draft. RBAC alone would allow it; the scope gate is what stops it.
         self._survey("Pricing feedback")
-        Action.objects.create(team=self.team, name="Pricing feedback click")
+        create_action(team=self.team, name="Pricing feedback click")
         Cohort.objects.create(team=self.team, name="Pricing feedback cohort")
 
         matches = _goal_entity_matches(
@@ -917,7 +1081,7 @@ class TestGoalEntityMatches(_VisionAPITestCase):
         # the recordings query drops a cohort filter it cannot resolve, so the scan widens to every
         # session while the rationale still describes an audience.
         Cohort.objects.create(team=self.team, name="Power users", deleted=True)
-        Action.objects.create(team=self.team, name="Power users click", deleted=True)
+        create_action(team=self.team, name="Power users click", deleted=True)
 
         matches = _goal_entity_matches(self.team, "what do power users struggle with", _access_control(allow=True))
 
@@ -1487,65 +1651,39 @@ class TestFinalize:
         assert "properties" not in draft.query
         assert warn.call_args.kwargs["scans_every_session"] is True
 
-    def test_carries_the_models_sampling_mode_without_costing(self):
-        draft = _finalize(_draft(sampling_mode="focused"), allowed_pages=[], allowed_events=[], team_id=1)
-
-        assert draft.sampling_mode == "focused"
-        assert draft.sampling_rate is None
-        assert draft.estimated_monthly_observations is None
-
 
 class TestSolveBudget(_VisionAPITestCase):
-    def _solve(self, *, budget, model_mode="focused", monthly_by_mode=None, credits_per_observation=1):
-        # Counting is ClickHouse's job with its own tests; these assert the dial arithmetic.
-        monthly_by_mode = monthly_by_mode or {}
-
-        def fake_estimate(*, sampling_mode, **kwargs):
-            matched = monthly_by_mode[str(sampling_mode)]
-            return ScannerVolumeEstimate(matched_sessions=matched, effective_window_days=30)
-
-        with patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=fake_estimate):
+    def _solve(self, *, budget, monthly, credits_per_observation=1):
+        # Counting is ClickHouse's job with its own tests; these assert the rate arithmetic.
+        with patch(
+            f"{_MODULE}.estimate_scanner_session_volume",
+            return_value=ScannerVolumeEstimate(matched_sessions=monthly, effective_window_days=30),
+        ):
             return _solve_budget(
                 team=self.team,
                 user=self.user,
                 query=None,
                 # Default 1 credit per observation, so the credit budget equals the recording budget
-                # and these assertions stay about the dial arithmetic, not the price conversion.
+                # and these assertions stay about the rate arithmetic, not the price conversion.
                 monthly_credit_budget=budget,
                 credits_per_observation=credits_per_observation,
-                model_mode=model_mode,
             )
 
     def test_a_budget_that_covers_everything_opens_the_floodgates(self):
-        # The user asked for more than exists, so nothing is filtered: a quality mode would only
-        # hide sessions the budget could have paid for — even when the model chose one.
-        solution = self._solve(budget=1000, model_mode="focused", monthly_by_mode={"comprehensive": 50})
+        solution = self._solve(budget=1000, monthly=50)
 
-        assert solution.sampling_mode == "comprehensive"
         assert solution.sampling_rate == 1.0
         assert solution.estimated_monthly_observations == 50
 
-    def test_a_budget_below_the_volume_keeps_the_models_mode_and_solves_the_rate(self):
-        solution = self._solve(
-            budget=1_000, model_mode="focused", monthly_by_mode={"comprehensive": 100_000, "focused": 69_000}
-        )
+    def test_a_budget_below_the_volume_solves_the_rate(self):
+        solution = self._solve(budget=1_000, monthly=69_000)
 
-        assert solution.sampling_mode == "focused"
         # Floored to the rate precision, never rounded up: up would overspend the stated budget.
         assert solution.sampling_rate == 0.0144
         assert solution.estimated_monthly_observations <= 1_000
 
-    def test_a_mode_that_already_fits_the_budget_needs_no_sampling(self):
-        solution = self._solve(
-            budget=1_000, model_mode="focused", monthly_by_mode={"comprehensive": 5_000, "focused": 800}
-        )
-
-        assert solution.sampling_mode == "focused"
-        assert solution.sampling_rate == 1.0
-        assert solution.estimated_monthly_observations == 800
-
     def test_a_tiny_budget_clamps_at_the_minimum_rate(self):
-        solution = self._solve(budget=1, model_mode="comprehensive", monthly_by_mode={"comprehensive": 10_000_000})
+        solution = self._solve(budget=1, monthly=10_000_000)
 
         assert solution.sampling_rate == MIN_SAMPLING_RATE
         # The rate cannot go below the floor, so the projection lands above the budget rather than on
@@ -1556,11 +1694,8 @@ class TestSolveBudget(_VisionAPITestCase):
     def test_a_pricier_model_buys_fewer_recordings_for_the_same_budget(self):
         # 1000 credits at 5 credits/observation buys 200 recordings; the matched pool is larger, so
         # the rate solves down to fit the 200 the budget can actually pay for.
-        solution = self._solve(
-            budget=1_000, credits_per_observation=5, model_mode="comprehensive", monthly_by_mode={"comprehensive": 800}
-        )
+        solution = self._solve(budget=1_000, credits_per_observation=5, monthly=800)
 
-        assert solution.sampling_mode == "comprehensive"
         assert solution.sampling_rate < 1.0
         assert solution.estimated_monthly_observations <= 200
 
@@ -1596,7 +1731,6 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         draft = self._run(estimate_error=True)
 
         assert draft.name
-        assert draft.sampling_mode is None
         assert draft.sampling_rate is None
         assert draft.estimated_monthly_observations is None
         # The credit cap and model are the guardrail, so they survive a costing failure.
@@ -1626,13 +1760,15 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         assert draft.query == {"kind": "RecordingsQuery", "filter_test_accounts": True}
 
     def _estimate_by_query(self, dead_when):
-        def estimate(*, team, query, user, sampling_mode, budget):
+        def estimate(*, team, query, user, budget):
             matched = 0 if dead_when(query) else 300
             return ScannerVolumeEstimate(matched_sessions=matched, effective_window_days=30)
 
         return estimate
 
-    def _drafted_with(self, generate, estimate, experiment_id=None):
+    def _drafted_with(
+        self, generate, estimate, experiment_id=None, chosen_query=None, experiment_variants=None, has_match=None
+    ):
         with (
             patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
             # Measure every candidate live, so these tests exercise the estimate-based fallback rather
@@ -1643,6 +1779,7 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
             ),
             patch(_GENERATE_PATH, return_value=generate),
             patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=estimate),
+            patch(f"{_MODULE}.has_recent_matching_recording", side_effect=has_match or (lambda **kwargs: True)),
         ):
             return draft_scanner_from_goal(
                 team=self.team,
@@ -1651,6 +1788,8 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
                 monthly_credit_budget=10_000,
                 user_access_control=_access_control(allow=True),
                 experiment_id=experiment_id,
+                experiment_variants=experiment_variants,
+                chosen_query=chosen_query,
             )
 
     def test_an_event_filter_that_matches_nothing_falls_back_to_the_pages(self):
@@ -1704,6 +1843,73 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         assert draft.query is not None
         assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
         assert draft.estimated_monthly_observations == 0
+
+    _CHOSEN = {
+        "kind": "RecordingsQuery",
+        "properties": [{"type": "recording", "key": "visited_page", "value": "/billing", "operator": "icontains"}],
+    }
+
+    @parameterized.expand(
+        [
+            ("adds a narrowing filter", _CHOSEN, ["billing_limit_set"], True, True, None),
+            ("drops additions that match nothing", _CHOSEN, ["billing_limit_set"], False, False, "matched_nothing"),
+            ("drops additions it could not check", _CHOSEN, ["billing_limit_set"], None, False, "unverified"),
+            (
+                "drops additions to an OR filter",
+                {**_CHOSEN, "operand": "OR"},
+                ["billing_limit_set"],
+                True,
+                False,
+                "or_operand",
+            ),
+            # The query builder reads a null operand as OR too.
+            (
+                "drops additions to a null-operand filter",
+                {**_CHOSEN, "operand": None},
+                ["billing_limit_set"],
+                True,
+                False,
+                "or_operand",
+            ),
+            ("keeps a chosen filter with nothing proposed", _CHOSEN, [], True, False, None),
+        ]
+    )
+    def test_a_chosen_query_is_the_starting_point(self, _name, chosen, drafted_events, matched, extended, refusal):
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+        checked: list[RecordingsQuery] = []
+        estimated: list[RecordingsQuery] = []
+
+        def has_match(*, team, user, query):
+            checked.append(query)
+            if matched is None:
+                raise RuntimeError("clickhouse timeout")
+            return matched
+
+        def estimate(*, team, query, user, budget):
+            estimated.append(query)
+            return ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)
+
+        draft = self._drafted_with(
+            _draft(filter_events=drafted_events, rationale="Watches billing sessions."),
+            estimate,
+            chosen_query=chosen,
+            has_match=has_match,
+        )
+
+        assert draft.narrowing_refusal == refusal
+        if extended:
+            assert draft.query is not None
+            assert draft.query["properties"] == chosen["properties"]
+            assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
+            assert draft.query_additions is not None
+            assert [e["id"] for e in draft.query_additions["events"]] == ["billing_limit_set"]
+        else:
+            assert draft.query == chosen
+            assert draft.query_additions is None
+        assert draft.rationale.endswith("This watches the recordings you picked.") == (refusal is not None)
+        assert len(checked) == (1 if drafted_events and refusal != "or_operand" else 0)
+        assert len(estimated) == 1
+        assert bool(estimated[0].events) == extended
 
     def test_a_measured_dead_event_is_dropped_before_it_can_zero_the_scan(self):
         # billing_limit_set is a real definition, so grounding's definition-lookup fallback would
@@ -1857,36 +2063,41 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("named_in_the_goal", {"filter_experiment": "Billing upgrade prompt"}, False),
-            ("picked_by_the_user", {}, True),
+            ("named_in_the_goal", {"filter_experiment": "Billing upgrade prompt"}, False, None, ["test"]),
+            ("picked_by_the_user", {}, True, None, ["test"]),
+            ("scoped_by_the_chosen_filter", {}, True, ["control"], ["control"]),
         ]
     )
-    def test_the_watched_experiment_becomes_an_experiment_scanner_and_is_counted(self, _name, overrides, picked):
+    def test_the_watched_experiment_becomes_an_experiment_scanner_and_is_counted(
+        self, _name, overrides, picked, chosen_variants, expected_variants
+    ):
         # The projection has to count that experiment's participants, not every session the pages
         # match, while the query the wizard saves stays the exposure-free blob the API accepts.
-        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        experiment_id = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
         counted: list[RecordingsQuery] = []
 
-        def estimate(*, team, query, user, sampling_mode, budget):
+        def estimate(*, team, query, user, budget):
             counted.append(query)
             return ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)
 
         draft = self._drafted_with(
             _draft(filter_pages=["/billing"], filter_experiment_variant="test", **overrides),
             estimate,
-            experiment_id=experiment.id if picked else None,
+            experiment_id=experiment_id if picked else None,
+            experiment_variants=chosen_variants,
+            chosen_query={"kind": "RecordingsQuery"} if chosen_variants else None,
         )
 
         assert draft.scanner_type == "experiment"
-        assert draft.scanner_config["experiment_id"] == experiment.id
-        assert draft.scanner_config["variants"] == ["test"]
+        assert draft.scanner_config["experiment_id"] == experiment_id
+        assert draft.scanner_config["variants"] == expected_variants
         assert draft.query is not None and "experiment_exposure" not in draft.query
         assert counted[0].experiment_exposure is not None
-        assert counted[0].experiment_exposure.experiment_id == experiment.id
-        assert counted[0].experiment_exposure.variants == ["test"]
+        assert counted[0].experiment_exposure.experiment_id == experiment_id
+        assert counted[0].experiment_exposure.variants == expected_variants
 
     def test_a_picked_experiment_that_never_launched_is_refused_before_the_model_runs(self):
-        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt", launched=False)
+        experiment_id = _launched_experiment(self.team, self.user, "Billing upgrade prompt", launched=False)
 
         with patch(_GENERATE_PATH) as generate, pytest.raises(UnwatchableExperimentError):
             draft_scanner_from_goal(
@@ -1895,15 +2106,14 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
                 goal="track my experiment",
                 monthly_credit_budget=10_000,
                 user_access_control=_access_control(allow=True),
-                experiment_id=experiment.id,
+                experiment_id=experiment_id,
             )
         generate.assert_not_called()
 
-    def test_solved_dials_reach_the_draft(self):
+    def test_solved_rate_reaches_the_draft(self):
         draft = self._run(pages=("/billing",), generate=_draft(filter_pages=["/billing"]))
 
         assert draft.query is not None
-        assert draft.sampling_mode == "comprehensive"
         assert draft.sampling_rate == 1.0
         assert draft.estimated_monthly_observations == 300
 

@@ -22,12 +22,17 @@ INBOX_MODEL_SORT_FLAG = "inbox-model-sort"
 def can_view_inbox_ranking(user: User, team: Team) -> bool:
     if user.is_staff:
         return True
+    return user_flag_enabled(INBOX_MODEL_SORT_FLAG, user, team)
+
+
+def user_flag_enabled(flag: str, user: User, team: Team) -> bool:
+    """Evaluate `flag` locally for `user` in `team`, with the properties the web client registers. A failure denies."""
     if not user.distinct_id:
         return False
     organization = team.organization
     try:
         return feature_enabled_or_false(
-            INBOX_MODEL_SORT_FLAG,
+            flag,
             user.distinct_id,
             groups={"organization": str(organization.id), "project": str(team.uuid)},
             person_properties={
@@ -54,5 +59,5 @@ def can_view_inbox_ranking(user: User, team: Team) -> bool:
             send_feature_flag_events=False,
         )
     except Exception:
-        logger.exception("signals.inbox_ranking.flag_failed", team_id=team.id, user_id=user.id)
+        logger.exception("signals.inbox_ranking.flag_failed", flag=flag, team_id=team.id, user_id=user.id)
         return False

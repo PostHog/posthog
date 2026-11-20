@@ -8,6 +8,7 @@ on:
             - '.github/workflows/ci-paths-filter.yml'
             - '.github/shared-image-releases.yaml'
             - '.github/workflows/container-images-cd.yml'
+            - '.github/workflows/ci-e2e-playwright.yml'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -30,6 +31,11 @@ jobs:
         steps:
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/checkout@v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/setup-node@v6.2.0
               with:

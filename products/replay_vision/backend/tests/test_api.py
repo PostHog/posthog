@@ -25,7 +25,7 @@ from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.llm.system_one import NoulAnswer, SystemOneResult
-from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, changes_between, replay_scanner_machine_fields
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -35,13 +35,17 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.experiments.backend.models.experiment import Experiment
+from products.actions.backend.facade.testing import create_action
+from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
+from products.replay_vision.backend import quota
 from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
+from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
 from products.replay_vision.backend.highlight_builds import build_highlight_feed
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -50,7 +54,9 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_feed_impression import ReplayObservationFeedImpression
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
+from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
@@ -59,13 +65,19 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
-from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
+from products.replay_vision.backend.models.replay_scanner_semantics import (
+    ReplayScannerFeedGroup,
+    ReplayScannerSearchTheme,
+)
+from products.replay_vision.backend.observation_ranks import CATEGORY_CODES
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
+from products.replay_vision.backend.scanner_access import recording_viewer_access
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
+from products.replay_vision.backend.semantic_clusters import cluster_status
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
@@ -75,10 +87,12 @@ from products.replay_vision.backend.temporal.constants import (
     on_demand_priority,
 )
 from products.replay_vision.backend.tests.helpers import (
+    TEST_FREE_CREDITS,
     create_experiment,
     seed_scanner_spend,
     set_rank,
     snapshot_for as _snapshot_for,
+    unsynced_allowance,
 )
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.signals.backend.facade.api import (
@@ -117,6 +131,15 @@ class _VisionAPITestCase(APIBaseTest):
         }
         defaults.update(overrides)
         return ReplayScanner.objects.create(**defaults)
+
+    def _restrict_scanner(self, scanner: ReplayScanner, access_level: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(scanner.id), access_level=access_level
+        )
 
     def _captured(self, capture: Any, event: str) -> list[dict[str, Any]]:
         return [call.kwargs["properties"] for call in capture.call_args_list if call.kwargs.get("event") == event]
@@ -218,23 +241,71 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()["sampling_rate"], value)
 
-    def test_create_without_ai_consent_returns_tagged_400(self) -> None:
+    @parameterized.expand([("create",), ("turn_on",)])
+    def test_without_ai_consent_returns_tagged_400(self, action: str) -> None:
         # The code is a contract the experiment wizard reads to keep this expected 400 out of error
         # tracking, so it must stay stable, not just the status.
+        scanner = self._create_scanner(enabled=False)
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
-        resp = self.client.post(
-            self.scanners_url,
-            data={
-                "name": "needs-consent",
-                "scanner_type": ScannerType.MONITOR,
-                "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_8_FLASH,
-            },
-            format="json",
-        )
+        if action == "create":
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "needs-consent",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                },
+                format="json",
+            )
+        else:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", {"enabled": True}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
+
+    @parameterized.expand(
+        [
+            ("creator_left_without_take_over", True, False, "admin", "scanner_creator_lost_access", False, False),
+            ("creator_left_with_take_over", True, True, "admin", None, True, True),
+            ("taker_cannot_view_recordings", True, True, "no_recordings", "invalid_input", False, False),
+            ("taker_cannot_manage_access", True, True, "member", "invalid_input", False, False),
+            ("creator_still_member_ignores_take_over", False, True, "member", None, True, False),
+        ]
+    )
+    def test_turning_on_a_scanner_whose_creator_lost_access_needs_an_explicit_take_over(
+        self,
+        _name: str,
+        creator_left: bool,
+        take_over: bool,
+        taker: str,
+        error_code: str | None,
+        enabled: bool,
+        taken_over: bool,
+    ) -> None:
+        if taker != "member":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+        creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+        if not creator_left:
+            self.organization.members.add(creator)
+        scanner = self._create_scanner(enabled=False, created_by=creator)
+
+        with patch(
+            "products.replay_vision.backend.api.scanners.recording_viewer_access",
+            side_effect=(lambda *_: None) if taker == "no_recordings" else None,
+            wraps=recording_viewer_access,
+        ):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/", {"enabled": True, "take_over_as_creator": take_over}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 400 if error_code else 200, resp.json())
+        if error_code:
+            self.assertEqual(resp.json()["code"], error_code)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.enabled, enabled)
+        self.assertEqual(scanner.created_by, self.user if taken_over else creator)
 
     def test_create_duplicate_name_rejected(self) -> None:
         self._create_scanner(name="dup")
@@ -429,6 +500,10 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(waiting.status_code, 201, waiting.json())
         other = post("waiting-on-other-draft", other_draft.id, enabled=False)
         self.assertEqual(other.status_code, 201, other.json())
+        departed_creator = post("waiting-without-a-creator", draft.id, enabled=False)
+        ReplayScanner.objects.filter(id=departed_creator.json()["id"]).update(
+            created_by=User.objects.create_user(email="departed@example.com", password="x", first_name="d")
+        )
 
         early_enable = self.client.patch(
             f"{self.scanners_url}{waiting.json()['id']}/", data={"enabled": True}, format="json"
@@ -443,6 +518,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertTrue(started.enabled)
         self.assertNotIn("start_on_launch", started.scanner_config)
         self.assertFalse(ReplayScanner.objects.get(id=other.json()["id"]).enabled)
+        never_started = ReplayScanner.objects.get(id=departed_creator.json()["id"])
+        self.assertFalse(never_started.enabled)
+        self.assertTrue(never_started.scanner_config["start_on_launch"])
 
         # Setting a start date on a draft also launches it, through the experiment update path.
         patch_launch = self.client.patch(
@@ -755,7 +833,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201, resp.json())
         self.assertEqual(resp.json()["query"], {"filter_test_accounts": True})
 
-    def test_create_strips_date_fields_from_query(self) -> None:
+    def test_create_strips_date_and_result_fields_from_query(self) -> None:
         # The schedule controls time, not the user.
         resp = self.client.post(
             self.scanners_url,
@@ -764,12 +842,18 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
                 "model": ScannerModel.GEMINI_3_8_FLASH,
-                "query": {"date_from": "-7d", "date_to": "-1d", "filter_test_accounts": True},
+                "query": {
+                    "date_from": "-7d",
+                    "date_to": "-1d",
+                    "filter_test_accounts": True,
+                    "response": {"results": [], "has_next": False},
+                },
             },
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.json())
         body_query = resp.json()["query"]
+        self.assertNotIn("response", body_query)
         self.assertNotIn("date_from", body_query)
         self.assertNotIn("date_to", body_query)
         self.assertEqual(body_query["filter_test_accounts"], True)
@@ -790,6 +874,24 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "experiment_exposure",
                 {"experiment_exposure": {"experiment_id": 1}},
                 "Recording filter can't set experiment exposure directly. Set experiment_targeting instead.",
+            ),
+            (
+                "replay_list_only",
+                {
+                    "kind": "RecordingsQuery",
+                    "comment_text": {
+                        "type": "recording",
+                        "key": "comment_text",
+                        "value": "refund",
+                        "operator": "icontains",
+                    },
+                },
+                "A scanner can't apply these recording filters: comment_text. Remove them and try again.",
+            ),
+            (
+                "missing_action",
+                {"kind": "RecordingsQuery", "actions": [{"id": 999999, "type": "actions"}]},
+                "This recording filter uses action 999999, which this project doesn't have.",
             ),
         ]
     )
@@ -1094,7 +1196,9 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
     def test_scout_create_respects_the_organization_quota(
         self, _name: str, organization_limit: int | None, credit_limit: int, expected_status: int
     ) -> None:
-        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.usage = {
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
+        }
         self.organization.save(update_fields=["usage"])
         self._authenticate_as_scout()
 
@@ -1135,7 +1239,9 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
         organization_limit: int | None,
         expected_status: int,
     ) -> None:
-        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.usage = {
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
+        }
         self.organization.save(update_fields=["usage"])
         ceiling = dict(ceiling)
         if ceiling.pop("armed_for_launch", False):
@@ -1207,7 +1313,9 @@ class TestScannerScoutCallerRules(_VisionAPITestCase):
     def test_scout_duplicate_requires_a_credit_limit(
         self, _name: str, credit_limit: int | None, expected_status: int, organization_limit: int | None
     ) -> None:
-        self.organization.usage = {"replay_vision_credits": {"limit": organization_limit}}
+        self.organization.usage = {
+            "replay_vision_credits": {"limit": organization_limit, "free_tier_units": TEST_FREE_CREDITS}
+        }
         self.organization.save(update_fields=["usage"])
         scanner = self._create_scanner(name="source", credit_limit=credit_limit)
         self._authenticate_as_scout()
@@ -1590,12 +1698,12 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("app", {}, "ai", "ai"),
-            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard"),
+            ("app", {}, "ai", "ai", "replay_filters"),
+            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard", "wizard"),
         ]
     )
     def test_create_reports_how_the_scanner_was_built(
-        self, _name: str, headers: dict[str, Any], claimed: str, expected: str
+        self, _name: str, headers: dict[str, Any], claimed: str, expected: str, expected_entry_point: str
     ) -> None:
         # A metric comparing AI-built against hand-built scanners needs to know how the form was filled.
         #
@@ -1611,6 +1719,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
                     "scanner_config": {"prompt": "did checkout complete?"},
                     "model": ScannerModel.GEMINI_3_8_FLASH,
                     "creation_method": claimed,
+                    "entry_point": "replay_filters",
                 },
                 format="json",
                 **headers,
@@ -1621,8 +1730,13 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
             call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
         ]
         self.assertEqual(created[0].kwargs["properties"]["creation_method"], expected)
+        # An entry point experiment compares creation by the surface the person started from, so only
+        # the app can claim one: any other caller reports itself, whatever it sends.
+        self.assertEqual(created[0].kwargs["properties"]["entry_point"], expected_entry_point)
         # Telemetry only: it must not reach the model, whose constructor would reject it.
-        self.assertFalse(hasattr(ReplayScanner.objects.get(id=resp.json()["id"]), "creation_method"))
+        scanner = ReplayScanner.objects.get(id=resp.json()["id"])
+        self.assertFalse(hasattr(scanner, "creation_method"))
+        self.assertFalse(hasattr(scanner, "entry_point"))
 
     def test_create_without_a_request_reports_the_declared_surface(self) -> None:
         # Max reaches the serializer directly, so there is no request to derive a surface from and
@@ -1660,13 +1774,14 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         with patch("posthoganalytics.capture") as capture:
             resp = self.client.patch(
                 f"{self.scanners_url}{scanner.id}/",
-                data={"name": "renamed", "creation_method": "template"},
+                data={"name": "renamed", "creation_method": "template", "entry_point": "replay_filters"},
                 format="json",
             )
 
         self.assertEqual(resp.status_code, 200, resp.json())
         edited = [call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_edited"]
         self.assertNotIn("creation_method", edited[0].kwargs["properties"])
+        self.assertNotIn("entry_point", edited[0].kwargs["properties"])
 
     @parameterized.expand(
         [
@@ -1683,6 +1798,59 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], event)
+
+    @parameterized.expand(
+        [
+            ("turning_off_records_manual", True, None, False, False, 200, False, "manual"),
+            ("turning_on_clears_the_reason", False, "creator_lost_access", False, True, 200, True, None),
+            # The form PATCHes `enabled: false` back on every save; that must not hide why the sweep turned it off.
+            (
+                "saving_an_off_scanner_keeps_its_reason",
+                False,
+                "free_credits_used",
+                True,
+                False,
+                200,
+                False,
+                "free_credits_used",
+            ),
+            (
+                "free_only_cannot_turn_on_without_free_credits",
+                False,
+                "free_credits_used",
+                True,
+                True,
+                400,
+                False,
+                "free_credits_used",
+            ),
+        ]
+    )
+    def test_disabled_reason_follows_the_enabled_toggle(
+        self,
+        _name: str,
+        before: bool,
+        reason_before: str | None,
+        free_only: bool,
+        after: bool,
+        status: int,
+        enabled_after: bool,
+        reason_after: str | None,
+    ) -> None:
+        scanner = self._create_scanner(enabled=before, free_only=free_only)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(disabled_reason=reason_before)
+
+        # One free credit is left, less than one observation costs, so the sweep would stop it straight away.
+        with unsynced_allowance(free_credits=1):
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
+
+        self.assertEqual(resp.status_code, status, resp.json())
+        if status == 400:
+            self.assertEqual(resp.json()["code"], "scanner_free_credits_used")
+        scanner.refresh_from_db()
+        self.assertEqual((scanner.enabled, scanner.disabled_reason), (enabled_after, reason_after))
+        if status == 200:
+            self.assertEqual(resp.json()["disabled_reason"], reason_after)
 
     @parameterized.expand(
         [
@@ -3008,7 +3176,7 @@ class TestObserveAction(_VisionAPITestCase):
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock()
 
-        exhausted = MagicMock(credit_limit=500, period_end=timezone.now())
+        exhausted = MagicMock(credit_limit=500, period_end=timezone.now(), awaiting_billing_sync=False)
         with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
@@ -3019,6 +3187,20 @@ class TestObserveAction(_VisionAPITestCase):
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], "replay_vision_quota_exhausted")
         self.assertEqual(report.call_args.args[2]["trigger"], "on_demand")
+
+    def test_observe_waits_for_billing_to_sync_an_unsynced_org(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+
+        with patch.object(quota, "UNSYNCED_ALLOWANCE", None):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-unsynced"}, format="json"
+            )
+
+        self.assertEqual((resp.status_code, resp.json()["code"]), (503, "billing_sync_pending"))
+        start_workflow.assert_not_called()
 
     def test_observe_is_refused_when_the_scanner_limit_is_reached(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -3131,7 +3313,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         # Enough in-flight headroom, but only one observation's worth of credits left → quota is the
         # binding limit, so the skip reason must say quota, not in-flight.
         cost = observation_credits_for_model(self.scanner.model)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", cost):
+        with unsynced_allowance(credit_limit=cost):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.bulk_url(str(self.scanner.id)), data={"session_ids": ["p", "q"]}, format="json"
@@ -3197,7 +3379,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         seed_scanner_spend(self.scanner, cost)
         ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=cost * scanner_limit_multiplier)
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", cost * org_quota_multiplier):
+        with unsynced_allowance(credit_limit=cost * org_quota_multiplier):
             resp = self.client.post(
                 self.bulk_url(str(self.scanner.id)), data={"session_ids": ["s-1", "s-2"]}, format="json"
             )
@@ -3272,7 +3454,7 @@ class TestBulkObserveAction(_VisionAPITestCase):
         # Quota is the tighter limit, but the whole batch fits under it: one session is merely
         # already running, so no exhaustion should be reported.
         cost = observation_credits_for_model(self.scanner.model)
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 2 * cost):
+        with unsynced_allowance(credit_limit=2 * cost):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.bulk_url(str(self.scanner.id)), data={"session_ids": ["already", "b"]}, format="json"
@@ -3470,7 +3652,7 @@ class TestRetryActions(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
         observation = self._create_failed("sess-quota")
 
-        exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now())
+        exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now(), awaiting_billing_sync=False)
         with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 402, resp.json())
@@ -3610,12 +3792,9 @@ class TestRetryActions(_VisionAPITestCase):
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
         observation = self._create_failed("sess-rbac")
+        self._restrict_scanner(self.scanner, "viewer")
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
-            side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
-        ):
-            resp = self.client.post(f"/api/environments/{self.team.id}/vision/observations/{observation.id}/retry/")
+        resp = self.client.post(f"/api/environments/{self.team.id}/vision/observations/{observation.id}/retry/")
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
         start_workflow.assert_not_called()
@@ -4001,10 +4180,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
             ObservationMatch(observation_id=str(visible.id), distance=0.2, matched_content=""),
         ]
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             resp = self.client.get(f"{self.search_url}?q=anything")
 
         self.assertEqual(resp.status_code, 200, resp.json())
@@ -4021,10 +4197,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         )
         mock_embed.return_value = MagicMock(embedding=[0.1])
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             scoped = self.client.get(f"{self.search_url}?q=anything&scanner_id={denied.id}")
             cross = self.client.get(f"{self.search_url}?q=anything")
 
@@ -4207,11 +4380,75 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             ("query_oversized", {"query": {"distinct_ids": ["x" * 1_000 for _ in range(100)]}}),
             ("query_experiment_exposure", {"query": {"experiment_exposure": {"experiment_id": 1}}}),
             ("query_not_an_object", {"query": ["kind", "RecordingsQuery"]}),
+            ("query_missing_cohort", {"query": {"properties": [{"type": "cohort", "key": "id", "value": 999999}]}}),
+            ("query_malformed_entity", {"query": {"events": [{"id": "$pageview", "properties": 1}]}}),
         ]
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
         resp = self.client.post(self.estimate_url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
+
+    def test_an_action_the_caller_cannot_read_is_refused_inside_hogql(self) -> None:
+        # The HogQL action resolver loads any action in the project, so the object-level check has to
+        # reach the ids an expression names, or a member could count a restricted action's sessions.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        action = create_action(team=self.team, name="Restricted", created_by=self.user)
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        self.client.force_login(member)
+        query = {"kind": "RecordingsQuery", "properties": [{"type": "hogql", "key": f"matchesAction({action.id})"}]}
+
+        resp = self.client.post(self.estimate_url, data={"query": query}, format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(
+            resp.json()["detail"], f"This recording filter uses action {action.id}, which this project doesn't have."
+        )
+
+    @parameterized.expand(
+        [
+            ("estimate", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
+            ("create", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
+            ("estimate", "hogql", "This recording filter uses cohorts, which your access doesn't cover."),
+        ]
+    )
+    def test_a_token_without_cohort_read_cannot_filter_by_cohort(self, endpoint: str, form: str, detail: str) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Paying customers")
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="cohort-scope-test",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["replay_scanner:write", "session_recording:read"],
+        )
+        cohort_filter = (
+            {"type": "cohort", "key": "id", "value": cohort.id}
+            if form == "cohort"
+            else {"type": "hogql", "key": f"person_id IN COHORT {cohort.id}"}
+        )
+        query = {"kind": "RecordingsQuery", "properties": [cohort_filter]}
+        url, data = (
+            (self.estimate_url, {"query": query})
+            if endpoint == "estimate"
+            else (
+                self.scanners_url,
+                {
+                    "name": "cohort-scoped",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                    "query": query,
+                },
+            )
+        )
+
+        resp = self.client.post(url, data=data, format="json", HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["detail"], detail)
 
     def test_estimate_scopes_to_an_experiment_scanners_experiment(self) -> None:
         # An experiment scanner keeps its experiment in its config, so the estimate has to take that
@@ -4630,7 +4867,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock()
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+        with unsynced_allowance(credit_limit=0):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self._scan()
 
@@ -4701,7 +4938,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
 
-        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 0):
+        with unsynced_allowance(credit_limit=0):
             resp = self._scan(session_ids=["sess-1", "sess-2"])
 
         self.assertEqual(resp.status_code, 202, resp.json())
@@ -4880,6 +5117,16 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
             [item["observation"]["session_id"] for item in items], [f"row-{i}" for i in range(len(expected_kinds))]
         )
 
+    def test_filler_the_reader_just_opened_is_not_labeled_new(self) -> None:
+        scanner = self._create_scanner(name="m")
+        opened = self._ranked_observation(scanner, "opened", 10)
+        assert self.client.post(f"{self.observations_url(str(scanner.id))}{opened.id}/viewed/").status_code == 204
+
+        items = self.client.get(self.feed_url).json()["results"]
+        self.assertEqual(
+            [(item["observation"]["session_id"], item["reason"]["kind"]) for item in items], [("opened", "recent")]
+        )
+
     def test_categories_drop_the_left_out_picks_between_loads(self) -> None:
         scanner = self._create_scanner(name="m")
         # Of 20 ranked rows the top four clear the percentile cut: two failures and two revenue rows.
@@ -4956,6 +5203,19 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
 
         sessions = [item["observation"]["session_id"] for item in response["results"]]
         assert sessions and not any(session.startswith("leaving") for session in sessions)
+
+    def test_a_deleted_observation_leaves_the_stored_picks_before_the_feed_rebuilds(self) -> None:
+        scanner = self._create_scanner(name="m")
+        for index in range(10):
+            self._ranked_observation(scanner, f"s-{index}", 10 + index, "failure", 0.9 - index / 100)
+        built = self.client.get(self.feed_url, {"date_from": "-1d", "limit": "20"}).json()["results"]
+        deleted = built[0]["observation"]
+        ReplayObservation.objects.filter(id=deleted["id"]).delete()
+
+        # The first slot is where the deleted pick ranked, so a stored entry left in place empties the page.
+        response = self.client.get(self.feed_url, {"date_from": "-1d", "limit": "1"}).json()["results"]
+
+        assert [item["observation"]["id"] for item in response] == [built[1]["observation"]["id"]]
 
     def test_an_embedding_pick_counts_its_hidden_duplicates(self) -> None:
         scanner = self._create_scanner(name="m")
@@ -5077,6 +5337,34 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         # A later page of the same load ranks as of its first page, before the impression.
         assert load_picks(as_of=as_of)[0] == ["s-0", "s-1"]
         assert load_picks()[0] == ["s-1", "s-0"]
+
+    def test_going_back_to_the_feed_twice_keeps_an_opened_pick_until_the_seen_grace_ends(self) -> None:
+        scanner = self._create_scanner(name="m")
+        rows = {}
+        for index in range(10):
+            obs = self._succeeded_observation(scanner, f"s-{index}", 10 + index, self._monitor_result("no"))
+            category = "failure" if index < 2 else "routine"
+            set_rank(obs, category=category, contrast=0.5 - index * 0.01, group=None)
+            rows[f"s-{index}"] = obs
+        seen = [str(rows["s-0"].id), str(rows["s-1"].id)]
+
+        def load_and_show() -> list[str]:
+            items = self.client.get(self.feed_url).json()["results"]
+            resp = self.client.post(
+                f"{self.scanners_url}highlight_feed_impressions/",
+                {"feed_load_id": str(uuid.uuid4()), "observation_ids": seen},
+                format="json",
+            )
+            assert resp.status_code == 204, resp.content
+            return [item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"]
+
+        assert load_and_show() == ["s-0", "s-1"]
+        viewed_url = f"{self.observations_url(str(scanner.id))}{rows['s-0'].id}/viewed/"
+        assert self.client.post(viewed_url).status_code == 204
+        assert load_and_show() == ["s-0", "s-1"]
+        assert load_and_show() == ["s-0", "s-1"]
+        ReplayObservationView.objects.for_team(self.team.id).update(created_at=timezone.now() - timedelta(hours=2))
+        assert load_and_show() == ["s-1", "s-0"]
 
     def test_window_type_filter_and_limit(self) -> None:
         monitor = self._create_scanner(name="m")
@@ -5238,10 +5526,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         self._succeeded_observation(scanner, "open-sess-2", 4, self._monitor_result("no"))
 
         # The restricted rows are the newest, so the access gate has to run before the filler's limit.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             resp = self.client.get(self.feed_url)
         self.assertEqual(
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
@@ -5260,10 +5545,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         restricted.save()
 
         # The restricted picks outscore the open ones, so a page of two holds them unless the picks drop them first.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             resp = self.client.get(self.feed_url, {"limit": 2})
         self.assertEqual(
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-8", "open-9"]
@@ -5281,10 +5563,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         first = self.client.get(self.feed_url, {"limit": 1}).json()
         self.assertEqual(len(first["results"]), 1)
         # The second page reads the same build as the first, so access has to be checked again on the page itself.
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             second = self.client.get(self.feed_url, {"limit": 5, "offset": 1, "as_of": first["as_of"]}).json()
         self.assertEqual(second["results"], [])
 
@@ -5714,3 +5993,222 @@ class TestScannerActivityLogging(_VisionAPITestCase):
     def test_every_machine_owned_field_is_excluded(self) -> None:
         # A machine-written column that misses the registry turns every sweep into an audit row.
         self.assertEqual(set(ReplayScanner._MACHINE_OWNED_FIELDS) - set(replay_scanner_machine_fields), set())
+
+
+class TestClusterViewSets(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.checkout = self._create_scanner(name="checkout")
+        self.hidden = self._create_scanner(name="hidden")
+        now = timezone.now()
+        self.big, self.growing, self.secret = (uuid.uuid4() for _ in range(3))
+        # Themes get their own ids, so a theme id sent to the groups endpoint finds nothing.
+        self.theme_of = {cluster: uuid.uuid4() for cluster in (self.big, self.growing, self.secret)}
+        for cluster, scanner, age_days in [
+            (self.big, self.checkout, 30),
+            (self.growing, self.checkout, 3),
+            (self.secret, self.hidden, 3),
+        ]:
+            ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
+                id=self.theme_of[cluster],
+                team=self.team,
+                scanner=scanner,
+                vector_sum=b"",
+                name={self.big: "coupon rejected", self.growing: "checkout stalls"}.get(cluster, ""),
+                last_member_at=now,
+            )
+            ReplayScannerFeedGroup.objects.for_team(self.team.id).create(
+                id=cluster, team=self.team, scanner=scanner, vector_sum=b"", last_member_at=now
+            )
+            ReplayScannerSearchTheme.objects.for_team(self.team.id).filter(id=self.theme_of[cluster]).update(
+                created_at=now - timedelta(days=age_days)
+            )
+            ReplayScannerFeedGroup.objects.for_team(self.team.id).filter(id=cluster).update(
+                created_at=now - timedelta(days=age_days)
+            )
+        for session, scanner, cluster, person, age_days, category, variant, experiment in [
+            # Two people in the window, one of them twice, plus one member in the window before it.
+            ("big-1", self.checkout, self.big, 1, 1, "failure", "test", 0),
+            ("big-2", self.checkout, self.big, 1, 2, "failure", "test", 0),
+            ("big-3", self.checkout, self.big, 2, 3, "failure", None, 0),
+            ("big-prev", self.checkout, self.big, 3, 40, "failure", "control", 0),
+            ("big-routine", self.checkout, self.big, 4, 1, "routine", "control", 0),
+            # Scanned for an experiment nobody here can open.
+            ("big-restricted", self.checkout, self.big, 5, 1, "failure", "test", 999_999),
+            ("growing-1", self.checkout, self.growing, 6, 1, "struggle", None, 0),
+            ("growing-2", self.checkout, self.growing, 7, 2, "struggle", None, 0),
+            ("growing-3", self.checkout, self.growing, 8, 3, "struggle", None, 0),
+            ("secret-1", self.hidden, self.secret, 9, 1, "failure", None, 0),
+        ]:
+            created_at = now - timedelta(days=age_days)
+            row = ReplayObservation.objects.create(
+                scanner=scanner,
+                session_id=session,
+                scanner_snapshot={
+                    **_snapshot_for(scanner),
+                    **({"experiment_targeting": {"experiment_id": experiment}} if experiment else {}),
+                },
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=created_at,
+                scanner_result={"experiment_variant": variant} if variant else {},
+            )
+            ReplayObservation.objects.filter(id=row.id).update(created_at=created_at)
+            ReplayObservationRank.objects.for_team(self.team.id).create(
+                observation=row,
+                team=self.team,
+                scanner=scanner,
+                created_at=created_at,
+                anchor_version=ANCHOR_VERSION,
+                contrast=0.3,
+                category=CATEGORY_CODES[category],
+                feed_group_id=cluster,
+                search_theme_id=self.theme_of[cluster],
+                person_key=person,
+                experiment_id=experiment,
+            )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(self.hidden.id), access_level="none"
+        )
+
+    def url(self, kind: str, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/vision/{kind}/{suffix}"
+
+    def session_row(self, session_id: str) -> uuid.UUID:
+        return ReplayObservation.objects.get(team=self.team, session_id=session_id).id
+
+    @parameterized.expand(
+        [
+            ("themes_by_people", "themes", "people", ["growing", "big"]),
+            ("groups_by_people", "groups", "people", ["growing", "big"]),
+            ("groups_by_growth", "groups", "growth", ["growing", "big"]),
+        ]
+    )
+    def test_list_counts_readable_issue_members_in_the_window(
+        self, _name: str, kind: str, order: str, expected_order: list[str]
+    ) -> None:
+        resp = self.client.get(
+            self.url(kind), {"order": order, "scanner_id": str(self.checkout.id), "date_from": "-30d"}
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        ids = {"big": self.big, "growing": self.growing}
+        if kind == "themes":
+            ids = {name: self.theme_of[cluster] for name, cluster in ids.items()}
+        names = {str(cluster): name for name, cluster in ids.items()}
+        results = resp.json()["results"]
+        self.assertEqual([names[row["id"]] for row in results], expected_order)
+        big = next(row for row in results if row["id"] == str(ids["big"]))
+        self.assertEqual((big["observation_count"], big["people_count"], big["previous_observation_count"]), (3, 2, 1))
+        # The big theme has a member scanned for an experiment the caller can't open, and naming reads every member.
+        self.assertEqual((big["name"], big["status"]), (None, "active"))
+        growing = next(row for row in results if row["id"] == str(ids["growing"]))
+        self.assertEqual(
+            (growing["name"], growing["status"]), ("checkout stalls" if kind == "themes" else None, "emerging")
+        )
+        self.assertEqual(len(big["example_observation_ids"]), 3)
+        self.assertNotIn(str(self.session_row("big-restricted")), big["example_observation_ids"])
+
+    @parameterized.expand(
+        [
+            ("readable", "big", 200),
+            ("unreadable_scanner", "secret", 404),
+            ("theme_id_on_groups", "big_theme", 404),
+            ("unknown", None, 404),
+        ]
+    )
+    def test_retrieve_hides_what_the_caller_cannot_read(self, _name: str, cluster: str | None, status: int) -> None:
+        cluster_id = {"big": self.big, "secret": self.secret, "big_theme": self.theme_of[self.big]}.get(
+            cluster or "", uuid.uuid4()
+        )
+
+        resp = self.client.get(self.url("groups", f"{cluster_id}/"))
+
+        self.assertEqual(resp.status_code, status)
+
+    @parameterized.expand(
+        [
+            ("issues", {}, {"test": (2, 1), UNATTRIBUTED_VARIANT: (1, 1)}),
+            (
+                "with_routine",
+                {"include_routine": "true"},
+                {"test": (2, 1), "control": (1, 1), UNATTRIBUTED_VARIANT: (1, 1)},
+            ),
+            ("one_variant", {"variant": "test"}, {"test": (2, 1)}),
+        ]
+    )
+    def test_group_splits_its_window_by_variant(
+        self, _name: str, params: dict[str, str], expected: dict[str, tuple[int, int]]
+    ) -> None:
+        resp = self.client.get(self.url("groups", f"{self.big}/"), {"by_variant": "true", **params})
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        variants = {row["key"]: (row["observation_count"], row["people_count"]) for row in resp.json()["variants"]}
+        self.assertEqual(variants, expected)
+        self.assertEqual(resp.json()["observation_count"], sum(count for count, _ in expected.values()))
+
+    @parameterized.expand(
+        [
+            ("one_scanner_90d", "checkout", {"date_from": "-90d"}, 200),
+            ("cross_scanner_30d", "", {"date_from": "-30d"}, 200),
+            ("cross_scanner_90d", "", {"date_from": "-90d"}, 400),
+            ("past_the_cap", "checkout", {"date_from": "-120d"}, 400),
+        ]
+    )
+    def test_window_cap(self, _name: str, scanner: str, params: dict[str, str], status: int) -> None:
+        query = {**params, **({"scanner_id": str(self.checkout.id)} if scanner else {})}
+
+        resp = self.client.get(self.url("groups"), query)
+
+        self.assertEqual(resp.status_code, status, resp.json())
+
+    @parameterized.expand(
+        [
+            ("theme", {"theme": "big"}, {"big-1", "big-2", "big-3"}),
+            ("group", {"group": "big"}, {"big-1", "big-2", "big-3"}),
+            (
+                "group_with_routine",
+                {"group": "big", "include_routine": "true"},
+                {"big-1", "big-2", "big-3", "big-routine"},
+            ),
+        ]
+    )
+    def test_observation_list_filters_to_the_members_a_cluster_counts(
+        self, _name: str, params: dict[str, str], expected: set[str]
+    ) -> None:
+        big = {"theme": self.theme_of[self.big], "group": self.big}
+        query = {key: str(big[key]) if value == "big" else value for key, value in params.items()}
+
+        resp = self.client.get(self.observations_url(str(self.checkout.id)), {**query, "date_from": "-7d"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
+
+    def test_list_pages_with_offset(self) -> None:
+        params = {"scanner_id": str(self.checkout.id), "order": "people", "limit": "1"}
+
+        first = self.client.get(self.url("groups"), params).json()
+        second = self.client.get(self.url("groups"), {**params, "offset": "1"}).json()
+
+        self.assertEqual(([row["id"] for row in first["results"]], first["has_more"]), ([str(self.growing)], True))
+        self.assertEqual(([row["id"] for row in second["results"]], second["has_more"]), ([str(self.big)], False))
+
+
+class TestClusterStatus(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("dormant_with_no_member_in_two_weeks", 0, 0, True, "dormant"),
+            ("emerging_with_no_member_before_last_week", 5, 0, False, "emerging"),
+            ("fading_under_half_the_week_before", 2, 5, True, "fading"),
+            ("active_at_half_the_week_before", 3, 6, True, "active"),
+        ]
+    )
+    def test_status_from_member_activity(
+        self, _name: str, last_week: int, week_before: int, has_older_member: bool, expected: str
+    ) -> None:
+        status = cluster_status(last_week=last_week, week_before=week_before, has_older_member=has_older_member)
+        self.assertEqual(status, expected)

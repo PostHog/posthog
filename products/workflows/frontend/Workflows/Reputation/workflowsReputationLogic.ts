@@ -4,9 +4,9 @@ import posthog from 'posthog-js'
 
 import { type SupportFormFields, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { canCreateSupportTicket } from 'scenes/max/ticketUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -45,7 +45,6 @@ function sendingTierIncreaseContext(
         `Project ID: ${projectId ?? 'unknown'}`,
         `Current tier: ${allowance.tier} of ${allowance.max_tier}`,
         `Emails today: ${humanFriendlyNumber(allowance.emails_sent_last_day)} of ${humanFriendlyNumber(allowance.emails_per_day)}`,
-        `Emails this hour: ${humanFriendlyNumber(allowance.emails_sent_last_hour)} of ${humanFriendlyNumber(allowance.emails_per_hour)}`,
         ...(rates
             ? [
                   `Bounce rate (last 30 days): ${percentage(rates.bounce_rate, 2, true)}`,

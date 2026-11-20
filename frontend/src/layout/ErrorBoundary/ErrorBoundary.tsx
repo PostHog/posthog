@@ -54,6 +54,40 @@ function RemountOnMount({ onRemount }: { onRemount: () => void }): null {
     return null
 }
 
+const MAX_THROWN_VALUE_LENGTH = 200
+
+function isErrorLike(value: unknown): value is Error {
+    return value instanceof Error || Object.prototype.toString.call(value) === '[object Error]'
+}
+
+function describeThrownValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return String(value)
+    }
+    let text: string
+    try {
+        text = String(value)
+    } catch {
+        text = '<unprintable>'
+    }
+    return `${typeof value} ${text.slice(0, MAX_THROWN_VALUE_LENGTH)}`
+}
+
+type ExceptionProperties = Record<string, number | string | boolean | bigint | symbol | null | undefined>
+
+/** A property, because rethrowing an Error from an inner boundary would replace React's component stack. */
+function withThrownValue(properties: ExceptionProperties): (error: unknown) => ExceptionProperties {
+    return (error) => (isErrorLike(error) ? properties : { ...properties, thrown_value: describeThrownValue(error) })
+}
+
+function toDisplayError(error: unknown, scene: unknown): Error {
+    if (isErrorLike(error)) {
+        return error
+    }
+    const location = typeof scene === 'string' && scene ? ` in scene ${scene}` : ''
+    return new Error(`Non-Error value thrown${location}: ${describeThrownValue(error)}`)
+}
+
 interface RemountRecord {
     count: number
     at: number
@@ -65,7 +99,7 @@ function canRemountSilently(record: RemountRecord, now: number): boolean {
 
 interface ErrorBoundaryProps {
     children?: React.ReactNode
-    exceptionProps?: Record<string, number | string | boolean | bigint | symbol | null | undefined>
+    exceptionProps?: ExceptionProperties
     className?: string
 }
 
@@ -106,13 +140,9 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
     return (
         <PostHogErrorBoundary
             key={remountCount}
-            additionalProperties={additionalProperties}
+            additionalProperties={withThrownValue(additionalProperties)}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
-                const rawError = props.error
-                const normalizedError =
-                    rawError instanceof Error
-                        ? rawError
-                        : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
+                const normalizedError = toDisplayError(props.error, exceptionProps.feature)
                 const { stack, name, message } = normalizedError
 
                 const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
@@ -212,13 +242,9 @@ export function LightErrorBoundary({ children, exceptionProps = {}, className }:
     }
     return (
         <PostHogErrorBoundary
-            additionalProperties={additionalProperties}
+            additionalProperties={withThrownValue(additionalProperties)}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
-                const rawError = props.error
-                const normalizedError =
-                    rawError instanceof Error
-                        ? rawError
-                        : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
+                const normalizedError = toDisplayError(props.error, exceptionProps.feature)
                 const { stack, name, message } = normalizedError
                 return (
                     <div className={clsx('text-danger', className)}>

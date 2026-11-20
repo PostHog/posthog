@@ -33,7 +33,11 @@ _S3_VIRTUAL_HOSTED = re.compile(rf"(?P<bucket>[a-z0-9.-]+)\.s3\.(?P<region>{_REG
 _S3_PATH_STYLE = re.compile(rf"s3\.(?P<region>{_REGION})\.amazonaws\.com")
 _S3_WITHOUT_REGION = re.compile(r"(?:(?P<bucket>[a-z0-9.-]+)\.)?s3\.amazonaws\.com")
 _GCS_HOST = "storage.googleapis.com"
-_R2_HOST = re.compile(r"(?P<account>[0-9a-f]{32})\.r2\.cloudflarestorage\.com")
+# Cloudflare serves a bucket created with a jurisdiction only from that jurisdiction's endpoint.
+R2_JURISDICTIONS = ("eu", "fedramp", "us")
+R2_HOST = re.compile(
+    rf"(?P<account>[0-9a-f]{{32}})(?:\.(?P<jurisdiction>{'|'.join(R2_JURISDICTIONS)}))?\.r2\.cloudflarestorage\.com"
+)
 _AZURE_HOST = re.compile(r"(?P<account>[a-z0-9]{3,24})\.blob\.core\.windows\.net")
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -47,6 +51,8 @@ class StorageUrl:
     region: str | None = None
     # The Cloudflare account ID for R2, or the storage account name for Azure.
     account: str | None = None
+    # The R2 jurisdiction, such as eu, when the URL names one.
+    jurisdiction: str | None = None
 
 
 @frozen
@@ -102,14 +108,20 @@ def _key(raw_key: str) -> str:
     return key
 
 
-def _path_style(path: str, example: str, region: str | None = None, account: str | None = None) -> StorageUrl:
+def _path_style(
+    path: str,
+    example: str,
+    region: str | None = None,
+    account: str | None = None,
+    jurisdiction: str | None = None,
+) -> StorageUrl:
     """Split `/<bucket>/<key>` into the bucket and the decoded key."""
     bucket, _, raw_key = path.removeprefix("/").partition("/")
     if not bucket:
         raise _invalid(f"the URL doesn't name a bucket. Use a URL such as {example}")
     if "%" in bucket or has_glob(bucket):
         raise _invalid("the bucket name in the URL must be exact. Put wildcards in the path after the bucket.")
-    return StorageUrl(bucket=bucket, key=_key(raw_key), region=region, account=account)
+    return StorageUrl(bucket=bucket, key=_key(raw_key), region=region, account=account, jurisdiction=jurisdiction)
 
 
 def parse_s3_url(url: str) -> StorageUrl:
@@ -144,9 +156,9 @@ def parse_gcs_url(url: str) -> StorageUrl:
 
 def parse_r2_url(url: str) -> StorageUrl:
     parts = _split(url, ("https",), R2_EXAMPLE_URL)
-    if (r2 := _R2_HOST.fullmatch(parts.host)) is None:
+    if (r2 := R2_HOST.fullmatch(parts.host)) is None:
         raise _invalid(f"'{parts.host}' isn't a Cloudflare R2 URL. Use a URL such as {R2_EXAMPLE_URL}")
-    return _path_style(parts.path, R2_EXAMPLE_URL, account=r2.group("account"))
+    return _path_style(parts.path, R2_EXAMPLE_URL, account=r2.group("account"), jurisdiction=r2.group("jurisdiction"))
 
 
 def parse_azure_url(url: str) -> StorageUrl:

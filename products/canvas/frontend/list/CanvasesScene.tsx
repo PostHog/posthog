@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconPalette, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -10,7 +9,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -32,7 +31,8 @@ export function CanvasesScene(): JSX.Element {
 }
 
 function CanvasesList(): JSX.Element {
-    const { canvases, canvasesResponse, canvasesResponseLoading, search, ordering, page } = useValues(canvasesListLogic)
+    const { canvases, canvasesResponse, canvasesResponseLoading, canvasesLoadFailed, search, ordering, page } =
+        useValues(canvasesListLogic)
     const { loadCanvases, setSearch, setOrdering, setPage, deleteCanvas } = useActions(canvasesListLogic)
 
     // Loads on mount rather than on the route, because the list only mounts once the flag is on.
@@ -76,15 +76,7 @@ function CanvasesList(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name="Canvases"
-                resourceType={{ type: 'canvas', forceIcon: <IconPalette /> }}
-                actions={
-                    <Button variant="primary" render={<LinkPrimitive to={urls.canvasNew()} />} data-attr="canvases-new">
-                        New canvas
-                    </Button>
-                }
-            />
+            <SceneTitleSection name="Canvases" resourceType={{ type: 'canvas', forceIcon: <IconPalette /> }} />
             <LemonInput
                 type="search"
                 placeholder="Search for canvases"
@@ -112,7 +104,25 @@ function CanvasesList(): JSX.Element {
                     onForward: canvasesResponse?.next ? () => setPage(page + 1) : undefined,
                     onBackward: page > 1 ? () => setPage(page - 1) : undefined,
                 }}
-                emptyState={search ? 'No canvases match that search.' : 'No canvases yet. Create one to get started.'}
+                emptyState={
+                    canvasesLoadFailed ? (
+                        <div className="flex flex-col items-center gap-2 py-4">
+                            <span>Couldn't load your canvases. Check your connection and try again.</span>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => loadCanvases()}
+                                data-attr="canvases-load-retry"
+                            >
+                                Try again
+                            </LemonButton>
+                        </div>
+                    ) : search ? (
+                        'No canvases match that search.'
+                    ) : (
+                        'No canvases yet. Ask your agent to make one with the PostHog MCP server.'
+                    )
+                }
                 nouns={['canvas', 'canvases']}
             />
         </SceneContent>

@@ -64,6 +64,7 @@ import {
   estimateTokens,
 } from "../claude/context-breakdown";
 import {
+  agentErrorRetryAfterMs,
   classifyAgentError,
   isRetryableUpstreamErrorClassification,
   rejectedRequestMessage,
@@ -201,6 +202,7 @@ type AppServerSessionMeta = {
   baseBranch?: string;
   taskOriginProduct?: string;
   endRunWhenDone?: boolean;
+  callerEndsRun?: boolean;
   posthogExecPermissionRegex?: string;
   nativeGoal?: NativeGoalState;
 };
@@ -809,6 +811,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       baseBranch: meta.baseBranch,
       taskOriginProduct: meta.taskOriginProduct,
       endRunWhenDone: meta.endRunWhenDone === true,
+      callerEndsRun: meta.callerEndsRun === true,
     };
   }
 
@@ -2336,6 +2339,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       error: new RequestError(-32603, describeFatalError(message), {
         classification,
         result: sanitizeAgentErrorCause(message, classification),
+        ...(classification === "upstream_rate_limited"
+          ? { retryAfterMs: agentErrorRetryAfterMs(message) }
+          : {}),
         madeProgress: this.turnMadeProgress,
         ...(usage ? { usage } : {}),
       }),

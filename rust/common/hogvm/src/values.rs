@@ -281,8 +281,7 @@ impl HogValue {
         // `1 == 1.0` is true here because both reference VMs treat all numbers as one domain (see
         // `PartialEq for Num`). Only the two operands are dereferenced, so a nested array or object
         // compares by heap reference, which matches the TS bytecode VM. The cohort evaluator's
-        // temporal epoch-equality is the only opt-in part, and it lives behind the flag in
-        // `HogVM::eq_op`, not here.
+        // opt-ins live in `HogVM::eq_op` and `HogVM::values_equal`, not here.
         let (lhs, rhs) = (self.deref(heap)?, rhs.deref(heap)?);
         lhs.equals(rhs)
     }
@@ -541,14 +540,26 @@ pub(crate) fn temporal_seconds_pair(
     }
 }
 
-/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
+/// How ClickHouse compares a boolean with a property it reads as text.
+pub(crate) fn boolean_text_equals(a: &HogLiteral, b: &HogLiteral) -> Option<bool> {
+    match (a, b) {
+        (HogLiteral::Boolean(flag), HogLiteral::String(text))
+        | (HogLiteral::String(text), HogLiteral::Boolean(flag)) => {
+            Some(text.as_str() == if *flag { "true" } else { "false" })
+        }
+        _ => None,
+    }
+}
+
+/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, three concerns in order:
 ///
-/// TWO ENTRY POINTS, and only one of them is opt-in, so weigh both before you edit this. The
-/// `compare_op` opcode path reaches this only when the context sets
+/// TWO ENTRY POINTS, and neither is fully opt-in, so weigh both before you edit this. The
+/// `compare_op` opcode path reaches this for every pair of arrays, on every consumer, and for all
+/// other operands only when the context sets
 /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons),
-/// today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`) keeps
-/// the strict ordering path where operands other than numbers and numeric arrays error, so this
-/// coercion of ORDERING operands does NOT change their opcode behavior. The named functions
+/// today just the realtime-cohort evaluator. A strict consumer (e.g. `cymbal`) still errors on a
+/// non-number, non-array operand, so the coercion rules in step 3 do NOT change its opcode
+/// behavior, but the temporal check and the array arm do. The named functions
 /// `less`/`greater`/`lessOrEquals`/`greaterOrEquals` are the ungated entry point: they reach this
 /// through [`compare_fn`](crate::stl) on every consumer, so an edit here moves them everywhere. It
 /// says nothing about equality:
@@ -558,7 +569,9 @@ pub(crate) fn temporal_seconds_pair(
 ///
 /// 1. A temporal comparison ([`temporal_seconds_pair`]) orders by epoch seconds to match ClickHouse
 ///    and the Python/TS reference VMs; see the [`crate::stl`] module note.
-/// 2. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
+/// 2. Two arrays order lexicographically by their numeric elements ([`compare_numeric_arrays`]), the
+///    shape `sortableSemver` returns.
+/// 3. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
 ///    coerces to a Number only when the *other* operand is a Number, Bool↔Number maps to `1`/`0`,
 ///    and both-strings compare lexicographically. This is deliberately *not* routed through
 ///    [`HogLiteral::coerce_types`] (the `Eq` contract, which remaps both-strings and must stay put).
@@ -572,7 +585,7 @@ pub fn compare_values(
         return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
     }
 
-    use HogLiteral::{Boolean, Null, Number, String as HString};
+    use HogLiteral::{Array, Boolean, Null, Number, String as HString};
     match (a, b) {
         // SQL semantics, shared with the Node and Python VMs: a null on either side is no match.
         // `compare_op` answers a null operand before it calls here, so this arm is what the named
@@ -591,10 +604,45 @@ pub fn compare_values(
             Num::binary_op(op, &bool_to_num(str_is_true(s)), &bool_to_num(*y))
         }
         (HString(x), HString(y)) => Ok(string_order(op, x, y).into()),
+        (Array(x), Array(y)) => {
+            Ok(ordering_matches(op, compare_numeric_arrays(x, y, heap)?).into())
+        }
         _ => Err(VmError::CannotCoerce(
             a.type_name().to_string(),
             b.type_name().to_string(),
         )),
+    }
+}
+
+/// Lexicographic order of two numeric arrays, a shorter prefix sorting first, as ClickHouse orders
+/// the arrays `sortableSemver` returns. An element that is not a number is an error.
+fn compare_numeric_arrays(
+    a: &[HogValue],
+    b: &[HogValue],
+    heap: &VmHeap,
+) -> Result<Ordering, VmError> {
+    for value in a.iter().chain(b) {
+        let _: &Num = value.deref(heap)?.try_as()?;
+    }
+
+    for (a_value, b_value) in a.iter().zip(b) {
+        let a_num: &Num = a_value.deref(heap)?.try_as()?;
+        let b_num: &Num = b_value.deref(heap)?.try_as()?;
+        let ordering = a_num.compare(b_num);
+        if ordering != Ordering::Equal && a_num != b_num {
+            return Ok(ordering);
+        }
+    }
+    Ok(a.len().cmp(&b.len()))
+}
+
+fn ordering_matches(op: NumOp, ordering: Ordering) -> bool {
+    match op {
+        NumOp::Gt => ordering.is_gt(),
+        NumOp::Gte => ordering.is_ge(),
+        NumOp::Lt => ordering.is_lt(),
+        NumOp::Lte => ordering.is_le(),
+        _ => unreachable!("ordering comparison requires a comparison operation"),
     }
 }
 

@@ -20,20 +20,28 @@ jest.mock('./DashboardsFiltersBar', () => ({ DashboardsFiltersBar: () => null })
 // Render the row menu's overlay inline, so the row actions are assertable without driving a popover open.
 jest.mock('lib/lemon-ui/LemonButton/More', () => ({ More: ({ overlay }: any) => <div>{overlay}</div> }))
 
+let mockUseRealTable = false
 let mockCtx: { selectedKeys: number[]; clearSelection: jest.Mock; setSelectedKeys: jest.Mock }
 jest.mock('lib/lemon-ui/LemonTable', () => ({
-    LemonTable: ({ bulkSelection, columns, dataSource }: any) => (
-        <div>
-            {bulkSelection ? bulkSelection.renderActions(mockCtx) : null}
-            {dataSource.map((row: any) => (
-                <div key={row.id}>
-                    {columns.map((column: any, index: number) =>
-                        column.render ? <span key={index}>{column.render(row[column.dataIndex], row)}</span> : null
-                    )}
-                </div>
-            ))}
-        </div>
-    ),
+    LemonTable: (props: any) => {
+        if (mockUseRealTable) {
+            const ActualLemonTable = jest.requireActual('lib/lemon-ui/LemonTable').LemonTable
+            return <ActualLemonTable {...props} />
+        }
+        const { bulkSelection, columns, dataSource } = props
+        return (
+            <div>
+                {bulkSelection ? bulkSelection.renderActions(mockCtx) : null}
+                {dataSource.map((row: any) => (
+                    <div key={row.id}>
+                        {columns.map((column: any, index: number) =>
+                            column.render ? <span key={index}>{column.render(row[column.dataIndex], row)}</span> : null
+                        )}
+                    </div>
+                ))}
+            </div>
+        )
+    },
 }))
 
 describe('DashboardsTable move to folder', () => {
@@ -46,6 +54,7 @@ describe('DashboardsTable move to folder', () => {
     afterEach(cleanup)
 
     beforeEach(() => {
+        mockUseRealTable = false
         jest.clearAllMocks()
         ;(useActions as jest.Mock).mockReturnValue({
             unpinDashboard: jest.fn(),
@@ -91,6 +100,18 @@ describe('DashboardsTable move to folder', () => {
             />
         )
     }
+
+    it('checks a dashboard after one click and uses that selection for bulk move', () => {
+        mockUseRealTable = true
+        renderTable([1, 2])
+
+        fireEvent.click(screen.getByLabelText('Select dashboard Dashboard 1'))
+
+        expect(screen.getByLabelText('Select dashboard Dashboard 1')).toBeChecked()
+        expect(screen.getByLabelText('Select dashboard Dashboard 2')).not.toBeChecked()
+        fireEvent.click(screen.getByText('Move to folder'))
+        expect(moveDashboardsToFolder).toHaveBeenCalledWith([1], 'bulk', expect.any(Function))
+    })
 
     it('keeps insights by default and passes the delete insights option on submit', () => {
         const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})

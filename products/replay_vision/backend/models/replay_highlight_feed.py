@@ -51,6 +51,8 @@ class ReplayHighlightFeedEntry(TeamScopedRootMixin, models.Model):
     experiment_id = models.IntegerField(default=0)
     percentile = models.FloatField()
     group_root = models.UUIDField()
+    # Spaces one person's cards apart without reading the observations.
+    person_key = models.BigIntegerField(null=True)
 
     class Meta:
         app_label = "replay_vision"

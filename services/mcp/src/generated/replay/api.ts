@@ -25,9 +25,15 @@ export const SessionRecordingPlaylistsListParams = () => zod.object({
         ),
 })
 
+export const sessionRecordingPlaylistsListQueryLimitMax = 500
+
 export const SessionRecordingPlaylistsListQueryParams = () => zod.object({
     created_by: zod.number().optional(),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(sessionRecordingPlaylistsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     short_id: zod.string().optional(),
 })

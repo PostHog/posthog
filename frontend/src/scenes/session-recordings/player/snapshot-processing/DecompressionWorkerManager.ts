@@ -1,6 +1,8 @@
 import type { PostHog } from 'posthog-js'
 import snappyInit, { decompress_raw } from 'snappy-wasm'
 
+import { createWorker } from 'lib/utils/createWorker'
+
 import type { DecompressionRequest, DecompressionResponse } from './decompressionWorker'
 
 interface PendingRequest {
@@ -26,7 +28,7 @@ export class DecompressionWorkerManager {
 
     private async initWorker(): Promise<void> {
         try {
-            this.worker = new Worker('/static/decompressionWorker.js', { type: 'module' })
+            this.worker = createWorker('decompressionWorker.js', { type: 'module' })
 
             const readyPromise = Promise.race([
                 new Promise<void>((resolve) => {

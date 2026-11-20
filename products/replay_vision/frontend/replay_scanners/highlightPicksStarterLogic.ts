@@ -377,12 +377,12 @@ export const highlightPicksStarterLogic: LogicWrapper<highlightPicksStarterLogic
                             provider: DEFAULT_PROVIDER,
                             enabled: true,
                             sampling_rate: samplingRate,
-                            sampling_mode: 'balanced',
                             query,
                             tags: [],
                             free_only: free,
                             credit_limit: free ? FREE_SCANNER_CREDIT_LIMIT : values.budget,
                             creation_method: 'template',
+                            entry_point: 'highlight_picks_starter',
                         })
                     )
                 } catch {

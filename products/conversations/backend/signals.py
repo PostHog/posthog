@@ -6,19 +6,29 @@ from django.db.models import F
 from django.db.models.functions import Greatest
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 import structlog
 
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
+from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import secret_api_token_backup_deleted, secret_api_token_rotated
+from posthog.models.tagged_item import TaggedItem
+from posthog.models.tagged_item_registry import content_type_for
 
 from .ai.human_outcome import maybe_record_human_outcome
-from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
-from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
+from .cache import invalidate_identity_tickets_cache, invalidate_tickets_cache
+from .events import (
+    build_ticket_tag_added_event,
+    capture_message_received,
+    capture_message_sent,
+    capture_private_message_sent,
+    capture_ticket_created,
+)
 from .models import ConversationDeliveryPart, EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel
 from .services.delivery import enqueue_slack_body_delivery
@@ -27,6 +37,7 @@ from .tasks.email import send_email_reply
 from .tasks.github import post_reply_to_github
 from .tasks.slack import wake_delivery_part
 from .tasks.teams import post_reply_to_teams, post_reply_to_teams_via_graph
+from .tasks.ticket_events import emit_ticket_tag_added
 from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 
 logger = structlog.get_logger(__name__)
@@ -121,6 +132,54 @@ def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs)
     transaction.on_commit(do_emit)
 
 
+@receiver(post_save, sender=TaggedItem)
+def emit_ticket_tag_added_event(
+    sender: type[TaggedItem], instance: TaggedItem, created: bool, raw: bool, **kwargs: Any
+) -> None:
+    """
+    Fire `$conversation_ticket_tag_added` when a tag is newly attached to a ticket, so a
+    workflow can trigger on one tag. TaggedItem is unique per object and tag, so a tag the
+    ticket already has never creates a row and emits nothing.
+
+    `TaggedItem.objects.bulk_create` does not trigger this signal, so the Zendesk import
+    tags its tickets without starting workflows on historical tags. The event describes the
+    ticket as committed with the tag, and a Celery task sends it, so a bulk tag request makes
+    no capture call on its own thread.
+    """
+    ticket_id = instance.object_uuid
+    if not created or raw or ticket_id is None or instance.content_type_id != content_type_for(Ticket).id:
+        return
+
+    # Read the actor and the workflow trigger now. The request middleware and
+    # ActivityTriggerContext clear them when they end, which can be before the commit.
+    actor: User | None = get_current_user()
+    trigger = get_current_trigger()
+    workflow_id = trigger.job_id if trigger is not None and trigger.job_type == "hog_flow" else None
+    tag_id, tag_name, event_uuid = str(instance.tag_id), instance.tag.name, str(instance.id)
+
+    def enqueue() -> None:
+        try:
+            # No team filter: a tag row holds the project's root team, but a ticket in a child
+            # environment keeps the environment's team. The UUID alone identifies the ticket.
+            ticket = Ticket.objects.select_related("team").filter(id=ticket_id).first()
+            if ticket is None:
+                return
+            event = build_ticket_tag_added_event(
+                ticket,
+                tag_id,
+                tag_name,
+                actor=actor,
+                actor_type="user" if actor else "system",
+                workflow_id=workflow_id,
+            )
+            timestamp = timezone.now().isoformat()
+            cast(Any, emit_ticket_tag_added).delay(event=event, event_uuid=event_uuid, timestamp=timestamp)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket_id)})
+
+    transaction.on_commit(enqueue)
+
+
 @receiver(post_save, sender=Comment)
 def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs):
     """
@@ -203,11 +262,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         # Emit analytics events and invalidate cache
         try:
             ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
-            # Invalidate widget caches so list and messages reflect the new message
+            # Invalidate widget caches so the ticket list reflects the new message
             invalidate_identity_tickets_cache(team_id)
             if ticket.widget_session_id:
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
-            invalidate_messages_cache(team_id, item_id)
 
             if is_team_message and created_by_id:
                 try:
@@ -222,12 +280,13 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 except Exception as e:
                     capture_exception(e, {"ticket_id": item_id})
 
-            # Customer-facing analytics (to customer's project)
+            # Customer-facing analytics (to customer's project). A workflow reply is a team
+            # message with no User, so author stays unset and the team-level report below still runs.
+            author = None
             if is_team_message and author_type != WORKFLOW_AUTHOR_TYPE:
                 author = User.objects.filter(id=created_by_id).first() if created_by_id else None
                 capture_message_sent(ticket, comment_id, content or "", author=author)
             elif not is_team_message:
-                author = None
                 capture_message_received(
                     ticket,
                     comment_id,

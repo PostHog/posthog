@@ -1,6 +1,6 @@
 import api from 'lib/api'
+import { HogQLQueryString, hogql } from 'lib/utils/hogql'
 
-import { HogQLQueryString, hogql } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
 
 import { FILTER_QUERY_MAX_ROWS, SAFE_ID_RE, TRACE_MEMBER_EVENTS } from './constants'

@@ -1,5 +1,13 @@
+import { ApiError } from 'lib/api-error'
+
 import { FileUploadFormat } from './fileUploadSource'
-import { MAX_FILE_UPLOAD_SIZE_BYTES, fileFormatMismatchError, fileUploadFormErrors } from './fileUploadSourceLogic'
+import {
+    FILE_UPLOAD_TOO_LARGE_MESSAGE,
+    MAX_FILE_UPLOAD_SIZE_BYTES,
+    fileFormatMismatchError,
+    fileUploadErrorMessage,
+    fileUploadFormErrors,
+} from './fileUploadSourceLogic'
 
 describe('file upload format validation', () => {
     it.each<[string, FileUploadFormat]>([
@@ -35,18 +43,26 @@ describe('file upload format validation', () => {
 })
 
 describe('oversized file message', () => {
-    it.each([
-        { enabled: false, expected: 'as a self-managed source instead', unexpected: 'Amazon S3' },
-        {
-            enabled: true,
-            expected: 'Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2',
-            unexpected: 'self-managed',
-        },
-    ])('points to the right bucket source when managed object storage sources enabled=$enabled', (c) => {
+    it('points to the bucket sources instead of self-managed tables', () => {
         const file = new File(['a'], 'big.csv')
         Object.defineProperty(file, 'size', { value: MAX_FILE_UPLOAD_SIZE_BYTES + 1 })
-        const errors = fileUploadFormErrors({ files: [file], table_name: 'my_table', file_format: 'csv' }, c.enabled)
-        expect(errors.files).toContain(c.expected)
-        expect(errors.files).not.toContain(c.unexpected)
+        const errors = fileUploadFormErrors({ files: [file], table_name: 'my_table', file_format: 'csv' })
+        expect(errors.files).toContain('Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2')
+        expect(errors.files).not.toContain('self-managed')
+    })
+
+    it.each<[string, ApiError, string]>([
+        [
+            'a gateway 413 with no body',
+            new ApiError('Non-OK response [POST /api/projects/1/warehouse_tables/upload_file/] (status 413: )', 413),
+            FILE_UPLOAD_TOO_LARGE_MESSAGE,
+        ],
+        [
+            'a server message',
+            new ApiError('Failed to upload file', 400, undefined, { message: 'Failed to upload file' }),
+            'Failed to upload file',
+        ],
+    ])('shows a readable upload error for %s', (_, error, expected) => {
+        expect(fileUploadErrorMessage(error, 'Could not upload the file.')).toEqual(expected)
     })
 })

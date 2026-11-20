@@ -1,11 +1,10 @@
 import './MissingCapabilitiesPreview.scss'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
+import { type BrandMarkName } from 'lib/components/BrandMark/brandMarks'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-
-import { type BrandMarkName } from '../brandMarks'
-import { BrandMark } from '../components/BrandMark'
+import { inStorybook } from 'lib/utils/dom'
 
 interface PreviewReport {
     /** The ask in the agent's own words. */
@@ -55,7 +54,7 @@ const REPORTS: PreviewReport[] = [
  * that settles after the initial render.
  */
 export function MissingCapabilitiesPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('MissingCapsPreview', isStatic && 'MissingCapsPreview--static')}>

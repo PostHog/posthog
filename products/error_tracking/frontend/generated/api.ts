@@ -52,6 +52,12 @@ import type {
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssueSuccessResponseApi,
     ErrorTrackingIssueSummaryResponseApi,
+    ErrorTrackingIssueTagCorrectionApi,
+    ErrorTrackingIssueTagDefinitionsResponseApi,
+    ErrorTrackingIssueTagRuleApi,
+    ErrorTrackingIssueTagRuleCreateRequestApi,
+    ErrorTrackingIssueTagRuleListResponseApi,
+    ErrorTrackingIssueTagRuleUpdateRequestApi,
     ErrorTrackingIssueValuesResponseApi,
     ErrorTrackingIssueWriteApi,
     ErrorTrackingIssuesListParams,
@@ -114,6 +120,9 @@ import type {
     PatchedErrorTrackingGroupingRuleReorderRequestApi,
     PatchedErrorTrackingGroupingRuleUpdateRequestApi,
     PatchedErrorTrackingIssueAssignRequestApi,
+    PatchedErrorTrackingIssueTagRuleReorderRequestApi,
+    PatchedErrorTrackingIssueTagRuleUpdateRequestApi,
+    PatchedErrorTrackingIssueTagWriteApi,
     PatchedErrorTrackingIssueWriteApi,
     PatchedErrorTrackingReleaseUpdateRequestApi,
     PatchedErrorTrackingSettingsApi,
@@ -1183,22 +1192,22 @@ export const errorTrackingIssuesSummaryRetrieve = async (
     })
 }
 
-export const getErrorTrackingIssuesSummaryRegenerateCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/error_tracking/issues/${id}/summary/regenerate/`
+export const getErrorTrackingIssuesTagPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/issues/${id}/tag/`
 }
 
-export const errorTrackingIssuesSummaryRegenerateCreate = async (
+export const errorTrackingIssuesTagPartialUpdate = async (
     projectId: string,
     id: string,
+    patchedErrorTrackingIssueTagWriteApi?: PatchedErrorTrackingIssueTagWriteApi,
     options?: RequestInit
-): Promise<ErrorTrackingIssueSummaryResponseApi> => {
-    return apiMutator<ErrorTrackingIssueSummaryResponseApi>(
-        getErrorTrackingIssuesSummaryRegenerateCreateUrl(projectId, id),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
+): Promise<ErrorTrackingIssueTagCorrectionApi> => {
+    return apiMutator<ErrorTrackingIssueTagCorrectionApi>(getErrorTrackingIssuesTagPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingIssueTagWriteApi),
+    })
 }
 
 export const getErrorTrackingIssuesAllActivityRetrieveUrl = (projectId: string) => {
@@ -1244,6 +1253,23 @@ export const errorTrackingIssuesExistsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getErrorTrackingIssuesTagDefinitionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/issues/tag_definitions/`
+}
+
+export const errorTrackingIssuesTagDefinitionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueTagDefinitionsResponseApi> => {
+    return apiMutator<ErrorTrackingIssueTagDefinitionsResponseApi>(
+        getErrorTrackingIssuesTagDefinitionsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingIssuesValuesRetrieveUrl = (
@@ -2186,4 +2212,118 @@ export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
             body: JSON.stringify(errorTrackingSymbolSetBulkStartUploadApi),
         }
     )
+}
+
+export const getErrorTrackingTagRulesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/tag_rules/`
+}
+
+export const errorTrackingTagRulesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueTagRuleListResponseApi> => {
+    return apiMutator<ErrorTrackingIssueTagRuleListResponseApi>(getErrorTrackingTagRulesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingTagRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/tag_rules/`
+}
+
+export const errorTrackingTagRulesCreate = async (
+    projectId: string,
+    errorTrackingIssueTagRuleCreateRequestApi: ErrorTrackingIssueTagRuleCreateRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueTagRuleApi> => {
+    return apiMutator<ErrorTrackingIssueTagRuleApi>(getErrorTrackingTagRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingIssueTagRuleCreateRequestApi),
+    })
+}
+
+export const getErrorTrackingTagRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/tag_rules/${id}/`
+}
+
+export const errorTrackingTagRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueTagRuleApi> => {
+    return apiMutator<ErrorTrackingIssueTagRuleApi>(getErrorTrackingTagRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingTagRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/tag_rules/${id}/`
+}
+
+export const errorTrackingTagRulesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingIssueTagRuleUpdateRequestApi?: ErrorTrackingIssueTagRuleUpdateRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingTagRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingIssueTagRuleUpdateRequestApi),
+    })
+}
+
+export const getErrorTrackingTagRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/tag_rules/${id}/`
+}
+
+export const errorTrackingTagRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingIssueTagRuleUpdateRequestApi?: PatchedErrorTrackingIssueTagRuleUpdateRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingTagRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingIssueTagRuleUpdateRequestApi),
+    })
+}
+
+export const getErrorTrackingTagRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/tag_rules/${id}/`
+}
+
+export const errorTrackingTagRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingTagRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getErrorTrackingTagRulesReorderPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/tag_rules/reorder/`
+}
+
+export const errorTrackingTagRulesReorderPartialUpdate = async (
+    projectId: string,
+    patchedErrorTrackingIssueTagRuleReorderRequestApi?: PatchedErrorTrackingIssueTagRuleReorderRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingTagRulesReorderPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingIssueTagRuleReorderRequestApi),
+    })
 }

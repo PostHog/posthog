@@ -11,10 +11,9 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api, { ApiError } from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { uuid } from 'lib/utils/dom'
 import { PrecheckResponseType } from 'scenes/authentication/auth/loginLogic'
@@ -65,6 +64,8 @@ export interface timeSensitiveAuthenticationLogicValues {
     reauthenticationTouches: Record<string, boolean>
     reauthenticationValidationErrors: DeepPartialMap<ReauthenticationForm, ValidationErrorType>
     sensitiveSessionExpiresAt: Dayjs
+    setPasswordLinkSentTo: string | null
+    setPasswordLinkSentToLoading: boolean
     showAuthenticationModal: boolean
     showReauthenticationErrors: boolean
     totpAvailable: boolean
@@ -147,6 +148,27 @@ export interface timeSensitiveAuthenticationLogicActions {
     }
     resetReauthentication: (values?: ReauthenticationForm) => {
         values?: ReauthenticationForm
+    }
+    sendSetPasswordLink: () => {
+        value: true
+    }
+    sendSetPasswordLinkFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    sendSetPasswordLinkSuccess: (
+        setPasswordLinkSentTo: string | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        setPasswordLinkSentTo: string | null
+        payload?: {
+            value: true
+        }
     }
     setDismissedReauthentication: (value: boolean) => {
         value: boolean
@@ -247,6 +269,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         ssoReauthenticationFinished: (attempt: string, errorCode: string | null) => ({ attempt, errorCode }),
         beginPasskey2FA: true,
         checkPasskeysAvailable: true,
+        sendSetPasswordLink: true,
         setTotpAvailable: (available: boolean) => ({ available }),
     }),
     reducers({
@@ -313,6 +336,24 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                     })
 
                     return null
+                },
+            },
+        ],
+        setPasswordLinkSentTo: [
+            null as string | null,
+            {
+                sendSetPasswordLink: async (_, breakpoint) => {
+                    breakpoint()
+                    const email = values.user?.email
+                    if (!email) {
+                        return null
+                    }
+                    // On an account without a password, the reset link sets its first password. The reset page
+                    // works while signed in, so this is the way out when the user's passkey stops working.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                    await api.create('api/reset/', { email })
+                    posthog.capture('reauthentication_set_password_link_sent')
+                    return email
                 },
             },
         ],

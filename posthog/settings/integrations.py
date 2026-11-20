@@ -8,10 +8,14 @@ from posthog.settings.utils import get_from_env, get_list, str_to_bool
 CREDENTIALS_SERVICE_URL = get_from_env("CREDENTIALS_SERVICE_URL", "")
 # Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
 CREDENTIALS_SERVICE_JWT_SECRET = get_from_env("CREDENTIALS_SERVICE_JWT_SECRET", "")
-
-# Bot token and channel for the staff-only UI feedback widget. Empty token disables delivery.
-INTERNAL_FEEDBACK_SLACK_BOT_TOKEN = get_from_env("INTERNAL_FEEDBACK_SLACK_BOT_TOKEN", "")
-INTERNAL_FEEDBACK_SLACK_CHANNEL = get_from_env("INTERNAL_FEEDBACK_SLACK_CHANNEL", "C09G8Q32R6F")
+# Path of a mounted file with the Ed25519 private key (PEM) that signs integrations tokens. Per deployment.
+# The key is never an environment variable value. Read once per process.
+CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH = get_from_env(
+    "CREDENTIALS_SERVICE_INTEGRATIONS_SIGNING_KEY_PATH", ""
+)
+# Where the integrations SDK keeps integration rows: "django" (the `Integration` model) or "service"
+# (the credentials service, with the URL and the signing key path above). See posthog/integrations/backend/.
+INTEGRATIONS_STORAGE_BACKEND = get_from_env("INTEGRATIONS_STORAGE_BACKEND", "django")
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
@@ -27,6 +31,10 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 # keep the app importable and the OAuth auth method dormant until the client is provisioned.
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
+MESSAGING_RESEND_API_URL = get_from_env("MESSAGING_RESEND_API_URL", "https://api.resend.com")
+MESSAGING_POSTMARK_API_URL = get_from_env("MESSAGING_POSTMARK_API_URL", "https://api.postmarkapp.com")
+MESSAGING_SENDGRID_API_URL = get_from_env("MESSAGING_SENDGRID_API_URL", "https://api.sendgrid.com")
+MESSAGING_SENDGRID_EU_API_URL = get_from_env("MESSAGING_SENDGRID_EU_API_URL", "https://api.eu.sendgrid.com")
 
 # Apple Ads service provider OAuth. Apple issues no static client secret: the client secret is an
 # ES256 JWT this app signs per token request with the private key whose public half was registered
@@ -183,6 +191,9 @@ STRIPE_SIGNING_SECRET = get_from_env("STRIPE_SIGNING_SECRET", "")
 # WorkOS Radar (bot/fraud detection for auth flows)
 WORKOS_RADAR_API_KEY = get_from_env("WORKOS_RADAR_API_KEY", "")
 WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str_to_bool)
+# Public WorkOS client ID. The login page loads the Radar browser script with it, and the
+# script's token lets Radar link device signals to the attempt.
+WORKOS_RADAR_CLIENT_ID = get_from_env("WORKOS_RADAR_CLIENT_ID", "")
 
 # Cloudflare Turnstile (challenge verification for Radar "challenge" verdict)
 CLOUDFLARE_TURNSTILE_SECRET_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SECRET_KEY", "")

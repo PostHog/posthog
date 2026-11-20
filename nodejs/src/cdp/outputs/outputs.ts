@@ -13,5 +13,21 @@ export type WarehouseSourceWebhooksOutput = typeof WAREHOUSE_SOURCE_WEBHOOKS_OUT
 export const CDP_EVENTS_DLQ_OUTPUT = 'cdp_events_dlq' as const
 export type CdpEventsDlqOutput = typeof CDP_EVENTS_DLQ_OUTPUT
 
+export const CDP_INTAKE_DLQ_OUTPUT = 'cdp_intake_dlq' as const
+export type CdpIntakeDlqOutput = typeof CDP_INTAKE_DLQ_OUTPUT
+
+export const CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT = 'cdp_intake_transactional_email' as const
+export const CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT = 'cdp_intake_workflow_webhook' as const
+export const CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT = 'cdp_intake_msk_transactional_email' as const
+export const CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT = 'cdp_intake_msk_workflow_webhook' as const
+export type CdpIntakeRunOutput =
+    | typeof CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT
+    | typeof CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT
+    | typeof CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT
+    | typeof CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT
+
+export const SES_WEBHOOKS_OUTPUT = 'ses_webhooks' as const
+export type SesWebhooksOutput = typeof SES_WEBHOOKS_OUTPUT
+
 export const EMAIL_STATUS_OUTPUT = 'email_status' as const
 export type EmailStatusOutput = typeof EMAIL_STATUS_OUTPUT

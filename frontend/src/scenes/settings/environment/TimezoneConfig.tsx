@@ -5,8 +5,8 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function TimezoneConfig({ displayWarning = true }: { displayWarning?: boolean }): JSX.Element {

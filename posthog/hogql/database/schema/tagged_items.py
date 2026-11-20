@@ -11,10 +11,12 @@ from posthog.hogql.parser import parse_expr
 class TaggedItemsTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
     """`posthog_taggeditem` rows that tag one kind of object, read through the generic pointer.
 
-    The table has no `team_id`, so each instance passes a predicate that scopes the object id
-    through a team-guarded system table. The object id lives in `object_uuid` or `object_id`,
-    which other models share, so rows are also limited to the content type of `tagged_model`.
-    Content type ids differ per deployment, so the id is resolved when the query is built.
+    The framework adds no team guard here, so each instance passes a predicate that scopes the object
+    id through a team-guarded system table. That predicate runs in ClickHouse, so an instance can also
+    declare the row's own `team_id` field: equality on it reaches the Postgres read and keeps other
+    teams' rows out of it. The object id lives in `object_uuid` or `object_id`, which other models share,
+    so rows are also limited to the content type of `tagged_model`. Content type ids differ per
+    deployment, so the id is resolved when the query is built.
     """
 
     tagged_model: str
@@ -25,7 +27,10 @@ class TaggedItemsTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
         from posthog.models.tagged_item_registry import content_type_id_for_legacy_field  # noqa: PLC0415
 
         content_type_id = content_type_id_for_legacy_field(self.tagged_model)
-        return [
+        predicates = [
             *super().get_predicates(context),
             parse_expr("content_type_id = {content_type_id}", {"content_type_id": ast.Constant(value=content_type_id)}),
         ]
+        if "team_id" in self.fields and context is not None and context.team_id is not None:
+            predicates.append(parse_expr("team_id = {team_id}", {"team_id": ast.Constant(value=context.team_id)}))
+        return predicates

@@ -33,6 +33,7 @@ from django.db.models.functions import Coalesce
 import structlog
 
 from posthog.integrations import IntegrationManager
+from posthog.paging import CursorPageRequest, Page, PageRequest
 
 from products.batch_exports.backend import (
     destination_tests,
@@ -496,14 +497,12 @@ def get_batch_export(
     return _import_exports().get_batch_export(team_id, export_id, include_latest_runs=include_latest_runs)
 
 
-def list_batch_exports(
-    team_id: int, *, offset: int, limit: int
-) -> tuple[list[contracts.BatchExportConfiguration], int]:
+def list_batch_exports(team_id: int, *, page: PageRequest) -> Page[contracts.BatchExportConfiguration]:
     """Return one page of the team's scheduled batch exports, newest first, and how many there are in total.
 
     Deleted exports, and the exports that back Workflows backfills, are left out.
     """
-    return _import_exports().list_batch_exports(team_id, offset=offset, limit=limit)
+    return _import_exports().list_batch_exports(team_id, page=page)
 
 
 def create_batch_export_from_input(
@@ -718,12 +717,9 @@ def count_hogql_rows(
     )
 
 
-def list_file_download_runs(
-    team_id: int, *, offset: int, limit: int
-) -> tuple[list[contracts.BatchExportRunSummary], int]:
+def list_file_download_runs(team_id: int, *, page: PageRequest) -> Page[contracts.BatchExportRunSummary]:
     """Return one page of the team's file download runs, newest first, and how many there are in total."""
-    runs, count = _import_file_downloads().list_file_download_runs(team_id, offset=offset, limit=limit)
-    return [_to_run_summary(run) for run in runs], count
+    return _import_file_downloads().list_file_download_runs(team_id, page=page).map(_to_run_summary)
 
 
 def get_file_download_run(team_id: int, run_id: UUID) -> contracts.FileDownloadRun:
@@ -762,8 +758,8 @@ def get_file_download_url(team_id: int, run_id: UUID, part: str | None) -> str:
 
 
 def list_batch_export_runs(
-    team_id: int, export_id: UUID, *, filters: contracts.BatchExportRunFilters, page: contracts.ListPage
-) -> list[contracts.BatchExportRunDetail]:
+    team_id: int, export_id: UUID, *, filters: contracts.BatchExportRunFilters, page: CursorPageRequest
+) -> Page[contracts.BatchExportRunDetail]:
     """Return one page of an export's runs that match ``filters``, ordered by ``created_at`` or ``data_interval_start``.
 
     A deleted export has no runs.
@@ -787,8 +783,8 @@ def cancel_batch_export_run(team_id: int, export_id: UUID, run_id: UUID) -> None
 
 
 def list_batch_export_backfills(
-    team_id: int, export_id: UUID, *, page: contracts.ListPage
-) -> list[contracts.BatchExportBackfillDetail]:
+    team_id: int, export_id: UUID, *, page: CursorPageRequest
+) -> Page[contracts.BatchExportBackfillDetail]:
     """Return one page of an export's backfills, ordered by ``created_at`` or ``start_at``."""
     return _import_backfills().list_backfills(team_id, export_id, page)
 

@@ -1,16 +1,7 @@
-"""Curated query: repo-level headline aggregates for the repo hub landing page.
+"""Repo-level headline aggregates and chart series for the repo hub.
 
-One runs scan covers the current window and the equal-length window before it, so
-every headline number ships with its previous-window twin and the UI can render an
-honest delta instead of a server-baked percentage. The PR medians (bots and drafts
-excluded, per the locked cycle-time recipe) come from the PR snapshot the same way.
-
-The chart series are a separate concern with a separate producer
-(``query_repo_series``): every series query computes unconditionally (except the
-ready-to-merge series, which is empty when that measure isn't observable), the
-shared bucket granularity is decided exactly once, and a headline-only consumer
-composes ``query_repo_overview`` with ``empty_repo_series`` instead of
-flag-switching what the query layer computes.
+Every headline covers the window and the equal-length window before it.
+A headline-only caller passes ``empty_repo_series`` to ``query_repo_overview`` to skip the series scans.
 """
 
 from dataclasses import dataclass
@@ -71,12 +62,11 @@ _RUNS_SELECT = f"""
     WHERE run_started_at >= {{prev_from}} __DATE_TO__
 """
 
-# The locked cycle-time recipe: a median over merges is a median over human, never-drafted PRs.
+# SPEC §6 excludes bots and drafts from cycle-time medians by default.
 _HUMAN_MERGES = "NOT is_bot AND NOT is_draft"
 
-# Medians follow the locked recipe; the merged counts deliberately don't — they are the merge
-# population that triggered the CI spend, the same all-authors population the cost series' bucket-local
-# merges count, so cost-per-merge ratios divide by a matching denominator.
+# The merged counts keep bots, because they are the denominator of cost per merge and the cost
+# numerator counts every run whoever triggered it.
 _PR_SELECT = f"""
     SELECT
         quantileIf(0.5)(open_to_merge_seconds, __CUR_MERGED__ AND {_HUMAN_MERGES}) AS median_cur,
@@ -105,8 +95,7 @@ def query_default_branch(
     date_from: datetime,
     date_to: datetime | None,
 ) -> str:
-    """'master' or 'main', by observed run volume in the window — the cheap standalone variant of the
-    detection the overview aggregate gets for free."""
+    """'main' when it had more runs than 'master' in the window, else 'master'."""
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
@@ -115,9 +104,9 @@ def query_default_branch(
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
     response = curated.run(
-        _DEFAULT_BRANCH_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True)).replace(
-            "__DATE_TO__", date_to_clause
-        ),
+        _DEFAULT_BRANCH_SELECT.replace(
+            "__RUNS_SOURCE__", curated.run_source(started_floor=True, since=date_from)
+        ).replace("__DATE_TO__", date_to_clause),
         query_type="engineering_analytics.default_branch",
         placeholders=placeholders,
     )
@@ -125,7 +114,6 @@ def query_default_branch(
     return "main" if (main_runs or 0) > (master_runs or 0) else "master"
 
 
-# Pass rate per bucket over conclusive runs on all branches, matching the headline population.
 _PASS_RATE_SERIES_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
@@ -136,11 +124,8 @@ _PASS_RATE_SERIES_SELECT = f"""
     LIMIT 40000
 """
 
-# Median of a per-PR duration per bucket, over the PRs merged in it. The inner select applies the
-# locked recipe once and names the measure, so a measure built from an expression (ready-to-merge)
-# is written into the query exactly once. ``n`` guards the false zero: an aggregate over no sample
-# returns 0, so a bucket whose only merges were bots, drafts, or PRs with no observed value would
-# draw a false dip; report the gap (None) instead.
+# A quantile over no sample returns 0, so ``n`` tells a bucket with no observed value apart from a
+# real zero median.
 _MERGE_MEDIAN_SERIES_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
@@ -168,8 +153,8 @@ def _query_merge_median_series(
     with_clause: str,
     query_type: str,
 ) -> list[tuple[datetime, float | None]]:
-    """``measure``'s median per bucket over the window's merges, oldest first and zero-filled: one
-    ``(bucket_start, p50)`` pair per bucket, p50 None where the bucket had no sample."""
+    """One ``(bucket_start, p50)`` pair per bucket of the window, oldest first. p50 is the median of
+    ``measure`` over the PRs merged in the bucket, and None where the bucket had no sample."""
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
     if date_to is not None:
@@ -196,8 +181,8 @@ def query_success_rate_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[PassRateBucket]:
-    """Pass rate per bucket across the window, oldest first: successful runs divided by conclusive runs
-    on all branches, matching the headline population. Empty buckets carry ``success_rate`` None."""
+    """One bucket per step of the window, oldest first, over runs on all branches like the headline.
+    ``success_rate`` is None for a bucket with no pass-or-fail verdict."""
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "run_started_floor": run_started_floor_constant(date_from),
@@ -206,7 +191,7 @@ def query_success_rate_series(
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
     sql = (
-        _PASS_RATE_SERIES_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        _PASS_RATE_SERIES_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=date_from))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity, "run_started_at"))
     )
@@ -228,9 +213,8 @@ def query_ready_to_merge_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[ReadyToMergeBucket]:
-    """Median per-PR ready_to_merge_seconds (SPEC §6) per bucket, oldest first, bots and drafts
-    excluded. Empty when the measure isn't observable, so a consumer falls back to the open-to-merge
-    series rather than reading an all-gap line as "nothing merged"."""
+    """Median ready_to_merge_seconds per bucket, oldest first, bots and drafts excluded.
+    Empty when the measure is not observable, so a caller can fall back to the open-to-merge series."""
     ready = curated.ready_to_merge_sql()
     if not ready.observable:
         return []
@@ -253,7 +237,6 @@ def _share(part: int, whole: int) -> float | None:
     return part / whole if whole else None
 
 
-# Reverts over all merges per bucket, the same all-authors population as the headline merge counts.
 _REVERT_SHARE_SERIES_SELECT = """
     SELECT
         __BUCKET_FN__ AS bucket_start,
@@ -273,7 +256,7 @@ def query_revert_share_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[RevertShareBucket]:
-    """Reverting merges over all merges per bucket across the window, oldest first and zero-filled.
+    """One bucket per step of the window, oldest first, counting bots like the headline merge counts.
     A bucket where nothing merged carries 0 merges and a None share."""
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
@@ -310,8 +293,8 @@ def query_open_to_merge_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[OpenToMergeBucket]:
-    """Median time-to-merge per bucket across the window, oldest first: p50 merged_at - created_at over PRs
-    merged in the bucket, bots and drafts excluded. Empty buckets carry ``p50_seconds`` None (a gap)."""
+    """Median open_to_merge_seconds per bucket, oldest first, bots and drafts excluded.
+    ``p50_seconds`` is None for a bucket with no sample."""
     return [
         OpenToMergeBucket(bucket_start=bucket, p50_seconds=p50)
         for bucket, p50 in _query_merge_median_series(
@@ -329,13 +312,7 @@ def query_open_to_merge_series(
 
 @dataclass(frozen=True)
 class RepoSeries:
-    """The repo hub's chart series over one window, on one shared bucket granularity.
-
-    Internal to the read layer: ``RepoOverview`` flattens it into the contract's per-series
-    fields. Produced by ``query_repo_series`` (one bucketed scan per series) or ``empty_repo_series``
-    (no scans — the headline-only shape), so callers compose which one they pay for instead
-    of the query layer flag-switching what it computes.
-    """
+    """The repo hub's chart series over one window, all on one bucket granularity."""
 
     granularity: Granularity
     cost: list[CostPerMergeBucket]
@@ -352,7 +329,6 @@ def query_repo_series(
     date_from: datetime,
     date_to: datetime | None,
 ) -> RepoSeries:
-    """All chart series across the window: the one place their shared granularity is decided."""
     granularity = pick_granularity(date_from, date_to)
     return RepoSeries(
         granularity=granularity,
@@ -378,8 +354,8 @@ def query_repo_series(
 
 
 def empty_repo_series(*, date_from: datetime, date_to: datetime | None) -> RepoSeries:
-    """The series a headline-only read carries: no buckets, no scans, but the same granularity a
-    full read would use, so the contract's non-null granularity fields stay meaningful."""
+    """No buckets and no scans, with the granularity a full read would use, because the contract's
+    granularity fields are not nullable."""
     return RepoSeries(
         granularity=pick_granularity(date_from, date_to),
         cost=[],
@@ -393,8 +369,6 @@ def empty_repo_series(*, date_from: datetime, date_to: datetime | None) -> RepoS
 
 @frozen
 class _RunHeadlines:
-    """The runs scan's window-pair aggregates plus the observed default branch."""
-
     run_count: int
     run_count_prev: int
     success_rate: float | None
@@ -416,8 +390,6 @@ def _query_run_headlines(
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
-        # The scan reaches back to prev_from (the previous comparison window), so the raw floor
-        # comes from prev_from, not date_from — a date_from floor would cut the prev-window rows.
         "run_started_floor": run_started_floor_constant(prev_from),
     }
     if date_to is not None:
@@ -425,7 +397,7 @@ def _query_run_headlines(
     sql = (
         _RUNS_SELECT.replace("__CUR__", windows.current)
         .replace("__PREV__", windows.previous)
-        .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=prev_from))
         .replace("__DATE_TO__", date_to_clause)
     )
     response = curated.run(sql, query_type="engineering_analytics.repo_overview_runs", placeholders=placeholders)
@@ -444,8 +416,6 @@ def _query_run_headlines(
 
 @frozen
 class _MergeHeadlines:
-    """The PR scan's window-pair merge medians (the locked cycle-time recipe) and merge counts."""
-
     median_open_to_merge_seconds: float | None
     median_open_to_merge_seconds_prev: float | None
     median_ready_to_merge_seconds: float | None
@@ -497,8 +467,6 @@ def _query_merge_headlines(
 
 @frozen
 class _CostHeadlines:
-    """The window-pair cost rollup derived from the per-workflow cost scan."""
-
     billable_minutes: float | None
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
@@ -513,7 +481,7 @@ class _CostHeadlines:
 
 def _derive_cost_headlines(costs: WindowCostsWithPrev, *, merged_count: int, merged_count_prev: int) -> _CostHeadlines:
     cost_cur, cost_prev = costs.by_workflow, costs.by_workflow_prev
-    # Per-workflow figures can be None (billable time on an unknown tier) — sum what's known.
+    # A workflow with no costed job has a None estimated_cost_usd, which counts as 0 in the total.
     billable_seconds = sum(c.billable_seconds or 0.0 for c in cost_cur.values()) if cost_cur else None
     billable_seconds_prev = sum(c.billable_seconds or 0.0 for c in cost_prev.values()) if cost_prev else None
     cost_usd = sum(c.estimated_cost_usd or 0.0 for c in cost_cur.values()) if cost_cur else None
@@ -527,7 +495,7 @@ def _derive_cost_headlines(costs: WindowCostsWithPrev, *, merged_count: int, mer
         cost_per_merge_usd_prev=opt_float(cost_usd_prev / merged_count_prev)
         if cost_usd_prev is not None and merged_count_prev
         else None,
-        # The queue and Depot CI slices mirror billable_minutes' null gating so all go null together.
+        # The queue and Depot CI slices are None exactly when billable_minutes is None.
         merge_queue_billable_minutes=costs.merge_queue_billable_seconds / 60 if cost_cur else None,
         merge_queue_billable_minutes_prev=costs.merge_queue_billable_seconds_prev / 60 if cost_prev else None,
         depot_ci_billable_minutes=costs.depot_ci_billable_seconds / 60 if cost_cur else None,

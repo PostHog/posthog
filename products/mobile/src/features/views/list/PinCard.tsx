@@ -1,4 +1,4 @@
-import { memo, type ReactElement, type ReactNode, useEffect } from 'react'
+import { memo, type ReactElement, type ReactNode, useEffect, useMemo } from 'react'
 import { Text, View } from 'react-native'
 import Animated, {
     cancelAnimation,
@@ -18,15 +18,17 @@ import { Sparkline } from '@/ui/chart/Sparkline'
 import type { ChartTooltipPoint } from '@/ui/chart/types'
 import { COMPACT_CHART_HEIGHT } from '@/ui/chart/variant'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
-import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
-import { DeltaPill, deltaSpoken } from '../DeltaPill'
+
+import { useChartPreferences } from '../chartPreferencesStore'
+import { DeltaPill } from '../DeltaPill'
 import { statusLine } from '../freshness'
 import { type DashboardSnapshot, dashboardQueryKey } from '../items'
 import { type PinData, usePinData } from '../pinHooks'
-import { deltaBasisText, snapshotChartSeries, snapshotFormatter, valueAtText } from '../snapshotChart'
+import { snapshotBarLayout, snapshotChartSeries } from '../snapshotChart'
+import { pinGlance } from '../usePinGlance'
 import { useViewsContext } from '../useViewsContext'
 import { itemErrorMessage } from '../viewHooks'
 import { useSnapshot } from '../viewsCache'
@@ -43,16 +45,10 @@ export const PIN_ROW_HEIGHT = HEAD_HEIGHT + 2
 export const PIN_NUMBER_HEIGHT = HEAD_HEIGHT + NUMBER_BODY_HEIGHT + FOOTER_HEIGHT + 2
 export const PIN_CHART_HEIGHT = HEAD_HEIGHT + VALUE_ROW_HEIGHT + COMPACT_CHART_HEIGHT + CHART_BOTTOM + FOOTER_HEIGHT + 2
 
-const SPARKLINE_BUCKETS = 14
-/** The sparkline draws the last 7 buckets in blue and the ones before them in gray. */
-const SPARKLINE_CURRENT = 7
-
 export interface PinCardProps {
     pin: PinView
     /** Position in the whole list, for the canvas budget. */
     index: number
-    /** Demo mode: pins that open on the web cannot open. */
-    demo: boolean
     onOpen: (pin: PinView) => void
     onMenu: (pin: PinView, anchor: RowAnchor) => void
     onChooseTile: (pin: PinView) => void
@@ -67,29 +63,17 @@ export function pinTestId(pin: Pick<PinView, 'kind' | 'ref'>, part?: 'value'): s
 
 /** One pin as its display mode shows it. */
 export const PinCard = memo(function PinCard(props: PinCardProps): ReactElement {
-    if (props.pin.display.mode === 'row' || !props.pin.native) {
+    if (props.pin.display.mode === 'row') {
         return <RowPin {...props} />
     }
     return <DataPin {...props} />
 })
 
-function rowSecondLine(pin: PinView, demo: boolean): string {
-    const label = viewTypeLabel(pin.kind)
-    if (pin.native) {
-        return label ?? ''
-    }
-    if (demo) {
-        return 'Not available in the demo'
-    }
-    return label ? `${label} · Opens on the web` : 'Opens on the web'
-}
-
-function RowPin({ pin, demo, onOpen, onMenu }: PinCardProps): ReactElement {
+function RowPin({ pin, onOpen, onMenu }: PinCardProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const menu = useMenuTrigger(pin, onMenu)
-    const unavailable = !pin.native && demo
-    const second = rowSecondLine(pin, demo)
+    const second = viewTypeLabel(pin.kind)
     return (
         <View ref={menu.ref} style={[styles.card, { height: PIN_ROW_HEIGHT }]} testID={pinTestId(pin)}>
             <Pressable44
@@ -97,33 +81,26 @@ function RowPin({ pin, demo, onOpen, onMenu }: PinCardProps): ReactElement {
                 onLongPress={menu.onLongPress}
                 accessibilityActions={menu.accessibilityActions}
                 onAccessibilityAction={menu.onAccessibilityAction}
-                disabled={unavailable}
                 accessibilityLabel={`${pin.name}, ${second}`}
-                accessibilityState={{ disabled: unavailable }}
                 pressedBackground={colors.sunken}
                 style={styles.head}
             >
-                <PinHeadContent pin={pin} second={second} dim={unavailable} />
-                {pin.native ? (
-                    <ChevronRightIcon size={13} color={colors.tertiary} />
-                ) : (
-                    <ExternalLinkIcon size={16} color={unavailable ? colors.disabled : colors.tertiary} />
-                )}
+                <PinHeadContent pin={pin} second={second} />
+                <ChevronRightIcon size={13} color={colors.tertiary} />
             </Pressable44>
         </View>
     )
 }
 
-function PinHeadContent({ pin, second, dim = false }: { pin: PinView; second: string; dim?: boolean }): ReactElement {
-    const colors = useColors()
+function PinHeadContent({ pin, second }: { pin: PinView; second: string }): ReactElement {
     const styles = useStyles()
     return (
         <>
             <View style={styles.iconTile}>
-                <ViewIcon kind={pin.kind} color={dim ? colors.disabled : colors.muted} />
+                <ViewIcon kind={pin.kind} />
             </View>
             <View style={styles.headText}>
-                <Text style={[styles.title, dim && styles.dimText]} numberOfLines={1}>
+                <Text style={styles.title} numberOfLines={1}>
                     {pin.name}
                 </Text>
                 <Text style={styles.meta} numberOfLines={1}>
@@ -141,7 +118,7 @@ function PinHeadContent({ pin, second, dim = false }: { pin: PinView; second: st
 function useTileRemoved(pin: PinView, data: PinData): boolean {
     const context = useViewsContext()
     const dashboard = useSnapshot<DashboardSnapshot>(
-        pin.kind === 'dashboard' && pin.ref ? dashboardQueryKey(context.scope, pin.ref, null) : null
+        pin.kind === 'dashboard' ? dashboardQueryKey(context.scope, pin.ref, null) : null
     )
     if (pin.kind !== 'dashboard') {
         return false
@@ -162,13 +139,6 @@ function DataPin(props: PinCardProps): ReactElement {
         return <RemovedTilePin {...props} />
     }
     return pin.display.mode === 'chart' ? <ChartPin {...props} data={data} /> : <NumberPin {...props} data={data} />
-}
-
-function dataSecondLine(pin: PinView, data: PinData): string {
-    if (pin.kind === 'dashboard') {
-        return data.snapshot ? data.snapshot.name : 'Dashboard'
-    }
-    return viewTypeLabel(pin.kind) ?? ''
 }
 
 function RemovedTilePin({ pin, onMenu, onChooseTile }: PinCardProps): ReactElement {
@@ -211,12 +181,7 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
     const styles = useStyles()
     const menu = useMenuTrigger(pin, onMenu)
     const { snapshot } = data
-    const second = dataSecondLine(pin, data)
-    const format = snapshot ? snapshotFormatter(snapshot) : null
-    const value = snapshot && format && snapshot.value !== null ? format(snapshot.value) : null
-    const delta = snapshot && format ? pinDelta(snapshot, format) : null
-    const at = snapshot ? valueAtText(snapshot) : null
-    const values = (snapshot?.series?.points ?? []).slice(-SPARKLINE_BUCKETS).map((point) => point.value)
+    const { subtitle: second, value, delta, at, sparkline } = pinGlance(pin, data)
     const label = [pin.name, value, delta?.spoken, second].filter(Boolean).join(', ')
     return (
         <View ref={menu.ref} style={styles.card} testID={pinTestId(pin)}>
@@ -244,9 +209,9 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
                                 </View>
                             ) : null}
                         </View>
-                        {values.length > 1 ? (
+                        {sparkline.values.length > 1 ? (
                             <View style={snapshot?.refreshFailed && styles.stale}>
-                                <Sparkline values={values} highlightFrom={values.length - SPARKLINE_CURRENT} />
+                                <Sparkline values={sparkline.values} highlightFrom={sparkline.highlightFrom} />
                             </View>
                         ) : null}
                     </DataState>
@@ -261,15 +226,15 @@ function NumberPin({ pin, data, onOpen, onMenu, onUnpin }: DataPinProps): ReactE
 function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }: DataPinProps): ReactElement {
     const { colors, chartPalette } = useTheme()
     const styles = useStyles()
+    const preferredLayout = useChartPreferences((state) => state.barLayout)
     const menu = useMenuTrigger(pin, onMenu)
     const legend = useChartLegend()
     const { snapshot } = data
-    const second = dataSecondLine(pin, data)
-    const format = snapshot ? snapshotFormatter(snapshot) : null
-    const value = snapshot && format && snapshot.value !== null ? format(snapshot.value) : null
-    const delta = snapshot && format ? pinDelta(snapshot, format) : null
-    const at = snapshot ? valueAtText(snapshot) : null
-    const series = snapshot ? snapshotChartSeries(snapshot, chartPalette) : []
+    const { subtitle: second, format, value, delta, at } = pinGlance(pin, data)
+    const series = useMemo(
+        () => (snapshot ? snapshotChartSeries(snapshot, chartPalette) : []),
+        [snapshot, chartPalette]
+    )
     const showValue = !snapshot || snapshot.capabilities.number
     const canChart = snapshot ? snapshot.capabilities.chart && series.length > 0 : true
     const slotKey = `pin:${pin.shortcutId}`
@@ -310,6 +275,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
                             series={series}
                             hiddenKeys={legend.state.hiddenKeys}
                             kind={snapshot.chartKind ?? 'line'}
+                            barLayout={snapshotBarLayout(snapshot, preferredLayout)}
                             interval={snapshot.interval}
                             label={snapshot.name}
                             formatValue={format}
@@ -393,7 +359,9 @@ function DataState({ data, capable, onUnpin, chart = false, children }: DataStat
         return (
             <Text style={styles.stateText}>
                 {chart
-                    ? 'This view has no line to draw. Show it as a number or a row.'
+                    ? data.snapshot.capabilities.chart
+                        ? 'No data for this chart.'
+                        : `${data.snapshot.capabilities.chartReason ?? 'This visualization cannot be pinned as a chart yet'}. Choose another tile or show it as a row.`
                     : 'This view has no single number. Show it as a chart or a row.'}
             </Text>
         )
@@ -419,20 +387,6 @@ function DataState({ data, capable, onUnpin, chart = false, children }: DataStat
             <View style={[styles.skeleton, styles.skeletonSpark]} />
         </View>
     )
-}
-
-interface PinDelta {
-    props: { delta: NonNullable<InsightSnapshot['delta']>; formatValue: (value: number) => string; basis: string }
-    spoken: string
-}
-
-function pinDelta(snapshot: InsightSnapshot, formatValue: (value: number) => string): PinDelta | null {
-    const { delta } = snapshot
-    if (!delta) {
-        return null
-    }
-    const basis = deltaBasisText(delta, snapshot.interval)
-    return { props: { delta, formatValue, basis }, spoken: deltaSpoken(delta, formatValue, basis) }
 }
 
 /** The thin bar at the bottom of a Number or Chart pin while its request runs. */
@@ -490,9 +444,6 @@ const useStyles = createStyles(({ colors }) => ({
     title: {
         ...type.rowTitle,
         color: colors.ink,
-    },
-    dimText: {
-        color: colors.tertiary,
     },
     meta: {
         ...type.meta,

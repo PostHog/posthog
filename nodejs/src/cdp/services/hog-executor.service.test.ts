@@ -37,9 +37,15 @@ import {
     createHogFunction,
     insertIntegration,
 } from '../_tests/fixtures'
+import { signAwsRequest } from '../utils/aws-sigv4'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { signIntegrationRef } from '../utils/integration-input-refs'
+import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
+import { serializeInvocation } from './job-queue/job-queue-kafka'
+import { invocationToV2JobInit } from './job-queue/job-queue-postgres-v2'
+import { createInvocationSanitizer } from './job-queue/shared'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
@@ -89,7 +95,8 @@ describe('Hog Executor', () => {
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
-            null
+            null,
+            { report: jest.fn(), reportEmailSent: jest.fn() }
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         return new HogExecutorAsyncService(
@@ -408,6 +415,306 @@ describe('Hog Executor', () => {
             expect(result.metrics).toEqual(previousResult.metrics)
             expect(result.capturedPostHogEvents).toEqual(previousResult.capturedPostHogEvents)
             expect(result.execResult).toEqual({ foo: 'bar' })
+        })
+    })
+
+    describe('inputs omitted from the job queue', () => {
+        // return inputs
+        const RETURN_INPUTS = ['_h', 32, 'inputs', 1, 1, 38]
+        const TYPED_SECRET = 'fake-typed-api-key-value'
+        const INTEGRATION_SECRET = 'fake-integration-auth-token'
+
+        type PersistedForm = 'postgres' | 'kafka'
+
+        // What the worker reads back off each queue, before it attaches the loaded function.
+        const persistAndLoad = (
+            invocation: CyclotronJobInvocationHogFunction,
+            form: PersistedForm,
+            flagEnabled = true
+        ): { serialized: string; loaded: CyclotronJobInvocationHogFunction } => {
+            const sanitizer = createInvocationSanitizer(
+                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '', ENCRYPTION_SALT_KEYS: hub.ENCRYPTION_SALT_KEYS },
+                { isEnabled: () => flagEnabled },
+                hub.encryptedFields
+            )
+            const [sanitized] = sanitizer.sanitizeInvocations([invocation])
+            const serialized =
+                form === 'postgres'
+                    ? invocationToV2JobInit(sanitized).state!.toString('utf-8')
+                    : JSON.stringify(serializeInvocation(sanitized))
+            const { state } = parseJSON(serialized)
+            return { serialized, loaded: { ...invocation, state } }
+        }
+
+        const createSecretFunction = async (
+            teamId: number,
+            overrides: Partial<HogFunctionType> = {}
+        ): Promise<HogFunctionType> => {
+            const integration = await insertIntegration(hub.postgres, teamId, {
+                kind: 'twilio' as any,
+                config: { account_sid: 'AC-fake' },
+                sensitive_config: { auth_token: hub.encryptedFields.encrypt(INTEGRATION_SECRET) },
+            })
+            return createHogFunction({
+                team_id: teamId,
+                bytecode: RETURN_INPUTS,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                inputs_schema: [
+                    { key: 'api_key', type: 'string', secret: true, required: true },
+                    { key: 'twilio', type: 'integration', required: true },
+                    { key: 'headers', type: 'dictionary', required: false },
+                ],
+                inputs: {
+                    twilio: { value: integration.id, order: 1 },
+                    headers: {
+                        order: 2,
+                        templating: 'liquid',
+                        value: {
+                            Authorization: 'Bearer {{ inputs.api_key }}',
+                            'X-Twilio-Token': '{{ inputs.twilio.auth_token }}',
+                        },
+                    },
+                },
+                encrypted_inputs: { api_key: { value: TYPED_SECRET, order: 0 } },
+                ...overrides,
+            })
+        }
+
+        const buildQueuedInvocations = async (
+            hogFunction: HogFunctionType,
+            markInputsRebuildable = true
+        ): Promise<CyclotronJobInvocationHogFunction[]> => {
+            const { invocations } = await buildHogFunctionInvocations(
+                new HogInputsService(
+                    hub.integrationManager,
+                    new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                    hub.encryptedFields
+                ),
+                [hogFunction],
+                createHogExecutionGlobals({ project: { id: hogFunction.team_id, name: 'test', url: 'http://test' } }),
+                { markInputsRebuildable }
+            )
+            return invocations
+        }
+
+        it.each<PersistedForm>(['postgres', 'kafka'])(
+            'keeps typed-in, integration and templated secrets out of the %s job and builds them again to run',
+            async (form) => {
+                const team = (await createTestTeamFixture(hub.postgres)).team
+                const hogFunction = await createSecretFunction(team.id)
+                const [invocation] = await buildQueuedInvocations(hogFunction)
+
+                const { serialized, loaded } = persistAndLoad(invocation, form)
+
+                expect(serialized).not.toContain(TYPED_SECRET)
+                expect(serialized).not.toContain(INTEGRATION_SECRET)
+                expect(loaded.state.globals.inputs).toBeUndefined()
+                expect(loaded.state).toMatchObject({ inputsOmitted: true, inputsSource: {} })
+
+                const result = await executor.hogExecutor.execute(loaded)
+
+                expect(result.error).toBeUndefined()
+                expect(result.execResult).toMatchObject({
+                    api_key: TYPED_SECRET,
+                    twilio: { account_sid: 'AC-fake', auth_token: INTEGRATION_SECRET },
+                    headers: { Authorization: `Bearer ${TYPED_SECRET}`, 'X-Twilio-Token': INTEGRATION_SECRET },
+                })
+                // The next step of this run reuses the values, and the queue drops them again when it stores the job.
+                expect(result.invocation.state.globals.inputs.api_key).toBe(TYPED_SECRET)
+                expect(persistAndLoad(result.invocation, form).serialized).not.toContain(TYPED_SECRET)
+            }
+        )
+
+        it.each([
+            ['the rollout is off', true, false],
+            ['the invocation is not marked as rebuildable', false, true],
+        ])('stores the built inputs as before when %s', async (_name, markInputsRebuildable, flagEnabled) => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const hogFunction = await createSecretFunction(team.id)
+            const [invocation] = await buildQueuedInvocations(hogFunction, markInputsRebuildable)
+
+            const { serialized, loaded } = persistAndLoad(invocation, 'postgres', flagEnabled)
+
+            expect(serialized).toContain(TYPED_SECRET)
+            expect(loaded.state.inputsOmitted).toBeUndefined()
+            const result = await executor.hogExecutor.execute(loaded)
+            expect(result.error).toBeUndefined()
+            expect(result.execResult).toMatchObject({ api_key: TYPED_SECRET })
+        })
+
+        it('uses the function config at run time', async () => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const hogFunction = await createSecretFunction(team.id)
+            const [invocation] = await buildQueuedInvocations(hogFunction)
+            const { loaded } = persistAndLoad(invocation, 'kafka')
+
+            const rotated = { ...hogFunction, encrypted_inputs: { api_key: { value: 'fake-rotated-key', order: 0 } } }
+            const result = await executor.hogExecutor.execute({ ...loaded, hogFunction: rotated })
+
+            expect(result.execResult).toMatchObject({ api_key: 'fake-rotated-key' })
+        })
+
+        describe('mappings', () => {
+            const mapping = (name: string, conversion: string): NonNullable<HogFunctionType['mappings']>[number] => ({
+                name,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                inputs: { conversion: { value: conversion } },
+            })
+            const PURCHASE = mapping('Purchase', 'purchase-action')
+            const SIGNUP = mapping('Sign up', 'signup-action')
+            const REFUND = mapping('Refund', 'refund-action')
+
+            it.each([
+                ['the mappings are unchanged', [PURCHASE, SIGNUP]],
+                ['the mappings were reordered', [SIGNUP, PURCHASE]],
+                ['a mapping was added before them', [REFUND, PURCHASE, SIGNUP]],
+                ['a mapping input value was edited', [PURCHASE, mapping('Sign up', 'new-signup-action')]],
+                [
+                    'the mapping filters were recompiled',
+                    [PURCHASE, { ...SIGNUP, filters: { ...SIGNUP.filters, bytecode_contract: 'recompiled-contract' } }],
+                ],
+            ])('builds each invocation from its own mapping when %s', async (_name, mappingsAtRunTime) => {
+                const team = (await createTestTeamFixture(hub.postgres)).team
+                const hogFunction = await createSecretFunction(team.id, { mappings: [PURCHASE, SIGNUP] })
+                const invocations = await buildQueuedInvocations(hogFunction)
+                expect(invocations).toHaveLength(2)
+
+                const conversions = await Promise.all(
+                    invocations.map(async (invocation) => {
+                        const { loaded } = persistAndLoad(invocation, 'postgres')
+                        const result = await executor.hogExecutor.execute({
+                            ...loaded,
+                            hogFunction: { ...hogFunction, mappings: mappingsAtRunTime },
+                        })
+                        expect(result.error).toBeUndefined()
+                        expect(result.execResult).toMatchObject({ api_key: TYPED_SECRET })
+                        return (result.execResult as Record<string, unknown>).conversion
+                    })
+                )
+
+                const expected = mappingsAtRunTime
+                    .filter((m) => m.name === 'Purchase' || m.name === 'Sign up')
+                    .map((m) => m.inputs!.conversion.value)
+                expect(conversions.sort()).toEqual(expected.sort())
+            })
+
+            it.each([
+                ['the mapping was removed', [PURCHASE]],
+                ['the mapping was renamed', [PURCHASE, mapping('Signed up', 'signup-action')]],
+                [
+                    'the mapping filters changed',
+                    [
+                        PURCHASE,
+                        {
+                            ...SIGNUP,
+                            filters: { ...SIGNUP.filters, events: [{ id: '$pageview', type: 'events' as const }] },
+                        },
+                    ],
+                ],
+                ['the stored position moved and two mappings now match it', [SIGNUP, PURCHASE, SIGNUP]],
+                ['the function no longer has mappings', null],
+            ])(
+                'fails the invocation instead of running with other inputs when %s',
+                async (_name, mappingsAtRunTime) => {
+                    const team = (await createTestTeamFixture(hub.postgres)).team
+                    const hogFunction = await createSecretFunction(team.id, { mappings: [PURCHASE, SIGNUP] })
+                    const invocations = await buildQueuedInvocations(hogFunction)
+                    const signupInvocation = invocations.find(
+                        (invocation) => invocation.state.globals.inputs.conversion === 'signup-action'
+                    )!
+                    const { loaded } = persistAndLoad(signupInvocation, 'postgres')
+
+                    const result = await executor.hogExecutor.execute({
+                        ...loaded,
+                        hogFunction: { ...hogFunction, mappings: mappingsAtRunTime },
+                    })
+
+                    expect(result.finished).toBe(true)
+                    expect(result.execResult).toBeUndefined()
+                    expect(result.error).toContain('The mapping that created this invocation was changed or removed')
+                }
+            )
+
+            it('fails the invocation when a function without mappings gains one', async () => {
+                const team = (await createTestTeamFixture(hub.postgres)).team
+                const hogFunction = await createSecretFunction(team.id)
+                const [invocation] = await buildQueuedInvocations(hogFunction)
+                const { loaded } = persistAndLoad(invocation, 'kafka')
+
+                const result = await executor.hogExecutor.execute({
+                    ...loaded,
+                    hogFunction: { ...hogFunction, mappings: [PURCHASE] },
+                })
+
+                expect(result.error).toContain('The mapping that created this invocation was changed or removed')
+            })
+        })
+    })
+
+    describe('persisted integration references', () => {
+        // return inputs.twilio.auth_token
+        const RETURN_TWILIO_AUTH_TOKEN = ['_h', 32, 'auth_token', 32, 'twilio', 32, 'inputs', 1, 3, 38]
+
+        it.each([
+            [
+                'resolves a reference from the job queue before the function runs',
+                (teamId: number, integrationId: number) => ({
+                    $integration_ref: integrationId,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, teamId, 'twilio', integrationId),
+                }),
+                'fake-auth-token-value',
+            ],
+            [
+                'runs a job queued with the resolved values before references existed',
+                (_teamId: number, integrationId: number) => ({
+                    $integration_id: integrationId,
+                    auth_token: 'fake-old-job-token',
+                }),
+                'fake-old-job-token',
+            ],
+        ])('%s', async (_name, persistedValue, expected) => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                kind: 'oauth',
+                config: { account_sid: 'AC-fake' },
+                sensitive_config: { auth_token: hub.encryptedFields.encrypt('fake-auth-token-value') },
+            })
+            const invocation = createExampleInvocation({
+                team_id: team.id,
+                bytecode: RETURN_TWILIO_AUTH_TOKEN,
+                inputs: { twilio: { value: integration.id } },
+                inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
+            })
+            invocation.state.globals.inputs = { twilio: persistedValue(team.id, integration.id) }
+
+            const result = await executor.hogExecutor.execute(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.execResult).toBe(expected)
+            // The resolved secret must not go back into the state that the queue persists.
+            expect(result.invocation.state.globals.inputs.twilio).toEqual(persistedValue(team.id, integration.id))
+        })
+
+        it('fails the invocation when a reference does not resolve', async () => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const invocation = createExampleInvocation({
+                team_id: team.id,
+                bytecode: RETURN_TWILIO_AUTH_TOKEN,
+                inputs: { twilio: { value: 999999999 } },
+                inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
+            })
+            invocation.state.globals.inputs = {
+                twilio: {
+                    $integration_ref: 999999999,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, team.id, 'twilio', 999999999),
+                },
+            }
+
+            const result = await executor.hogExecutor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.execResult).toBeUndefined()
+            expect(result.error).toContain("The integration for input 'twilio' could not be loaded.")
         })
     })
 
@@ -1556,6 +1863,59 @@ describe('Hog Executor', () => {
                 expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
             })
 
+            it.each([
+                ['GET', {}, ''],
+                ['HEAD', {}, ''],
+                ['POST', { hmac_sha256: { secret_input: 'signing_secret', webhook_id: 'delivery-id' } }, '{"a":1}'],
+            ])('signs the %s request exactly as it is sent, with signers %j', async (method, signers, sentBody) => {
+                let received: { headers: Record<string, string>; body: string } | undefined
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                    req.on('end', () => {
+                        received = { headers: req.headers, body }
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+                })
+
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method,
+                    body: '{"a":1}',
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Hub-Signature-256': 'sha256=stale' },
+                    aws_sigv4: sigv4Refs,
+                    ...signers,
+                })
+                invocation.hogFunction.encrypted_inputs = {
+                    signing_secret: { value: 'test-hmac-secret-0123456789abcdef' },
+                } as any
+                seedAwsCredentialInputs(invocation)
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(received!.body).toBe(sentBody)
+                const authorization = received!.headers.authorization
+                const signedHeaderNames = /SignedHeaders=([^,]+)/
+                    .exec(authorization)![1]
+                    .split(';')
+                    .filter((name) => !['host', 'x-amz-date'].includes(name))
+                const resigned = signAwsRequest({
+                    method,
+                    url: `${baseUrl}/`,
+                    body: received!.body,
+                    headers: Object.fromEntries(signedHeaderNames.map((name) => [name, received!.headers[name]])),
+                    credentials: {
+                        service: sigv4Refs.service,
+                        region: sigv4Refs.region,
+                        access_key_id: 'AKIDEXAMPLE',
+                        secret_access_key: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+                    },
+                })
+                expect(authorization).toBe(resigned.Authorization)
+            })
+
             // If the input referenced by `*_input` is missing or non-string we must
             // NOT fall through and ship an unsigned request to AWS — that'd 403 and
             // potentially leak the request body in error logs.
@@ -1603,38 +1963,52 @@ describe('Hog Executor', () => {
                 } as any
             }
 
-            const expectedSignature = (webhookId: string, timestamp: string): string =>
-                `v1,${createHmac('sha256', KEY).update(`${webhookId}.${timestamp}.${BODY}`).digest('base64')}`
+            const expectedSignature = (webhookId: string, timestamp: string, body: string = BODY): string =>
+                `v1,${createHmac('sha256', KEY).update(`${webhookId}.${timestamp}.${body}`).digest('base64')}`
 
-            it('signs the request so the reference verification succeeds upstream', async () => {
-                let receivedId: string | undefined
-                let receivedTimestamp: string | undefined
-                let receivedSignature: string | undefined
-                mockRequest.mockImplementation((req: any, res: any) => {
-                    receivedId = req.headers['webhook-id']
-                    receivedTimestamp = req.headers['webhook-timestamp']
-                    receivedSignature = req.headers['webhook-signature']
-                    res.writeHead(200, { 'Content-Type': 'text/plain' })
-                    res.end('ok')
-                })
+            it.each([
+                ['POST', BODY],
+                ['GET', ''],
+                ['HEAD', ''],
+            ])(
+                'signs the bytes a %s request sends so the reference verification succeeds upstream',
+                async (method, sentBody) => {
+                    let receivedId: string | undefined
+                    let receivedTimestamp: string | undefined
+                    let receivedSignature: string | undefined
+                    let receivedBody: string | undefined
+                    mockRequest.mockImplementation((req: any, res: any) => {
+                        let body = ''
+                        req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                        req.on('end', () => {
+                            receivedId = req.headers['webhook-id']
+                            receivedTimestamp = req.headers['webhook-timestamp']
+                            receivedSignature = req.headers['webhook-signature']
+                            receivedBody = body
+                            res.writeHead(200, { 'Content-Type': 'text/plain' })
+                            res.end('ok')
+                        })
+                    })
 
-                const invocation = await createFetchInvocation({
-                    url: `${baseUrl}/`,
-                    method: 'POST',
-                    body: BODY,
-                    headers: { 'Content-Type': 'application/json' },
-                    standard_webhooks: SIGNING_REFS,
-                })
-                seedSigningSecretInput(invocation)
+                    const invocation = await createFetchInvocation({
+                        url: `${baseUrl}/`,
+                        method,
+                        body: BODY,
+                        headers: { 'Content-Type': 'application/json' },
+                        standard_webhooks: SIGNING_REFS,
+                    })
+                    seedSigningSecretInput(invocation)
 
-                const result = await executor.executeFetch(invocation)
+                    const result = await executor.executeFetch(invocation)
 
-                expect(result.error).toBeUndefined()
-                expect(receivedId).toBe(SIGNING_REFS.webhook_id)
-                // Date.now is mocked to 2025-01-01T00:00:00Z in beforeEach
-                expect(receivedTimestamp).toBe('1735689600')
-                expect(receivedSignature).toBe(expectedSignature(receivedId!, receivedTimestamp!))
-            })
+                    expect(result.error).toBeUndefined()
+                    expect(receivedBody).toBe(sentBody)
+                    expect(receivedId).toBe(SIGNING_REFS.webhook_id)
+                    // Date.now is mocked to 2025-01-01T00:00:00Z in beforeEach
+                    expect(receivedTimestamp).toBe('1735689600')
+                    expect(receivedSignature).toBe(expectedSignature(receivedId!, receivedTimestamp!, receivedBody!))
+                }
+            )
 
             // The spec wants webhook-id constant across retries (the receiver's
             // idempotency key) while the timestamp must be fresh so the retry
@@ -1706,6 +2080,162 @@ describe('Hog Executor', () => {
                 expect(result.error.message).toContain('Standard Webhooks signing failed')
                 expect(result.error.message).toContain('signing_secret')
             })
+        })
+
+        describe('hmac_sha256', () => {
+            const SECRET = 'test-hmac-secret-0123456789abcdef'
+            const BODY = '{"test": 2432232314}'
+            const SIGNING_REFS = {
+                secret_input: 'signing_secret',
+                webhook_id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
+            }
+
+            const BODY_SIGNATURE = 'sha256=406a8ef03a0e13a9b1bac8ac4c32597904520eeb30aa89f154676c085ccf3d3c'
+
+            type ReceivedRequest = { id: unknown; signature: unknown; body: string }
+
+            const receiveRequests = (): ReceivedRequest[] => {
+                const received: ReceivedRequest[] = []
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                    req.on('end', () => {
+                        received.push({
+                            id: req.headers['webhook-id'],
+                            signature: req.headers['x-hub-signature-256'],
+                            body,
+                        })
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+                })
+                return received
+            }
+
+            const createSignedInvocation = async (
+                method = 'POST',
+                body = BODY
+            ): Promise<CyclotronJobInvocationHogFunction> => {
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method,
+                    body,
+                    headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': 'sha256=stale' },
+                    hmac_sha256: SIGNING_REFS,
+                })
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
+                return invocation
+            }
+
+            it.each([
+                ['the configured secret', SECRET, BODY_SIGNATURE],
+                [
+                    'a secret of exactly 24 bytes in 12 characters',
+                    'é'.repeat(12),
+                    'sha256=08faf5c284367a94cb95273a9fb68873b5b46460b0f7de89af5f45214667aded',
+                ],
+            ])('signs the bytes the request sends with %s', async (_case, secret, signature) => {
+                const received = receiveRequests()
+                const invocation = await createSignedInvocation()
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: secret } } as any
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature, body: BODY }])
+            })
+
+            it.each([
+                ['the secret input is missing', 'POST', BODY, undefined, 'signing_secret'],
+                ['the secret is shorter than 24 bytes', 'POST', BODY, 'x'.repeat(23), 'at least 24'],
+                ['a GET request sends no body', 'GET', BODY, SECRET, 'sends none'],
+                ['a POST request has an empty body', 'POST', '', SECRET, 'sends none'],
+            ])('refuses to send when %s', async (_case, method, body, secret, reason) => {
+                const invocation = await createSignedInvocation(method, body)
+                invocation.hogFunction.encrypted_inputs = (
+                    secret === undefined ? {} : { signing_secret: { value: secret } }
+                ) as any
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.error.message).toContain('HMAC-SHA256 signing failed')
+                expect(result.error.message).toContain(reason)
+            })
+        })
+
+        describe('signers requested from hog', () => {
+            const SECRET = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw'
+            const STANDARD_WEBHOOKS_KEY = Buffer.from('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', 'base64')
+
+            type ReceivedRequest = { headers: Record<string, any>; body: string }
+
+            const receiveRequests = (): ReceivedRequest[] => {
+                const received: ReceivedRequest[] = []
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                    req.on('end', () => {
+                        received.push({ headers: req.headers, body })
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+                })
+                return received
+            }
+
+            const runHog = async (code: string) => {
+                const hogFunction = createHogFunction({ bytecode: await compileHog(code) })
+                hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
+                return executor.executeWithAsyncFunctions(
+                    createExampleInvocation(hogFunction, { inputs: { url: baseUrl } }),
+                    {
+                        maxAsyncFunctions: 2,
+                    }
+                )
+            }
+
+            it('sends one delivery id that both signers of a fetch call sign', async () => {
+                const received = receiveRequests()
+
+                const result = await runHog(`
+                    fetch(inputs.url, {
+                        'body': {'a': 1},
+                        'standard_webhooks': {'secret_input': 'signing_secret'},
+                        'hmac_sha256': {'secret_input': 'signing_secret'}
+                    })
+                `)
+
+                expect(result.error).toBeUndefined()
+                expect(received).toHaveLength(1)
+                const [{ headers, body }] = received
+                const signedContent = `${headers['webhook-id']}.${headers['webhook-timestamp']}.${body}`
+                expect(headers['webhook-signature']).toBe(
+                    `v1,${createHmac('sha256', STANDARD_WEBHOOKS_KEY).update(signedContent).digest('base64')}`
+                )
+                expect(headers['x-hub-signature-256']).toBe(
+                    `sha256=${createHmac('sha256', SECRET).update(body).digest('hex')}`
+                )
+            })
+
+            it.each(['standard_webhooks', 'hmac_sha256'])(
+                'gives each %s signed fetch call of one run its own delivery id',
+                async (signer) => {
+                    const received = receiveRequests()
+                    const options = `{'body': 'x', '${signer}': {'secret_input': 'signing_secret'}}`
+
+                    const result = await runHog(`
+                        fetch(inputs.url, ${options})
+                        fetch(inputs.url, ${options})
+                    `)
+
+                    expect(result.error).toBeUndefined()
+                    const [first, second] = received.map(({ headers }) => headers['webhook-id'])
+                    expect(received).toHaveLength(2)
+                    expect(first).toEqual(expect.any(String))
+                    expect(second).not.toBe(first)
+                }
+            )
         })
 
         describe('secret_headers_input', () => {
@@ -2354,6 +2884,65 @@ describe('Hog Executor', () => {
             const ownTokenCaptureBody = (): string =>
                 JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
 
+            const v1SelfPostBody = (): string =>
+                JSON.stringify({
+                    created_at: '2026-01-01T00:00:00Z',
+                    batch: [
+                        {
+                            event: 'replicated',
+                            uuid: '0190f3a2-0000-7000-8000-000000000001',
+                            distinct_id: 'u1',
+                            timestamp: '2026-01-01T00:00:00Z',
+                            properties: {},
+                        },
+                    ],
+                })
+
+            const SELF_POSTS = {
+                legacy: {
+                    request: () => ({ url: INGEST_URL, method: 'POST', body: ownTokenCaptureBody() }),
+                    seed: (_invocation: CyclotronJobInvocationHogFunction): void => {},
+                    sentProperties: (body: any) => body.properties,
+                },
+                v1_secret_header: {
+                    request: () => ({
+                        url: 'https://us.i.posthog.com/i/v1/analytics/events',
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        secret_headers_input: 'secret_headers',
+                        body: v1SelfPostBody(),
+                    }),
+                    seed: (invocation: CyclotronJobInvocationHogFunction): void => {
+                        invocation.hogFunction.encrypted_inputs = {
+                            ...(invocation.hogFunction.encrypted_inputs ?? {}),
+                            secret_headers: { value: { Authorization: `Bearer ${OWN_TOKEN}` } },
+                        } as any
+                    },
+                    sentProperties: (body: any) => body.batch[0].properties,
+                },
+                v1: {
+                    request: () => ({
+                        url: 'https://us.i.posthog.com/i/v1/analytics/events',
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${OWN_TOKEN}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            created_at: '2026-01-01T00:00:00Z',
+                            batch: [
+                                {
+                                    event: 'replicated',
+                                    uuid: '0190f3a2-0000-7000-8000-000000000001',
+                                    distinct_id: 'u1',
+                                    timestamp: '2026-01-01T00:00:00Z',
+                                    properties: {},
+                                },
+                            ],
+                        }),
+                    }),
+                    seed: (_invocation: CyclotronJobInvocationHogFunction): void => {},
+                    sentProperties: (body: any) => body.batch[0].properties,
+                },
+            } as const
+
             // Seed this destination's own self-loop depth (keyed by its function id).
             const setSelfLoopDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
                 invocation.state.globals.event.properties = {
@@ -2407,16 +2996,20 @@ describe('Hog Executor', () => {
             // destination's next depth - including hop 0 (a fresh external event), which a
             // legitimate run always is.
             it.each([
-                { case: 'fresh hop 0 (a legitimate external run)', depth: 0, stampedTo: 1 },
-                { case: 'mid-chain under the cap', depth: 2, stampedTo: 3 },
-                { case: 'the last hop under the cap', depth: 9, stampedTo: 10 },
-            ])('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo }) => {
+                { case: 'fresh hop 0 (a legitimate external run)', depth: 0, stampedTo: 1, post: 'legacy' },
+                { case: 'mid-chain under the cap', depth: 2, stampedTo: 3, post: 'legacy' },
+                { case: 'the last hop under the cap', depth: 9, stampedTo: 10, post: 'legacy' },
+                { case: 'a capture v1 self-post mid-chain', depth: 2, stampedTo: 3, post: 'v1' },
+                {
+                    case: 'a capture v1 self-post with the token in a secret header',
+                    depth: 2,
+                    stampedTo: 3,
+                    post: 'v1_secret_header',
+                },
+            ] as const)('enforce: allows + stamps the next hop ($case)', async ({ depth, stampedTo, post }) => {
                 mockOwnTeam()
-                const invocation = await createFetchInvocation({
-                    url: INGEST_URL,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
-                })
+                const invocation = await createFetchInvocation(SELF_POSTS[post].request())
+                SELF_POSTS[post].seed(invocation)
                 setSelfLoopDepth(invocation, depth)
                 const sent = captureIngestFetch()
                 const blockedBefore = await readActionCount('enforce', 'blocked')
@@ -2425,9 +3018,11 @@ describe('Hog Executor', () => {
 
                 // Fetch proceeds, body carries this destination's incremented depth, nothing blocked.
                 expect(result.error).toBeUndefined()
-                expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
-                    stampedTo
-                )
+                expect(
+                    SELF_POSTS[post].sentProperties(parseJSON(sent.getBody()!))[SELF_LOOP_DEPTH_PROPERTY][
+                        invocation.hogFunction.id
+                    ]
+                ).toBe(stampedTo)
                 expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
             })
 
@@ -2455,26 +3050,59 @@ describe('Hog Executor', () => {
                 expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
             })
 
-            it('enforce: breaks the chain once it reaches the cap', async () => {
+            it.each(['legacy', 'v1', 'v1_secret_header'] as const)(
+                'enforce: breaks a %s chain once it reaches the cap',
+                async (post) => {
+                    mockOwnTeam()
+                    const invocation = await createFetchInvocation(SELF_POSTS[post].request())
+                    SELF_POSTS[post].seed(invocation)
+                    setSelfLoopDepth(invocation, 10)
+                    mockRequest.mockClear()
+                    const blockedBefore = await readActionCount('enforce', 'blocked')
+
+                    const result = await executor.executeFetch(invocation)
+
+                    expect(result.error).toBeInstanceOf(Error)
+                    expect(result.finished).toBe(true)
+                    expect(mockRequest).not.toHaveBeenCalled()
+                    expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore + 1)
+                    expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
+                        expect.arrayContaining([expect.stringContaining('event-forwarding loop has already repeated')])
+                    )
+                }
+            )
+
+            it('enforce: refuses a v1 self-post whose events cannot carry the depth', async () => {
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
-                    url: INGEST_URL,
-                    method: 'POST',
-                    body: ownTokenCaptureBody(),
+                    ...SELF_POSTS.v1.request(),
+                    body: JSON.stringify({
+                        created_at: '2026-01-01T00:00:00Z',
+                        batch: [
+                            [
+                                'replicated',
+                                '0190f3a2-0000-7000-8000-000000000001',
+                                'u1',
+                                '2026-01-01T00:00:00Z',
+                                null,
+                                null,
+                                {},
+                                {},
+                            ],
+                        ],
+                    }),
                 })
-                setSelfLoopDepth(invocation, 10)
                 mockRequest.mockClear()
-                const blockedBefore = await readActionCount('enforce', 'blocked')
+                const refusedBefore = await readActionCount('enforce', 'blocked_uncountable')
 
                 const result = await executor.executeFetch(invocation)
 
-                // Blocked: error set, finished, no fetch attempted, metric moved.
                 expect(result.error).toBeInstanceOf(Error)
                 expect(result.finished).toBe(true)
                 expect(mockRequest).not.toHaveBeenCalled()
-                expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore + 1)
+                expect(await readActionCount('enforce', 'blocked_uncountable')).toBe(refusedBefore + 1)
                 expect(cleanLogs(result.logs.map((l) => l.message))).toEqual(
-                    expect.arrayContaining([expect.stringContaining('event-forwarding loop has already repeated')])
+                    expect.arrayContaining([expect.stringContaining('event-forwarding loop cannot be counted')])
                 )
             })
 

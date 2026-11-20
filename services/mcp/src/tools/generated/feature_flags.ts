@@ -10,12 +10,12 @@ import {
     validateDistinctIdPersonIdExclusive,
 } from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
-import hooks_createFeatureFlag from '@/tools/featureFlags/conditionIdHooks'
 import hooks_deleteFeatureFlag from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagGetDefinition from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagRollOutToEveryone from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagSetReleaseConditionRollout from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagsMyFlagsRetrieve from '@/tools/featureFlags/conditionIdHooks'
+import hooks_createFeatureFlag from '@/tools/featureFlags/createFeatureFlagHooks'
 import hooks_updateFeatureFlag from '@/tools/featureFlags/updateFeatureFlagHooks'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -258,7 +258,7 @@ const FeatureFlagGetAllSchema = () => {
     const FeatureFlagsListQueryParams = orvalSchemas.FeatureFlagsListQueryParams()
     return FeatureFlagsListQueryParams.extend({
         search: FeatureFlagsListQueryParams.shape['search'].describe(
-            'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
+            'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags. Use this to find the flag ID for get/update/delete tools.'
         ),
         active: FeatureFlagsListQueryParams.shape['active'].describe(
             'Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"` returns enabled flags that PostHog classifies as stale.'
@@ -283,11 +283,13 @@ const featureFlagGetAll = (): ToolBase<
                 active: params.active,
                 archived: params.archived,
                 created_by_id: params.created_by_id,
+                deleted: params.deleted,
                 eligible_for_experiment: params.eligible_for_experiment,
                 evaluation_runtime: params.evaluation_runtime,
                 excluded_properties: params.excluded_properties,
                 excluded_tags: params.excluded_tags,
                 has_evaluation_contexts: params.has_evaluation_contexts,
+                ids: params.ids,
                 key: params.key,
                 limit: params.limit,
                 offset: params.offset,
@@ -352,6 +354,139 @@ const featureFlagGetDefinition = (): ToolBase<
             return await withPostHogUrl(context, result, `/feature-flags/${result.id}`)
         }
     ),
+})
+
+const FeatureFlagGetVersionSchema = () => {
+    const FeatureFlagsVersionsRetrieveParams = orvalSchemas.FeatureFlagsVersionsRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsVersionsRetrieveParams.omit({ project_id: true }).extend({
+            id: z.preprocess(castStringToInt, FeatureFlagsVersionsRetrieveParams.shape['id']),
+        })
+    )
+}
+
+const featureFlagGetVersion = (): ToolBase<
+    ReturnType<typeof FeatureFlagGetVersionSchema>,
+    Schemas.FeatureFlagVersionResponse
+> => ({
+    name: 'feature-flag-get-version',
+    schema: FeatureFlagGetVersionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagGetVersionSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlagVersionResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/versions/${encodeURIComponent(String(params.version_number))}/`,
+        })
+        return result
+    },
+})
+
+const FeatureFlagRestoreSchema = () => {
+    const FeatureFlagsPartialUpdateBody = orvalSchemas.FeatureFlagsPartialUpdateBody()
+    const FeatureFlagsPartialUpdateParams = orvalSchemas.FeatureFlagsPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsPartialUpdateParams.omit({ project_id: true })
+            .extend(
+                FeatureFlagsPartialUpdateBody.omit({
+                    ask_rollback_reason: true,
+                    rollback_reason: true,
+                    rollback_reason_note: true,
+                    key: true,
+                    name: true,
+                    filters: true,
+                    active: true,
+                    archived: true,
+                    tags: true,
+                    evaluation_contexts: true,
+                    is_remote_configuration: true,
+                    ensure_experience_continuity: true,
+                    evaluation_runtime: true,
+                    bucketing_identifier: true,
+                    version: true,
+                }).shape
+            )
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']) })
+    )
+}
+
+const featureFlagRestore = (): ToolBase<
+    ReturnType<typeof FeatureFlagRestoreSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-restore',
+    schema: FeatureFlagRestoreSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagRestoreSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        body['deleted'] = false
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'active',
+            'archived',
+            'deleted',
+            'status',
+            'version',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
+    },
+})
+
+const FeatureFlagRestoreVersionSchema = () => {
+    const FeatureFlagsVersionsRestoreCreateBody = orvalSchemas.FeatureFlagsVersionsRestoreCreateBody()
+    const FeatureFlagsVersionsRestoreCreateParams = orvalSchemas.FeatureFlagsVersionsRestoreCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsVersionsRestoreCreateParams.omit({ project_id: true })
+            .extend(FeatureFlagsVersionsRestoreCreateBody.shape)
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsVersionsRestoreCreateParams.shape['id']) })
+    )
+}
+
+const featureFlagRestoreVersion = (): ToolBase<
+    ReturnType<typeof FeatureFlagRestoreVersionSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-restore-version',
+    schema: FeatureFlagRestoreVersionSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagRestoreVersionSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ask_rollback_reason !== undefined) {
+            body['ask_rollback_reason'] = params.ask_rollback_reason
+        }
+        if (params.rollback_reason !== undefined) {
+            body['rollback_reason'] = params.rollback_reason
+        }
+        if (params.rollback_reason_note !== undefined) {
+            body['rollback_reason_note'] = params.rollback_reason_note
+        }
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/versions/${encodeURIComponent(String(params.version_number))}/restore/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'name',
+            'active',
+            'archived',
+            'filters',
+            'version',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
+    },
 })
 
 const FeatureFlagRollOutToEveryoneSchema = () => {
@@ -996,6 +1131,7 @@ const scheduledChangesList = (): ToolBase<
                 model_name: params.model_name,
                 offset: params.offset,
                 record_id: params.record_id,
+                record_ids: params.record_ids,
             },
         })
         return await withPostHogUrl(context, result, '/feature-flags')
@@ -1151,6 +1287,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-enable': featureFlagEnable,
     'feature-flag-get-all': featureFlagGetAll,
     'feature-flag-get-definition': featureFlagGetDefinition,
+    'feature-flag-get-version': featureFlagGetVersion,
+    'feature-flag-restore': featureFlagRestore,
+    'feature-flag-restore-version': featureFlagRestoreVersion,
     'feature-flag-roll-out-to-everyone': featureFlagRollOutToEveryone,
     'feature-flag-rules-update': featureFlagRulesUpdate,
     'feature-flag-set-release-condition-rollout': featureFlagSetReleaseConditionRollout,
