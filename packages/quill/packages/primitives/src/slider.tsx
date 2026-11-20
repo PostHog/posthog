@@ -4,7 +4,7 @@ import { Slider as SliderPrimitive } from '@base-ui/react/slider'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
-import { hasTooltipContent, withTooltip } from './with-tooltip'
+import { hasTooltipContent, withDisabledReason } from './with-tooltip'
 
 const Slider = React.forwardRef<
     React.ComponentRef<typeof SliderPrimitive.Root>,
@@ -21,7 +21,7 @@ const Slider = React.forwardRef<
     const hasDisabledReason = hasTooltipContent(disabledReason)
 
     // The root stays hoverable while its thumbs ignore the pointer, so it is the trigger.
-    return withTooltip(
+    return withDisabledReason(
         <SliderPrimitive.Root
             ref={ref}
             data-quill
@@ -49,7 +49,7 @@ const Slider = React.forwardRef<
             </SliderPrimitive.Control>
         </SliderPrimitive.Root>,
         disabledReason,
-        { target: 'self', focusable: hasDisabledReason }
+        { target: 'self', focusable: true }
     )
 })
 
