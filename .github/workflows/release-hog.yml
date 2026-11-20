@@ -82,12 +82,32 @@ env:
     #
     # The copies below predate the release paths. When the tag carries one of them, the checks run
     # COMPILED_OWNERS_CHECKER_BLOB instead. Both are git blobs, so neither can change without a change to
-    # this workflow, which no tag protects.
+    # this workflow, which no tag protects. git fetches any blob GitHub serves, so the pin only runs when
+    # master's history has it as hog/release/check-approvers.sh, which makes it code a pull request merged.
     OLD_CHECKER_BLOBS: >-
         b15fb50313c6bf32a76db83d40ff35afe61718fb
         799d46e6a3f739377c713ccc6f65aabb0b266e5f
         38b61c0ff33c4a9c7454acce28ba0dd22825f84f
     COMPILED_OWNERS_CHECKER_BLOB: 70ce430ab208f3399bb6376949b509ac60babf9e
+    # Every approver check runs this as `bash -c "$PIN_OLD_CHECKER" pin <checker> <last tag>`. It swaps a
+    # checker from OLD_CHECKER_BLOBS for the pinned blob, and fails when master never had that blob.
+    PIN_OLD_CHECKER: |
+        set -euo pipefail
+        checker=$1
+        last_tag=$2
+        if [[ " $OLD_CHECKER_BLOBS " != *" $(git hash-object "$checker") "* ]]; then
+            exit 0
+        fi
+        echo "The approver check at $last_tag predates the fixed release paths, so blob $COMPILED_OWNERS_CHECKER_BLOB runs instead"
+        if ! git rev-parse -q --verify refs/remotes/origin/master >/dev/null; then
+            git fetch --quiet --filter=blob:none origin +refs/heads/master:refs/remotes/origin/master
+        fi
+        if ! git log --format= --raw --no-abbrev --no-renames origin/master -- hog/release/check-approvers.sh \
+            | awk '{ print $4 }' | grep -qx "$COMPILED_OWNERS_CHECKER_BLOB"; then
+            echo "::error::Blob $COMPILED_OWNERS_CHECKER_BLOB was never hog/release/check-approvers.sh on master, so it can't stand in for the approver check. Set COMPILED_OWNERS_CHECKER_BLOB to a checker master has."
+            exit 1
+        fi
+        git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
 
 jobs:
     check-changesets:
@@ -211,14 +231,12 @@ jobs:
             - name: List the release paths of the approver check
               env:
                   BASE: ${{ steps.base.outputs.commit }}
+                  LAST_TAG: ${{ steps.base.outputs.tag }}
               run: |
                   set -euo pipefail
                   checker="$RUNNER_TEMP/check-approvers.sh"
                   git show "$BASE:hog/release/check-approvers.sh" >"$checker"
-                  checker_blob=$(git hash-object "$checker")
-                  if [[ " $OLD_CHECKER_BLOBS " == *" $checker_blob "* ]]; then
-                      git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
-                  fi
+                  bash -c "$PIN_OLD_CHECKER" pin "$checker" "$LAST_TAG"
                   bash "$checker" --list-paths >"$RUNNER_TEMP/release-paths.txt"
                   cat "$RUNNER_TEMP/release-paths.txt"
 
@@ -384,11 +402,7 @@ jobs:
                   checker="$RUNNER_TEMP/check-approvers.sh"
                   gh api -H "Accept: application/vnd.github.raw" \
                       "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$base" >"$checker"
-                  checker_blob=$(git hash-object "$checker")
-                  if [[ " $OLD_CHECKER_BLOBS " == *" $checker_blob "* ]]; then
-                      echo "The approver check at $last_tag predates the fixed release paths, so blob $COMPILED_OWNERS_CHECKER_BLOB runs instead"
-                      git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
-                  fi
+                  bash -c "$PIN_OLD_CHECKER" pin "$checker" "$last_tag"
                   extra_paths="$RUNNER_TEMP/extra-paths.txt"
                   tr ' ' '\n' <<<"$HOG_SOURCE_PATHS" | sed '/^$/d' >"$extra_paths"
                   bash "$checker" --report --extra-paths "$extra_paths" "$base" HEAD
@@ -539,11 +553,7 @@ jobs:
                       echo "::error::$last_tag has no hog/release/check-approvers.sh to run"
                       exit 1
                   fi
-                  checker_blob=$(git hash-object "$checker")
-                  if [[ " $OLD_CHECKER_BLOBS " == *" $checker_blob "* ]]; then
-                      echo "The approver check at $last_tag predates the fixed release paths, so blob $COMPILED_OWNERS_CHECKER_BLOB runs instead"
-                      git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
-                  fi
+                  bash -c "$PIN_OLD_CHECKER" pin "$checker" "$last_tag"
                   chmod +x "$checker"
                   extra_paths="$RUNNER_TEMP/extra-paths.txt"
                   tr ' ' '\n' <<<"$HOG_SOURCE_PATHS" | sed '/^$/d' >"$extra_paths"
@@ -1236,11 +1246,7 @@ jobs:
                   checker="$RUNNER_TEMP/check-approvers.sh"
                   gh api -H "Accept: application/vnd.github.raw" \
                       "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$base" >"$checker"
-                  checker_blob=$(git hash-object "$checker")
-                  if [[ " $OLD_CHECKER_BLOBS " == *" $checker_blob "* ]]; then
-                      echo "The approver check at $last_tag predates the fixed release paths, so blob $COMPILED_OWNERS_CHECKER_BLOB runs instead"
-                      git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
-                  fi
+                  bash -c "$PIN_OLD_CHECKER" pin "$checker" "$last_tag"
                   chmod +x "$checker"
 
                   # The build job ran the release commit's code to list these, which only adds owners.
