@@ -83,7 +83,11 @@ describe('renderEmailPreview', () => {
     it.each([
         ['an unclosed tag', "{{ 'a<' | strip_html }} {{ '<b>bold</b>' | strip_html }}", 'a&lt; bold'],
         ['a list, joined as Liquid joins it', '{{ person.properties.seats | strip_html }}', 'ab'],
-        ['a script tag, as text', "{{ '<script>x</script>' | strip_html }}", 'x'],
+        [
+            'a script, style or comment block',
+            "{{ '<script>x</script><style>.a{}</style>b<!-- c > d -->e' | strip_html }}",
+            'be',
+        ],
     ])('strips html from %s without hanging', (_name, template, expected) => {
         expect(renderEmailPreview(template, person)).toBe(expected)
     })

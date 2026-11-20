@@ -110,21 +110,48 @@ const formatCurrency = (value: unknown, first?: unknown, second?: unknown): unkn
 // variable. The tag renders `{{ unsubscribe_url }}`, so it gets the same escaping as the variable and
 // renders empty when the send has no unsubscribe URL.
 // liquidjs 10.27.0's own strip_html never returns on input such as 'a<' (GHSA-m7fp-h3p4-hr49), and previews render
-// as the page draws, so a saved template could freeze every viewer's tab. One pass, so no input makes it slow.
+// as the page draws, so a saved template could freeze every viewer's tab. This drops the same blocks as Liquid's
+// filter in one pass: a closer that a search does not find is never searched for again, so no input makes it slow.
+const STRIPPED_BLOCKS: [opener: string, closer: string][] = [
+    ['<!--', '-->'],
+    ['<script', '</script>'],
+    ['<style', '</style>'],
+]
+
 function stripHtml(value: unknown): string {
     const text = Array.isArray(value) ? value.join('') : String(value ?? '')
+    const lower = text.toLowerCase()
+    const missingClosers = new Set<string>()
     let out = ''
     let cursor = 0
     while (cursor < text.length) {
         const open = text.indexOf('<', cursor)
-        const close = open === -1 ? -1 : text.indexOf('>', open)
-        if (close === -1) {
-            return out + text.slice(cursor)
+        if (open === -1) {
+            break
+        }
+        let end = -1
+        const block = STRIPPED_BLOCKS.find(
+            ([opener, closer]) => !missingClosers.has(closer) && lower.startsWith(opener, open)
+        )
+        if (block) {
+            const close = lower.indexOf(block[1], open + block[0].length)
+            if (close === -1) {
+                missingClosers.add(block[1])
+            } else {
+                end = close + block[1].length
+            }
+        }
+        if (end === -1) {
+            const close = text.indexOf('>', open)
+            if (close === -1) {
+                break
+            }
+            end = close + 1
         }
         out += text.slice(cursor, open)
-        cursor = close + 1
+        cursor = end
     }
-    return out
+    return out + text.slice(cursor)
 }
 
 class UnsubscribeUrlTag extends Tag {
