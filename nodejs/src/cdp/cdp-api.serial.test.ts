@@ -5288,6 +5288,16 @@ describe('CDP API', () => {
                 })
             const queuedAs = (invocationId: string) =>
                 expect.objectContaining({ status: 'queued', replayed: false, invocation_id: invocationId })
+            const refusableRecipients = async () => {
+                const suppressed = recipient(`bounced-${new UUIDT().toString()}@example.com`)
+                await api['emailSuppressionService'].recordHardBounces(team.id, [suppressed.to])
+                // A domain no other test sends to, so no cached verdict answers before its null MX record does.
+                const noMailDomain = `${new UUIDT().toString()}.example.org`
+                jest.spyOn(api['emailValidationService']['resolver'], 'resolveMx').mockImplementation((domain) =>
+                    Promise.resolve([{ exchange: domain === noMailDomain ? '.' : 'mx.example.com', priority: 10 }])
+                )
+                return { suppressed, unreachable: recipient(`user@${noMailDomain}`) }
+            }
             const setIntakeModes = ({ shadow = '', async = '' }: { shadow?: string; async?: string }) => {
                 api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = shadow
                 api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = async
@@ -5307,11 +5317,14 @@ describe('CDP API', () => {
             })
 
             it('publishes one intake run per sendable recipient, and answers each recipient in order with its run id', async () => {
+                const { suppressed, unreachable } = await refusableRecipients()
                 const recipients = [
                     recipient('ada@example.com', { variables: { name: 'Ada' } }),
                     recipient('not-an-address'),
                     recipient('cy@example.com', { distinct_id: null }),
                     recipient('bo@example.com'),
+                    suppressed,
+                    unreachable,
                 ]
 
                 const res = await sendBatch(TEMPLATE, { variables: { name: 'there' }, recipients })
@@ -5322,6 +5335,8 @@ describe('CDP API', () => {
                     { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(recipients[1]) } },
                     { status: 400, body: { error: expect.any(String), invocation_id: runIdOf(recipients[2]) } },
                     { status: 202, body: queuedAs(runIdOf(recipients[3])) },
+                    { status: 422, body: { error: 'recipient_suppressed', invocation_id: runIdOf(suppressed) } },
+                    { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(unreachable) } },
                 ])
                 expect(intakeRunsOf(intakeRecords())).toEqual(
                     expect.arrayContaining([
@@ -5341,6 +5356,20 @@ describe('CDP API', () => {
                 )
                 expect(intakeRecords()).toHaveLength(2)
                 expect(await storedRuns()).toEqual([])
+            })
+
+            it('publishes every recipient for the email worker to check when the suppression lookup does not answer in time', async () => {
+                const { suppressed, unreachable } = await refusableRecipients()
+                jest.spyOn(api['emailSuppressionService'], 'isKnownSuppressed').mockReturnValue(new Promise(() => {}))
+                const recipients = [suppressed, unreachable, recipient('ada@example.com')]
+
+                const res = await sendBatch(TEMPLATE, { variables: body.variables, recipients })
+
+                expect(res.body.results).toEqual(recipients.map((r) => ({ status: 202, body: queuedAs(runIdOf(r)) })))
+                expect(intakeRunsOf(intakeRecords()).map(({ id }) => id)).toEqual(
+                    expect.arrayContaining(recipients.map(runIdOf))
+                )
+                expect(intakeRecords()).toHaveLength(3)
             })
 
             it('replays a recipient whose key a single send queued, and refuses one whose key it used for other data', async () => {
