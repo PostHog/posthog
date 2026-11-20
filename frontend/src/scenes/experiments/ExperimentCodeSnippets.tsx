@@ -568,7 +568,7 @@ const EXPERIMENT_NAME_MAX_CHARS = 80
 // name can't end the value and pose as instructions to the agent.
 const quote = (value: string): string =>
     JSON.stringify(value).replace(
-        /[\u0085\u2028\u2029]/g,
+        /[\u0085\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g,
         (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
     )
 
