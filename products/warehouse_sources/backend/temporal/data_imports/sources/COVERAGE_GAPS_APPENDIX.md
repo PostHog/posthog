@@ -7412,8 +7412,8 @@ Diffed against: <https://hookdeck.com/docs/api/inspect.md>
 - [x] `Queue depth metrics (GET /metrics/queue-depth)` — track historical delivery backlogs and identify overloaded destinations (high)
 - [x] `Events pending timeseries (GET /metrics/events-pending-timeseries)` — measure how pending deliveries accumulate and recover over time (medium)
 - [x] `Transformation executions (GET /transformations/{id}/executions)` — analyze transformation failures, execution times, and their impact on event delivery (medium)
-- [ ] `Request, event, and attempt metrics (GET /metrics/requests; GET /metrics/events; GET /metrics/attempts)` — compare vendor aggregates for throughput, delivery outcomes, and response times across reporting windows (medium)
-- [ ] `Bulk operation history (GET /bulk/events/retry; GET /bulk/events/cancel; GET /bulk/ignored-events/retry; GET /bulk/requests/retry; GET /bulk/requests/replay)` — audit retry, replay, and cancellation operations with their progress and affected delivery counts (medium)
+- [x] `Request, event, and attempt metrics (GET /metrics/requests; GET /metrics/events; GET /metrics/attempts)` — compare vendor aggregates for throughput, delivery outcomes, and response times across reporting windows (medium)
+- [x] `Bulk operation history (GET /bulk/events/retry; GET /bulk/events/cancel; GET /bulk/ignored-events/retry; GET /bulk/requests/retry; GET /bulk/requests/replay)` — audit retry, replay, and cancellation operations with their progress and affected delivery counts (medium)
 
 Note: Compared the official Inspect, Configure, and Bulk references with the catalog; the published OpenAPI has an older server version. Missing operational paths also appear in the current Markdown references. Ignored events and transformation executions need parent fan-out, and metrics require time windows. Configuration and raw payload downloads are excluded.
 
@@ -10263,9 +10263,9 @@ Today (7): `adgroup_stats`, `adgroups`, `ads`, `campaign_stats`, `campaigns`, `k
 
 Diffed against: <https://github.com/naver/searchad-apidoc/tree/master/java-sample/src/main/java/com/naver/searchad/api/rest>
 
-- [ ] `Business channels (GET /ncc/channels)` — List the sites and channels that ads point to, so campaigns and ads can be reported by landing property (medium)
-- [ ] `Ad extensions (GET /ncc/ad-extensions?ownerId={id})` — Read extension assets such as extra links and phone numbers attached to campaigns and ad groups we sync (medium)
-- [ ] `Customer links (GET /customer-links)` — Resolve which advertiser accounts a manager account can access, for agency setups (low)
+- [x] `Business channels (GET /ncc/channels)` — List the sites and channels that ads point to, so campaigns and ads can be reported by landing property (medium)
+- [x] `Ad extensions (GET /ncc/ad-extensions?ownerId={id})` — Read extension assets such as extra links and phone numbers attached to campaigns and ad groups we sync (medium)
+- [ ] `Customer links (GET /customer-links)` — Resolve which advertiser accounts a manager account can access, for agency setups (low) Skipped: Naver ended support for /customer-links in 2025 when it merged ad accounts.
 
 Note: The official doc site is a JavaScript app with no machine-readable spec, so I diffed against the vendor's public SDK samples on GitHub (Java rest classes, with route comments). Routes confirmed there are campaigns, adgroups, ads, keywords, channels, ad-extensions, customer-links, stats, stat-reports and master-reports. Ad extensions need an ownerId, so fan out under campaigns or ad groups. Excluded estimate endpoints, write routes, and the async master-reports jobs, which only repeat the same objects in bulk. The SDK is a sample, so other routes may exist that I could not verify.
 
@@ -12556,7 +12556,7 @@ Diffed against: <https://developer.revolut.com/docs/api/merchant.yaml>
 - [x] `Disputes (GET /api/disputes)` — measure chargebacks, disputed amounts, and dispute outcomes linked to payments (high) → `disputes` (full refresh, Production only)
 - [x] `Subscription cycles (GET /api/subscriptions/{subscription_id}/cycles)` — analyze recurring billing periods and connect subscription activity with collected revenue (high) → `subscription_cycles` (full refresh, fan-out over `subscriptions`)
 - [x] `Subscription usages (GET /api/subscription-usages)` — measure consumption recorded for usage-based subscriptions and their billing cycles (high) → `subscription_usages` (full refresh)
-- [ ] `Customer payment methods (GET /api/customers/{customer_id}/payment-methods)` — analyze stored payment method coverage across customers with recurring subscriptions (medium)
+- [x] `Customer payment methods (GET /api/customers/{customer_id}/payment-methods)` — analyze stored payment method coverage across customers with recurring subscriptions (medium) → `customer_payment_methods` (full refresh, fan-out over `customers`)
 
 Note: The current official Merchant OpenAPI YAML and Legacy YAML were fetched with curl and parsed to enumerate GET operations. The source imports legacy order lists and requests payments for each order; billing cycles and saved methods need similar parent requests. Disputes are available only in production, and saved methods differ from payment transaction snapshots. Refund writes, webhooks, payment intents, and terminal discovery are excluded.
 
@@ -12947,8 +12947,8 @@ Today (3): `batches`, `projects`, `tasks`
 
 Diffed against: <https://api-reference.scale.com/llms.txt>
 
-- [ ] `audits (GET /v1/audits?task_id=…)` — fixless audit records and feedback items — the input to Scale's quality scores, the platform's headline metric (medium)
-- [ ] `batches/{name}/status` — per-batch task counts by state (pending/completed/error), a cheap progress breakdown (low)
+- [x] `audits (GET /v1/audits?task_id=…)` — fixless audit records and feedback items — the input to Scale's quality scores, the platform's headline metric (medium)
+- [x] `batches/{name}/status` — per-batch task counts by state (pending/completed/error), a cheap progress breakdown (low)
 
 Note: The v1 REST API is genuinely small: batches, projects, tasks, audits. GenAI Data Engine, GenAI Platform and Taxonomy Service are documented as guides with no listable REST collections. The audits endpoint requires a task_id or audit id, so it has to be driven off the already-synced tasks table rather than bulk-listed.
 

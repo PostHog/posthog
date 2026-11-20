@@ -13,6 +13,7 @@ import asyncio
 import datetime as dt
 from collections.abc import Callable
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -20,6 +21,9 @@ from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlrea
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -1052,8 +1056,8 @@ def _maximum_attempts(check: AdmittedInsightCheck) -> int:
 
 PLATFORM_EVALUATION_WORKFLOWS = [InsightAlertPlatformEvaluateWorkflow]
 # Registered on the AI queue's worker, which holds the model credentials.
-PLATFORM_AI_QUEUE_ACTIVITIES: list[Callable[..., object]] = [evaluate_platform_insight_llm_check_activity]
-PLATFORM_EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
+PLATFORM_AI_QUEUE_ACTIVITIES: list[ActivityDefinition] = [evaluate_platform_insight_llm_check_activity]
+PLATFORM_EVALUATION_ACTIVITIES: list[ActivityDefinition] = [
     plan_platform_insight_batch_activity,
     plan_platform_insight_round_activity,
     plan_platform_insight_checks_activity,

@@ -12764,6 +12764,21 @@
             "readOnlyHint": true
         }
     },
+    "organization-create": {
+        "description": "Create an organization with the caller as its owner. PostHog also creates a default project in it. Use an organization to keep separate companies or billing accounts apart. To separate environments such as staging and production, use `project-create` in the current organization instead. Always confirm the name with the user before calling this. PostHog makes the new organization the user's current organization in the web app, so tell the user. This session stays in its current organization: call `switch-organization` with the returned ID to work in the new one. If `switch-organization` is unavailable, the connection is pinned to one organization, so ask the user to reconnect. If this call fails with a permission error, do not call it again: give the user the reason from the error.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Create organization",
+        "title": "Create organization",
+        "required_scopes": ["organization:write"],
+        "api_operations": ["POST /api/organizations/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "organization-enforce-2fa-execute": {
         "description": "Step 2 of 2 for change 2FA enforcement. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Enable or disable organization-wide two-factor authentication (2FA) enforcement. When enabled, every member of the organization is required to set up 2FA before they can continue using PostHog. This is an admin-only, security-sensitive change that affects all members at once. Requires human typed confirmation. Set `enforce_2fa` to true to require 2FA org-wide, or false to lift the requirement.",
         "category": "Platform Features",
@@ -14810,7 +14825,7 @@
         }
     },
     "scout-scratchpad-remember": {
-        "description": "Upsert a scratchpad entry keyed on `(team, key)`: reusing a key updates the existing entry in place rather than creating a second one. The `key` is a short ID of at most 300 characters, such as `noise:<fingerprint>`, and the note goes in `content`. Each write carries the whole entry and replaces what was stored. Any agent on this team can overwrite any key, so search the key first with `scout-scratchpad-search` and condense what is already there rather than overwriting an entry you have not read. To make the write conditional, pass the entry's `updated_at` from that search as `if_updated_at`: the write happens only if nobody changed the entry since you read it. Otherwise nothing is written and the call returns 409 with the current `updated_at`, also when no entry has the key, so read the entry again before you retry. Omit `if_updated_at` to overwrite unconditionally. Use `scout-scratchpad-forget` to delete an entry.",
+        "description": "Upsert a scratchpad entry keyed on `(team, key)`: reusing a key updates the existing entry in place rather than creating a second one. The `key` is a short ID of at most 300 characters, such as `noise:<fingerprint>`, and the note goes in `content`. Each write carries the whole entry and replaces what was stored. Any agent on this team can overwrite any key, so search the key first with `scout-scratchpad-search` and condense what is already there rather than overwriting an entry you have not read. To make the write conditional, pass the entry's `updated_at` from that search as `if_updated_at`: the write happens only if nobody changed the entry since you read it. Otherwise nothing is written and the call returns 409 with the current `updated_at`, also when no entry has the key, so read the entry again before you retry. Omit `if_updated_at` to overwrite unconditionally. Use `scout-scratchpad-forget` to delete an entry. The version a write replaces is kept for two weeks: read it with `scout-scratchpad-search` passing `key` and `include_revisions=true`, and restore it by remembering its content.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Remember a scratchpad entry",
@@ -14883,7 +14898,7 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         },
         "feature_flag": "scout-trials"
     },
@@ -18810,6 +18825,21 @@
         },
         "feature_flag": "workflows-email-activity"
     },
+    "workflows-enable": {
+        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Enable workflow",
+        "title": "Enable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/hog_flows/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
         "description": "Get a specific workflow by ID, where id is the workflow's UUID. When you have a workflow's name instead, resolve it first with workflows-list (search=<name>) and use the id from that result. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active workflow or one disabled while active, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's running.",
         "category": "Workflows",
@@ -19112,7 +19142,7 @@
         }
     },
     "workflows-publish": {
-        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked there and whether they move to a surviving step or exit; variables that may render empty for runs that never executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to the user and get their go-ahead, then call again with confirm=true and that confirm_token. A 409 means the draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true). Shortened delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs still parked shortly after publishing are normal, not a sign of a failed publish.",
+        "description": "Apply a workflow's staged draft to its live config. Two-step: call without confirm first — it returns in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked there and whether they move to a surviving step or exit; variables that may render empty for runs that never executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to the user and get their go-ahead, then call again with confirm=true and that confirm_token. When the preview says moves_to_sandbox_sender, tell the user those email steps will send from the PostHog test sender. Send sandbox_sender_warned on every confirm: true when you told them, false otherwise. A 409 means the draft changed, was published or was discarded since the preview, or, with sandbox_sender_warned false, that a live change now moves steps onto the test sender. A 400 means the token expired or the draft is invalid. After a 409 or an expired token, preview again and re-confirm. Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and the live config stays untouched: fix the draft before you preview again. Test the draft first with workflows-test-run (use_draft=true). Shortened delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs still parked shortly after publishing are normal, not a sign of a failed publish.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Publish workflow draft",
