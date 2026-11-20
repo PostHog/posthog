@@ -9755,6 +9755,29 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         assert (after.json()["affected"], after.json()["total"]) == (0, 2)
 
+    @parameterized.expand(
+        [
+            ("person_needs_person_read", ["feature_flag:read"], None, 403),
+            ("person_with_person_read", ["feature_flag:read", "person:read"], None, 200),
+            ("group_needs_group_read", ["feature_flag:read", "person:read"], 0, 403),
+            ("group_with_group_read", ["feature_flag:read", "group:read"], 0, 200),
+        ]
+    )
+    def test_user_blast_radius_requires_person_or_group_scope(self, _name, scopes, group_type_index, expected_status):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, scopes=scopes, secure_value=hash_key_value(key))
+        body: dict = {"condition": {"properties": []}}
+        if group_type_index is not None:
+            body["group_type_index"] = group_type_index
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            body,
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == expected_status
+
     def test_user_blast_radius_endpoint_ignores_test_account_filters(self):
         for i in range(3):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})

@@ -6035,11 +6035,19 @@ class FeatureFlagViewSet(
 
         return Response(flags_with_evaluation_reasons)
 
+    def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
+        # Sizing a condition counts persons (or groups) by their property values, so a key also needs
+        # the scope that reads them, as the workflows sizing endpoint does.
+        if self.action == "user_blast_radius":
+            data = request.data if isinstance(request.data, dict) else {}
+            return ["feature_flag:read", "person:read" if data.get("group_type_index") is None else "group:read"]
+        return None
+
     @extend_schema(
         request=UserBlastRadiusRequestSerializer,
         responses={200: UserBlastRadiusResponseSerializer},
     )
-    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
+    @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: request.Request, **kwargs):
         if "condition" not in request.data:
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
