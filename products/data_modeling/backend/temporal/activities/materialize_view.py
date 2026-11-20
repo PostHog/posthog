@@ -380,6 +380,9 @@ class MaterializeViewResult:
     # what the workflow gates the person-property child on. Defaulted to the skip value so an old
     # history decodes without it and never fires that child during replay.
     person_property_sync_enabled: bool = False
+    # Whether every row in a full rebuild reached person-property staging. Defaulted to False so
+    # old workflow histories cannot infer that removals are safe.
+    person_property_complete_table_read: bool = False
     # Defaulted so workflow histories recorded before account staging do not start new children on replay.
     account_property_sync_enabled: bool = False
     delta_version: int | None = None
@@ -971,7 +974,7 @@ async def _account_property_sync_enabled(
         return False
 
 
-async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: FilteringBoundLogger) -> None:
+async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: FilteringBoundLogger) -> bool:
     """Clear stale staged rows at run start. Never raises, for the same reason staging doesn't."""
     try:
         await sink.clear()
@@ -979,11 +982,13 @@ async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: Fi
         await logger.awarning(f"Could not clear stale person-property staging: {e}")
         if not isinstance(e, NonReportableError):
             capture_exception(e)
+        return False
+    return True
 
 
 async def _stage_person_property_batch(
     sink: PersonPropertyRowSink | None, batch_index: int, batch: pa.RecordBatch, *, fatal: bool
-) -> None:
+) -> bool:
     """Stage one written batch's projected columns, if a warehouse property reads this view.
 
     Staged from the transformed batch, so the values a person property gets are the ones the Delta
@@ -998,7 +1003,7 @@ async def _stage_person_property_batch(
     Temporal retries the whole window.
     """
     if sink is None:
-        return
+        return False
     try:
         await sink.stage_chunk(batch_index, pa.Table.from_batches([batch]))
     except Exception as e:
@@ -1007,6 +1012,8 @@ async def _stage_person_property_batch(
             raise
         if not isinstance(e, NonReportableError):
             capture_exception(e)
+        return False
+    return True
 
 
 FAILED_UPDATE_REASON_PREFIX = "incremental update failed: "
@@ -1061,7 +1068,8 @@ async def _materialize_fully(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
-) -> tuple[int, list[str]]:
+    person_property_staging_cleared: bool = False,
+) -> tuple[int, list[str], bool]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
     # The rebuild rewrites the table in place, so a failure after the delete leaves a partial table.
@@ -1089,6 +1097,7 @@ async def _materialize_fully(
     # The declared unique key is enforced while seeding too: a table born with null or duplicate
     # keys would break every later upsert's contract, silently.
     tracker = UniqueKeyTracker(plan.config.unique_key) if plan.config is not None else None
+    person_property_complete_table_read = person_property_sink is not None and person_property_staging_cleared
 
     # write each batch as its own delta commit, imitating the data_imports pipeline
     # (DeltaWriter.write): the first batch overwrites — creating the
@@ -1106,7 +1115,8 @@ async def _materialize_fully(
             batch = _force_nullable(batch)
             if tracker is not None:
                 await asyncio.to_thread(tracker.check, batch)
-            await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
+            staged = await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
+            person_property_complete_table_read = person_property_complete_table_read and staged
             batch_index += 1
             with _batch_span("materialize_view.write_batch", batch):
                 if delta_table is None:
@@ -1165,7 +1175,7 @@ async def _materialize_fully(
             mode="full_refresh",
             table_uri=table_uri,
         )
-    return row_count, file_uris
+    return row_count, file_uris, person_property_complete_table_read
 
 
 async def _materialize_incrementally(
@@ -1387,12 +1397,13 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     person_property_sink = await _build_person_property_sink(
         objects, inputs.job_id, logger, incremental=plan.incremental
     )
+    person_property_staging_cleared = False
     if person_property_sink is not None:
         # Cleared once at run start, like the import pipeline's sinks. The sink itself decides what to
         # drop: a rebuild re-reads every row so a dead attempt's files are safe to remove, while an
         # incremental retry resumes past its saved watermark and must keep them. Either way this is
         # what sweeps long-abandoned sibling job prefixes.
-        await _clear_person_property_staging(person_property_sink, logger)
+        person_property_staging_cleared = await _clear_person_property_staging(person_property_sink, logger)
 
     cdp_sink = _CDPRowSink(
         CDPProducer.for_view(
@@ -1419,6 +1430,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
+                person_property_complete_table_read = False
                 if plan.incremental:
                     row_count, file_uris = await _materialize_incrementally(
                         objects,
@@ -1431,7 +1443,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                         person_property_sink,
                     )
                 else:
-                    row_count, file_uris = await _materialize_fully(
+                    row_count, file_uris, person_property_complete_table_read = await _materialize_fully(
                         objects,
                         plan,
                         hogql_query,
@@ -1440,6 +1452,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                         logger,
                         cdp_sink,
                         person_property_sink,
+                        person_property_staging_cleared,
                     )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
@@ -1472,6 +1485,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             quality_audit=quality_audit,
             incremental=plan.incremental,
             person_property_sync_enabled=person_property_sink is not None,
+            person_property_complete_table_read=person_property_complete_table_read,
             account_property_sync_enabled=account_property_sync_enabled,
             delta_version=delta_version,
             should_trigger_cdp_producer=cdp_sink.enabled,
