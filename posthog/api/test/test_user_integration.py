@@ -2071,14 +2071,28 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
         return login_id
 
     @parameterized.expand(
-        [("success",), ("cancel",), ("disconnect",), ("replace",), ("failed",), ("access_revoked",), ("at_capacity",)]
+        [
+            ("success",),
+            ("cancel",),
+            ("disconnect",),
+            ("replace",),
+            ("failed",),
+            ("access_revoked",),
+            ("at_capacity",),
+            ("organization_at_capacity",),
+        ]
     )
     def test_device_login_lifecycle(self, outcome):
+        connected = outcome in ("success", "at_capacity", "organization_at_capacity")
         login_id = self._start_device_login()
-        if outcome == "at_capacity":
+        if outcome in ("at_capacity", "organization_at_capacity"):
             client = redis.get_client()
             key = "celery_running_tasks:posthog.tasks.codex_login.complete_codex_login"
-            client.zadd(key, {f"test-login-{i}": time.time() + 600 for i in range(4)})
+            capacity = 4
+            if outcome == "organization_at_capacity":
+                key += f":{self.organization.id}"
+                capacity = 1
+            client.zadd(key, {f"test-login-{i}": time.time() + 600 for i in range(capacity)})
             self.addCleanup(client.delete, key)
         auth = {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_device"}}
         fake_codex = """
@@ -2123,16 +2137,22 @@ for line in sys.stdin:
         with (
             patch.dict(os.environ, {"HTTPS_PROXY": "http://proxy.example.com:8080", "DATABASE_URL": "secret"}),
             patch("posthog.tasks.codex_login.subprocess.Popen", side_effect=spawn),
+            patch("posthog.tasks.codex_login.complete_codex_login.apply_async") as retry,
             patch("posthog.tasks.codex_login.update_login", side_effect=update),
             patch("requests.request", return_value=self._openai_response(200, _codex_refresh_body("rt_rotated"))),
-            self.captureOnCommitCallbacks(execute=outcome == "success"),
+            self.captureOnCommitCallbacks(execute=connected),
         ):
             complete_codex_login(self.user.id, login_id)
             if outcome == "success":
                 assert get_login(self.user.id, login_id)["status"] == "pending"
+            if outcome in ("at_capacity", "organization_at_capacity"):
+                assert get_login(self.user.id, login_id)["status"] == "starting"
+                retry.assert_called_once_with((self.user.id, login_id), countdown=10, expires=600)
+                client.delete(key)
+                complete_codex_login(self.user.id, login_id)
 
         assert homes and all(not os.path.exists(home) for home in homes)
-        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is (outcome == "success")
+        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is connected
         result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
         assert result["user_code"] is None
         assert (
@@ -2144,13 +2164,14 @@ for line in sys.stdin:
                 "replace": "expired",
                 "failed": "failed",
                 "access_revoked": "failed",
-                "at_capacity": "failed",
+                "at_capacity": "connected",
+                "organization_at_capacity": "connected",
             }[outcome]
         )
         assert "rt_" not in json.dumps(result)
         if replacement_id:
             assert get_login(self.user.id, replacement_id)["status"] == "starting"
-        if outcome == "success":
+        if connected:
             assert (
                 UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"]
                 == "rt_rotated"

@@ -14,7 +14,7 @@ from django.db import transaction
 import structlog
 from celery import shared_task
 
-from posthog.clickhouse.client.limit import limit_concurrency
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.models.integration.codex import CodexUserIntegration, parse_codex_auth_json
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
@@ -79,7 +79,8 @@ def cancel_login(user_id: int, login_id: str) -> None:
 def complete_codex_login(user_id: int, login_id: str) -> None:
     from posthog.api.user_integration_codex import ensure_codex_connect_enabled
 
-    if not cache.add(f"codex_device_login_worker:{user_id}:{login_id}", True, timeout=LOGIN_TIMEOUT + 30):
+    worker_key = f"codex_device_login_worker:{user_id}:{login_id}"
+    if not cache.add(worker_key, True, timeout=LOGIN_TIMEOUT + 30):
         return
     try:
         if get_login(user_id, login_id)["status"] != "starting":
@@ -119,6 +120,9 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
                 tokens = parse_codex_auth_json(json.loads(Path(home, "auth.json").read_text()))
                 CodexUserIntegration.connect(user_id, tokens, source="device_login")
                 transaction.on_commit(lambda: update_login(user_id, login_id, "connected"))
+    except ConcurrencyLimitExceeded:
+        cache.delete(worker_key)
+        complete_codex_login.apply_async((user_id, login_id), countdown=10, expires=LOGIN_TIMEOUT)
     except TimeoutError:
         update_login(user_id, login_id, "expired")
     except Exception as error:
@@ -139,6 +143,14 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
 
 
 @limit_concurrency(4, ttl=LOGIN_TIMEOUT + 30, limit_name="codex_device_login")
+@limit_concurrency(
+    1,
+    key=lambda _process, user_id, _login_id: User.objects.values_list("current_organization_id", flat=True).get(
+        id=user_id
+    ),
+    ttl=LOGIN_TIMEOUT + 30,
+    limit_name="codex_device_login_per_organization",
+)
 def run_login(process: subprocess.Popen[bytes], user_id: int, login_id: str) -> None:
     assert process.stdin is not None and process.stdout is not None
     process.stdin.write(
