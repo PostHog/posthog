@@ -178,6 +178,16 @@ describe('suppressionListLogic', () => {
                 },
             ],
             [
+                'steps back when the page still links to a next page another session emptied',
+                {
+                    listed: 'abcde',
+                    removedElsewhere: 'ce',
+                    selected: 'cd',
+                    pageOnWhileRemoving: false,
+                    expected: [1, 'ab'],
+                },
+            ],
+            [
                 'stays on the last page when rows are left on it',
                 { listed: 'abcd', removedElsewhere: '', selected: 'c', pageOnWhileRemoving: false, expected: [2, 'd'] },
             ],
