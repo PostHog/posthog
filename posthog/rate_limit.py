@@ -248,8 +248,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         history = self.primary_cache.get(self.key, [])
         self.now = self.timer()
         self.history = [hit for hit in history if hit > self.now - duration]
-        cost = units + self.DRF_UNITS_PER_REQUEST if self.units_to_check is not None else units
-        self.retry_wait = self._wait_for_room(cost, num_requests, duration)
+        self.retry_wait = self._wait_for_room(units + self.DRF_UNITS_PER_REQUEST, num_requests, duration)
         if len(self.history) + units > num_requests:
             return False
         self.units_to_charge = units
@@ -270,7 +269,6 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return SimpleRateThrottle.allow_request(self, request, view)
         if not self._has_room_for_units(request, view, self.DRF_UNITS_PER_REQUEST):
             return False
-        self.units_to_charge = 0
         return self.key is None or self.throttle_success()
 
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
