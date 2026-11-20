@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 from posthog.test.base import BaseTest
 from unittest import TestCase, mock
@@ -192,16 +193,42 @@ class TestDelivery(DeliveryTestCase):
         assert self._writes() == ["warehouse a", "warehouse a"]
         assert self._recorded_egress() == {"warehouse a": 2048}
 
-    def test_a_failed_egress_record_does_not_fail_the_batch(self) -> None:
+    def test_a_later_attempt_bills_its_batches_too(self) -> None:
         a = self._destination("warehouse a")
+        RecordingWriter.bytes_written = {"warehouse a": 2048}
+        first_attempt = self._signal([str(a.id)])
+
+        # A resumed attempt of the same job numbers its batches from zero again.
+        delivery.deliver_batch_to_destinations(first_attempt)
+        delivery.deliver_batch_to_destinations(dataclasses.replace(first_attempt, run_uuid="run-a2"))
+
+        recorded = ExternalDataDestinationDelivery.objects.for_team(self.team.pk).values_list(
+            "run_uuid", "bytes_exported"
+        )
+        assert sorted(recorded) == [("run-a1", 2048), ("run-a2", 2048)]
+
+    def test_a_failed_egress_record_warns_and_the_batch_still_succeeds(self) -> None:
+        a = self._destination("warehouse a")
+        RecordingWriter.bytes_written = {"warehouse a": 2048}
         signal = self._signal([str(a.id)])
 
-        with mock.patch.object(
-            ExternalDataDestinationDelivery.objects, "for_team", side_effect=OperationalError("database unavailable")
+        with (
+            mock.patch.object(
+                ExternalDataDestinationDelivery.objects,
+                "for_team",
+                side_effect=OperationalError("database unavailable"),
+            ),
+            structlog.testing.capture_logs() as logs,
         ):
             assert delivery.deliver_batch_to_destinations(signal) == 1
+        # A retry finds the batch delivered, so an append is never written twice.
+        delivery.deliver_batch_to_destinations(signal)
 
-        assert self._seen == {f"{signal.run_uuid}:{signal.batch_index}:{a.id}"}
+        failed = next(entry for entry in logs if entry["event"] == "destination_delivery_record_failed")
+        assert failed["bytes_exported"] == 2048
+        assert failed["job_id"] == signal.job_id
+        assert self._writes() == ["warehouse a"]
+        assert self._recorded_egress() == {}
 
     @parameterized.expand(
         [

@@ -310,6 +310,24 @@ def get_workflow_summaries(*, team_id: int, workflow_ids: Iterable[str]) -> list
     ]
 
 
+def get_workflow_batch_job_ids(*, team_id: int, workflow_id: str) -> list[str]:
+    """The ids, as strings, of every batch job (broadcast send) of one workflow."""
+    return [
+        str(pk)
+        for pk in HogFlowBatchJob.objects.filter(team_id=team_id, hog_flow_id=workflow_id).values_list("id", flat=True)
+    ]
+
+
+def get_batch_job_workflow_ids(*, team_id: int, batch_job_ids: Iterable[str]) -> dict[str, str]:
+    """The workflow id of each of the team's batch jobs, both as strings. Unknown ids are left out."""
+    return {
+        str(pk): str(hog_flow_id)
+        for pk, hog_flow_id in HogFlowBatchJob.objects.filter(team_id=team_id, id__in=list(batch_job_ids)).values_list(
+            "id", "hog_flow_id"
+        )
+    }
+
+
 def get_recent_batch_jobs(
     *, team_id: int, workflow_ids: Iterable[str], limit: int
 ) -> dict[str, list[SendCalendarBatchJob]]:

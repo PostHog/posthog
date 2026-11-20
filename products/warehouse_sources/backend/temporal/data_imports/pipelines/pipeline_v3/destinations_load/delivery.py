@@ -265,8 +265,8 @@ def deliver_batch_to_destinations(
                     export_signal.batch_index,
                     destination_id=destination_id,
                 )
-                _record_delivery(export_signal, destination, outcome)
                 written += 1
+                _record_delivery(export_signal, destination, outcome)
             if export_signal.is_final_batch:
                 async_to_sync(writer.finalize_run)(run_ctx)
                 logger.info(
@@ -318,12 +318,15 @@ def _record_delivery(
 ) -> None:
     """Record the egress of one delivered batch for billing.
 
-    The unique constraint on (job, destination, batch_index) makes a re-delivered batch insert
-    nothing, so it is billed once. A failure here only loses the egress record, so it is logged
-    and the batch, which the destination already has, is not failed. The savepoint keeps a failed
-    insert from aborting a transaction the caller may have open.
+    Runs after the processed marker. The unique constraint makes a re-delivered batch insert
+    nothing, so it is billed once. A failed save only under-bills the batch, so it logs and the
+    batch, which the destination already has, still succeeds. Failing it instead would write an
+    append batch twice, and an append has nothing on the destination side to drop the copy.
     """
+    rows_written = outcome.rows_written if outcome else 0
+    bytes_exported = outcome.bytes_written if outcome else 0
     try:
+        # The savepoint keeps a failed insert from aborting a transaction the caller may have open.
         with transaction.atomic():
             ExternalDataDestinationDelivery.objects.for_team(export_signal.team_id, canonical=True).bulk_create(
                 [
@@ -331,9 +334,10 @@ def _record_delivery(
                         team_id=export_signal.team_id,
                         job_id=export_signal.job_id,
                         destination_id=destination.id,
+                        run_uuid=export_signal.run_uuid,
                         batch_index=export_signal.batch_index,
-                        rows_written=outcome.rows_written if outcome else 0,
-                        bytes_exported=outcome.bytes_written if outcome else 0,
+                        rows_written=rows_written,
+                        bytes_exported=bytes_exported,
                     )
                 ],
                 ignore_conflicts=True,
@@ -341,9 +345,12 @@ def _record_delivery(
     except Exception as e:
         logger.warning(
             "destination_delivery_record_failed",
-            destination_name=destination.name,
-            destination_type=destination.type,
+            team_id=export_signal.team_id,
+            job_id=export_signal.job_id,
+            destination_id=str(destination.id),
+            run_uuid=export_signal.run_uuid,
             batch_index=export_signal.batch_index,
+            bytes_exported=bytes_exported,
             error=str(e),
         )
 

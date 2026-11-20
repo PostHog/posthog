@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Fragment, useEffect, useMemo } from 'react'
 
-import { IconArrowRight, IconChevronRight, IconExternal } from '@posthog/icons'
+import { IconArrowRight, IconChevronRight, IconExternal, IconPin, IconPinFilled } from '@posthog/icons'
 import { Badge, Item, ItemContent, ItemSeparator, ItemTitle, Skeleton } from '@posthog/quill'
 
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -42,7 +42,7 @@ export function TodayObjectHoverCard({
     preview: TodayObjectPreview
     onAction: () => void
 }): JSX.Element {
-    const { href, ref, type, surface } = preview
+    const { href, ref, type, surface, pin } = preview
     const { glanceFor } = useValues(todayObjectGlanceLogic)
     const { showGlance } = useActions(todayObjectGlanceLogic)
     const glanceRef = ref && GLANCE_TYPES.includes(baseObjectType(type)) ? ref : null
@@ -93,18 +93,31 @@ export function TodayObjectHoverCard({
                     </div>
                 </ItemContent>
             </Item>
-            {href && (
+            {(href || pin) && (
                 <>
                     <ItemSeparator className="my-0" />
                     <div className="flex flex-col p-1">
-                        <ActionItem to={href} dataAttr="today-object-card-open">
-                            <IconArrowRight />
-                            Open
-                        </ActionItem>
-                        <ActionItem onClick={() => newInternalTab(href)} dataAttr="today-object-card-open-new-tab">
-                            <IconExternal />
-                            Open in new tab
-                        </ActionItem>
+                        {href && (
+                            <>
+                                <ActionItem to={href} dataAttr="today-object-card-open">
+                                    <IconArrowRight />
+                                    Open
+                                </ActionItem>
+                                <ActionItem
+                                    onClick={() => newInternalTab(href)}
+                                    dataAttr="today-object-card-open-new-tab"
+                                >
+                                    <IconExternal />
+                                    Open in new tab
+                                </ActionItem>
+                            </>
+                        )}
+                        {pin && (
+                            <ActionItem onClick={pin.toggle} dataAttr="today-object-card-pin">
+                                {pin.pinned ? <IconPinFilled /> : <IconPin />}
+                                {pin.pinned ? 'Unpin' : 'Pin'}
+                            </ActionItem>
+                        )}
                     </div>
                 </>
             )}

@@ -8,8 +8,9 @@ class ExternalDataDestinationDelivery(TeamScopedRootMixin, UUIDModel):
     """One batch of a sync run delivered to one external destination, with the egress it cost.
 
     Billing sums `bytes_exported` per team over the jobs that finished in a period. The unique
-    constraint on (job, destination, batch_index) makes a retried or replayed batch insert
-    nothing, so it is never counted twice. The PostHog warehouse never gets a row.
+    constraint makes a retried or replayed batch insert nothing, so it is never counted twice.
+    It includes `run_uuid` because every attempt of a job numbers its batches from zero again.
+    The PostHog warehouse never gets a row.
     """
 
     # `db_constraint=False`: a real FK constraint to the hot `posthog_team` table would take a
@@ -22,12 +23,13 @@ class ExternalDataDestinationDelivery(TeamScopedRootMixin, UUIDModel):
     destination = models.ForeignKey(
         "warehouse_sources.ExternalDataDestination", on_delete=models.CASCADE, related_name="+"
     )
+    run_uuid = models.CharField(max_length=200)
     batch_index = models.IntegerField()
     rows_written = models.BigIntegerField()
     bytes_exported = models.BigIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
 
-    __repr__ = sane_repr("id", "job_id", "destination_id", "batch_index", "bytes_exported")
+    __repr__ = sane_repr("id", "job_id", "destination_id", "run_uuid", "batch_index", "bytes_exported")
 
     class Meta:
         db_table = "posthog_externaldatadestinationdelivery"
@@ -36,7 +38,7 @@ class ExternalDataDestinationDelivery(TeamScopedRootMixin, UUIDModel):
             # rows here by `job`. Including `team` and `bytes_exported` lets that read be an
             # index-only scan.
             models.UniqueConstraint(
-                fields=["job", "destination", "batch_index"],
+                fields=["job", "destination", "run_uuid", "batch_index"],
                 include=["team", "bytes_exported"],
                 name="wsd_delivery_job_dest_batch_uniq",
             ),

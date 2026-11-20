@@ -230,6 +230,7 @@ rules:
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
+                              |ExternalDataDestinationDelivery
                               |ExternalDataJob
                               |ExternalDataSchema
                               |ExternalDataSchemaDestination
@@ -328,6 +329,8 @@ rules:
                               |MembershipCleanupScan
                               |Metric
                               |MetricDailyQueryCount
+                              |MetricPrecomputedChunk
+                              |MetricPrecomputedMetric
                               |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
@@ -876,6 +879,8 @@ rules:
                         |MembershipCleanupScan
                         |Metric
                         |MetricDailyQueryCount
+                        |MetricPrecomputedChunk
+                        |MetricPrecomputedMetric
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
@@ -1693,6 +1698,7 @@ rules:
                               AccountAuditCredential
                               |CommunitySkillVote
                               |GitHubInstallRequest
+                              |IdentityProviderEmailVerification
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1750,6 +1756,7 @@ rules:
                         AccountAuditCredential
                         |CommunitySkillVote
                         |GitHubInstallRequest
+                        |IdentityProviderEmailVerification
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig

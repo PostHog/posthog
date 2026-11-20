@@ -79,6 +79,7 @@ UnmountedInstallationReason = Literal[
     "not_selected",
     "replaced_by_personal",
     "not_shared",
+    "owner_only",
 ]
 
 

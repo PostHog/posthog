@@ -20,7 +20,8 @@ from change_prover import (
     prove as prover,
 )
 from change_prover.core.issuer import InvalidIssuerManifest
-from change_prover.core.policy import RENOVATE_BOT_USER_ID, ChangedFile, Refused
+from change_prover.core.policy import RENOVATE_BOT_USER_ID, SDK_UPGRADER_BOT_USER_ID, ChangedFile, Refused
+from test_python_sdk import NEW, OLD, FakePyPI, tree
 
 REPOSITORY = "PostHog/posthog"
 HEAD, MERGE_BASE, WORKFLOW_SHA = "a" * 40, "b" * 40, "c" * 40
@@ -154,13 +155,17 @@ def pull(
 
 
 class FakeGitHub(prover.GitHub):
-    def __init__(self, *pulls: dict, pusher: int = RENOVATE_BOT_USER_ID) -> None:
+    def __init__(
+        self, *pulls: dict, pusher: int = RENOVATE_BOT_USER_ID, files: tuple[str, ...] = ("package.json",)
+    ) -> None:
         super().__init__(REPOSITORY, "token")
-        self.pulls, self.pusher = list(pulls), pusher
+        self.pulls, self.pusher, self.files = list(pulls), pusher, files
 
     def get(self, path: str) -> Any:
         if path.startswith("commits/"):
             return self.pulls
+        if path.startswith("pulls/123/files?"):
+            return [{"filename": filename} for filename in self.files]
         if path.startswith("activity?ref=refs%2Fheads%2Frenovate%2Fleft-pad&"):
             return [{"after": "d" * 40, "actor": {"id": 42}}, {"after": HEAD, "actor": {"id": self.pusher}}]
         return {"merge_base_commit": {"sha": MERGE_BASE}}
@@ -191,7 +196,7 @@ def environment(tmp_path: Path) -> dict[str, str]:
 
 
 def handover(found: prover.Identified) -> dict[str, str]:
-    return {"PULL_REQUEST": str(found.pr), "MERGE_BASE": found.merge_base}
+    return {"PULL_REQUEST": str(found.pr), "MERGE_BASE": found.merge_base, "LANE": found.lane}
 
 
 def prove(
@@ -199,7 +204,7 @@ def prove(
 ) -> prover.Proof:
     found = prover.identify(cli.identify_request(env), github)
     assert found is not None
-    return prover.prove(cli.prove_request({**env, **handover(found)}), git, registry, pnpm, NOW)
+    return prover.prove(cli.prove_request({**env, **handover(found)}), git, registry, FakePyPI(), pnpm, NOW)
 
 
 INSTALL = ["pnpm", "install", *REPLAY_FLAGS, "--no-frozen-lockfile"]
@@ -336,10 +341,11 @@ def test_a_head_commit_dated_in_the_future_is_refused(tmp_path: Path) -> None:
     [
         ({"PULL_REQUEST": "123; id"}, "not a positive integer"),
         ({"MERGE_BASE": "B" * 40}, "not a commit id"),
+        ({"LANE": "cargo"}, "lane is not one this proof knows"),
     ],
 )
 def test_a_malformed_handover_is_refused(tmp_path: Path, forged: dict[str, str], reason: str) -> None:
-    env = {**environment(tmp_path), **handover(prover.Identified(123, MERGE_BASE)), **forged}
+    env = {**environment(tmp_path), **handover(prover.Identified(123, MERGE_BASE, "npm")), **forged}
     with pytest.raises(Refused, match=reason):
         cli.prove_request(env)
 
@@ -377,12 +383,12 @@ def test_fetch_retries_a_transport_failure(monkeypatch: pytest.MonkeyPatch, erro
 @pytest.mark.parametrize(
     ("pulls", "expected"),
     [
-        ([pull()], prover.Identified(123, MERGE_BASE)),
+        ([pull()], prover.Identified(123, MERGE_BASE, "npm")),
         (
             [pull(), pull(state="closed"), pull(base="feature"), pull(head="d" * 40), pull(author=42)],
-            prover.Identified(123, MERGE_BASE),
+            prover.Identified(123, MERGE_BASE, "npm"),
         ),
-        ([pull(), pull(author=42, head_repository="fork/posthog")], prover.Identified(123, MERGE_BASE)),
+        ([pull(), pull(author=42, head_repository="fork/posthog")], prover.Identified(123, MERGE_BASE, "npm")),
         ([], None),
         ([pull(), pull()], "2 pull requests by an allowed author"),
         ([pull()] * 100, "more pull requests contain this commit"),
@@ -414,7 +420,7 @@ def test_a_refusal_is_logged_while_the_runner_reads_no_commands(
     stopped, refusal, resumed = capsys.readouterr().out.splitlines()
     assert refusal == "Refused: ##[set-output name=eligible]true"
     assert resumed == f"::{stopped.removeprefix('::stop-commands::')}::"
-    assert (tmp_path / "output").read_text() == "pr=0\nmerge_base=\neligible=false\nrefused=true\n"
+    assert (tmp_path / "output").read_text() == "pr=0\nmerge_base=\neligible=false\nlane=\nrefused=true\n"
 
 
 def test_a_replayed_command_gets_no_runner_file_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -477,3 +483,49 @@ def test_git_reads_trees_without_running_hooks(tmp_path: Path) -> None:
     assert (tmp_path / "worktree" / "package.json").read_bytes() == b"{}"
     assert (tmp_path / "worktree" / "pnpm-lock.yaml").exists()
     assert not (tmp_path / "worktree" / "hook-ran").exists()
+
+
+@pytest.mark.parametrize(
+    ("author", "files", "expected"),
+    [
+        (SDK_UPGRADER_BOT_USER_ID, ("uv.lock", "pyproject.toml"), prover.Identified(123, MERGE_BASE, "python_sdk")),
+        (SDK_UPGRADER_BOT_USER_ID, ("package.json", "pnpm-lock.yaml"), None),
+        (RENOVATE_BOT_USER_ID, ("pyproject.toml", "uv.lock"), None),
+        (RENOVATE_BOT_USER_ID, ("package.json", "Dockerfile"), prover.Identified(123, MERGE_BASE, "npm")),
+        (SDK_UPGRADER_BOT_USER_ID, ("uv.lock", "package.json"), "changes npm and Python dependency files"),
+    ],
+)
+def test_identify_picks_the_lane_from_the_changed_files(
+    tmp_path: Path, author: int, files: tuple[str, ...], expected: prover.Identified | str | None
+) -> None:
+    request = cli.identify_request(environment(tmp_path))
+    github = FakeGitHub(pull(author=author), pusher=author, files=files)
+    if isinstance(expected, str):
+        with pytest.raises(Refused, match=expected):
+            prover.identify(request, github)
+    else:
+        assert prover.identify(request, github) == expected
+
+
+def python_sdk_lane(tmp_path: Path, pypi: FakePyPI) -> tuple[FakeGit, FakePnpm, prover.Proof]:
+    git = FakeGit({MERGE_BASE: tree(OLD), HEAD: tree(NEW), WORKFLOW_SHA: {ISSUER: ISSUER_TEXT, ".nvmrc": b"24\n"}})
+    pnpm = FakePnpm(b"")
+    env = {**environment(tmp_path), "PULL_REQUEST": "123", "MERGE_BASE": MERGE_BASE, "LANE": "python_sdk"}
+    return git, pnpm, prover.prove(cli.prove_request(env), git, registry, pypi, pnpm, NOW)
+
+
+def test_the_python_sdk_lane_attests_the_bump_without_running_pnpm(tmp_path: Path) -> None:
+    git, pnpm, proof = python_sdk_lane(tmp_path, FakePyPI())
+    assert proof == prover.Proof(
+        ["pyproject.toml", "tools/requirements.txt", "uv.lock"],
+        {
+            "tools/change-prover/": git.tree(WORKFLOW_SHA, "tools/change-prover/"),
+            ".nvmrc": _fake_blob_sha(b"24\n"),
+        },
+    )
+    assert pnpm.commands == []
+
+
+def test_the_python_sdk_lane_refuses_a_release_pypi_does_not_serve(tmp_path: Path) -> None:
+    with pytest.raises(Refused, match=f"PyPI has no pypi/posthoganalytics/{NEW}/json"):
+        python_sdk_lane(tmp_path, FakePyPI(**{f"pypi/posthoganalytics/{NEW}/json": None}))

@@ -514,9 +514,11 @@ class MotherDuckDestinationWriter:
                 elif self._claim_receipt(connection, run, ctx.batch_index, record_index):
                     self._insert(connection, target)
                 else:
-                    # An earlier attempt already committed these rows.
+                    # An earlier attempt already committed these rows. Its bytes still count,
+                    # because that attempt failed on a later chunk and recorded no egress. The
+                    # delivery record is unique per batch, so a batch is billed only once.
                     connection.commit()
-                    return BatchWriteOutcome(rows_written=0, bytes_written=0)
+                    return BatchWriteOutcome(rows_written=0, bytes_written=source.nbytes)
                 connection.commit()
             except BaseException:
                 connection.rollback()
