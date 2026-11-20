@@ -217,6 +217,7 @@ export namespace Schemas {
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;
+        optimizeCrossJoins: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
@@ -15275,6 +15276,9 @@ export namespace Schemas {
     };
     export type Organization = {
         id: string;
+        /**
+         * Name of the organization.
+         */
         name: string;
         slug: string;
         logo_media_id?: (string | null) | undefined;
@@ -17763,8 +17767,6 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         flags_persistence_default?: (boolean | null) | undefined;
-        secret_api_token: string | null;
-        secret_api_token_backup: string | null;
         /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          */

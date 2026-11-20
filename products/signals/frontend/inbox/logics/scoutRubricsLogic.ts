@@ -25,6 +25,7 @@ import {
     signalsScoutRubricsUpdate,
 } from 'products/signals/frontend/generated/api'
 import type { ScoutRubricCriterionApi, ScoutRubricDocumentApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ScoutRubricGenerationApi } from 'products/signals/frontend/generated/api.schemas'
 
 const GENERATION_POLL_INTERVAL_MS = 10_000
 const GENERATION_CLOCK_INTERVAL_MS = 1000
@@ -194,11 +195,9 @@ export interface scoutRubricsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         generation: (rubricDocument: ScoutRubricDocumentApi | null) => ScoutRubricDocumentApi['generation']
-        generationActive: (
-            generation: null | import('products/signals/frontend/generated/api.schemas').ScoutRubricGenerationApi
-        ) => boolean
+        generationActive: (generation: ScoutRubricGenerationApi | null) => boolean
         generationElapsedLabel: (
-            generation: null | import('products/signals/frontend/generated/api.schemas').ScoutRubricGenerationApi,
+            generation: ScoutRubricGenerationApi | null,
             generationActive: boolean,
             now: number
         ) => string | null
@@ -208,7 +207,7 @@ export interface scoutRubricsLogicMeta {
             draftAdoptGenerationId: string | null
         ) => boolean
         availableSuggestions: (
-            generation: null | import('products/signals/frontend/generated/api.schemas').ScoutRubricGenerationApi,
+            generation: ScoutRubricGenerationApi | null,
             draftCriteria: ScoutRubricCriterionApi[],
             suggestionOverrides: Record<string, Partial<ScoutRubricCriterionApi>>
         ) => ScoutRubricCriterionApi[]
@@ -233,7 +232,7 @@ export interface scoutRubricsLogicMeta {
         validationError: (
             criteriaToSave: ScoutRubricCriterionApi[],
             selectedSuggestions: ScoutRubricCriterionApi[],
-            generation: null | import('products/signals/frontend/generated/api.schemas').ScoutRubricGenerationApi
+            generation: ScoutRubricGenerationApi | null
         ) => string | null
     }
 }

@@ -1814,8 +1814,10 @@ class MessageTemplatesViewSet(
         template = self.get_object()
         expected_type = request.validated_data.get("expected_type")
         if expected_type and template.type != expected_type:
+            names = {"email": "an email", "push": "a push"}
             raise exceptions.ValidationError(
-                f"This is an {template.type} template, not a {expected_type} template.", code="template_type_mismatch"
+                f"This is {names.get(template.type, f'a {template.type}')} template, not {names[expected_type]} template.",
+                code="template_type_mismatch",
             )
         if template.type == "push":
             require_transactional_push_api(self.team)

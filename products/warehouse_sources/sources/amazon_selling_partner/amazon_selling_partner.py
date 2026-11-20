@@ -19,6 +19,11 @@ from urllib3.util.retry import Retry
 from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     DEFERRED_RELEASE_SWEEP_DAYS,
     EARLIEST_START,
+    FULFILLMENT_ORDERS,
+    FULFILLMENT_ORDERS_PATH,
+    INBOUND_PLANS,
+    INBOUND_PLANS_PAGE_SIZE,
+    INBOUND_PLANS_PATH,
     INVENTORY_SUMMARIES,
     INVENTORY_SUMMARIES_PATH,
     LWA_TOKEN_URL,
@@ -30,6 +35,8 @@ from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     ORDERS_PAGE_SIZE,
     ORDERS_PATH,
     PARTITION_KEYS,
+    PAYOUTS,
+    PAYOUTS_PATH,
     PRIMARY_KEYS,
     REPORT_DOCUMENTS_PATH,
     REPORTS_PATH,
@@ -40,6 +47,11 @@ from products.warehouse_sources.sources.amazon_selling_partner.settings import (
     TRANSACTIONS,
     TRANSACTIONS_PATH,
     TRANSACTIONS_WINDOW_DAYS,
+    VENDOR_PURCHASE_ORDERS,
+    VENDOR_PURCHASE_ORDERS_HISTORY_DAYS,
+    VENDOR_PURCHASE_ORDERS_PAGE_SIZE,
+    VENDOR_PURCHASE_ORDERS_PATH,
+    VENDOR_PURCHASE_ORDERS_WINDOW_DAYS,
     VENDOR_REPORTS,
     VENDOR_SALES,
     VendorReport,
@@ -53,6 +65,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     frozen,
     interruptible_wait,
+    lift_nested,
     make_tracked_session,
     parse_datetime_value,
     rest_api_resource,
@@ -73,6 +86,7 @@ UNAVAILABLE_MESSAGE = "Couldn't reach Amazon to check the credentials. Try again
 MISSING_MARKETPLACES_MESSAGE = "Vendor reports need marketplace IDs. Add them in the source settings."
 SELLER_ONLY_MESSAGE = "This table needs a seller account with the role listed in the source description."
 VENDOR_ONLY_MESSAGE = "This table needs a vendor account with the Brand Analytics role."
+VENDOR_ORDERS_MESSAGE = "This table needs a vendor account with the Inventory and Order Tracking role."
 
 REQUEST_TIMEOUT = (10.0, 30.0)
 # The table picker waits on the probes inside one setup request, so they share a short budget.
@@ -234,6 +248,23 @@ def _wrapper_hints(name: str, merge: bool) -> dict[str, Any]:
     return {"table_name": name, "write_disposition": _write_disposition(merge), "table_format": "delta"}
 
 
+def _page_token_resource(
+    resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig], **build_args: Any
+) -> Resource:
+    """One paginated walk that a resume continues from the saved page token."""
+    initial_paginator_state: dict[str, Any] | None = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_token:
+            initial_paginator_state = {"cursor": resume.next_token}
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(AmazonSellingPartnerResumeConfig(next_token=str(state["cursor"])))
+
+    return _build_resource(**build_args, resume_hook=save_checkpoint, initial_paginator_state=initial_paginator_state)
+
+
 def drop_buyer_personal_data(order: dict[str, Any]) -> dict[str, Any]:
     """Remove the buyer's personal data that rides inside the TAX and FULFILLMENT datasets."""
     tax = order.get("tax")
@@ -267,17 +298,8 @@ def _orders_resource(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Resource:
-    initial_paginator_state: dict[str, Any] | None = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_token:
-            initial_paginator_state = {"cursor": resume.next_token}
-
-    def save_checkpoint(state: dict[str, Any] | None) -> None:
-        if state and state.get("cursor"):
-            resumable_source_manager.save_state(AmazonSellingPartnerResumeConfig(next_token=str(state["cursor"])))
-
-    resource = _build_resource(
+    resource = _page_token_resource(
+        resumable_source_manager,
         region=region,
         auth=auth,
         name=endpoint,
@@ -302,8 +324,6 @@ def _orders_resource(
         team_id=team_id,
         job_id=job_id,
         db_incremental_field_last_value=db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
     )
     resource.add_map(drop_buyer_personal_data)
     if endpoint == ORDER_ITEMS:
@@ -433,6 +453,240 @@ def _transactions_resource(
                 resumable_source_manager.safe_point()
 
     return Resource(pages, name=TRANSACTIONS, hints=_wrapper_hints(TRANSACTIONS, should_use_incremental_field))
+
+
+def _payouts_resource(
+    *,
+    region: str,
+    auth: LwaAuth,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Resource:
+    params: dict[str, Any] = {}
+    # Without createdAfter Amazon applies no start date, so a full refresh reads every payout.
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        params["createdAfter"] = to_iso8601(db_incremental_field_last_value)
+    return _page_token_resource(
+        resumable_source_manager,
+        region=region,
+        auth=auth,
+        name=PAYOUTS,
+        path=PAYOUTS_PATH,
+        data_selector="payouts",
+        cursor_path="nextToken",
+        cursor_param="nextToken",
+        params=params,
+        merge=should_use_incremental_field,
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+    )
+
+
+def _inbound_plans_resource(
+    *,
+    region: str,
+    auth: LwaAuth,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Resource:
+    # listInboundPlans has no time filter, so the table is full refresh only.
+    return _page_token_resource(
+        resumable_source_manager,
+        region=region,
+        auth=auth,
+        name=INBOUND_PLANS,
+        path=INBOUND_PLANS_PATH,
+        data_selector="inboundPlans",
+        cursor_path="pagination.nextToken",
+        cursor_param="paginationToken",
+        params={"pageSize": INBOUND_PLANS_PAGE_SIZE, "sortBy": "CREATION_TIME", "sortOrder": "ASC"},
+        merge=False,
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+    )
+
+
+_RECIPIENT_ADDRESS_FIELDS = ("name", "addressLine1", "addressLine2", "addressLine3", "phone", "email")
+
+
+def _drop_packing_slip_text(holder: Any) -> None:
+    packing_slip = (((holder or {}).get("fulfillmentConfiguration") or {}).get("services") or {}).get("packaging")
+    packing_slip = (packing_slip or {}).get("packingSlip")
+    if isinstance(packing_slip, dict):
+        packing_slip.pop("templateAttributes", None)
+
+
+def drop_recipient_personal_data(order: dict[str, Any]) -> dict[str, Any]:
+    """Remove the recipient's name, street, contact details and notes from a fulfillment order.
+
+    The city, region, postal code and country stay, so orders can still be grouped by place.
+    """
+    destination = order.get("destination")
+    if isinstance(destination, dict):
+        address = destination.get("deliveryAddress")
+        if isinstance(address, dict):
+            for key in _RECIPIENT_ADDRESS_FIELDS:
+                address.pop(key, None)
+        destination.pop("deliveryNotes", None)
+        drop_off = destination.get("dropOffLocation")
+        if isinstance(drop_off, dict):
+            drop_off.pop("attributes", None)
+    # Packing slip text is free text printed for the recipient.
+    _drop_packing_slip_text(order)
+    for item in order.get("lineItems") or []:
+        _drop_packing_slip_text(item)
+    for shipment in order.get("shipments") or []:
+        for package in (shipment or {}).get("packages") or []:
+            drop_off = ((package or {}).get("tracking") or {}).get("dropOffLocation")
+            if isinstance(drop_off, dict):
+                drop_off.pop("attributes", None)
+    return order
+
+
+def _fulfillment_orders_resource(
+    *,
+    region: str,
+    auth: LwaAuth,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Resource:
+    watermark = db_incremental_field_last_value if should_use_incremental_field else None
+    resource = _page_token_resource(
+        resumable_source_manager,
+        region=region,
+        auth=auth,
+        name=FULFILLMENT_ORDERS,
+        path=FULFILLMENT_ORDERS_PATH,
+        data_selector="orders",
+        cursor_path="pagination.nextToken",
+        cursor_param="pageToken",
+        # A full refresh also sends updatedAfter, because Amazon documents no range for a request without it.
+        params={"updatedAfter": to_iso8601(watermark if watermark is not None else EARLIEST_START)},
+        merge=should_use_incremental_field,
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+    )
+    resource.add_map(drop_recipient_personal_data)
+    return resource
+
+
+@frozen
+class PurchaseOrderWindow:
+    created_after: datetime
+    created_before: datetime
+
+
+def purchase_order_windows(start: datetime, now: datetime) -> list[PurchaseOrderWindow]:
+    """Contiguous [createdAfter, createdBefore) windows of at most 7 days from `start` up to the request margin."""
+    cutoff = now - timedelta(seconds=REQUEST_TIME_MARGIN_SECONDS)
+    windows: list[PurchaseOrderWindow] = []
+    while start < cutoff:
+        end = min(start + timedelta(days=VENDOR_PURCHASE_ORDERS_WINDOW_DAYS), cutoff)
+        windows.append(PurchaseOrderWindow(created_after=start, created_before=end))
+        start = end
+    return windows
+
+
+def flatten_purchase_order(order: dict[str, Any]) -> dict[str, Any]:
+    return lift_nested(order, "orderDetails")
+
+
+def _vendor_purchase_orders_resource(
+    *,
+    region: str,
+    auth: LwaAuth,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[AmazonSellingPartnerResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Resource:
+    manager = resumable_source_manager
+    now = datetime.now(UTC)
+    start = now - timedelta(days=VENDOR_PURCHASE_ORDERS_HISTORY_DAYS)
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        watermark = parse_datetime_value(db_incremental_field_last_value)
+        if watermark is not None:
+            start = max(start, watermark)
+    windows = purchase_order_windows(start, now)
+    initial_paginator_state: dict[str, Any] | None = None
+    resume = manager.load_state() if manager.can_resume() else None
+    if resume is not None and resume.window_start and resume.window_end:
+        after, before = parse_datetime_value(resume.window_start), parse_datetime_value(resume.window_end)
+        if after is not None and before is not None:
+            windows = [
+                PurchaseOrderWindow(created_after=after, created_before=before),
+                *purchase_order_windows(before, now),
+            ]
+            if resume.next_token:
+                initial_paginator_state = {"cursor": resume.next_token}
+
+    def state_for(window: PurchaseOrderWindow, next_token: str | None = None) -> AmazonSellingPartnerResumeConfig:
+        return AmazonSellingPartnerResumeConfig(
+            window_start=to_iso8601(window.created_after),
+            window_end=to_iso8601(window.created_before),
+            next_token=next_token,
+        )
+
+    def pages() -> Iterator[Any]:
+        for index, window in enumerate(windows):
+            following = windows[index + 1] if index + 1 < len(windows) else None
+
+            def save_checkpoint(
+                state: dict[str, Any] | None,
+                window: PurchaseOrderWindow = window,
+                following: PurchaseOrderWindow | None = following,
+            ) -> None:
+                if state and state.get("cursor"):
+                    manager.save_state(state_for(window, str(state["cursor"])))
+                elif following is not None:
+                    manager.save_state(state_for(following))
+
+            resource = _build_resource(
+                region=region,
+                auth=auth,
+                name=VENDOR_PURCHASE_ORDERS,
+                path=VENDOR_PURCHASE_ORDERS_PATH,
+                data_selector="payload.orders",
+                cursor_path="payload.pagination.nextToken",
+                cursor_param="nextToken",
+                params={
+                    "limit": VENDOR_PURCHASE_ORDERS_PAGE_SIZE,
+                    "createdAfter": to_iso8601(window.created_after),
+                    "createdBefore": to_iso8601(window.created_before),
+                    "sortOrder": "ASC",
+                    "includeDetails": "true",
+                },
+                merge=should_use_incremental_field,
+                team_id=team_id,
+                job_id=job_id,
+                db_incremental_field_last_value=None,
+                resume_hook=save_checkpoint,
+                initial_paginator_state=initial_paginator_state if index == 0 else None,
+            )
+            resource.add_map(flatten_purchase_order)
+            for batch in resource:
+                yield batch
+                # The staged cursor still points at or before this page, so a hand-off here loses no rows.
+                manager.safe_point()
+
+    return Resource(
+        pages,
+        name=VENDOR_PURCHASE_ORDERS,
+        hints=_wrapper_hints(VENDOR_PURCHASE_ORDERS, should_use_incremental_field),
+    )
 
 
 def list_marketplace_ids(
@@ -895,6 +1149,14 @@ def amazon_selling_partner_source(
             resource = _orders_resource(marketplace_ids=marketplace_ids, endpoint=endpoint, **common)
         elif endpoint == TRANSACTIONS:
             resource = _transactions_resource(**common)
+        elif endpoint == PAYOUTS:
+            resource = _payouts_resource(**common)
+        elif endpoint == INBOUND_PLANS:
+            resource = _inbound_plans_resource(**common)
+        elif endpoint == FULFILLMENT_ORDERS:
+            resource = _fulfillment_orders_resource(**common)
+        elif endpoint == VENDOR_PURCHASE_ORDERS:
+            resource = _vendor_purchase_orders_resource(**common)
         else:
             raise ValueError(f"Unknown Amazon Selling Partner endpoint: {endpoint}")
         items = lambda: resource
@@ -1009,13 +1271,26 @@ def probe_endpoint_permissions(
         ),
         TRANSACTIONS: (probe(TRANSACTIONS_PATH, {"postedAfter": recent}), SELLER_ONLY_MESSAGE),
         INVENTORY_SUMMARIES: (probe_inventory, SELLER_ONLY_MESSAGE),
+        PAYOUTS: (probe(PAYOUTS_PATH, {"createdAfter": recent}), SELLER_ONLY_MESSAGE),
+        INBOUND_PLANS: (probe(INBOUND_PLANS_PATH, {"pageSize": 1}), SELLER_ONLY_MESSAGE),
+        VENDOR_PURCHASE_ORDERS: (
+            probe(
+                VENDOR_PURCHASE_ORDERS_PATH,
+                {"limit": 1, "createdAfter": recent, "includeDetails": "false"},
+            ),
+            VENDOR_ORDERS_MESSAGE,
+        ),
         VENDOR_SALES: (
             probe(REPORTS_PATH, {"reportTypes": VENDOR_REPORTS[VENDOR_SALES].report_type, "pageSize": 1}),
             VENDOR_ONLY_MESSAGE,
         ),
     }
     # One call answers for every table that needs the same role.
-    probe_for = {ORDER_ITEMS: ORDERS, **dict.fromkeys(VENDOR_REPORTS, VENDOR_SALES)}
+    probe_for = {
+        ORDER_ITEMS: ORDERS,
+        FULFILLMENT_ORDERS: INBOUND_PLANS,
+        **dict.fromkeys(VENDOR_REPORTS, VENDOR_SALES),
+    }
     answers: dict[str, bool | None] = {}
     permissions: dict[str, str | None] = {}
     for endpoint in endpoints:

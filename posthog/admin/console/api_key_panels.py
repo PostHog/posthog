@@ -18,7 +18,6 @@ from posthog.admin.console.moved import MovedRecord
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Panel
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.api.project_secret_api_key import revoke_exposed_project_secret_api_key
@@ -93,7 +92,7 @@ class PersonalApiKeysPanel(Panel):
     record = "user"
     key = "personal-api-keys"
     title = "Personal API keys"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 40
     danger = True
 
@@ -146,7 +145,7 @@ class ProjectSecretApiKeysPanel(Panel):
     record = "team"
     key = "secret-api-keys"
     title = "Project secret API keys"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 40
     danger = True
 
@@ -414,7 +413,7 @@ class OrganizationPersonalApiKeysPanel(Panel):
     record = "organization"
     key = "personal-api-keys"
     title = "Personal API keys"
-    owner = DEV_EXPERIENCE
+    owner = None
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -468,7 +467,7 @@ class OrganizationPersonalApiKeysPanel(Panel):
 class OrganizationPersonalApiKeysTool(ConsoleTool):
     key = ORGANIZATION_KEYS_TOOL_KEY
     title = "Organization personal API keys"
-    owner = DEV_EXPERIENCE
+    owner = None
     group = "Access"
     description = "Lists the personal API keys that can reach one organization."
 

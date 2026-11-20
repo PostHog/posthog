@@ -94,15 +94,22 @@ class TestTransactionalPushTemplates(APIBaseTest):
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
 
-    def test_refuses_an_email_template_when_the_caller_expects_push(self, _flag):
-        template = MessageTemplate.objects.create(team=self.team, name="Welcome", type="email", content={})
+    @parameterized.expand(
+        [
+            ("email", "push", "This is an email template, not a push template."),
+            ("push", "email", "This is a push template, not an email template."),
+        ]
+    )
+    def test_refuses_a_template_of_another_type(self, _flag, template_type, expected_type, message):
+        template = MessageTemplate.objects.create(team=self.team, name="Welcome", type=template_type, content={})
 
         response = self.client.post(
-            f"{self.templates_url}{template.id}/make_transactional/", {"expected_type": "push"}, format="json"
+            f"{self.templates_url}{template.id}/make_transactional/", {"expected_type": expected_type}, format="json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == "template_type_mismatch"
+        assert response.json()["detail"] == message
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
 

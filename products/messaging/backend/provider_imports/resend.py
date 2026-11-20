@@ -7,7 +7,7 @@ email; the other contact steps read only who opted out.
 
 import re
 from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from email.utils import parseaddr
@@ -243,7 +243,9 @@ class ResendImportProvider(ImportProvider):
         ),
     )
 
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
         if not api_key:
             raise ImportCredentialsMissing(MISSING_KEY_MESSAGE)
         if not api_key.isascii():
@@ -682,7 +684,7 @@ def _resolve_sender(raw_from: Any, senders: Mapping[str, IntegrationRecord]) -> 
     configured_name = str(record.config.get("name") or "") if record is not None else ""
     return _Sender(
         address=literal_liquid(address),
-        name=literal_liquid(display_name) or configured_name,
+        name=literal_liquid(display_name or configured_name),
         raw_address=address,
         record=record,
     )

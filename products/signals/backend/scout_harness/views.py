@@ -273,6 +273,7 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     NOT_IN_USE_KEY_PREFIX,
     InvalidScratchpadError,
     ScratchpadConflictError,
+    discard,
     forget,
     record_not_in_use_write,
     remember,
@@ -2090,7 +2091,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Search the scout scratchpad",
         description=(
             "Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` "
-            "and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries "
+            "and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries "
+            "whose key starts with a prefix, and `skill_name` to keep the entries "
             "one scout (or `pipeline:*` stage) created. "
             "`date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
@@ -2098,7 +2100,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`include_expired=true`, and are hard-deleted by a daily janitor once their expiry is "
             "more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
-            "from returning every entry's full prose. Results capped at 1000."
+            "from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the "
+            "entry's earlier versions, newest first, including those of a deleted key. Results capped at 1000."
         ),
         operation_id="signals_scout_scratchpad_search",
     )
@@ -2112,11 +2115,21 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = validated.get("limit") or 20
         private = trial_store_for_request(request, _canonical_team_id(self))
         search = private.search_memory if private is not None else search_scratchpad
+        # Private trial memory keeps no revisions, so a trial read never asks for them.
+        team_kwargs: dict[str, Any] = (
+            {}
+            if private is not None
+            else {
+                "team_id": _canonical_team_id(self),
+                "include_revisions": bool(validated.get("include_revisions", False)),
+            }
+        )
         with trial_state_errors():
             rows = search(
-                **({} if private is not None else {"team_id": _canonical_team_id(self)}),
+                **team_kwargs,
                 text=text,
                 key=validated.get("key") or None,
+                key_prefix=validated.get("key_prefix") or None,
                 skill_name=validated.get("skill_name") or None,
                 date_from=date_from,
                 date_to=date_to,
@@ -2191,11 +2204,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # arrive truncated, which used to cost the entry its run link; the token binding is the
         # server's own record of which run is writing, so lineage survives the typo.
         is_not_in_use = data["key"].startswith(NOT_IN_USE_KEY_PREFIX)
-        sandbox_run_id = (
-            run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
-            if run_id is None or is_not_in_use
-            else None
-        )
+        # Resolved on every write, because a revision names the run that replaced an entry and a body
+        # `run_id` can name any run on the project, including a sibling scout's.
+        sandbox_run_id = run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
         if run_id is None:
             run_id = sandbox_run_id
         try:
@@ -2210,6 +2221,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 identity=pipeline_writer_identity(task_id=_sandbox_bound_task_id(request), team_id=team_id),
                 expires_at=data.get("expires_at"),
                 if_updated_at=data.get("if_updated_at"),
+                changed_by_run_id=sandbox_run_id,
             )
         except InvalidScratchpadError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -2266,14 +2278,25 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self,
             "Deleting scout memories requires editor access to skills, since the scratchpad steers the scout agents.",
         )
-        return self._forget_key(request, request.validated_data["key"])
+        return self._forget_key(request, request.validated_data["key"], discard_history=True)
 
-    def _forget_key(self, request: Request, key: str) -> Response:
-        private = trial_store_for_request(request, _canonical_team_id(self))
-        with trial_state_errors():
-            removed = (
-                private.forget(key=key) if private is not None else forget(team_id=_canonical_team_id(self), key=key)
-            )
+    def _forget_key(self, request: Request, key: str, *, discard_history: bool = False) -> Response:
+        team_id = _canonical_team_id(self)
+        private = trial_store_for_request(request, team_id)
+        if private is not None:
+            with trial_state_errors():
+                removed = private.forget(key=key)
+            return Response(ForgetResponseSerializer({"deleted": removed}).data)
+        if discard_history:
+            removed = discard(team_id=team_id, key=key)
+            return Response(ForgetResponseSerializer({"deleted": removed}).data)
+        task_id = _sandbox_bound_task_id(request)
+        removed = forget(
+            team_id=team_id,
+            key=key,
+            changed_by_run_id=run_id_for_sandbox_task(task_id=task_id, team_id=team_id),
+            changed_by_identity=pipeline_writer_identity(task_id=task_id, team_id=team_id),
+        )
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
 
 

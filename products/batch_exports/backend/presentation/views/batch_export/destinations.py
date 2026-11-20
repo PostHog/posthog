@@ -10,7 +10,7 @@ from rest_framework import serializers
 from posthog.integrations.fields import IntegrationReferenceField
 
 from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError
+from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError, InvalidKeyError
 from products.batch_exports.backend.facade.enums import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
     BATCH_EXPORT_INTEGRATION_KINDS,
@@ -536,7 +536,7 @@ class BatchExportDestinationSerializer(serializers.Serializer):
             attrs["config"] = batch_exports_api.validate_destination_config(
                 attrs["type"], attrs["config"], partial=partial
             )
-        except InvalidDestinationConfigError as e:
+        except (InvalidDestinationConfigError, InvalidKeyError) as e:
             raise serializers.ValidationError(str(e))
 
         return attrs
