@@ -28,6 +28,8 @@ After token exchange, cancellation-state reads and status publication each have 
 
 The login cache uses a separate connection pool with one-second connect and read timeouts. The final cancellation-state read stays under the user lock to serialize it with cancellation. Its two retry waits can add four seconds to the lock hold time.
 
+Canceling an attempt that stored credentials emits the existing `codex subscription disconnected` user event after the cancellation transaction commits. Repeated cancellation does not emit it again.
+
 ## Rate-limit headers
 
 None documented, so the domain declares no gauges.

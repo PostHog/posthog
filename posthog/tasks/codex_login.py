@@ -13,6 +13,7 @@ from urllib3.exceptions import InvalidHeader
 from urllib3.util import Retry
 
 from posthog.egress.openai_auth import OPENAI_OAUTH_TOKEN_URL, openai_auth_request
+from posthog.event_usage import report_user_action
 from posthog.models.integration.codex import CODEX_OAUTH_CLIENT_ID, CodexUserIntegration, parse_codex_auth_json
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
@@ -82,7 +83,12 @@ def cancel_login(user_id: int, login_id: str) -> None:
         CodexUserIntegration._lock_user(user_id)
         integration = CodexUserIntegration.for_user(user_id)
         if integration and integration.integration.config.get("device_login_id") == login_id:
+            user = integration.integration.user
             integration.disconnect(source="device_login")
+            transaction.on_commit(
+                lambda: report_user_action(user, "codex subscription disconnected", {"method": "device_code"}),
+                robust=True,
+            )
         if get_login(user_id, login_id)["status"] != "expired":
             caches["codex_login"].set(
                 login_key(user_id),

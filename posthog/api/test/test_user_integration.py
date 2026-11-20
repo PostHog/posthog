@@ -2095,6 +2095,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
         now = time.time()
         approved = False
         requests_seen = []
+        events = []
         fail_cache_read = outcome == "cache_unavailable"
         cache_get = caches["codex_login"].get
 
@@ -2162,6 +2163,10 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             return self._openai_response(200, _codex_refresh_body("rt_rotated"))
 
         with (
+            patch(
+                "posthog.event_usage.posthoganalytics.capture",
+                side_effect=lambda *args, **kwargs: events.append(kwargs),
+            ),
             patch.object(caches["codex_login"], "get", side_effect=read_cache),
             patch("tenacity.nap.time.sleep"),
             patch("requests.request", side_effect=provider),
@@ -2208,8 +2213,13 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                         self._connect()
                     response = self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
                     assert response.status_code == 204
+                    assert not any(event.get("event") == "codex subscription disconnected" for event in events)
+                    assert self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/").status_code == 204
             complete_codex_login(self.user.id, login_id)
 
+        assert [
+            event["distinct_id"] for event in events if event.get("event") == "codex subscription disconnected"
+        ] == ([self.user.distinct_id] if outcome == "cancel_after_store" else [])
         connected = outcome in (
             "success",
             "cancel_old_connection",
