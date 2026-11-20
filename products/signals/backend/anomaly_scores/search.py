@@ -157,6 +157,8 @@ class AnomalySearchResult:
     insights: list[InsightRow]
     has_more: bool
     truncated: bool
+    # The series read hit its cap and dropped series this result needed. Narrowing the range or filters fixes it.
+    series_capped: bool
     # Says why the result is empty. None when it is not.
     message: str | None
 
@@ -390,6 +392,12 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         ]
 
     has_more = matched > page.stop
+    # Flagged series rows need only flagged series. Insight rollups count every series of an insight.
+    series_capped = (
+        summaries.flagged_truncated
+        if filters.only_flagged and filters.group_by == AnomalyGroupBy.SERIES
+        else summaries.truncated
+    )
     watched_count = len(watched & insights.keys())
     return AnomalySearchResult(
         scoring_enabled=off_message is None,
@@ -399,7 +407,8 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         series=series_rows,
         insights=insight_rows,
         has_more=has_more,
-        truncated=has_more or summaries.truncated,
+        truncated=has_more or series_capped,
+        series_capped=series_capped,
         message=None
         if matched
         else _empty_message(off_message=off_message, watched=watched_count, scored_in_range=scored_in_range),

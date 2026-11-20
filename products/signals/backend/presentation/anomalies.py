@@ -378,6 +378,14 @@ class AnomalySearchResponseSerializer(serializers.Serializer):
         help_text="True when rows exist after this page. Read them with `offset` set to `offset + limit`."
     )
     truncated = serializers.BooleanField(help_text="True when `limit` or a read cap left rows out.")
+    series_capped = serializers.BooleanField(
+        help_text=(
+            "True when the project has more scored series in the range than one search reads (10,000), so some "
+            "series that match the filters are missing from every page. Narrow the range or the filters to see "
+            "them. With `only_flagged`, series with a flagged bucket are read first, so this is true only when "
+            "flagged series alone pass the cap."
+        )
+    )
     message = serializers.CharField(allow_null=True, help_text="Says why the result is empty. Null when it is not.")
 
 
@@ -565,6 +573,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             scoring_enabled=result.scoring_enabled,
             rows=len(result.series) + len(result.insights),
             insights_scored_in_range=result.insights_scored_in_range,
+            series_capped=result.series_capped,
         )
         return Response(
             AnomalySearchResponseSerializer(
@@ -582,6 +591,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "insights": result.insights,
                     "has_more": result.has_more,
                     "truncated": result.truncated,
+                    "series_capped": result.series_capped,
                     "message": result.message,
                 }
             ).data

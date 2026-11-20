@@ -110,6 +110,7 @@ SELECT
     groupArrayIf(tuple(bucket_start, value, score), score IS NOT NULL AND bucket_start >= {{date_from}} AND flag = 1)
 FROM ({_LATEST_BUCKETS})
 GROUP BY insight_id, series_key
+ORDER BY countIf(score IS NOT NULL AND bucket_start >= {{date_from}} AND flag = 1) > 0 DESC
 LIMIT {{limit}}
 """
 
@@ -204,6 +205,8 @@ class SeriesSummary:
 class SeriesSummaries:
     series: list[SeriesSummary]
     truncated: bool
+    # The read keeps flagged series first, so the cap drops a flagged series only after every unflagged one.
+    flagged_truncated: bool = False
 
 
 @frozen
@@ -402,7 +405,11 @@ def series_summaries(
                 flagged_points=tuple(flagged_points),
             )
         )
-    return SeriesSummaries(series=series, truncated=len(rows) > MAX_SERIES)
+    return SeriesSummaries(
+        series=series,
+        truncated=len(rows) > MAX_SERIES,
+        flagged_truncated=len(rows) > MAX_SERIES and bool(rows[MAX_SERIES][10]),
+    )
 
 
 def scored_days(team: Team, *, now: datetime.datetime) -> int:
