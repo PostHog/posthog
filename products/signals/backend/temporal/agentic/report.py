@@ -846,7 +846,14 @@ def _resolve_report_charts_payload(
 
 
 async def _resolve_suggested_prompts(
-    prompts: Sequence[str], *, team_id: int, report_id: str, signal_id: str | None, title: str, summary: str
+    prompts: Sequence[str],
+    *,
+    team_id: int,
+    report_id: str,
+    signal_id: str | None,
+    title: str,
+    summary: str,
+    checks_summary: str | None,
 ) -> list[str]:
     """The suggested prompts to store with the run's title and summary.
 
@@ -872,6 +879,7 @@ async def _resolve_suggested_prompts(
             signal_id=signal_id,
             title=title,
             summary=summary,
+            checks_summary=checks_summary,
             suggested_prompts=normalized,
         )
     except LLMRefusalError:
@@ -1499,6 +1507,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 signal_id=input.signal_id,
                 title=result.title,
                 summary=result.summary,
+                checks_summary=result.checks_summary,
             )
         logger.info(
             "signals agentic report completed",

@@ -1799,7 +1799,9 @@ async def test_run_agentic_report_activity_judges_suggested_prompts(
 
     monkeypatch.setattr("products.signals.backend.temporal.report_safety_judge.judge_report_safety", judge)
     research_kwargs: dict[str, object] = {}
-    output = _build_research_output().model_copy(update={"suggested_prompts": authored})
+    output = _build_research_output().model_copy(
+        update={"suggested_prompts": authored, "checks_summary": "The summary to store when the checks reconcile."}
+    )
 
     result = await _run_activity_with_output(
         monkeypatch, ateam, report, output, research_kwargs=research_kwargs, signal_id="triggering-signal"
@@ -1813,9 +1815,10 @@ async def test_run_agentic_report_activity_judges_suggested_prompts(
         assert len(judged) == 1
         # Spend settlement skips the judge's LLM cost when it has no signal to charge.
         assert judged_signal_ids == ["triggering-signal"]
-        # The clicked prompt's agent reads the report, so the judge must see the report text too.
-        report_text, prompts_text = judged[0]
+        # The clicked prompt's agent reads the report, so the judge must see every summary it may store.
+        report_text, checks_report_text, prompts_text = judged[0]
         assert report_text == f"{output.title}\n\n{output.summary}"
+        assert checks_report_text == f"{output.title}\n\n{output.checks_summary}"
         assert prompts_text.startswith("Suggested prompts")
         assert prompts_text.split("\n\n")[1:] == expected_judged
 

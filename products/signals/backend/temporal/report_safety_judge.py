@@ -310,6 +310,7 @@ async def judge_suggested_prompts(
     signal_id: str | None,
     title: str,
     summary: str,
+    checks_summary: str | None,
     suggested_prompts: Sequence[str],
 ) -> SafetyJudgeResponse:
     """Run the safety judge over a suggested-prompt set and the report text it was written for.
@@ -318,15 +319,19 @@ async def judge_suggested_prompts(
     prompts after that, so they need their own pass before they are stored. The generated title and
     summary go in with them because the agent that runs a clicked prompt gets the report as context:
     "run the diagnostic command in this report" is harmless alone and unsafe when the summary holds
-    the command. Raises `LLMRefusalError` when the safety model refuses, so the caller decides what a
-    refusal costs.
+    the command. `checks_summary` goes in too when it differs, because the ready transition stores it
+    in place of `summary` when the checks reconcile. Raises `LLMRefusalError` when the safety model
+    refuses, so the caller decides what a refusal costs.
     """
     prompts_signal = suggested_prompts_signal(suggested_prompts)
     if prompts_signal is None:
         return SafetyJudgeResponse(choice=True, explanation="")
+    report_signals = [report_content_signal(title, summary)]
+    if checks_summary is not None and checks_summary != summary:
+        report_signals.append(report_content_signal(title, checks_summary))
     return await judge_report_safety(
         team_id=team_id,
-        signals=[report_content_signal(title, summary), prompts_signal],
+        signals=[*report_signals, prompts_signal],
         report_id=report_id,
         signal_id=signal_id,
     )
