@@ -77,11 +77,7 @@ from products.feature_flags.backend.facade.filters import (
     pinned_variant,
     reachable_conditions,
 )
-from products.feature_flags.backend.facade.flags import (
-    get_organization_flag_evaluations_mode,
-    has_active_flags,
-    organization_keeps_writing_flag_calls_to_events,
-)
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_config, has_active_flags
 
 # A change of the flag after launch that can move exposed people. A new kind needs its class in the flags facade
 # (`facade/edits.py`), its member in this union, an `ExperimentHealthFlagChangeKind`, its read and its set-back
@@ -1018,12 +1014,10 @@ def _flag_calls_unrecorded(experiment: Experiment) -> bool:
     # read flag_evaluations. On FLAG_EVALUATIONS_ONLY, ingestion writes no `$feature_flag_called` to the events table
     # for the teams it copies to flag_evaluations, which this side can't read. Their flags keep no `last_called_at`
     # however often they are called.
-    return (
-        settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE != "flag_evaluations"
-        and get_organization_flag_evaluations_mode(experiment.team.organization_id)
-        == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-        and not organization_keeps_writing_flag_calls_to_events(experiment.team.organization_id)
-    )
+    if settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE == "flag_evaluations":
+        return False
+    config = get_organization_flag_evaluations_config(experiment.team.organization_id)
+    return config.mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY and not config.keeps_events_writes
 
 
 def _metric_events(experiment: Experiment, links: list[ExperimentToSavedMetric]) -> tuple[MetricEvents, ...]:

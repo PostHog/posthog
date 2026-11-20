@@ -56,8 +56,9 @@ from products.dashboards.backend.models import Dashboard
 from products.error_tracking.backend.facade.contracts import ErrorTrackingAIFeature
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import (
+    FlagEvaluationsConfig,
     flag_calls_only_in_flag_evaluations,
-    get_flag_evaluations_read_mode,
+    get_flag_evaluations_read_config,
 )
 from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
@@ -93,12 +94,12 @@ def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], reque
     return representation
 
 
-def flag_evaluations_read_mode_for(context: dict[str, Any], organization_id: UUID) -> int:
-    # Two fields read the mode. A list serializes every object with one context, so one lookup serves the list.
-    modes: dict[UUID, int] = context.setdefault("flag_evaluations_read_modes", {})
-    if organization_id not in modes:
-        modes[organization_id] = get_flag_evaluations_read_mode(organization_id)
-    return modes[organization_id]
+def flag_evaluations_read_config_for(context: dict[str, Any], organization_id: UUID) -> FlagEvaluationsConfig:
+    # Two fields read the config. A list serializes every object with one context, so one lookup serves the list.
+    configs: dict[UUID, FlagEvaluationsConfig] = context.setdefault("flag_evaluations_read_configs", {})
+    if organization_id not in configs:
+        configs[organization_id] = get_flag_evaluations_read_config(organization_id)
+    return configs[organization_id]
 
 
 class RealtimeCohortsAccess(models.TextChoices):
@@ -340,11 +341,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return flag_evaluations_read_mode_for(self.context, obj.organization_id)
+        return flag_evaluations_read_config_for(self.context, obj.organization_id).mode
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Team) -> bool:
         return flag_calls_only_in_flag_evaluations(
-            obj, flag_evaluations_read_mode_for(self.context, obj.organization_id)
+            obj, flag_evaluations_read_config_for(self.context, obj.organization_id)
         )
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)

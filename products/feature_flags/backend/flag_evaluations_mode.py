@@ -13,7 +13,7 @@ from posthog.models import Organization, Team
 
 from products.experiments.backend.facade import count_running_experiments_needing_flag_calls_in_events
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_modes
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_configs
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 ID_LOOKUP_BATCH_SIZE = 10_000
@@ -164,13 +164,8 @@ def set_organizations_flag_evaluations_mode(
     organization_ids = [organization.id for organization in organizations]
     if len(set(organization_ids)) != len(organization_ids):
         raise ValueError("Each organization must appear once")
-    current_modes = get_organization_flag_evaluations_modes(organization_ids)
+    current_configs = get_organization_flag_evaluations_configs(organization_ids)
     keeps_events_writes = keep_writing_flag_calls_to_events and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-    current_keeps = dict(
-        OrganizationFeatureFlagsConfig.objects.filter(organization_id__in=organization_ids).values_list(
-            "organization_id", "keep_writing_flag_calls_to_events"
-        )
-    )
     team_counts = dict(
         Team.objects.filter(organization_id__in=organization_ids)
         .values("organization_id")
@@ -181,10 +176,10 @@ def set_organizations_flag_evaluations_mode(
     # write of EVENTS to it would insert a row and report a change that no reader can see.
     moving_ids = {
         organization_id
-        for organization_id, current_mode in current_modes.items()
-        if current_mode < mode
-        or (allow_downgrade and current_mode > mode)
-        or (current_mode == mode and current_keeps.get(organization_id, False) != keeps_events_writes)
+        for organization_id, current in current_configs.items()
+        if current.mode < mode
+        or (allow_downgrade and current.mode > mode)
+        or (current.mode == mode and current.keeps_events_writes != keeps_events_writes)
     }
     changed_ids = (
         moving_ids
@@ -204,10 +199,10 @@ def set_organizations_flag_evaluations_mode(
                 if count_experiments and not keeps_events_writes
                 else 0
             ),
-            current_mode=current_modes[organization.id],
+            current_mode=current_configs[organization.id].mode,
             target_mode=mode,
             changed=organization.id in changed_ids,
-            left_above_mode=current_modes[organization.id] > mode and not allow_downgrade,
+            left_above_mode=current_configs[organization.id].mode > mode and not allow_downgrade,
         )
         for organization in organizations
     ]

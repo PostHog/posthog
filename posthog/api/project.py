@@ -70,7 +70,7 @@ from posthog.api.team.team_serializer import (
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
     available_error_tracking_ai_features,
-    flag_evaluations_read_mode_for,
+    flag_evaluations_read_config_for,
     hide_team_secrets_from_workload_tokens,
     realtime_cohorts_for_request,
 )
@@ -1065,11 +1065,11 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return flag_evaluations_read_mode_for(self.context, obj.organization_id)
+        return flag_evaluations_read_config_for(self.context, obj.organization_id).mode
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
-        read_mode = flag_evaluations_read_mode_for(self.context, obj.organization_id)
-        return flag_calls_only_in_flag_evaluations(obj.passthrough_team, read_mode)
+        read_config = flag_evaluations_read_config_for(self.context, obj.organization_id)
+        return flag_calls_only_in_flag_evaluations(obj.passthrough_team, read_config)
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Project) -> dict[str, str | int | None]:

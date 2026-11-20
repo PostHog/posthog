@@ -28,7 +28,7 @@ from posthog.models.team import Team
 
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
     OrganizationModeChange,
     set_organizations_flag_evaluations_mode,
@@ -194,8 +194,10 @@ class TestSetFlagEvaluationsMode(BaseTest):
         # The stale read stands in for a staff write that raises the organization between the
         # helper's read and its write.
         with patch(
-            "products.feature_flags.backend.flag_evaluations_mode.get_organization_flag_evaluations_modes",
-            return_value={self.organization.id: FlagEvaluationsMode.EVENTS},
+            "products.feature_flags.backend.flag_evaluations_mode.get_organization_flag_evaluations_configs",
+            return_value={
+                self.organization.id: FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False)
+            },
         ):
             [change] = set_organizations_flag_evaluations_mode(
                 [self.organization], FlagEvaluationsMode.READ_FLAG_EVALUATIONS, allow_downgrade=False, dry_run=False
