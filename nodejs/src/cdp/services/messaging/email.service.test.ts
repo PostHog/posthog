@@ -2048,7 +2048,7 @@ describe('EmailService', () => {
         }
         const codeSendTracked = (): void => {
             sesAcceptsTracked()
-            invocation.state.send = { tracking: { captureEngagement: true } }
+            invocation.state.send = { tracking: { captureEngagement: true, clicks: false } }
         }
         const codeSendOpensOff = (): void => {
             sesAcceptsTracked()
