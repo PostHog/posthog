@@ -1,5 +1,5 @@
 import { PreviewCard } from '@base-ui/react/preview-card'
-import { ReactNode, Suspense, useCallback, useMemo, useRef, useState } from 'react'
+import { ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Card, Skeleton } from '@posthog/quill'
 import { PostHogErrorBoundary } from '@posthog/react'
@@ -72,9 +72,11 @@ function TodayPreviewPositioner({
 export function TodayPreviewCardProvider({
     children,
     disabled = false,
+    onOpenChange,
 }: {
     children: ReactNode
     disabled?: boolean
+    onOpenChange?: (open: boolean) => void
 }): JSX.Element {
     const [handle] = useState(() => PreviewCard.createHandle<TodayPreviewPayload>())
     const [open, setOpen] = useState(false)
@@ -106,6 +108,10 @@ export function TodayPreviewCardProvider({
     const close = useCallback(() => {
         setOpen(false)
     }, [])
+    const shown = open && !disabled
+    useEffect(() => {
+        onOpenChange?.(shown)
+    }, [shown, onOpenChange])
 
     return (
         <TodayPreviewCardContext.Provider value={card}>

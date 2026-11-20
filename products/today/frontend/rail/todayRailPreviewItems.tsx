@@ -4,9 +4,11 @@ import { fileSystemBaseType } from 'scenes/analytics/analyticsUtils'
 import { libraryObjectHref, libraryObjectName } from 'scenes/library/libraryUtils'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TODAY_MONITOR_RECENT_TYPES } from '~/layout/today/todayMonitor'
 import { newestByName } from '~/layout/today/todayNewestByName'
 import { TODAY_PEOPLE_RECENT_TYPES } from '~/layout/today/todayPeople'
+import type { StoredReleaseRecent } from '~/layout/today/todayRecents'
 import { TodayRailPane } from '~/layout/today/todayShellLogic'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
@@ -66,5 +68,44 @@ export function railRecentItems(items: TodayRailPreviewItem[], pins: TodayRailPr
         (item) => item.name,
         (item) => item.href,
         RAIL_RECENTS_LIMIT
+    )
+}
+
+export function localRecentEntry(recent: { type: string; name: string; href: string }): FileSystemEntry {
+    return { id: recent.href, path: escapePath(recent.name), type: recent.type, href: recent.href }
+}
+
+export function namedReleaseEntries(
+    entries: FileSystemEntry[],
+    releaseRecents: StoredReleaseRecent[]
+): FileSystemEntry[] {
+    const names = new Map(releaseRecents.map((recent) => [recent.id, recent.name]))
+    return entries.flatMap((entry) => {
+        if (entry.type !== 'release') {
+            return [entry]
+        }
+        const name = names.get(entry.ref ?? '')
+        return name ? [{ ...entry, path: escapePath(name) }] : []
+    })
+}
+
+export function releaseRecentEntries(
+    recents: FileSystemEntry[],
+    releaseRecents: StoredReleaseRecent[]
+): FileSystemEntry[] {
+    const visits = releaseRecents.map((recent) => ({
+        ...localRecentEntry(recent),
+        ref: recent.id,
+        last_viewed_at: new Date(recent.viewedAt).toISOString(),
+    }))
+    return [
+        ...namedReleaseEntries(
+            recents.filter((entry) => !!entry.ref),
+            releaseRecents
+        ),
+        ...visits,
+    ].sort(
+        (first, second) =>
+            (Date.parse(second.last_viewed_at ?? '') || 0) - (Date.parse(first.last_viewed_at ?? '') || 0)
     )
 }

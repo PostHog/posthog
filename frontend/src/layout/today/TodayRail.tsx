@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 import { PostHogErrorBoundary } from '@posthog/react'
 
@@ -50,6 +50,13 @@ export function TodayRail(): JSX.Element {
     const { clickRailPane } = useActions(todayShellLogic)
     const { tourActive } = useValues(todayTourLogic)
     const [chatsPreviewed, setChatsPreviewed] = useState(false)
+    const [pointerInRail, setPointerInRail] = useState(false)
+    const [cardOpen, setCardOpen] = useState(false)
+    useEffect(() => {
+        if (!pointerInRail && !cardOpen) {
+            setChatsPreviewed(false)
+        }
+    }, [pointerInRail, cardOpen])
     const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
     const { currentProjectId } = useValues(projectLogic)
     const { ref: paneListRef, height: paneListHeight } = useResizeObserver<HTMLDivElement>()
@@ -68,7 +75,6 @@ export function TodayRail(): JSX.Element {
                 onClick={() => clickRailPane(pane)}
                 dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}
                 onPointerEnter={pane === 'spaces' ? () => setChatsPreviewed(true) : undefined}
-                onFocus={pane === 'spaces' ? () => setChatsPreviewed(true) : undefined}
             />
         )
         const preview = RAIL_PREVIEWS[pane]
@@ -87,9 +93,11 @@ export function TodayRail(): JSX.Element {
     }
 
     return (
-        <TodayPreviewCardProvider disabled={tourActive}>
+        <TodayPreviewCardProvider disabled={tourActive} onOpenChange={setCardOpen}>
             <nav
                 aria-label="Main"
+                onPointerEnter={() => setPointerInRail(true)}
+                onPointerLeave={() => setPointerInRail(false)}
                 className="TodayShell__rail flex shrink-0 flex-col items-center gap-3 bg-[var(--chrome)] pt-3 pb-3"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: TODAY_RAIL_WIDTH }}
