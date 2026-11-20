@@ -79,6 +79,10 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ),
             ("value_after_an_unclosed_script", "<script>var u = {{x}};"),
             ("value_after_an_unclosed_comment", "<!-- <p>{{x}}</p>"),
+            (
+                "value_after_a_head_closing_tag_in_a_css_string",
+                '<head><style>p{content:"</head>"}{{name}}</style></head>',
+            ),
             ("value_in_a_tag_that_never_closes", "<a href={{id}} <b>x"),
             ("value_at_the_end_of_an_open_tag", "<a href={{id}}"),
             ("value_after_a_double_escaped_script", "<script><!--<script></script>{{x}}</script>"),

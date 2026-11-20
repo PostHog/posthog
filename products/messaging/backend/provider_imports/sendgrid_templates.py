@@ -187,7 +187,7 @@ def _unsupported_reason(source: str, is_html: bool) -> str | None:
         return "have an HTML tag that never closes"
     if _has_unclosed_block(text):
         return "have a comment, style, script or head block that never closes"
-    if any(_HELD.search(text[span.start : span.end]) for span in _not_content_spans(text)):
+    if _held_in_a_block(text):
         return "sit inside a comment, style, script or head block"
     if any(_HELD.search(tag.group(0)) for tag in _HTML_TAG.finditer(text)):
         return "sit inside an HTML tag"
@@ -272,6 +272,31 @@ def _not_content_spans(html: str) -> Iterator[_Span]:
             continue
         yield _Span(start=match.start(), end=end)
         position = end
+
+
+_BLOCKS = tuple(
+    (re.compile(opening, re.IGNORECASE), re.compile(closer, re.IGNORECASE))
+    for opening, closer in (
+        (r"<style\b", r"</style\b"),
+        (r"<script\b", r"</script\b"),
+        (r"<title\b", r"</title\b"),
+        (r"<head\b", r"</head\b"),
+        (r"<!--", r"-->"),
+    )
+)
+
+
+def _held_in_a_block(text: str) -> bool:
+    """Whether a value sits inside any kind of block. Each kind is found on its own, so a closing tag written inside
+    another kind of block, such as `</head>` in a CSS string, can't end a block early and hide a value from the check."""
+    for opening, closer in _BLOCKS:
+        position = 0
+        while start := opening.search(text, position):
+            end = closer.search(text, start.end())
+            if end is None or _HELD.search(text, start.start(), end.start()):
+                return True
+            position = end.end()
+    return False
 
 
 def _has_unclosed_block(html: str) -> bool:
