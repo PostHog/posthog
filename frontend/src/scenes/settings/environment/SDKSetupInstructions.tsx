@@ -39,6 +39,7 @@ import {
 } from '@posthog/shared-onboarding/product-analytics'
 import type { StepDefinition } from '@posthog/shared-onboarding/steps'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { JS_WEB_SNIPPETS } from 'scenes/onboarding/shared/jsWebSnippets'
@@ -47,6 +48,8 @@ import SetupWizardBanner from 'scenes/onboarding/shared/SetupWizardBanner'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'
+
+import { QuillSDKSetupInstructions } from './QuillSDKSetupInstructions'
 const NODE_SNIPPETS = { NodeEventCapture }
 const PYTHON_SNIPPETS = { PythonEventCapture }
 
@@ -334,8 +337,31 @@ export function SDKSetupInstructions(): JSX.Element {
     const [selectedSDK, setSelectedSDK] = useState<SDKKey>(SDKKey.JS_WEB)
     const [showFullSetup, setShowFullSetup] = useState(false)
     const { reportSDKSetupInstructionsSDKSelected } = useActions(eventUsageLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const config = useMemo(() => SDK_CONFIGS[selectedSDK], [selectedSDK])
+
+    const handleSelectSDK = (value: SDKKey): void => {
+        setSelectedSDK(value)
+        setShowFullSetup(false)
+        reportSDKSetupInstructionsSDKSelected(value, 'settings_sdk_setup')
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillSDKSetupInstructions
+                loading={currentTeamLoading && !currentTeam}
+                config={config}
+                options={ALL_SDK_SELECT_OPTIONS}
+                selectedSDK={selectedSDK}
+                onSelectSDK={handleSelectSDK}
+                showFullSetup={showFullSetup}
+                setShowFullSetup={setShowFullSetup}
+                useReverseProxy={config?.category === 'web' || config?.category === 'mobile'}
+                filterRequiredSteps={filterRequiredSteps}
+            />
+        )
+    }
 
     if (currentTeamLoading && !currentTeam) {
         return (
@@ -357,11 +383,7 @@ export function SDKSetupInstructions(): JSX.Element {
         <div className="space-y-4 max-w-200">
             <LemonSelect
                 value={selectedSDK}
-                onChange={(value) => {
-                    setSelectedSDK(value)
-                    setShowFullSetup(false)
-                    reportSDKSetupInstructionsSDKSelected(value, 'settings_sdk_setup')
-                }}
+                onChange={handleSelectSDK}
                 options={ALL_SDK_SELECT_OPTIONS}
                 className="max-w-80"
             />

@@ -1,36 +1,23 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTerminal, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { CodexIntegrationStatusEnumApi, type UserCodexIntegrationApi } from '~/generated/core/api.schemas'
 
 import { CodexConnectModal, SETTINGS_CODEX_CONNECT_OPENER } from './CodexConnectModal'
+import { confirmCodexDisconnect } from './confirmCodexDisconnect'
 import { personalCodexIntegrationLogic } from './personalCodexIntegrationLogic'
+import { QuillPersonalCodexIntegration } from './QuillPersonalCodexIntegration'
 
 function CodexAccountRow({ integration }: { integration: UserCodexIntegrationApi }): JSX.Element {
     const { disconnectCodex } = useActions(personalCodexIntegrationLogic)
     const { codexIntegrationLoading } = useValues(personalCodexIntegrationLogic)
 
-    const handleDisconnect = (): void => {
-        LemonDialog.open({
-            title: 'Disconnect Codex?',
-            description: (
-                <p>
-                    PostHog removes your ChatGPT sign-in. Codex cloud tasks that use your ChatGPT plan stop working
-                    until you connect again.
-                </p>
-            ),
-            primaryButton: {
-                children: 'Disconnect',
-                status: 'danger',
-                onClick: () => disconnectCodex(),
-            },
-            secondaryButton: { children: 'Cancel' },
-        })
-    }
+    const handleDisconnect = (): void => confirmCodexDisconnect(disconnectCodex)
 
     return (
         <div className="flex items-center gap-4 px-4 py-3">
@@ -83,6 +70,11 @@ function CodexAccountRow({ integration }: { integration: UserCodexIntegrationApi
 export function PersonalCodexIntegration(): JSX.Element {
     const { codexIntegration, codexIntegrationLoadFailed, connecting } = useValues(personalCodexIntegrationLogic)
     const { openConnectModal } = useActions(personalCodexIntegrationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillPersonalCodexIntegration />
+    }
 
     if (codexIntegration === null) {
         return codexIntegrationLoadFailed ? (

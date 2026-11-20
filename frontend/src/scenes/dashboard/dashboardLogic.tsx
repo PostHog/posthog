@@ -123,6 +123,7 @@ import {
     TextModel,
     TileLayout,
 } from '~/types'
+import type { TeamPublicType, TeamType, UserType } from '~/types'
 
 import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
@@ -895,11 +896,11 @@ export interface dashboardLogicValues {
     addWidgetTileLoading: boolean
     anyInsightReachesDeletion: boolean
     apiUrl: (
-        refresh?: RefreshType | undefined,
-        filtersOverride?: DashboardFilter | undefined,
-        variablesOverride?: Record<string, HogQLVariable> | undefined,
-        layoutSize?: 'sm' | 'xs' | undefined,
-        omitTileResults?: boolean | undefined
+        refresh?: RefreshType,
+        filtersOverride?: DashboardFilter,
+        variablesOverride?: Record<string, HogQLVariable>,
+        layoutSize?: 'sm' | 'xs',
+        omitTileResults?: boolean
     ) => string
     asDashboardTemplate: DashboardTemplateEditorType | undefined
     autoBreakdownColorsEnabled: boolean
@@ -1093,7 +1094,7 @@ export interface dashboardLogicActions {
         value: true
     }
     abortQuery: (payload: { deferred?: boolean; queryId: string; queryStartTime: number; shortId: InsightShortId }) => {
-        deferred?: boolean | undefined
+        deferred?: boolean
         queryId: string
         queryStartTime: number
         shortId: InsightShortId
@@ -1275,8 +1276,8 @@ export interface dashboardLogicActions {
         retry?: boolean
     }) => {
         action: DashboardLoadAction
-        manualDashboardRefresh?: boolean | undefined
-        retry?: boolean | undefined
+        manualDashboardRefresh?: boolean
+        retry?: boolean
     }
     loadDashboardStreamingFailure: (
         error: string,
@@ -1289,15 +1290,15 @@ export interface dashboardLogicActions {
         dashboard: DashboardType | null,
         payload?: {
             action: DashboardLoadAction
-            manualDashboardRefresh?: boolean | undefined
-            retry?: boolean | undefined
+            manualDashboardRefresh?: boolean
+            retry?: boolean
         }
     ) => {
         dashboard: DashboardType | null
         payload?: {
             action: DashboardLoadAction
-            manualDashboardRefresh?: boolean | undefined
-            retry?: boolean | undefined
+            manualDashboardRefresh?: boolean
+            retry?: boolean
         }
     }
     loadDashboardSuccess: (
@@ -1412,7 +1413,7 @@ export interface dashboardLogicActions {
         batchId: string
         result: {
             cached: boolean
-            debug?: DashboardSharingDebugApi | undefined
+            debug?: DashboardSharingDebugApi
             failed: boolean
         }
         tileId: number
@@ -1437,12 +1438,12 @@ export interface dashboardLogicActions {
         previewUnsavedFilters?: boolean
     }) => {
         action: DashboardLoadAction | RefreshDashboardItemsAction
-        forceRefresh?: boolean | undefined
-        isAutomatic?: boolean | undefined
-        previewUnsavedFilters?: boolean | undefined
+        forceRefresh?: boolean
+        isAutomatic?: boolean
+        previewUnsavedFilters?: boolean
     }
     refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
-        forceRefresh?: boolean | undefined
+        forceRefresh?: boolean
         tileIds: number[]
     }
     refreshOpenTileGroupsWaiting: () => {
@@ -2082,11 +2083,11 @@ export interface dashboardLogicMeta {
         apiUrl: (
             id: number
         ) => (
-            refresh?: RefreshType | undefined,
-            filtersOverride?: DashboardFilter | undefined,
-            variablesOverride?: Record<string, HogQLVariable> | undefined,
-            layoutSize?: 'sm' | 'xs' | undefined,
-            omitTileResults?: boolean | undefined
+            refresh?: RefreshType,
+            filtersOverride?: DashboardFilter,
+            variablesOverride?: Record<string, HogQLVariable>,
+            layoutSize?: 'sm' | 'xs',
+            omitTileResults?: boolean
         ) => string
         currentLayoutSize: (containerWidth: number | null) => 'sm' | 'xs'
         tiles: (dashboard: DashboardType | null) => DashboardTile[]
@@ -2165,8 +2166,8 @@ export interface dashboardLogicMeta {
         ) => boolean
         canRestrictDashboard: (
             dashboard: DashboardType | null,
-            user: null | import('~/types').UserType,
-            currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+            user: UserType | null,
+            currentTeam: TeamPublicType | TeamType | null
         ) => boolean
         sizeKey: (columns: number | null) => DashboardLayoutSize | undefined
         layouts: (
@@ -2228,7 +2229,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (

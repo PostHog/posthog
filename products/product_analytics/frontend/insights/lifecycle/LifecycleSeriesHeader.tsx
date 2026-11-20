@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { Text } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

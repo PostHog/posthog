@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -9,54 +8,31 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type {
-    CustomPropertyDefinitionApi,
-    CustomPropertySourceApi,
-} from 'products/customer_analytics/frontend/generated/api.schemas'
+import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { CustomPropertyTargetType, customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
 import { CustomPropertySyncRuns } from './CustomPropertySyncRuns'
-import { type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
+import { type SourceSyncStatusLevel } from './customPropertyTypes'
+import { QuillWarehouseProfilePropertiesTable } from './QuillWarehouseProfilePropertiesTable'
+import {
+    bindsAView,
+    LABELS_BY_TARGET,
+    rowActionState,
+    sourceRunsUrl,
+    syncStatusSummary,
+} from './warehouseProfileProperties'
 
 const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
     synced: 'success',
     error: 'danger',
     disabled: 'muted',
     pending: 'default',
-}
-
-// Labels that differ between the person- and group-target views of the same warehouse-sync machinery.
-type ProfileLabels = { entity: string; entityPlural: string; keyColumn: string }
-const LABELS_BY_TARGET: Record<'person' | 'group', ProfileLabels> = {
-    person: { entity: 'person', entityPlural: 'people', keyColumn: 'Distinct ID column' },
-    group: { entity: 'group', entityPlural: 'groups', keyColumn: 'Group key column' },
-}
-
-// Whether the source reads a materialized view rather than a synced table.
-function bindsAView(source: CustomPropertySourceApi): boolean {
-    return !!source.saved_query && !source.external_data_schema
-}
-
-// Where the bound table or view's own run history lives. Null when the source has no warehouse
-// binding, or when the caller can't view what it reads.
-function sourceRunsUrl(source: CustomPropertySourceApi): string | null {
-    if (bindsAView(source)) {
-        // The view's page is keyed by its data modeling node; `lookup` lets it resolve from the saved query id.
-        return source.saved_query
-            ? combineUrl(urls.nodeDetail(source.saved_query, 'materialization'), { lookup: 'saved_query' }).url
-            : null
-    }
-    if (!source.external_data_source || !source.external_data_schema) {
-        return null
-    }
-    return urls.dataWarehouseSourceSchema(source.external_data_source, source.external_data_schema, 'syncs')
 }
 
 // First-class Customer analytics view of the warehouse → person/group property sources: manages the
@@ -76,6 +52,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
     } = useValues(customPropertyDefinitionsLogic)
     const { openCreateModal, openEditModal, deleteDefinition, triggerSync, triggerBackfill, setRunsSearch, loadRuns } =
         useActions(customPropertyDefinitionsLogic)
+    const todayRailNav = useQuillSurface()
     const memberRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
@@ -105,6 +82,74 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    const renderSyncRuns = (definition: CustomPropertyDefinitionApi): JSX.Element | null =>
+        definition.source ? (
+            <CustomPropertySyncRuns
+                runs={runsBySourceId[definition.source.id] ?? []}
+                loading={runsLoadingBySourceId[definition.source.id] ?? false}
+                loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
+                targetType={targetType}
+                logSourceId={definition.source.external_data_schema ?? definition.source.saved_query}
+                searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
+                entryCount={runsCountBySourceId[definition.source.id] ?? 0}
+                currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}
+                onSearch={(searchTerm) => {
+                    if (definition.source) {
+                        setRunsSearch({ sourceId: definition.source.id, searchTerm })
+                    }
+                }}
+                onForward={() => {
+                    if (definition.source) {
+                        loadRuns({
+                            sourceId: definition.source.id,
+                            offset: (runsOffsetBySourceId[definition.source.id] ?? 0) + 20,
+                        })
+                    }
+                }}
+                onBackward={() => {
+                    if (definition.source) {
+                        loadRuns({
+                            sourceId: definition.source.id,
+                            offset: Math.max((runsOffsetBySourceId[definition.source.id] ?? 0) - 20, 0),
+                        })
+                    }
+                }}
+                syncsUrl={sourceRunsUrl(definition.source)}
+                onReload={() =>
+                    definition.source &&
+                    loadRuns({
+                        sourceId: definition.source.id,
+                        offset: runsOffsetBySourceId[definition.source.id] ?? 0,
+                    })
+                }
+            />
+        ) : null
+
+    const handleCreate = (): void => openCreateModal(targetType as CustomPropertyTargetType, true)
+
+    if (todayRailNav) {
+        return (
+            <>
+                <QuillWarehouseProfilePropertiesTable
+                    targetType={targetType}
+                    definitions={profileDefinitions}
+                    loading={definitionsInitialLoading}
+                    triggeringSourceIds={triggeringSourceIds}
+                    restrictionReason={restrictionReason}
+                    deleteRestrictionReason={deleteRestrictionReason}
+                    renderSyncRuns={renderSyncRuns}
+                    onExpand={(definition) => definition.source && loadRuns({ sourceId: definition.source.id })}
+                    onCreate={handleCreate}
+                    onEdit={openEditModal}
+                    onDelete={confirmDelete}
+                    onSync={(sourceId) => triggerSync({ sourceId })}
+                    onBackfill={(sourceId) => triggerBackfill({ sourceId })}
+                />
+                <CustomPropertyModal />
+            </>
+        )
     }
 
     const columns: LemonTableColumns<CustomPropertyDefinitionApi> = [
@@ -178,20 +223,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                         </Tooltip>
                     )
                 }
-                const status = sourceSyncStatus(definition.source)
-                // Only report an affected count for a finished run — an in-progress/failed run's count
-                // isn't "the last run". status.tooltip is undefined for the synced/pending states, so
-                // build the title from the present parts rather than interpolating undefined into it.
-                const affected = latestRun?.status === 'completed' ? latestRun.existing : undefined
-                const tooltipTitle =
-                    [
-                        status.tooltip,
-                        affected != null
-                            ? `${humanFriendlyNumber(affected)} ${labels.entityPlural} affected on the last run`
-                            : null,
-                    ]
-                        .filter(Boolean)
-                        .join(' — ') || undefined
+                const { status, tooltipTitle } = syncStatusSummary(definition.source, labels)
                 return (
                     <span className="flex items-center gap-2">
                         <Tooltip title={tooltipTitle}>
@@ -218,12 +250,11 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
             title: '',
             width: 0,
             render: (_, definition) => {
-                const source = definition.source
-                const triggering = !!source && triggeringSourceIds.includes(source.id)
-                const running = source?.latest_run?.status === 'running'
-                // A run is in flight for this table; block a second trigger and show it as busy.
-                const busyReason = running ? 'A sync or backfill is already running for this table' : undefined
-                const disabledReason = restrictionReason ?? (!source ? 'No source configured' : undefined) ?? busyReason
+                const { source, triggering, running, disabledReason } = rowActionState(
+                    definition,
+                    triggeringSourceIds,
+                    restrictionReason
+                )
                 return (
                     <div className="flex gap-1 justify-end">
                         <LemonButton
@@ -276,7 +307,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                     icon={<IconPlus />}
                     // Lock the target: this page only manages one target, so the modal shouldn't offer
                     // the "Attach to" switch.
-                    onClick={() => openCreateModal(targetType as CustomPropertyTargetType, true)}
+                    onClick={handleCreate}
                     data-attr="add-warehouse-profile-property"
                     disabledReason={restrictionReason}
                 >
@@ -294,48 +325,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                     rowExpandable: (definition) => !!definition.source,
                     onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
                     noIndent: true,
-                    expandedRowRender: (definition) =>
-                        definition.source ? (
-                            <CustomPropertySyncRuns
-                                runs={runsBySourceId[definition.source.id] ?? []}
-                                loading={runsLoadingBySourceId[definition.source.id] ?? false}
-                                loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
-                                targetType={targetType}
-                                logSourceId={definition.source.external_data_schema ?? definition.source.saved_query}
-                                searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
-                                entryCount={runsCountBySourceId[definition.source.id] ?? 0}
-                                currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}
-                                onSearch={(searchTerm) => {
-                                    if (definition.source) {
-                                        setRunsSearch({ sourceId: definition.source.id, searchTerm })
-                                    }
-                                }}
-                                onForward={() => {
-                                    if (definition.source) {
-                                        loadRuns({
-                                            sourceId: definition.source.id,
-                                            offset: (runsOffsetBySourceId[definition.source.id] ?? 0) + 20,
-                                        })
-                                    }
-                                }}
-                                onBackward={() => {
-                                    if (definition.source) {
-                                        loadRuns({
-                                            sourceId: definition.source.id,
-                                            offset: Math.max((runsOffsetBySourceId[definition.source.id] ?? 0) - 20, 0),
-                                        })
-                                    }
-                                }}
-                                syncsUrl={sourceRunsUrl(definition.source)}
-                                onReload={() =>
-                                    definition.source &&
-                                    loadRuns({
-                                        sourceId: definition.source.id,
-                                        offset: runsOffsetBySourceId[definition.source.id] ?? 0,
-                                    })
-                                }
-                            />
-                        ) : null,
+                    expandedRowRender: renderSyncRuns,
                 }}
                 emptyState={`No warehouse-backed ${labels.entity} properties yet. Add one to sync warehouse columns onto ${labels.entityPlural}.`}
             />

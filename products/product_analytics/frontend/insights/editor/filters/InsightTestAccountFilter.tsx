@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { QuillTestAccountFilterSwitch } from 'lib/components/QuillTestAccountFilterSwitch'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

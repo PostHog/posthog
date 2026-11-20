@@ -5,10 +5,11 @@ keeps it until it ends. SendGrid documents only stats for its automations, so th
 people. A send to any address reads the blocking rules this import fills, so PostHog doesn't need them.
 """
 
+import json
 import hashlib
 from bisect import bisect_right
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from functools import partial
@@ -19,8 +20,10 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
+from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 from products.messaging.backend.models.message_suppression import SuppressionSource
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
@@ -38,17 +41,22 @@ from products.messaging.backend.provider_imports.base import (
     UnknownImportStep,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
+from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.senders import sender_for_address
+from products.messaging.backend.provider_imports.sendgrid_templates import ConvertedSendGridTemplate, convert_version
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
     carry_opt_outs,
+    code_email_keys,
     import_categories,
     import_opt_outs,
     import_suppressions,
 )
+from products.messaging.backend.services.message_templates import create_template, with_editor_design
 from products.messaging.backend.services.sendgrid_client import (
     SUPPRESSION_PAGE_SIZE,
+    TEMPLATE_PAGE_SIZE,
     SendGridAPIError,
     SendGridClient,
     SendGridKeyRejected,
@@ -67,8 +75,10 @@ INVALID_KEY_MESSAGE = (
 )
 RATE_LIMITED_MESSAGE = "SendGrid kept asking PostHog to slow down. Import again later."
 GROUP_KEY_PREFIX = "sendgrid_"
+IMPORT_TAG = "imported-from-sendgrid"
 MAIL_FROM_DEFAULT = "feedback"
 OPT_OUT_PAGE_SIZE = 500
+MAX_SAMPLE_DATA_LENGTH = 2000
 
 # A step's scopes, as SendGrid enforces them. A tuple means any one of them is enough. SendGrid refuses the suppression
 # lists and group members to a key with only the per-list scopes its docs name, so these need suppression.read. Verified
@@ -79,6 +89,10 @@ STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
     "suppressions": (("suppression.read",),),
     "global_unsubscribes": (("suppression.read",),),
     "group_unsubscribes": (("asm.groups.read",), ("suppression.read",)),
+    "templates": (("templates.read",), ("templates.versions.read",)),
+    "designs": (("design_library.read",),),
+    # A Single Send built from a design reads that design.
+    "single_sends": (("marketing.read",), ("design_library.read",)),
     "lists": (("marketing.read",),),
     "domains": (("whitelabel.read",),),
 }
@@ -106,14 +120,17 @@ class SendGridImportProvider(ImportProvider):
     not_imported = (
         "SendGrid's API only shares stats for automations, so rebuild them as workflows. Blocks stay behind because "
         "SendGrid doesn't keep suppressing those addresses either. Contacts don't become people. Webhooks, API keys, "
-        "stats, send history and templates stay in SendGrid."
+        "stats, send history and inactive template versions stay in SendGrid."
     )
     next_steps = (
         "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so this "
         "needs new records. Leave your SendGrid records in place, because both tools can sign mail for one domain "
         "while you move.",
-        "Rebuild your SendGrid templates and automations in PostHog, and turn each automation off in SendGrid when "
-        "its workflow goes live.",
+        "Open each template with notes and fix what they mention, then send yourself a test.",
+        "Make a template transactional and change your app to send it through PostHog. Its key is the SendGrid "
+        "template ID, and your data goes in as variables. Start with a low-risk email and move the rest one at a time.",
+        "Rebuild your SendGrid automations as workflows, using the imported templates, and turn each one off in "
+        "SendGrid when its workflow goes live.",
         "If you send a lot of email, move it over several days. Mailbox providers slow down mail from a sender "
         "whose volume jumps.",
         "Once nothing sends through SendGrid, remove its DNS records and delete the API key you created for this "
@@ -156,6 +173,45 @@ class SendGridImportProvider(ImportProvider):
             count_labels=(("opted_out", "People with a new opt-out"), ("invalid", "Skipped, address isn't valid")),
         ),
         ImportStepSpec(
+            key="templates",
+            label="Dynamic and legacy templates",
+            description=(
+                "Copies each template's active version into your PostHog library, with the SendGrid template ID as its "
+                "key, and notes anything to review. Templates you already have here stay as they are. Needs "
+                "templates.read and templates.versions.read."
+            ),
+            count_labels=(
+                ("created", "New templates"),
+                ("needs_review", "New templates to review"),
+                ("already_present", "Already in PostHog, left as they are"),
+                ("no_version", "Skipped because they have no versions"),
+            ),
+        ),
+        ImportStepSpec(
+            key="designs",
+            label="Design Library",
+            description="Copies each design you saved into your PostHog library as a template. Needs design_library.read.",
+            count_labels=(
+                ("created", "New templates"),
+                ("needs_review", "New templates to review"),
+                ("already_present", "Already in PostHog, left as they are"),
+            ),
+        ),
+        ImportStepSpec(
+            key="single_sends",
+            label="Single Sends",
+            description=(
+                "Copies the content of each Single Send into your PostHog library as a template. Nothing sends, and "
+                "anything scheduled in SendGrid stays scheduled there. Needs marketing.read, which SendGrid also lets "
+                "write to your marketing data, and design_library.read."
+            ),
+            count_labels=(
+                ("created", "New templates"),
+                ("needs_review", "New templates to review"),
+                ("already_present", "Already in PostHog, left as they are"),
+            ),
+        ),
+        ImportStepSpec(
             key="lists",
             label="Contact lists",
             description=(
@@ -181,7 +237,9 @@ class SendGridImportProvider(ImportProvider):
         ),
     )
 
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
         if not api_key:
             raise ImportCredentialsMissing(MISSING_KEY_MESSAGE)
         if not api_key.isascii():
@@ -217,6 +275,12 @@ class SendGridImportProvider(ImportProvider):
                     yield from _fetch_global_unsubscribes(client, context, resume, fingerprint)
                 case "group_unsubscribes":
                     yield from _fetch_group_unsubscribes(client, context, resume, fingerprint)
+                case "templates":
+                    yield from _fetch_templates(client, context, resume, fingerprint)
+                case "designs":
+                    yield from _fetch_designs(client, context, resume, fingerprint)
+                case "single_sends":
+                    yield from _fetch_single_sends(client, context, resume, fingerprint)
                 case "lists":
                     yield from _fetch_lists(client, context)
                 case "senders":
@@ -506,10 +570,348 @@ def _carry_to_every_spelling(context: ImportContext, addresses: Iterable[str]) -
     )
 
 
+def _token_checkpoint(fingerprint: str, next_position: str | int | None) -> StepCheckpoint | None:
+    return {"key": fingerprint, "page_token": str(next_position)} if next_position else None
+
+
+def _page_token(resume: StepCheckpoint | None) -> str | None:
+    return str(resume["page_token"]) if resume and resume.get("page_token") else None
+
+
+def _fetch_templates(
+    client: SendGridClient, context: ImportContext, resume: StepCheckpoint | None, fingerprint: str
+) -> Iterator[ImportPage]:
+    pages = client.token_pages("/v3/templates", _page_token(resume), TEMPLATE_PAGE_SIZE, generations="legacy,dynamic")
+    for page in pages:
+        templates = [(template, _read_active_version(client, template)) for template in page.data]
+        yield ImportPage(
+            processed=len(page.data),
+            save=partial(_save_templates, context, templates),
+            checkpoint=_token_checkpoint(fingerprint, page.next_position),
+        )
+
+
+def _read_active_version(client: SendGridClient, template: dict[str, Any]) -> dict[str, Any] | None:
+    # The list holds a version's details, and only reading the version is documented to give its content and test data.
+    version = _chosen_version(template)
+    if version is None:
+        return None
+    return _read_unless_deleted(client, f"/v3/templates/{template['id']}/versions/{version['id']}")
+
+
+def _chosen_version(template: dict[str, Any]) -> dict[str, Any] | None:
+    versions = [
+        version for version in template.get("versions") or [] if isinstance(version, dict) and version.get("id")
+    ]
+    active = next((version for version in versions if version.get("active") == 1), None)
+    if active:
+        return active
+    return max(versions, key=lambda version: str(version.get("updated_at") or ""), default=None)
+
+
+def _save_templates(context: ImportContext, templates: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> SavedPage:
+    # A deleted template counts too: importing again must not bring back one someone deleted.
+    taken = _taken_keys(context.team_id, [str(template.get("id")) for template, _ in templates])
+    counts: Counter[str] = Counter()
+    items: list[ImportItem] = []
+    for template, version in templates:
+        key = str(template.get("id"))
+        name = str(template.get("name") or key)[:400]
+        if key in taken:
+            counts["already_present"] += 1
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    notes=(
+                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                    ),
+                )
+            )
+            continue
+        if version is None:
+            counts["no_version"] += 1
+            items.append(
+                ImportItem(label=name, status="skipped", notes=("This template has no version to read in SendGrid.",))
+            )
+            continue
+        taken.add(key)
+        converted = convert_version(version, generation=str(template.get("generation") or "legacy"))
+        notes = (*_version_notes(template, version), *converted.notes, *converted.send_notes, _SENDER_NOTE)
+        items.append(_create(context, key, name, converted, notes, _sample_data_line(version), counts))
+    return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
+
+
 SENDERS_NEED_FULL_ACCESS = (
     "Only a full access SendGrid key can read your verified senders, so they weren't listed. Add the addresses you "
     "send from as senders in PostHog."
 )
+_SENDER_NOTE = "SendGrid sets the sender on each send. Choose one on this template before you send it."
+
+
+def _version_notes(template: dict[str, Any], version: dict[str, Any]) -> tuple[str, ...]:
+    versions = [other for other in template.get("versions") or [] if isinstance(other, dict)]
+    others = [str(other.get("name") or other.get("id")) for other in versions if other.get("id") != version.get("id")]
+    notes: list[str] = []
+    if version.get("active") != 1:
+        name = version.get("name")
+        notes.append(
+            f"No version is active in SendGrid, so PostHog imported {name}, the newest."
+            if name
+            else "No version is active in SendGrid, so PostHog imported the newest version."
+        )
+    if others:
+        notes.append(f"Only one version came across. These stay in SendGrid: {', '.join(others)}.")
+    return tuple(notes)
+
+
+def _sample_data_line(version: dict[str, Any]) -> str:
+    sample = version.get("test_data")
+    if not sample or not isinstance(sample, str | dict):
+        return ""
+    text = sample if isinstance(sample, str) else json.dumps(sample)
+    if len(text) > MAX_SAMPLE_DATA_LENGTH:
+        return "SendGrid's test data for this template was too long to keep here."
+    return f"Test data from SendGrid: {text}"
+
+
+def _taken_keys(team_id: int, keys: list[str]) -> set[str]:
+    rows = MessageTemplate.objects.filter(team_id=team_id, key__in=keys).values_list("key", flat=True)
+    return {key for key in rows if key} | code_email_keys(team_id, keys)
+
+
+def _create(
+    context: ImportContext,
+    key: str,
+    name: str,
+    converted: ConvertedSendGridTemplate,
+    notes: tuple[str, ...],
+    sample_line: str,
+    counts: Counter[str],
+    sender: dict[str, Any] | None = None,
+    category_id: str | None = None,
+    reply_to: str = "",
+) -> ImportItem:
+    email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
+    if converted.text:
+        email["text"] = converted.text
+    if sender:
+        email["from"] = sender
+    if reply_to:
+        email["replyTo"] = reply_to
+    fields: dict[str, Any] = {
+        "name": name,
+        "key": key,
+        "description": " ".join(part for part in ("Imported from SendGrid.", *notes, sample_line) if part),
+        "type": "email",
+        "content": {"templating": "liquid", "email": email},
+        "tags": [IMPORT_TAG],
+    }
+    if category_id:
+        fields["message_category"] = category_id
+    created = create_template(context.team_id, context.created_by_id, fields)
+    counts["needs_review" if notes else "created"] += 1
+    return ImportItem(label=name, status="created", url=f"/workflows/library/templates/{created.id}", notes=notes)
+
+
+def _fetch_designs(
+    client: SendGridClient, context: ImportContext, resume: StepCheckpoint | None, fingerprint: str
+) -> Iterator[ImportPage]:
+    for page in client.token_pages("/v3/designs", _page_token(resume), 100):
+        read = [_read_unless_deleted(client, f"/v3/designs/{design['id']}") for design in page.data if design.get("id")]
+        designs = [design for design in read if design]
+        yield ImportPage(
+            processed=len(page.data),
+            save=partial(_save_designs, context, designs),
+            checkpoint=_token_checkpoint(fingerprint, page.next_position),
+        )
+
+
+def _save_designs(context: ImportContext, designs: list[dict[str, Any]]) -> SavedPage:
+    keys = {str(design["id"]): f"sendgrid-design-{design['id']}"[:400] for design in designs}
+    taken = _taken_keys(context.team_id, list(keys.values()))
+    counts: Counter[str] = Counter()
+    items: list[ImportItem] = []
+    for design in designs:
+        key = keys[str(design["id"])]
+        name = str(design.get("name") or key)[:400]
+        if key in taken:
+            counts["already_present"] += 1
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    notes=(
+                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                    ),
+                )
+            )
+            continue
+        converted = convert_version(design)
+        notes = (*converted.notes, *converted.send_notes, _SENDER_NOTE)
+        items.append(_create(context, key, name, converted, notes, "", counts))
+    return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
+
+
+def _fetch_single_sends(
+    client: SendGridClient, context: ImportContext, resume: StepCheckpoint | None, fingerprint: str
+) -> Iterator[ImportPage]:
+    senders: dict[int, dict[str, Any]] | None = None
+    for page in client.token_pages("/v3/marketing/singlesends", _page_token(resume), 100):
+        details = []
+        for summary in page.data:
+            if not summary.get("id"):
+                continue
+            single_send = _read_unless_deleted(client, f"/v3/marketing/singlesends/{summary['id']}")
+            if not single_send:
+                continue
+            config = single_send.get("email_config") or {}
+            # A design replaces whichever of the content fields it holds.
+            design = (
+                _read_unless_deleted(client, f"/v3/designs/{config['design_id']}") if config.get("design_id") else None
+            )
+            if senders is None and isinstance(config.get("sender_id"), int):
+                senders = _all_verified_senders(client)
+            details.append((single_send, design))
+        yield ImportPage(
+            processed=len(page.data),
+            save=partial(_save_single_sends, context, details, dict(senders or {})),
+            checkpoint=_token_checkpoint(fingerprint, page.next_position),
+        )
+
+
+def _all_verified_senders(client: SendGridClient) -> dict[int, dict[str, Any]]:
+    """Every verified sender by id. SendGrid's list has no filter by id, so it's read page by page."""
+    senders: dict[int, dict[str, Any]] = {}
+    last_seen = None
+    while True:
+        params: dict[str, Any] = {"limit": 100, **({"lastSeenID": last_seen} if last_seen is not None else {})}
+        try:
+            body = client.get("/v3/verified_senders", params)
+        except SendGridScopeMissing:
+            return senders
+        results = body.get("results") if isinstance(body, dict) else None
+        if not isinstance(results, list) or not results:
+            return senders
+        senders.update({row["id"]: row for row in results if isinstance(row, dict) and isinstance(row.get("id"), int)})
+        if len(results) < 100 or results[-1].get("id") in (None, last_seen):
+            return senders
+        last_seen = results[-1].get("id")
+
+
+def _save_single_sends(
+    context: ImportContext,
+    details: list[tuple[dict[str, Any], dict[str, Any] | None]],
+    senders: Mapping[int, dict[str, Any] | None],
+) -> SavedPage:
+    keys = {str(single_send["id"]): f"sendgrid-singlesend-{single_send['id']}"[:400] for single_send, _ in details}
+    taken = _taken_keys(context.team_id, list(keys.values()))
+    posthog_senders = _senders(context.team_id)
+    counts: Counter[str] = Counter()
+    items: list[ImportItem] = []
+    for single_send, design in details:
+        key = keys[str(single_send["id"])]
+        name = str(single_send.get("name") or key)[:400]
+        if key in taken:
+            counts["already_present"] += 1
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    notes=(
+                        f"A template with the key {key} is already in PostHog, or was deleted there, so it stays as it is.",
+                    ),
+                )
+            )
+            continue
+        config = single_send.get("email_config") or {}
+        version = {**config, **{k: v for k, v in (design or {}).items() if v not in (None, "")}}
+        converted = convert_version(version, contact_fields=True)
+        sender, sender_notes = _single_send_sender(config, senders, posthog_senders)
+        category_id, group_notes = _single_send_category(context.team_id, config)
+        notes = (
+            *_single_send_notes(single_send),
+            *converted.notes,
+            *converted.send_notes,
+            *sender_notes,
+            *group_notes,
+        )
+        items.append(
+            _create(
+                context,
+                key,
+                name,
+                converted,
+                notes,
+                "",
+                counts,
+                sender,
+                category_id,
+                _single_send_reply_to(config, senders),
+            )
+        )
+    return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
+
+
+def _single_send_notes(single_send: dict[str, Any]) -> tuple[str, ...]:
+    notes = [
+        "Who this goes to doesn't come across, because it's a list of SendGrid contacts. Choose an audience in a "
+        "workflow."
+    ]
+    if single_send.get("status") == "scheduled":
+        notes.insert(
+            0,
+            f"This is still scheduled in SendGrid for {single_send.get('send_at')}. Cancel it there if you "
+            "don't want it to go out.",
+        )
+    if single_send.get("is_abtest"):
+        notes.append("This is an A/B test in SendGrid. PostHog imported its main content, not its other variants.")
+    return tuple(notes)
+
+
+def _single_send_sender(
+    config: dict[str, Any],
+    senders: Mapping[int, dict[str, Any] | None],
+    posthog_senders: Mapping[str, IntegrationRecord],
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    sender_id = config.get("sender_id")
+    sender = senders.get(sender_id) if isinstance(sender_id, int) else None
+    if not sender or not sender.get("from_email"):
+        return None, ("Choose a sender on this template before you send it.",)
+    address = str(sender["from_email"])
+    integration = sender_for_address(address, posthog_senders)
+    if integration is None:
+        return None, (f"{address} isn't a PostHog sender yet. Add it, then choose it on this template.",)
+    return (
+        {
+            "integrationId": integration.id,
+            "email": literal_liquid(address),
+            "name": literal_liquid(str(sender.get("from_name") or "")),
+        },
+        () if integration.config.get("verified") else (f"{address} isn't verified in PostHog yet.",),
+    )
+
+
+def _single_send_reply_to(config: dict[str, Any], senders: Mapping[int, dict[str, Any] | None]) -> str:
+    sender_id = config.get("sender_id")
+    sender = senders.get(sender_id) if isinstance(sender_id, int) else None
+    return literal_liquid(str((sender or {}).get("reply_to") or ""))
+
+
+def _single_send_category(team_id: int, config: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
+    group_id = config.get("suppression_group_id")
+    custom_url = config.get("custom_unsubscribe_url")
+    notes = (
+        (f"This used your own unsubscribe link, {custom_url}. PostHog links to its preferences page instead.",)
+        if custom_url
+        else ()
+    )
+    if group_id is None:
+        return None, notes
+    row = MessageCategory.objects.filter(team_id=team_id, key=_group_key(group_id), deleted=False).first()
+    if row is None:
+        return None, (*notes, "Import unsubscribe groups, then choose this email's category on the template.")
+    return str(row.id), notes
 
 
 def _senders(team_id: int) -> dict[str, IntegrationRecord]:

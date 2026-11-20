@@ -8,10 +8,12 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { teamLogic } from '~/scenes/teamLogic'
 
 import { experimentsConfigLogic } from './experimentsConfigLogic'
+import { QuillExperimentRecalculationTime } from './QuillExperimentRecalculationTime'
 
 const DEFAULT_RECALCULATION_UTC_TIME = '02:00:00'
 // Must match MIN_RECALCULATION_GAP_HOURS in products/experiments/backend/facade/enums.py
@@ -39,6 +41,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useQuillSurface()
 
     const allowSecondTime = !!featureFlags[FEATURE_FLAGS.EXPERIMENT_MULTIPLE_RECALCULATION_TIMES]
 
@@ -83,6 +86,21 @@ export function ExperimentRecalculationTime(): JSX.Element {
                     : undefined,
             }
         }).sort((a, b) => a.label.localeCompare(b.label))
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillExperimentRecalculationTime
+                times={times}
+                allowSecondTime={allowSecondTime}
+                optionsForIndex={optionsForIndex}
+                selectedValue={(time) => utcHourFromTimeString(time).toString()}
+                onTimeChange={handleTimeChange}
+                onAddSecondTime={addSecondTime}
+                onRemoveSecondTime={removeSecondTime}
+                disabledReason={commonDisabledReason}
+            />
+        )
     }
 
     return (
