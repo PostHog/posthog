@@ -211,6 +211,13 @@ const businessKnowledgeNeedsSetup = productEmptyStateStory(businessKnowledgeEmpt
                 { connected: false, integration_id: null, integration_name: '', repos: [] },
             ],
         },
+        post: {
+            // nosemgrep: no-environments-api-urls-frontend -- api.query is env-scoped, so the msw mock must match /api/environments to intercept it
+            '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                const body = JSON.stringify(await request.json())
+                return [200, { results: body.includes('$host') ? [['hedgebox.net', 120]] : [] }]
+            },
+        },
     },
 })
 // With the flag on, the setup card also shows the step that connects a customer's own agent.
