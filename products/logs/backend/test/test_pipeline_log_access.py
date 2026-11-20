@@ -267,11 +267,12 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
             ("restricted_pipeline", "restricted", [_PIPELINE], 403),
             ("restricted_all_services", "restricted", [], 403),
             ("restricted_app", "restricted", [_APP], 201),
+            ("restricted_pipeline_draft", "restricted", [_PIPELINE], 403, False),
             ("granted_pipeline", "granted", [_PIPELINE], 201),
         ]
     )
     def test_platform_logs_alert_follows_property_access(
-        self, _name: str, access: PropertyAccess, services: list[str], expected: int
+        self, _name: str, access: PropertyAccess, services: list[str], expected: int, enabled: bool = True
     ) -> None:
         set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
 
@@ -280,6 +281,7 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
                 f"/api/projects/{self.team.pk}/platform_alerts/",
                 {
                     "source_kind": "logs",
+                    "enabled": enabled,
                     "source_config": {
                         "filters": {"serviceNames": services},
                         "condition": {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5},

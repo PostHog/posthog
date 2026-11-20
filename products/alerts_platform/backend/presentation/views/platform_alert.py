@@ -793,7 +793,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         # Only a rename or a change to when the alert fires leaves what it reads and who it tells as they were.
         # An edit form sends unchanged settings back, so compare values, not keys.
         changed = {name for name, value in fields.items() if getattr(stored, name) != value}
-        if edited.enabled and (not stored.enabled or changed - _TIMING_AND_NAME_FIELDS):
+        # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
+        if (edited.enabled and not stored.enabled) or changed - _TIMING_AND_NAME_FIELDS:
             self._require_pipeline_log_access(source_kind, edited.source_config)
         return edited
 
@@ -863,8 +864,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         serializer.is_valid(raise_exception=True)
         fields = dict(serializer.validated_data)
         fields.pop("source_kind")
-        if fields.get("enabled", True):
-            self._require_pipeline_log_access(source_kind, fields["source_config"])
+        self._require_pipeline_log_access(source_kind, fields["source_config"])
         try:
             created = platform_api.create_configuration(
                 team_id=self._canonical_team_id(),
