@@ -334,14 +334,6 @@ class _Literal:
 
 
 @frozen
-class _Condition:
-    """Liquid to run first, then the expression to test."""
-
-    prelude: str
-    condition: str
-
-
-@frozen
 class _Path:
     source: str
 
