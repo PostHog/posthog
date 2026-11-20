@@ -57,7 +57,12 @@ class TestConvertFiltersToRecordingsQuery(SimpleTestCase):
             {"type": "recording", "key": "duration", "value": 60, "operator": "lt"},
         ]
         query = convert_filters_to_recordings_query(filters)
-        assert [(p.value, p.operator) for p in query.having_predicates or []] == [(0, "gt"), (60, "lt")]
+        predicates = query.having_predicates or []
+        assert all(isinstance(p, RecordingPropertyFilter) for p in predicates)
+        assert [(p.value, p.operator) for p in predicates if isinstance(p, RecordingPropertyFilter)] == [
+            (0, "gt"),
+            (60, "lt"),
+        ]
 
     def test_visited_page_becomes_recording_property_not_event(self):
         filters = _filters("OR", "OR", [_visited_page("/cart"), _visited_page("/orders")])
