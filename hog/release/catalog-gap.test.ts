@@ -15,6 +15,7 @@ import {
     readAt,
     releaseBuildInputs,
     releaseCheckoutPatterns,
+    UNNAMED_IMPORT,
     untriggeredFiles,
 } from './catalog-gap'
 
@@ -52,15 +53,22 @@ function lifecycleTool(...names: string[]): string {
     return `import { ${names.join(', ')} } from '@/generated/workflows/api'\n\nexport const tool = () => null\n`
 }
 
+function workflowsModule(): string {
+    return generated('workflows-get', 'workflows-patch-graph').replace(
+        "'@/generated/actions/api'",
+        "'@/generated/workflows/api'"
+    )
+}
+
 const TOOL_UTILS = "import { withPostHogUrl } from '@/tools/tool-utils'\n"
-const THROUGH_HELPER = generated('workflows-get', 'workflows-patch-graph')
+const THROUGH_HELPER = workflowsModule()
     .replace('orvalSchemas.WorkflowsPatchGraph()', 'helper()')
     .concat('function helper() {\n    return orvalSchemas.WorkflowsGet()\n}\n')
-const THROUGH_NAMED_IMPORT = generated('workflows-get', 'workflows-patch-graph')
+const THROUGH_NAMED_IMPORT = workflowsModule()
     .replace('orvalSchemas.WorkflowsPatchGraph()', 'WorkflowsGet()')
     .replace(
-        "import * as orvalSchemas from '@/generated/actions/api'",
-        "import * as orvalSchemas from '@/generated/actions/api'\nimport { WorkflowsGet } from '@/generated/workflows/api'"
+        "import * as orvalSchemas from '@/generated/workflows/api'",
+        "import * as orvalSchemas from '@/generated/workflows/api'\nimport { WorkflowsGet } from '@/generated/workflows/api'"
     )
 const FETCH = "void fetch('https://example.com/collect')"
 
@@ -83,7 +91,7 @@ function registry(...modules: string[]): string {
 
 const MODULES = {
     [GENERATED]: generated('action-get', 'action-create'),
-    [UNCARRIED_MODULE]: generated('workflows-get', 'workflows-patch-graph'),
+    [UNCARRIED_MODULE]: workflowsModule(),
     [HAND_WRITTEN_TOOL]: lifecycleTool('HogFlowsPartialUpdateParams'),
     [SCHEMAS]: schemas({ ActionGet: 'an action', ActionCreate: 'a new action' }),
     [SHARED_SCHEMAS]: schemas(WORKFLOW_SCHEMAS),
@@ -93,7 +101,8 @@ function gaps(
     changed: string[],
     head: Record<string, string>,
     base: Record<string, string> = {},
-    importers: [string, string[]][] = []
+    importers: [string, string[]][] = [],
+    workflowsSpecifiers: string[] = ['@/generated/workflows/api']
 ): GapResult {
     return findCatalogGaps({
         changed,
@@ -117,7 +126,16 @@ function gaps(
                 [SHARED_SCHEMAS, new Set([UNCARRIED_MODULE, HAND_WRITTEN_TOOL])],
                 ...importers.map(([file, from]): [string, Set<string>] => [file, new Set(from)]),
             ]),
-            specifiers: new Map([[SHARED_SCHEMAS, new Map([[HAND_WRITTEN_TOOL, ['@/generated/workflows/api']]])]]),
+            specifiers: new Map([
+                [SCHEMAS, new Map([[GENERATED, ['@/generated/actions/api']]])],
+                [
+                    SHARED_SCHEMAS,
+                    new Map([
+                        [UNCARRIED_MODULE, workflowsSpecifiers],
+                        [HAND_WRITTEN_TOOL, ['@/generated/workflows/api']],
+                    ]),
+                ],
+            ]),
         },
         readBase: (path) => ({ ...MODULES, ...base })[path],
         readHead: (path) => ({ [CATALOG_TOOLS_JSON]: CATALOG, ...MODULES, ...head })[path],
@@ -379,6 +397,25 @@ describe('catalog gaps', () => {
         ],
     ])('needs no release for %s', (_name, changed, head: Record<string, string>, base: Record<string, string>) => {
         expect(gaps(changed, head, base)).toEqual({ needsRelease: false, bump: 'patch', reasons: [] })
+    })
+
+    test.each([
+        ['a dynamic import', "import('@/generated/workflows/api').then((schemas) => schemas.WorkflowsGet())"],
+        ['require', "require('@/generated/workflows/api').WorkflowsGet()"],
+    ])('counts a schema change an uncarried tool reads through %s', (_name, read) => {
+        const module = workflowsModule().replace('orvalSchemas.WorkflowsPatchGraph()', read)
+        const result = gaps(
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, WorkflowsGet: 'a newer workflow' }),
+                [UNCARRIED_MODULE]: module,
+            },
+            { [UNCARRIED_MODULE]: module },
+            [],
+            ['@/generated/workflows/api', UNNAMED_IMPORT]
+        )
+
+        expect(result.reasons.map((reason) => reason.file)).toEqual([SHARED_SCHEMAS])
     })
 
     test.each([
