@@ -239,43 +239,9 @@ def _convert_group(
     if copied and copied != set(group.hog_function_ids):
         return result(GroupOutcome.PARTLY_COPIED)
 
-    event_kinds = row_event_kinds(facts.event_kinds)
-    enabled = facts.enabled_count > 0
-    keeps_legacy_webhook_body = sends_legacy_body and facts.data["type"] == DestinationType.WEBHOOK
     try:
         with transaction.atomic():
-            kept = (
-                refresh_source_destination(
-                    team_id=alert.team_id,
-                    public_id=alert.id,
-                    data=facts.data,
-                    event_kinds=event_kinds,
-                    hog_function_ids=group.hog_function_ids,
-                    hog_function_groups=groups,
-                    enabled=enabled,
-                    keeps_legacy_webhook_body=keeps_legacy_webhook_body,
-                )
-                if copied
-                else None
-            )
-            if kept is None:
-                if copied:
-                    delete_source_destination_rows(
-                        team_id=alert.team_id, public_id=alert.id, destination_ids=(), hog_function_ids=copied
-                    )
-                recorded = record_source_destination(
-                    team_id=alert.team_id,
-                    public_id=alert.id,
-                    data=facts.data,
-                    event_kinds=event_kinds,
-                    hog_function_ids=group.hog_function_ids,
-                    # Every group, so a second group that sends to the same place keeps both on HogFunctions.
-                    hog_function_groups=groups,
-                    enabled=enabled,
-                    keeps_legacy_webhook_body=keeps_legacy_webhook_body,
-                )
-                if recorded is None:
-                    raise _NoSourceDestinations
+            outcome = _write_row(alert, group, facts, groups, copied, sends_legacy_body=sends_legacy_body)
             # A queryset update, not a save: a HogFunction saved as deleted deletes every row that copies it.
             soft_delete_alert_destinations(
                 team_id=alert.team_id,
@@ -287,9 +253,51 @@ def _convert_group(
         return result(GroupOutcome.REFUSED, str(error))
     except _NoSourceDestinations:
         return result(GroupOutcome.NO_SOURCE_DESTINATIONS)
-    if kept is not None:
-        return result(GroupOutcome.KEPT_ROW)
-    return result(GroupOutcome.REPLACED_ROW if copied else GroupOutcome.CONVERTED)
+    return result(outcome)
+
+
+def _write_row(
+    alert: LogsAlertConfiguration,
+    group: AlertDestinationGroup,
+    facts: _GroupFacts,
+    groups: Sequence[AlertDestinationGroup],
+    copied: frozenset[UUID],
+    *,
+    sends_legacy_body: bool,
+) -> GroupOutcome:
+    event_kinds = row_event_kinds(facts.event_kinds)
+    enabled = facts.enabled_count > 0
+    keeps_legacy_webhook_body = sends_legacy_body and facts.data["type"] == DestinationType.WEBHOOK
+    if copied:
+        kept = refresh_source_destination(
+            team_id=alert.team_id,
+            public_id=alert.id,
+            data=facts.data,
+            event_kinds=event_kinds,
+            hog_function_ids=group.hog_function_ids,
+            hog_function_groups=groups,
+            enabled=enabled,
+            keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+        )
+        if kept is not None:
+            return GroupOutcome.KEPT_ROW
+        delete_source_destination_rows(
+            team_id=alert.team_id, public_id=alert.id, destination_ids=(), hog_function_ids=copied
+        )
+    recorded = record_source_destination(
+        team_id=alert.team_id,
+        public_id=alert.id,
+        data=facts.data,
+        event_kinds=event_kinds,
+        hog_function_ids=group.hog_function_ids,
+        # Every group, so a second group that sends to the same place keeps both on HogFunctions.
+        hog_function_groups=groups,
+        enabled=enabled,
+        keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+    )
+    if recorded is None:
+        raise _NoSourceDestinations
+    return GroupOutcome.REPLACED_ROW if copied else GroupOutcome.CONVERTED
 
 
 class _NoSourceDestinations(Exception):
