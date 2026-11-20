@@ -17,13 +17,13 @@ from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.team import Team
+from posthog.models.activity_logging.activity_log import Change
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
 
 from products.conversations.backend.models import SigningSecret
+from products.conversations.backend.services.signing_secrets import log_signing_secret_change
 
 
 class SigningSecretSerializer(serializers.Serializer):
@@ -108,42 +108,24 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
             old_secret = None if created else row.secret
             if not created:
-                # Grace only for a secret that was a trusted verification candidate.
-                # A stale mirror holds a retired key the staleness guard excluded;
-                # granting it grace would resurrect a revoked credential.
-                has_legacy = bool(self.team.secret_api_token or self.team.secret_api_token_backup)
-                old_secret_trusted = (
-                    row.rotated_independently or not has_legacy or row.secret == self.team.secret_api_token
-                )
-                if old_secret_trusted:
-                    row.previous_secret = row.secret
-                    row.previous_secret_rotated_at = timezone.now()
-                else:
-                    row.previous_secret = None
-                    row.previous_secret_rotated_at = None
+                row.previous_secret = row.secret
+                row.previous_secret_rotated_at = timezone.now()
                 row.secret = generate_random_token()
                 row.rotated_independently = True
                 row.save()
-            log_activity(
-                organization_id=self.team.organization_id,
-                team_id=self.team_id,
+            log_signing_secret_change(
+                self.team,
+                [
+                    Change(
+                        type="Team",
+                        action="created" if created else "changed",
+                        field="conversations_signing_secret",
+                        before=mask_key_value(old_secret) if old_secret else None,
+                        after=mask_key_value(row.secret),
+                    )
+                ],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
-                scope="Team",
-                item_id=self.team_id,
-                activity="updated",
-                detail=Detail(
-                    name=str(self.team.name),
-                    changes=[
-                        Change(
-                            type="Team",
-                            action="created" if created else "changed",
-                            field="conversations_signing_secret",
-                            before=mask_key_value(old_secret) if old_secret else None,
-                            after=mask_key_value(row.secret),
-                        )
-                    ],
-                ),
             )
         serializer = SigningSecretSerializer(_serializer_payload(row))
         return Response(serializer.data)
@@ -156,42 +138,25 @@ class SigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["POST"], detail=False)
     def expire_previous(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         with transaction.atomic():
-            # Team lock first: a legacy rotation racing this expiry would rewrite the
-            # backup column between the comparison below and the deletion.
-            locked_team = Team.objects.select_for_update(no_key=True).get(pk=self.team_id)
             row = SigningSecret.objects.for_team(self.team_id).select_for_update().first()
             if row and row.previous_secret:
                 expired = row.previous_secret
                 row.previous_secret = None
                 row.previous_secret_rotated_at = None
                 row.save(update_fields=["previous_secret", "previous_secret_rotated_at"])
-                # A legacy rotation leaves the same credential in the backup column,
-                # where it keeps verifying (and authenticating) while the legacy
-                # verifiers are on. Expiry is a revocation, so it must cover that copy.
-                if locked_team.secret_api_token_backup == expired:
-                    locked_team.delete_secret_token_backup_and_save(
-                        user=cast(User, request.user), is_impersonated_session=is_impersonated(request)
-                    )
-                log_activity(
-                    organization_id=self.team.organization_id,
-                    team_id=self.team_id,
+                log_signing_secret_change(
+                    self.team,
+                    [
+                        Change(
+                            type="Team",
+                            action="deleted",
+                            field="conversations_signing_secret_previous",
+                            before=mask_key_value(expired),
+                            after=None,
+                        )
+                    ],
                     user=cast(User, request.user),
                     was_impersonated=is_impersonated(request),
-                    scope="Team",
-                    item_id=self.team_id,
-                    activity="updated",
-                    detail=Detail(
-                        name=str(self.team.name),
-                        changes=[
-                            Change(
-                                type="Team",
-                                action="deleted",
-                                field="conversations_signing_secret_previous",
-                                before=mask_key_value(expired),
-                                after=None,
-                            )
-                        ],
-                    ),
                 )
         serializer = SigningSecretSerializer(_serializer_payload(row))
         return Response(serializer.data)

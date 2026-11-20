@@ -52,7 +52,7 @@ import botocore.exceptions
 from posthog.models.integration import AWSS3RoleBasedIntegration, S3CompatibleIntegration
 from posthog.models.team import Team
 
-from products.batch_exports.backend.facade.contracts import AWSCredentials
+from products.batch_exports.backend.facade.contracts import AWSCredentials, InvalidKeyError
 from products.batch_exports.backend.facade.destinations.s3 import (
     S3_SUPPORTED_COMPRESSIONS,
     ConcurrentS3Consumer,
@@ -292,12 +292,14 @@ class S3DestinationWriter:
         self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip().strip("/")
         self._region: str = (config.get("region") or "").strip()
         raw_prefix: str = config.get("prefix") or ""
-        # Batch exports' renderer returns the prefix as typed when it cannot fill it.
-        rendered_prefix = (
-            render_key_prefix(raw_prefix, at=ctx.run_started_at.astimezone(dt.UTC), table=ctx.table_name)
-            if ctx.run_started_at is not None
-            else raw_prefix
-        )
+        try:
+            rendered_prefix = (
+                render_key_prefix(raw_prefix, at=ctx.run_started_at.astimezone(dt.UTC), table=ctx.table_name)
+                if ctx.run_started_at is not None
+                else raw_prefix
+            )
+        except InvalidKeyError as err:
+            raise DestinationConfigurationError(ctx.destination_name, str(err)) from err
         self._prefix: str = rendered_prefix.strip("/")
         # A prefix that places `{table}` itself already gives each table its own folder.
         filled_table = rendered_prefix != raw_prefix and "{table}" in raw_prefix

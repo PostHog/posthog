@@ -87,6 +87,7 @@ from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_b
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.facade.source_scouts import SOURCE_TEMPLATE_METADATA_KEYS
 from products.signals.backend.models import (
+    DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY,
     SignalProjectProfile,
     SignalReport,
     SignalReportCheck,
@@ -162,6 +163,7 @@ from products.signals.backend.scout_harness.serializers import (
     RecordCheckResultResponseSerializer,
     RecordStructuredOutputRequestSerializer,
     RecordStructuredOutputResponseSerializer,
+    RememberConflictSerializer,
     RememberRequestSerializer,
     ScoutCheckSummarySerializer,
     ScoutEmissionReportLinkSerializer,
@@ -270,6 +272,8 @@ from products.signals.backend.scout_harness.tools.runs import (
 from products.signals.backend.scout_harness.tools.scratchpad import (
     NOT_IN_USE_KEY_PREFIX,
     InvalidScratchpadError,
+    ScratchpadConflictError,
+    discard,
     forget,
     record_not_in_use_write,
     remember,
@@ -289,6 +293,7 @@ from products.signals.backend.scout_harness.trial_access import (
 )
 from products.signals.backend.scout_harness.trial_views import ScoutTrialConfigMixin
 from products.signals.backend.scout_report import InvalidScoutReportError
+from products.signals.backend.scout_report_actions import stored_report_actions
 from products.signals.backend.task_attribution import resolve_request_attribution
 from products.signals.backend.tasks import enqueue_project_profile_build
 from products.signals.backend.trial.service import TrialService
@@ -438,6 +443,13 @@ class Conflict(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "A run for this scout is already in progress."
     default_code = "conflict"
+
+
+def _remember_conflict_response(conflict: ScratchpadConflictError) -> Response:
+    return Response(
+        RememberConflictSerializer({"detail": str(conflict), "updated_at": conflict.current_updated_at}).data,
+        status=status.HTTP_409_CONFLICT,
+    )
 
 
 def _raise_rejection(rejection: ScoutRunRejection) -> None:
@@ -2087,7 +2099,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`include_expired=true`, and are hard-deleted by a daily janitor once their expiry is "
             "more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
-            "from returning every entry's full prose. Results capped at 1000."
+            "from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the "
+            "entry's earlier versions, newest first, including those of a deleted key. Results capped at 1000."
         ),
         operation_id="signals_scout_scratchpad_search",
     )
@@ -2101,9 +2114,18 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = validated.get("limit") or 20
         private = trial_store_for_request(request, _canonical_team_id(self))
         search = private.search_memory if private is not None else search_scratchpad
+        # Private trial memory keeps no revisions, so a trial read never asks for them.
+        team_kwargs: dict[str, Any] = (
+            {}
+            if private is not None
+            else {
+                "team_id": _canonical_team_id(self),
+                "include_revisions": bool(validated.get("include_revisions", False)),
+            }
+        )
         with trial_state_errors():
             rows = search(
-                **({} if private is not None else {"team_id": _canonical_team_id(self)}),
+                **team_kwargs,
                 text=text,
                 key=validated.get("key") or None,
                 skill_name=validated.get("skill_name") or None,
@@ -2122,15 +2144,24 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=ScratchpadEntrySerializer, description="Memory entry written or refreshed."),
             400: OpenApiResponse(
                 description=(
-                    "Invalid memory shape (empty key/content, key too long, or an `expires_at` on a "
-                    "`followup:` entry). An unparseable or past `expires_at` is dropped, not rejected."
+                    "Invalid memory shape (empty key/content, key too long, an `expires_at` on a "
+                    "`followup:` entry, or an unparseable `if_updated_at`). An unparseable or past "
+                    "`expires_at` is dropped, not rejected."
                 )
+            ),
+            409: OpenApiResponse(
+                response=RememberConflictSerializer,
+                description=(
+                    "`if_updated_at` did not match: the entry changed since it was read, or no entry has "
+                    "this key. Nothing was written."
+                ),
             ),
         },
         summary="Remember a scratchpad entry",
         description=(
             "Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. "
-            "A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted."
+            "A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. "
+            "Pass `if_updated_at` to write only when the entry is still the one you read."
         ),
         operation_id="signals_scout_scratchpad_remember",
     )
@@ -2142,10 +2173,15 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             try:
                 with trial_state_errors():
                     entry = private.remember(
-                        key=data["key"], content=data["content"], expires_at=data.get("expires_at")
+                        key=data["key"],
+                        content=data["content"],
+                        expires_at=data.get("expires_at"),
+                        if_updated_at=data.get("if_updated_at"),
                     )
             except InvalidScratchpadError as error:
                 raise exceptions.ValidationError({"detail": str(error)}) from error
+            except ScratchpadConflictError as conflict:
+                return _remember_conflict_response(conflict)
             return Response(ScratchpadEntrySerializer(entry.as_dict()).data)
         run_id = data.get("run_id") or None
         # `run_id` only stamps best-effort `created_by_run_id` lineage — a memory write must
@@ -2166,11 +2202,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # arrive truncated, which used to cost the entry its run link; the token binding is the
         # server's own record of which run is writing, so lineage survives the typo.
         is_not_in_use = data["key"].startswith(NOT_IN_USE_KEY_PREFIX)
-        sandbox_run_id = (
-            run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
-            if run_id is None or is_not_in_use
-            else None
-        )
+        # Resolved on every write, because a revision names the run that replaced an entry and a body
+        # `run_id` can name any run on the project, including a sibling scout's.
+        sandbox_run_id = run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
         if run_id is None:
             run_id = sandbox_run_id
         try:
@@ -2184,9 +2218,13 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # could name a scout's skill instead.
                 identity=pipeline_writer_identity(task_id=_sandbox_bound_task_id(request), team_id=team_id),
                 expires_at=data.get("expires_at"),
+                if_updated_at=data.get("if_updated_at"),
+                changed_by_run_id=sandbox_run_id,
             )
         except InvalidScratchpadError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
+        except ScratchpadConflictError as conflict:
+            return _remember_conflict_response(conflict)
         # Attributed to the token's run, not the body's: a body `run_id` can name any run on the
         # project, including a sibling scout's.
         if is_not_in_use and sandbox_run_id is not None:
@@ -2238,14 +2276,25 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self,
             "Deleting scout memories requires editor access to skills, since the scratchpad steers the scout agents.",
         )
-        return self._forget_key(request, request.validated_data["key"])
+        return self._forget_key(request, request.validated_data["key"], discard_history=True)
 
-    def _forget_key(self, request: Request, key: str) -> Response:
-        private = trial_store_for_request(request, _canonical_team_id(self))
-        with trial_state_errors():
-            removed = (
-                private.forget(key=key) if private is not None else forget(team_id=_canonical_team_id(self), key=key)
-            )
+    def _forget_key(self, request: Request, key: str, *, discard_history: bool = False) -> Response:
+        team_id = _canonical_team_id(self)
+        private = trial_store_for_request(request, team_id)
+        if private is not None:
+            with trial_state_errors():
+                removed = private.forget(key=key)
+            return Response(ForgetResponseSerializer({"deleted": removed}).data)
+        if discard_history:
+            removed = discard(team_id=team_id, key=key)
+            return Response(ForgetResponseSerializer({"deleted": removed}).data)
+        task_id = _sandbox_bound_task_id(request)
+        removed = forget(
+            team_id=team_id,
+            key=key,
+            changed_by_run_id=run_id_for_sandbox_task(task_id=task_id, team_id=team_id),
+            changed_by_identity=pipeline_writer_identity(task_id=task_id, team_id=team_id),
+        )
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
 
 
@@ -3290,14 +3339,7 @@ def assert_can_grant_scout_write_scopes(
 
     Every other config field keeps the plain `signal_scout:write` bar.
     """
-    token_scopes = get_authenticator_scopes(request.successful_authenticator)
-    if token_scopes is not None and "*" not in token_scopes:
-        missing = scopes_missing_after_legacy_fallback(request, None, token_scopes, sorted(added_scopes))
-        if missing:
-            raise InsufficientScope(
-                missing,
-                detail=f"This API key does not carry {', '.join(missing)}, so it cannot grant that access to a scout.",
-            )
+    _assert_token_carries_scopes(request, added_scopes)
     _assert_scout_author_or_admin(
         request=request,
         team=team,
@@ -3336,6 +3378,17 @@ def assert_custom_image_usable(*, image_id: uuid.UUID, team_id: int, user_id: in
         raise exceptions.ValidationError(
             {field: "Choose a custom image that exists in this project and is shared with the project."}
         )
+
+
+def _assert_token_carries_scopes(request: Request, added_scopes: set[str]) -> None:
+    token_scopes = get_authenticator_scopes(request.successful_authenticator)
+    if token_scopes is not None and "*" not in token_scopes:
+        missing = scopes_missing_after_legacy_fallback(request, None, token_scopes, sorted(added_scopes))
+        if missing:
+            raise InsufficientScope(
+                missing,
+                detail=f"This API key does not carry {', '.join(missing)}, so it cannot grant that access to a scout.",
+            )
 
 
 def _assert_scout_tool_selection_access(*, request: Request, team: Team, data: Mapping[str, Any]) -> None:
@@ -3442,7 +3495,39 @@ def _resolve_scout_config_grants(
                 user_id=cast(User, request.user).pk,
                 field="custom_image_id",
             )
+    _assert_can_change_scout_report_actions(request=request, team=team, skill_name=skill_name, config=config, data=data)
     return resolved
+
+
+def _assert_can_change_scout_report_actions(
+    *, request: Request, team: Team, skill_name: str, config: SignalScoutConfig | None, data: Mapping[str, Any]
+) -> None:
+    """Gate on changing which report actions a scout may start, or how many a day.
+
+    A started action runs as the scout's acting user with that person's full posture and MCP
+    connections, so only that person may widen the grant. A project admin may narrow it, which
+    exposes nobody. A sandbox token is refused outright: a scout acts as that same person, so the
+    acting-user leg alone would let a scout grant itself actions.
+    """
+    current_actions = set(stored_report_actions(config.report_actions)) if config else set()
+    current_cap = config.max_report_actions_per_day if config else DEFAULT_SCOUT_REPORT_ACTIONS_PER_DAY
+    requested_actions = set(data.get("report_actions", current_actions))
+    requested_cap = data.get("max_report_actions_per_day", current_cap)
+    if requested_actions == current_actions and requested_cap == current_cap:
+        return
+    if _sandbox_bound_task_id(request) is not None:
+        raise exceptions.PermissionDenied("Sandbox tokens cannot change which report actions a scout may start.")
+    _assert_token_carries_scopes(request, {"inbox:write", "task:write"})
+    user = cast(User, request.user)
+    if resolve_scout_acting_user_id(team, skill_name, config) == user.pk:
+        return
+    widens = bool(requested_actions - current_actions) or requested_cap > current_cap
+    level = UserPermissions(user=user, team=team).current_team.effective_membership_level
+    if not widens and level is not None and level >= OrganizationMembership.Level.ADMIN:
+        return
+    raise exceptions.PermissionDenied(
+        "Only the person this scout's runs act as can grant it report actions. A project admin can only remove them."
+    )
 
 
 def guard_scout_lifecycle_fields(

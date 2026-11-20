@@ -453,19 +453,3 @@ def handle_evaluation_context_suggestions(request: request.Request, team: Team) 
             )
 
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
-
-
-def validate_secret_token_generation(team: Team) -> None:
-    """Rotating an existing legacy secret token stays allowed for safe migration, but minting a
-    first one is blocked unless Support is enabled. Project secret API keys replace it."""
-    if team.secret_api_token or team.secret_api_token_backup:
-        return
-    if team.conversations_enabled:
-        # Support signs widget identity hashes with the raw token and authenticates its external
-        # API against it. Project secret API keys are only ever stored hashed, so they cannot
-        # replace it, which would leave Support with no way to verify identity at all.
-        return
-    raise exceptions.ValidationError(
-        "The feature flags secure API key is deprecated. Create a project secret API key with the "
-        "feature_flag:read scope instead."
-    )

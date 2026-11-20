@@ -7,8 +7,6 @@ CREATE TABLE IF NOT EXISTS posthog_person (
     created_at TIMESTAMPTZ NOT NULL,
     team_id INTEGER NOT NULL,
     properties JSONB NOT NULL DEFAULT '{}'::jsonb,
-    properties_last_updated_at JSONB NOT NULL DEFAULT '{}'::jsonb,
-    properties_last_operation JSONB NOT NULL DEFAULT '{}'::jsonb,
     is_user_id INTEGER NULL,
     is_identified BOOLEAN NOT NULL DEFAULT false,
     version BIGINT NULL

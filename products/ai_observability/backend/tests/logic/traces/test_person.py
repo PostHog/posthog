@@ -3,7 +3,8 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.traces.person import trace_distinct_id
+from products.ai_observability.backend.logic.traces.person import person_label, trace_distinct_id
+from products.ai_observability.backend.logic.traces.trace_queries import PersonRow
 
 from .rows import T0, make_row
 
@@ -36,3 +37,13 @@ from .rows import T0, make_row
 )
 def test_trace_distinct_id(_name: str, rows: list[dict[str, Any]], expected: str | None) -> None:
     assert trace_distinct_id([make_row(**row) for row in rows]) == expected
+
+
+@parameterized.expand(
+    [
+        ("the display name", "Ada", "Ada"),
+        ("the distinct id without one", None, "user-1"),
+    ]
+)
+def test_person_label(_name: str, display_name: str | None, expected: str) -> None:
+    assert person_label(PersonRow(distinct_id="user-1", display_name=display_name)) == expected

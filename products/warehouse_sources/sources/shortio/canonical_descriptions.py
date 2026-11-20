@@ -71,4 +71,36 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "y": "The number of clicks in the interval.",
         },
     },
+    "domain_by_interval": {
+        "description": "A daily click count for a domain in UTC, within the account's available history.",
+        "docs_url": "https://developers.short.io/reference/postdomaindomainidby_interval",
+        "columns": {
+            "domain_id": "The domain ID. Joins to domains.id.",
+            "x": "The start of the daily interval in UTC.",
+            "y": "The number of clicks in the interval.",
+        },
+    },
+    "domain_top": {
+        "description": "The values of a click dimension (country, browser, referrer host, UTM tag and others) for a domain, ranked by clicks. Holds up to 100 values for each dimension.",
+        "docs_url": "https://developers.short.io/reference/postdomaindomainidtop",
+        "columns": {
+            "domain_id": "The domain ID. Joins to domains.id.",
+            "dimension": "The click dimension that the row ranks, such as country, browser, refhost or utm_source.",
+            "value": "The value of the dimension.",
+            "displayName": "The display name of the value, such as the full country name.",
+            "score": "The number of clicks with this value.",
+        },
+    },
+    "link_top": {
+        "description": "The values of a click dimension (country, browser, referrer host, UTM tag and others) for a link, ranked by clicks. Holds up to 100 values for each dimension.",
+        "docs_url": "https://developers.short.io/reference/postlinklinkidtop",
+        "columns": {
+            "domain_id": "The domain ID. Joins to domains.id.",
+            "link_id": "The link ID. Joins to links.idString.",
+            "dimension": "The click dimension that the row ranks, such as country, browser, refhost or utm_source.",
+            "value": "The value of the dimension.",
+            "displayName": "The display name of the value, such as the full country name.",
+            "score": "The number of clicks with this value.",
+        },
+    },
 }

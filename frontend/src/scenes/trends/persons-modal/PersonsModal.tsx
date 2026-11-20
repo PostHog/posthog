@@ -35,6 +35,7 @@ import { isGroupType, isSessionType } from 'lib/utils/guards'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
+import type { SessionPlayerModalRecordingList } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
@@ -112,6 +113,8 @@ export function PersonsModal({
         exploreUrl,
         actorsQuery,
         recordingFilters,
+        playerRecordingList,
+        hasMoreActorsToLoad,
     } = useValues(logic)
     const { updateActorsQuery, setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } =
         useActions(logic)
@@ -283,7 +286,7 @@ export function PersonsModal({
                                 </>
                             ) : (
                                 <span>
-                                    {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
+                                    {hasMoreActorsToLoad ? 'More than ' : ''}
                                     <span className="font-semibold text-default">
                                         {totalActorsCount || 'No'} unique{' '}
                                         {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
@@ -318,22 +321,34 @@ export function PersonsModal({
                             )
                         ) : actors && actors.length > 0 ? (
                             <>
-                                {actors.map((actor) => (
-                                    <ActorRow
-                                        key={actor.id}
-                                        actor={actor}
-                                        // created_at is null for actors without a PostgreSQL Person record
-                                        // (personless mode, merged, or deleted persons) — skip the
-                                        // timeline which would 404, and show static properties instead.
-                                        propertiesTimelineQuery={
-                                            actor.type == 'person' &&
-                                            actor.created_at &&
-                                            currentTeam?.person_on_events_querying_enabled
-                                                ? (propertiesTimelineQuery ?? undefined)
-                                                : undefined
-                                        }
-                                    />
-                                ))}
+                                {actors.map((actor) => {
+                                    const firstPosition = playerRecordingList.firstPositionByActorId[String(actor.id)]
+                                    return (
+                                        <ActorRow
+                                            key={actor.id}
+                                            actor={actor}
+                                            recordingList={
+                                                firstPosition === undefined
+                                                    ? undefined
+                                                    : {
+                                                          entries: playerRecordingList.entries,
+                                                          position: firstPosition,
+                                                          hasMoreToLoad: hasMoreActorsToLoad,
+                                                      }
+                                            }
+                                            // created_at is null for actors without a PostgreSQL Person record
+                                            // (personless mode, merged, or deleted persons) — skip the
+                                            // timeline which would 404, and show static properties instead.
+                                            propertiesTimelineQuery={
+                                                actor.type == 'person' &&
+                                                actor.created_at &&
+                                                currentTeam?.person_on_events_querying_enabled
+                                                    ? (propertiesTimelineQuery ?? undefined)
+                                                    : undefined
+                                            }
+                                        />
+                                    )
+                                })}
                             </>
                         ) : actorsResponseLoading ? (
                             <div className="deprecated-space-y-3">
@@ -346,7 +361,7 @@ export function PersonsModal({
                             </div>
                         )}
 
-                        {(actorsResponse?.next || actorsResponse?.offset) && (
+                        {hasMoreActorsToLoad && (
                             <div className="m-4 flex justify-center">
                                 <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
                                     Load more {actorLabel.plural}
@@ -437,11 +452,12 @@ export function PersonsModal({
 
 interface ActorRowProps {
     actor: ActorType
+    recordingList?: SessionPlayerModalRecordingList
     /** The clicked data point's actors query, when the timeline supports it and the actor is a person. */
     propertiesTimelineQuery?: InsightActorsQuery
 }
 
-export function ActorRow({ actor, propertiesTimelineQuery }: ActorRowProps): JSX.Element {
+export function ActorRow({ actor, recordingList, propertiesTimelineQuery }: ActorRowProps): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [tab, setTab] = useState('properties')
     const isSession = isSessionType(actor)
@@ -454,17 +470,14 @@ export function ActorRow({ actor, propertiesTimelineQuery }: ActorRowProps): JSX
     const bestDistinctId =
         !isGroupType(actor) && !isSessionType(actor) ? pickBestPersonDistinctId(actor.distinct_ids) : undefined
 
+    const matchedRecordings = actor.matched_recordings || []
+
     const onOpenRecordingClick = (): void => {
-        if (!actor.matched_recordings) {
-            return
-        }
-        if (actor.matched_recordings?.length > 1) {
+        if (matchedRecordings.length > 1) {
             setExpanded(true)
             setTab('recordings')
         }
     }
-
-    const matchedRecordings = actor.matched_recordings || []
 
     return (
         <div className="relative border rounded bg-surface-primary">
@@ -514,6 +527,7 @@ export function ActorRow({ actor, propertiesTimelineQuery }: ActorRowProps): JSX
                         size="small"
                         openPlayerIn={RecordingPlayerType.Modal}
                         hasRecording={true}
+                        recordingList={recordingList}
                     />
                 ) : matchedRecordings.length > 1 ? (
                     <div className="shrink-0">
@@ -545,6 +559,7 @@ export function ActorRow({ actor, propertiesTimelineQuery }: ActorRowProps): JSX
                         size="small"
                         openPlayerIn={RecordingPlayerType.Modal}
                         hasRecording={matchedRecordings.length > 0}
+                        recordingList={recordingList}
                     />
                 )}
             </div>
@@ -609,6 +624,17 @@ export function ActorRow({ actor, propertiesTimelineQuery }: ActorRowProps): JSX
                                                                             label={`View recording ${i + 1}`}
                                                                             checkIfViewed={true}
                                                                             openPlayerIn={RecordingPlayerType.Modal}
+                                                                            recordingList={
+                                                                                recordingList && {
+                                                                                    ...recordingList,
+                                                                                    position:
+                                                                                        recordingList.position +
+                                                                                        matchedRecordings
+                                                                                            .slice(0, i)
+                                                                                            .filter((r) => r.session_id)
+                                                                                            .length,
+                                                                                }
+                                                                            }
                                                                             fullWidth={true}
                                                                         />
                                                                     </li>

@@ -184,7 +184,6 @@ class TestKeyPrefix:
                 dt.datetime(2026, 3, 5, 1, 0, tzinfo=dt.timezone(dt.timedelta(hours=2))),
                 "2026/03/04/charges/run-a1",
             ),
-            ("{year}/{foo}/", STARTED, "{year}/{foo}/charges/run-a1"),
             ("{year}/{table}/", None, "{year}/{table}/charges/run-a1"),
         ],
         ids=[
@@ -192,7 +191,6 @@ class TestKeyPrefix:
             "date_and_table",
             "time",
             "utc",
-            "unknown_variable",
             "no_start_time",
         ],
     )
@@ -212,3 +210,16 @@ class TestKeyPrefix:
 
         keys = [call.kwargs["Key"] for call in client.put_object.call_args_list]
         assert keys == [f"{expected_folder}/part-0000.parquet", f"{expected_folder}/_manifest.json"]
+
+    @pytest.mark.parametrize(
+        "prefix", ["{year}/{foo}/", "{year:>9}", "{0}/"], ids=["unknown_variable", "format_spec", "positional"]
+    )
+    async def test_a_prefix_the_renderer_rejects_is_a_configuration_error(self, prefix: str) -> None:
+        ctx = dataclasses.replace(
+            _ctx(),
+            config={"bucket": "example-bucket", "region": "us-east-1", "prefix": prefix},
+            run_started_at=STARTED,
+        )
+
+        with pytest.raises(DestinationConfigurationError, match="key prefix"):
+            S3DestinationWriter(ctx)

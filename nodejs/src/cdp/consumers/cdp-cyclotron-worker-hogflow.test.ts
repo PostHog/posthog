@@ -40,8 +40,6 @@ function toInternalPerson(p: TestPerson): InternalPerson {
         uuid: p.uuid,
         team_id: p.teamId,
         properties: p.properties,
-        properties_last_updated_at: {},
-        properties_last_operation: null,
         created_at: TIMESTAMP,
         version: 1,
         is_identified: true,
