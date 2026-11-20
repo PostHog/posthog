@@ -6,7 +6,6 @@ import { projectLogic } from 'scenes/projectLogic'
 import { dashboardsList } from 'products/dashboards/frontend/generated/api'
 import type { DashboardBasicApi } from 'products/dashboards/frontend/generated/api.schemas'
 
-// One page is enough, because the search narrows the rest on the server.
 export const DASHBOARD_OPTIONS_LIMIT = 20
 const SEARCH_DEBOUNCE_MS = 300
 
@@ -65,7 +64,6 @@ export type anomaliesDashboardPickerLogicType = MakeLogicType<
     anomaliesDashboardPickerLogicActions
 >
 
-// Lists dashboards only once the picker opens, one searched page at a time.
 export const anomaliesDashboardPickerLogic = kea<anomaliesDashboardPickerLogicType>([
     path(['products', 'product_analytics', 'frontend', 'insights', 'anomalies', 'anomaliesDashboardPickerLogic']),
     connect(() => ({
@@ -109,7 +107,6 @@ export const anomaliesDashboardPickerLogic = kea<anomaliesDashboardPickerLogicTy
             actions.loadOptions({ debounce: true })
         },
         ensureOptionsLoaded: () => {
-            // Opening the picker again after a failed request retries it.
             if ((!values.hasLoadedOptions || values.dashboardOptionsFailed) && !values.dashboardOptionsLoading) {
                 actions.loadOptions()
             }

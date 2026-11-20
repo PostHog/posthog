@@ -121,7 +121,6 @@ describe('anomaliesTabLogic', () => {
                         return [pointsStatus, { detail: 'Server error.' }]
                     }
                     // The API leaves out a series the user cannot read, here insight 0.
-                    // The value tells the responses apart.
                     const series = body.series
                         .filter((ref) => ref.insight_id !== 0)
                         .map((ref) => ({

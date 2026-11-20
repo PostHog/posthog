@@ -36,7 +36,6 @@ import {
 export const ANOMALIES_PAGE_SIZE = 50
 // Matches `scored_history_ready` in the anomaly search, which needs 14 scored days.
 export const SCORED_HISTORY_READY_DAYS = 14
-// A failed chart batch is tried this many times in total, then its charts show the error.
 export const CHART_POINTS_MAX_ATTEMPTS = 3
 export const CHART_POINTS_RETRY_DELAY_MS = 1000
 
@@ -440,8 +439,7 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
         hasMore: [(s) => [s.anomalies], (anomalies: AnomalySearchResponseApi | null): boolean => !!anomalies?.has_more],
     }),
     sharedListeners(({ actions, values }) => ({
-        // Reads the chart points of the listed rows that were never requested, one page per request.
-        // A row whose batch failed keeps its error until the next list load, so a new page does not ask again.
+        // Skips failed rows too, so a new page does not retry them. The next list load does.
         loadMissingChartPoints: () => {
             const missing = values.series.filter((row) => {
                 const id = anomalySeriesKey(row)
@@ -454,8 +452,7 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
     })),
     listeners(({ actions, values, selectors, sharedListeners, cache }) => ({
         loadAnomalies: () => {
-            // Each list load gets its own signal. Adding the key again aborts the chart requests of the load it
-            // replaces, and the unmount aborts the last one.
+            // Re-adding the key aborts the chart requests of the replaced list. The unmount aborts the last one.
             cache.disposables.add(
                 () => {
                     const controller = new AbortController()

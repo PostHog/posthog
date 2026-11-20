@@ -32,7 +32,6 @@ export function AnomaliesDashboardPicker(): JSX.Element {
     }, [dashboardOptions, pickedDashboard, search])
 
     return (
-        // The input fills its container, so the container sets the width.
         <div className="w-56">
             <LemonInputSelect
                 mode="single"
