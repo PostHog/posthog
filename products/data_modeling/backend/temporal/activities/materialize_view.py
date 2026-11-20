@@ -7,7 +7,7 @@ import datetime as dt
 import contextlib
 import collections
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 
 from django.conf import settings
 from django.db import transaction
@@ -589,9 +589,10 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
-# Repairing one value means a Python decode of its whole slice, so a small slice keeps that work
-# close to the values that need it.
-UTF8_REPAIR_SLICE_ROWS = 65_536
+# A slice that holds invalid UTF-8 is halved until its strings fit in this many bytes, and only
+# then decoded in Python. The decode holds the slice as bytes and as str objects at once, so this
+# bounds that memory however long the strings are.
+UTF8_REPAIR_MAX_BYTES = 1024 * 1024
 
 
 def _is_valid(array: pa.Array | pa.RecordBatch) -> bool:
@@ -602,19 +603,27 @@ def _is_valid(array: pa.Array | pa.RecordBatch) -> bool:
     return True
 
 
-def _replace_invalid_utf8_in_strings(array: pa.Array) -> pa.Array:
+def _collect_repaired_strings(array: pa.Array, pieces: list[pa.Array]) -> None:
+    if _is_valid(array):
+        pieces.append(array)
+        return
+    string_bytes = pc.sum(pc.binary_length(typing.cast(pa.StringArray, array))).as_py() or 0
+    if len(array) > 1 and string_bytes > UTF8_REPAIR_MAX_BYTES:
+        middle = len(array) // 2
+        _collect_repaired_strings(array.slice(0, middle), pieces)
+        _collect_repaired_strings(array.slice(middle), pieces)
+        return
     binary_type = pa.large_binary() if pa.types.is_large_string(array.type) else pa.binary()
-    slices: list[pa.Array] = []
-    for start in range(0, len(array), UTF8_REPAIR_SLICE_ROWS):
-        piece = array.slice(start, UTF8_REPAIR_SLICE_ROWS)
-        if not _is_valid(piece):
-            raw = typing.cast(list[bytes | None], piece.cast(binary_type).to_pylist())
-            piece = pa.array(
-                [None if value is None else value.decode("utf-8", errors="replace") for value in raw],
-                type=array.type,
-            )
-        slices.append(piece)
-    return pa.concat_arrays(slices)
+    raw = typing.cast(list[bytes | None], array.cast(binary_type).to_pylist())
+    pieces.append(
+        pa.array([None if value is None else value.decode("utf-8", errors="replace") for value in raw], type=array.type)
+    )
+
+
+def _replace_invalid_utf8_in_strings(array: pa.Array) -> pa.Array:
+    pieces: list[pa.Array] = []
+    _collect_repaired_strings(array, pieces)
+    return pa.concat_arrays(pieces)
 
 
 def _utf8_repaired(array: pa.Array) -> pa.Array:
@@ -658,19 +667,49 @@ def _utf8_repaired(array: pa.Array) -> pa.Array:
     return array
 
 
-def _replace_invalid_utf8(batch: pa.RecordBatch) -> pa.RecordBatch:
+class InvalidUtf8KeyError(NonReportableApplicationError):
+    """An incremental or unique key column holds text that is not valid UTF-8.
+
+    The replacement character can turn two different keys into one, and deltalite refuses to
+    upsert the raw bytes, so the run fails before it writes anything.
+    """
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Key column "{column}" has text that is not valid UTF-8, so a materialized table cannot use it as a '
+            f"key. Wrap the column in hex() in the query to key on its hex form.",
+            type="InvalidUtf8KeyError",
+            non_retryable=True,
+        )
+        self.column = column
+
+
+def _replace_invalid_utf8(batch: pa.RecordBatch, key_columns: Collection[str] = ()) -> pa.RecordBatch:
     """Replace byte sequences that are not valid UTF-8 in string values, at any depth, with U+FFFD.
 
     A ClickHouse String holds arbitrary bytes, and the Arrow stream sends it as an Arrow string
     without a check. Parquet stores the bytes as they are, but deltalake, DuckDB and Trino then
     refuse to read the file. The column keeps its string type so that the table schema does not
     depend on the data in one batch.
+
+    A key column with invalid UTF-8 fails the run instead. The replacement can turn two different
+    keys into the same string, which would merge two rows on a unique key, or move an incremental
+    watermark past rows that the next run must still read.
     """
     if _is_valid(batch):
         return batch
+    for column in key_columns:
+        if column in batch.schema.names and not _is_valid(batch.column(column)):
+            raise InvalidUtf8KeyError(column)
     return pa.RecordBatch.from_arrays(
         [_utf8_repaired(batch.column(index)) for index in range(batch.num_columns)], schema=batch.schema
     )
+
+
+def _key_columns(plan: WritePlan) -> frozenset[str]:
+    if plan.config is None:
+        return frozenset()
+    return frozenset((plan.config.incremental_key, *plan.config.unique_key))
 
 
 _SIGNED_EQUIVALENT_BY_BIT_WIDTH = {8: pa.int16(), 16: pa.int32(), 32: pa.int64(), 64: pa.int64()}
@@ -1227,10 +1266,11 @@ async def _materialize_fully(
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
+    key_columns = _key_columns(plan)
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
             batch = _transform_unsupported_decimals(batch)
-            batch = _replace_invalid_utf8(batch)
+            batch = _replace_invalid_utf8(batch, key_columns=key_columns)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
@@ -1335,7 +1375,7 @@ async def _materialize_incrementally(
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
             batch = _transform_unsupported_decimals(batch)
-            batch = _replace_invalid_utf8(batch)
+            batch = _replace_invalid_utf8(batch, key_columns=_key_columns(plan))
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
