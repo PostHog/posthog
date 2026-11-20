@@ -108,9 +108,9 @@ tools:
             `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range)
             is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first; pass `order:
             recent` for the series whose newest flagged bucket ended last first, so an hourly series flagged a few hours
-            ago sorts above a daily series flagged yesterday. Pass `search` to keep only insights whose name contains the
-            text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly
-            search is not available for this project.
+            ago sorts above a daily series flagged yesterday. Pass `search` to keep only insights whose name contains
+            the text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means
+            anomaly search is not available for this project.
         exclude_params:
             - include_points
         feature_flag: anomalies-search
