@@ -13686,6 +13686,10 @@
                 {
                     "param": "status",
                     "key": "status"
+                },
+                {
+                    "param": "tags",
+                    "key": "tags"
                 }
             ],
             "injectBody": {},
@@ -13773,6 +13777,11 @@
                     "param": "statuses",
                     "key": "statuses",
                     "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
+                    "csv": false
                 }
             ],
             "body": null,
@@ -13826,6 +13835,10 @@
                 {
                     "param": "status",
                     "key": "status"
+                },
+                {
+                    "param": "tags",
+                    "key": "tags"
                 },
                 {
                     "param": "name",

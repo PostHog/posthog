@@ -883,8 +883,8 @@ tools:
         description: >
             Update a Customer analytics task by ID. Supply only fields to change. Use null to clear the account,
             assignee, description, or deadline. Statuses are open, in_progress, completed, and canceled. Reopen a
-            completed or canceled task before moving it to another status. `tags` replaces every tag on the task, and
-            an empty list removes them all. Restore archived tasks before editing.
+            completed or canceled task before moving it to another status. `tags` replaces every tag on the task, and an
+            empty list removes them all. Restore archived tasks before editing.
         feature_flag: customer-analytics-customer-tasks
     customer-tasks-restore-create:
         operation: customer_tasks_restore_create
