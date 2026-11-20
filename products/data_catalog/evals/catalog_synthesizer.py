@@ -310,12 +310,12 @@ NEW_USER_DOWNLOAD_ADOPTION_METRIC = CatalogMetric(
         "query": (
             "SELECT toStartOfWeek(signup_at) AS week,\n"
             "    count() AS signups,\n"
-            "    countIf(first_download_at >= signup_at AND first_download_at <= signup_at + INTERVAL 7 DAY) AS adopters,\n"
+            "    countIf(arrayExists(d -> d >= signup_at AND d <= signup_at + INTERVAL 7 DAY, downloads)) AS adopters,\n"
             "    round(100 * adopters / signups, 1) AS adoption_pct\n"
             "FROM (\n"
             "    SELECT person_id,\n"
             "        minIf(timestamp, event = 'signed_up') AS signup_at,\n"
-            "        minIf(timestamp, event = 'downloaded_file') AS first_download_at\n"
+            "        groupArrayIf(timestamp, event = 'downloaded_file') AS downloads\n"
             "    FROM events\n"
             "    WHERE event IN ('signed_up', 'downloaded_file') AND timestamp >= now() - INTERVAL 8 WEEK\n"
             "    GROUP BY person_id\n"
@@ -333,8 +333,8 @@ FILES_PAGE_ACTIONS_METRIC = CatalogMetric(
     name="files_page_actions_30d",
     display_name="Files page actions",
     description=(
-        "What people who viewed the files page did there over the trailing 30 days: file downloads, uploads and "
-        "deletions, with the number of people behind each."
+        "Actions taken on the files list page (/files/) over the trailing 30 days: file downloads, uploads and "
+        "deletions, with the number of people behind each. File detail and shared-file pages are not included."
     ),
     definition={
         "kind": "HogQLQuery",
@@ -343,11 +343,7 @@ FILES_PAGE_ACTIONS_METRIC = CatalogMetric(
             "FROM events\n"
             "WHERE event IN ('downloaded_file', 'uploaded_file', 'deleted_file')\n"
             "  AND timestamp >= now() - INTERVAL 30 DAY\n"
-            "  AND person_id IN (\n"
-            "    SELECT person_id FROM events\n"
-            "    WHERE event = '$pageview' AND properties.$pathname = '/files/'\n"
-            "      AND timestamp >= now() - INTERVAL 30 DAY\n"
-            "  )\n"
+            "  AND properties.$pathname = '/files/'\n"
             "GROUP BY action\n"
             "ORDER BY actions DESC"
         ),

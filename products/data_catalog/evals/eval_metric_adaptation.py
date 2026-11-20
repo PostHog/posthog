@@ -282,9 +282,12 @@ async def eval_metric_adaptation(ctx: EvalContext) -> None:
                 "metric_describe_before_adapted_sql": {},
                 "metric_found": {"metric_name": MRR_METRIC.name},
                 "semantic_layer_answer": {
-                    "expected_behavior": _adapted_mrr_behavior(
-                        "the current calendar month so far, check how many of its days have data, and project the "
-                        "full month from that base"
+                    "expected_behavior": (
+                        f"Find {MRR_METRIC.name} in the catalog and read its definition with metric-describe. Keep the "
+                        "paid_bill event and the personal/free exclusion, but replace the 30-day window with the "
+                        "current calendar month so far. Check how many of the month's days have data, project the "
+                        "full month from that base, and label the projection as an adaptation of the governed MRR "
+                        "metric, not as the approved number itself."
                     )
                 },
             },
