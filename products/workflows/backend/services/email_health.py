@@ -147,7 +147,7 @@ def fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
 
 # VDM aggregates by whole day and the window ends at the last UTC midnight, so these numbers move
 # at most once a day. A five-minute TTL bought nothing and cost a full fan-out on every expiry.
-# One refresh of five domains is 300 queries across 30 sequential BatchGetMetricData calls, and the
+# One refresh of five domains is 150 queries across 15 sequential BatchGetMetricData calls, and the
 # endpoint reloads on every search keystroke, so this is what keeps typing a workflow name from
 # costing a fan-out per character.
 ISP_METRICS_CACHE_SECONDS = 30 * 60
