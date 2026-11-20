@@ -66,7 +66,6 @@ export function EmailDocumentEditor(): JSX.Element {
         logicProps,
         documentEditorInitialDoc,
         convertedEmailDocument,
-        templatingEngine,
     } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, flushPendingDesignEdit } = useActions(emailTemplaterLogic)
     const { currentProjectId } = useValues(teamLogic)
@@ -422,11 +421,7 @@ export function EmailDocumentEditor(): JSX.Element {
                     ) : null}
                 </div>
                 {mode === 'preview' ? (
-                    <EmailDocumentPreview
-                        html={html}
-                        liquid={templatingEngine === 'liquid'}
-                        unsubscribeMissing={!!html && !hasUnsubscribeLink(html)}
-                    />
+                    <EmailDocumentPreview html={html} unsubscribeMissing={!!html && !hasUnsubscribeLink(html)} />
                 ) : (
                     <div className="flex flex-1 min-h-0 relative">
                         <div

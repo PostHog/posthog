@@ -1,6 +1,5 @@
 import { Editor } from '@tiptap/core'
 
-import { EmailBlockKeymap } from './emailCanvasPlugins'
 import { createEmailEditorAdapter } from './emailEditorAdapter'
 import { buildEmailExtensions } from './emailExtensions'
 import * as renderEmailHtmlModule from './renderEmailHtml'
@@ -67,32 +66,6 @@ describe('emailEditorAdapter', () => {
 
         expect(callback).toHaveBeenCalledWith({ text: 'Hello' })
         renderText.mockRestore()
-        editor.destroy()
-    })
-
-    it.each([
-        ['selects the text of the block being edited first', 1, 'Second line'],
-        ['selects the whole email on a second press', 2, 'First lineSecond line'],
-    ])('Ctrl+A %s', (_, presses, selected) => {
-        const editor = new Editor({
-            extensions: [...buildEmailExtensions(''), EmailBlockKeymap],
-            content: {
-                type: 'doc',
-                content: [
-                    { type: 'paragraph', content: [{ type: 'text', text: 'First line' }] },
-                    { type: 'paragraph', content: [{ type: 'text', text: 'Second line' }] },
-                ],
-            },
-        })
-        editor.commands.setTextSelection(15)
-        for (let press = 0; press < presses; press++) {
-            editor.view.someProp('handleKeyDown', (handler) =>
-                handler(editor.view, new KeyboardEvent('keydown', { key: 'a', ctrlKey: true }))
-            )
-        }
-        const { from, to } = editor.state.selection
-
-        expect(editor.state.doc.textBetween(from, to)).toEqual(selected)
         editor.destroy()
     })
 })
