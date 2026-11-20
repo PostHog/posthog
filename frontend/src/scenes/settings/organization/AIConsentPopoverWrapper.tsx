@@ -6,7 +6,7 @@ import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { AI_DATA_PROCESSING_LOCKED_REASON, aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { AIAccessRequest } from './AIAccessRequest'
 import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
@@ -72,6 +72,22 @@ function AIAccessRequestPopoverContent(): JSX.Element {
     )
 }
 
+function AIDataProcessingLockedPopoverContent({ onDismiss }: { onDismiss: () => void }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2 m-1.5 max-w-prose">
+            <p className="flex items-start gap-1.5 font-medium text-pretty">
+                <IconLock className="shrink-0 mt-0.5" />
+                <span>{AI_DATA_PROCESSING_LOCKED_REASON}</span>
+            </p>
+            <div className="flex self-end">
+                <LemonButton data-attr="ai-consent-locked-dismiss" type="secondary" size="xsmall" onClick={onDismiss}>
+                    Close
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 export function AIConsentPopoverWrapper({
     hidden,
     children,
@@ -104,8 +120,12 @@ export function AIConsentPopoverWrapper({
     pendingRedirectUrl?: string
 }): JSX.Element {
     const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
-    const { dataProcessingApprovalDisabledReason, dataProcessingAccepted, dataProcessingDismissed } =
-        useValues(aiConsentLogic)
+    const {
+        dataProcessingApprovalDisabledReason,
+        dataProcessingAccepted,
+        dataProcessingDismissed,
+        dataProcessingLocked,
+    } = useValues(aiConsentLogic)
     const { dismissDataProcessing, setPendingApprovalRedirect } = useActions(aiConsentLogic)
     const { isAdminOrOwner, currentOrganization } = useValues(organizationLogic)
 
@@ -119,7 +139,9 @@ export function AIConsentPopoverWrapper({
     return (
         <Popover
             overlay={
-                isAdminOrOwner ? (
+                dataProcessingLocked ? (
+                    <AIDataProcessingLockedPopoverContent onDismiss={handleDismiss} />
+                ) : isAdminOrOwner ? (
                     <AIConsentPopoverContent
                         approvalDisabledReason={dataProcessingApprovalDisabledReason}
                         hideTrainingDisclaimer={hideTrainingDisclaimer}

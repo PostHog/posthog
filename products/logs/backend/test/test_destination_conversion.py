@@ -23,7 +23,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG
+from products.logs.backend.platform_ownership import NATIVE_CREATE_FLAG
 from products.logs.backend.test.hog_function_destinations import add_hog_function_destination
 
 SLACK = {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"}
@@ -100,15 +100,19 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
                 team_id=self.team.id, public_id=UUID(alert_id), destination_ids=[row.id], hog_function_ids=()
             )
 
+        rows_before = [r.id for r in self._rows(alert_id)]
+
         dry_run = self._run()
 
-        assert "dry_run" in dry_run
+        assert f"{{'{'kept_row' if has_row else 'converted'}': 1}}" in dry_run
         assert self._live(hog_function_ids) == 4
-        assert len(self._rows(alert_id)) == (1 if has_row else 0)
+        assert len(rows_before) == (1 if has_row else 0)
 
         self._run("--apply")
 
         (row,) = self._rows(alert_id)
+        if has_row:
+            assert [row.id] == rows_before
         assert sorted(map(str, row.legacy_hog_function_ids)) == sorted(hog_function_ids)
         assert set(row.event_kinds) == {
             AlertEventKind.FIRING,

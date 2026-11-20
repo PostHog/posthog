@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from functools import cached_property, partial
-from typing import Any, Literal, cast
+from typing import Any, Literal, NoReturn, cast
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -76,7 +76,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubInstallationUnavailableError, GitHubIntegration, GitHubIntegrationError
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request, is_sandbox_origin_request
@@ -99,6 +99,8 @@ from products.signals.backend.artefact_schemas import (
     DISMISSAL_REASON_WRONG_ASSIGNEE,
     DISMISSAL_REASON_WRONG_REPO,
     FIXED_DISMISSAL_REASONS,
+    MAX_REPORT_LINK_REASON_LENGTH,
+    MAX_REPORT_LINKS_PER_WRITE,
     NON_WRITABLE_ARTEFACT_TYPES,
     ArtefactContentValidationError,
     ChannelAssignment,
@@ -175,6 +177,13 @@ from products.signals.backend.personal_ranking.list_sort import (
     personal_ranking_status,
 )
 from products.signals.backend.personal_ranking.serve import serve_personal_ranking, start_inbox_load_build
+from products.signals.backend.plan_edits import (
+    PlanEditConflict,
+    add_plan_step,
+    plan_step_ids,
+    remove_plan_step,
+    set_step_dependencies,
+)
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.spend import ReportSpendSerializer
@@ -209,6 +218,7 @@ from products.signals.backend.report_claims import (
 )
 from products.signals.backend.report_content_gates import (
     organization_inbox_cached_filters_enabled,
+    organization_inbox_card_links_enabled,
     organization_inbox_sort_cache_enabled,
     organization_report_monitoring_enabled,
 )
@@ -226,6 +236,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_link_summary import ReportLinkSummary, link_summaries
 from products.signals.backend.report_merge import (
     MAX_MERGE_REASON_LENGTH,
     MAX_MERGE_SOURCE_REPORTS,
@@ -241,7 +252,13 @@ from products.signals.backend.report_metric_refresh import (
 )
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 from products.signals.backend.report_monitoring_attempts import complete_implementation, verifying_attempt
-from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
+from products.signals.backend.report_monitoring_summary import (
+    MONITORING_RECENT_WINDOW,
+    ReportMonitoringOutcome,
+    ReportMonitoringSummary,
+    monitoring_outcomes,
+    monitoring_summaries,
+)
 from products.signals.backend.report_note_mentions import (
     note_text,
     parse_note_mentions,
@@ -317,6 +334,7 @@ from products.signals.backend.serializers import (
     AlertPatternPreviewRequestSerializer,
     AlertPatternPreviewResponseSerializer,
     CommitDiffResponseSerializer,
+    GitHubInstallationUnavailableErrorSerializer,
     GitHubRepositoryInaccessibleErrorSerializer,
     PersonalRankingQuerySerializer,
     PersonalRankingSerializer,
@@ -425,6 +443,7 @@ from products.signals.backend.throttles import (
     SourceFilterPreviewBurstThrottle,
     SourceFilterPreviewSustainedThrottle,
     UserReportCreateBurstThrottle,
+    report_task_run_throttled,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
 from products.signals.backend.trial.policy import TrialPolicy
@@ -461,6 +480,21 @@ def github_repository_inaccessible_response(team_id: int, repository: str) -> Re
             }
         ).data,
         status=status.HTTP_404_NOT_FOUND,
+    )
+
+
+def github_installation_unavailable_response(team_id: int) -> Response:
+    return Response(
+        GitHubInstallationUnavailableErrorSerializer(
+            {
+                "code": "github_installation_unavailable",
+                "error": (
+                    "PostHog's GitHub connection is suspended or was uninstalled. A project admin must reconnect GitHub."
+                ),
+                "remediation_url": f"/project/{team_id}/settings/project-integrations",
+            }
+        ).data,
+        status=status.HTTP_403_FORBIDDEN,
     )
 
 
@@ -1381,6 +1415,70 @@ class SignalReportMergeResponseSerializer(serializers.Serializer):
     )
 
 
+_PLAN_STEP_REASON_HELP = (
+    "Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. "
+    f"Capped at {MAX_REPORT_LINK_REASON_LENGTH} characters."
+)
+
+
+class SignalReportPlanStepAddRequestSerializer(serializers.Serializer):
+    report_id = serializers.UUIDField(
+        help_text=(
+            "Id of the report to add as a step of this plan. It must be a live report in this project that is not "
+            "already a step of a plan. The report itself is unchanged."
+        )
+    )
+    depends_on = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=MAX_REPORT_LINKS_PER_WRITE,
+        help_text=(
+            "Ids of steps already in this plan that the new step builds on. Omit when it builds on none. "
+            f"At most {MAX_REPORT_LINKS_PER_WRITE}."
+        ),
+    )
+    reason = serializers.CharField(
+        required=False, allow_blank=True, max_length=MAX_REPORT_LINK_REASON_LENGTH, help_text=_PLAN_STEP_REASON_HELP
+    )
+
+
+class SignalReportPlanStepRemoveQuerySerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        required=False, allow_blank=True, max_length=MAX_REPORT_LINK_REASON_LENGTH, help_text=_PLAN_STEP_REASON_HELP
+    )
+
+
+class SignalReportPlanStepDependenciesRequestSerializer(serializers.Serializer):
+    depends_on = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=True,
+        max_length=MAX_REPORT_LINKS_PER_WRITE,
+        help_text=(
+            "Ids of the other steps of this plan that this step builds on, replacing the current set. Pass an empty "
+            f"list for a step that builds on none. At most {MAX_REPORT_LINKS_PER_WRITE}."
+        ),
+    )
+    reason = serializers.CharField(
+        required=False, allow_blank=True, max_length=MAX_REPORT_LINK_REASON_LENGTH, help_text=_PLAN_STEP_REASON_HELP
+    )
+
+
+_PLAN_STEP_ID_PARAMETER = OpenApiParameter(
+    "step_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="Id of a report that is a step of this plan."
+)
+
+_PLAN_EDIT_ERROR_RESPONSES = {
+    400: OpenApiResponse(
+        description=(
+            "The edit breaks a link rule: the step is the plan itself or a report not found in this project, a "
+            "`depends_on` id is not another step of this plan, or a link would close a cycle. `error` names the rule."
+        )
+    ),
+    404: OpenApiResponse(description="The plan report was not found in this project."),
+}
+
+
 # The thumbs rating at the end of the report body carries an optional note, capped in the UI at the
 # same length as the dismissal note.
 SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
@@ -1889,10 +1987,11 @@ _REPORT_LIST_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         required=False,
         description=(
-            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, "
-            "closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
+            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, monitoring_recent, "
+            "resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
             "actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being "
-            "verified after implementation. for_you holds the open, actionable reports that "
+            "verified after implementation. monitoring_recent adds the resolved and closed reports whose Monitoring "
+            "ended in the last 14 days, each with its `monitoring_outcome` and the final state of every check. for_you holds the open, actionable reports that "
             "wait for the requesting user's input, that they claimed, or that name them as a suggested "
             "reviewer. needs_decision also includes failed reports without a judgment. "
             "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
@@ -2050,6 +2149,17 @@ _REPORT_LIST_PARAMETERS = [
             "the user's personal ranking."
         ),
     ),
+    OpenApiParameter(
+        name="connected",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Comma-separated ways the requesting user is connected to a report; a report matching any of them is "
+            "kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. "
+            "'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me."
+        ),
+    ),
 ]
 # Section counts set the status and the implementation PR condition themselves, so they reject these.
 _SECTION_DEFINING_PARAMETERS = frozenset({"status", "has_implementation_pr", "include_all_statuses", "view"})
@@ -2126,6 +2236,7 @@ class SignalReportViewSet(
             "needs_input",
             "needs_decision",
             "monitoring",
+            "monitoring_recent",
             "resolved",
             "closed",
             "dismissed",
@@ -2134,6 +2245,8 @@ class SignalReportViewSet(
             "all",
         }
     )
+    # pinned: values of the `connected` list query param, a public API contract.
+    _REPORT_CONNECTIONS = ("assigned", "suggested_reviewer")
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
         "is_suggested_reviewer": "is_suggested_reviewer",
@@ -2385,6 +2498,7 @@ class SignalReportViewSet(
             qs = self._annotate_channel_id(qs)
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_listed_filter(qs)
+        qs = self._apply_signal_report_plan_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_created_at_filters(qs)
         unread = self.request.query_params.get("unread")
@@ -2412,6 +2526,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_inbox_scope_filter(qs)
+        qs = self._apply_signal_report_connected_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
         qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._apply_signal_report_already_addressed_filter(qs)
@@ -2540,6 +2655,10 @@ class SignalReportViewSet(
         return organization_report_monitoring_enabled(self.organization.id)
 
     @cached_property
+    def _inbox_card_links_enabled(self) -> bool:
+        return organization_inbox_card_links_enabled(self.organization.id)
+
+    @cached_property
     def _inbox_cached_filters(self) -> bool:
         # Reads the cached report columns instead of the per-report authorship and PR-link
         # subqueries. Behind a flag until the daily reconcile shows no drift.
@@ -2589,6 +2708,8 @@ class SignalReportViewSet(
             # A search that misses a dismissed report invites the duplicate the dismissal was about.
             or self.action == "search"
             or self._include_all_statuses_requested()
+            # `plan.steps` shows archived steps too, and the plan filter lists the same steps.
+            or self._plan_step_order is not None
             or self.request.query_params.get("view") in {"dismissed", "held_back", "all"}
         ):
             return filterable_statuses
@@ -2619,9 +2740,28 @@ class SignalReportViewSet(
         if (
             self.action not in {"list", "section_counts", "search"}
             or self._bool_query_param("include_unlisted") is True
+            or self._plan_step_order is not None
         ):
             return queryset
         return queryset.filter(inbox_hidden_report_filter(self.team_id))
+
+    @cached_property
+    def _plan_step_order(self) -> list[str] | None:
+        """The step ids of the `plan` list filter, in plan order. None when the filter is not set."""
+        raw = self.request.query_params.get("plan")
+        if self.action != "list" or not raw:
+            return None
+        try:
+            plan_id = str(uuid.UUID(raw.strip()))
+        except ValueError:
+            raise serializers.ValidationError({"plan": "Use a report id."})
+        return plan_step_ids(team_id=self.team_id, plan_id=plan_id)
+
+    def _apply_signal_report_plan_filter(self, queryset):
+        step_ids = self._plan_step_order
+        if step_ids is None:
+            return queryset
+        return queryset.filter(id__in=step_ids)
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
@@ -2804,6 +2944,9 @@ class SignalReportViewSet(
         return self._filter_signal_reports_by_suggested_reviewers(queryset, reviewer_user_uuids)
 
     def _filter_signal_reports_by_suggested_reviewers(self, queryset, reviewer_user_uuids: list[str]):
+        return queryset.filter(self._suggested_reviewer_condition(reviewer_user_uuids))
+
+    def _suggested_reviewer_condition(self, reviewer_user_uuids: list[str]) -> Q:
         try:
             reviewer_user_uuids = [str(uuid.UUID(user_uuid)) for user_uuid in reviewer_user_uuids]
         except (ValueError, AttributeError) as e:
@@ -2816,8 +2959,8 @@ class SignalReportViewSet(
             get_org_member_github_logins_by_user_uuid(self.team.id, reviewer_user_uuids).values()
         )
         if not reviewer_user_uuids and not reviewer_github_logins:
-            return queryset.none()
-        return queryset.filter(
+            return Q(pk__in=[])
+        return Q(
             id__in=report_ids_naming_reviewers(
                 team_id=self.team.id,
                 user_uuids=reviewer_user_uuids,
@@ -2825,6 +2968,25 @@ class SignalReportViewSet(
                 logins_match_unidentified_only=True,
             )
         )
+
+    def _apply_signal_report_connected_filter(self, queryset):
+        raw = self.request.query_params.get("connected")
+        if raw is None or not raw.strip():
+            return queryset
+        connections = {value.strip() for value in raw.split(",") if value.strip()}
+        invalid = connections - set(self._REPORT_CONNECTIONS)
+        if invalid:
+            allowed = ", ".join(self._REPORT_CONNECTIONS)
+            raise serializers.ValidationError(
+                {"connected": f"Invalid value(s): {', '.join(sorted(invalid))}. Allowed: {allowed}."}
+            )
+        user = cast(User, self.request.user)
+        condition = Q(pk__in=[])
+        if "assigned" in connections:
+            condition |= reports_claimed_for_user(team_id=self.team_id, user_id=user.id)
+        if "suggested_reviewer" in connections:
+            condition |= self._suggested_reviewer_condition([str(user.uuid)])
+        return queryset.filter(condition)
 
     def _apply_signal_report_inbox_scope_filter(self, queryset):
         scope = self.request.query_params.get("scope")
@@ -2968,6 +3130,16 @@ class SignalReportViewSet(
             if not self._report_monitoring_enabled:
                 return queryset.none()
             return queryset.filter(status=SignalReport.Status.MONITORING)
+        if inbox_view == "monitoring_recent":
+            if not self._report_monitoring_enabled:
+                return queryset.none()
+            return queryset.filter(
+                Q(status=SignalReport.Status.MONITORING)
+                | Q(
+                    status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED],
+                    monitoring_ended_at__gte=timezone.now() - MONITORING_RECENT_WINDOW,
+                )
+            )
         if inbox_view == "resolved":
             return queryset.filter(status__in=self._resolved_read_statuses())
         if inbox_view == "closed":
@@ -3299,6 +3471,17 @@ class SignalReportViewSet(
             clauses = [*clauses, "id"]
         ranking_annotations = {self._SIGNAL_REPORT_ORDERING_FIELDS[field] for field in self._RANKING_ORDERING_HEADS}
         order_by: list[str | OrderBy] = []
+        plan_step_order = self._plan_step_order
+        if plan_step_order is not None:
+            queryset = queryset.annotate(
+                plan_step_rank=Func(
+                    Value(plan_step_order, output_field=ArrayField(UUIDField())),
+                    F("id"),
+                    function="array_position",
+                    output_field=IntegerField(),
+                )
+            )
+            order_by.append(F("plan_step_rank").asc(nulls_last=True))
         personal_order = self._personal_order
         if personal_order is not None:
             queryset = queryset.annotate(
@@ -3402,6 +3585,11 @@ class SignalReportViewSet(
         if self.action == "create":
             return [UserReportCreateBurstThrottle()]
         return super().get_throttles()
+
+    def throttled(self, request: Request, wait: float) -> NoReturn:
+        if (error := report_task_run_throttled(request, wait)) is not None:
+            raise error
+        super().throttled(request, wait)
 
     def _user_report_create_enabled(self, user: User) -> bool:
         # Fails closed: a flag-service error must not open report filing to a member who is not opted in.
@@ -3920,14 +4108,34 @@ class SignalReportViewSet(
                 )
         claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         monitoring_summaries_map: dict[str, ReportMonitoringSummary] = {}
+        monitoring_outcomes_map: dict[str, ReportMonitoringOutcome] = {}
         if self._report_monitoring_enabled:
+            now = timezone.now()
             with tracer.start_as_current_span("signals.reports.list.fetch_monitoring_summaries"):
                 monitoring_summaries_map = monitoring_summaries(
                     reports,
                     team_id=self.team_id,
-                    now=timezone.now(),
+                    now=now,
                     may_read_values=ReportMetricAccessPolicy(request=self.request, team=self.team).may_read_snapshot,
+                    ended_since=(
+                        now - MONITORING_RECENT_WINDOW
+                        if self.request.query_params.get("view") == "monitoring_recent"
+                        else None
+                    ),
                 )
+                monitoring_outcomes_map = monitoring_outcomes(reports, team_id=self.team_id)
+        link_summaries_map: dict[str, ReportLinkSummary] = {}
+        if self._inbox_card_links_enabled:
+            # The strips are decorative, so a failed read renders the rows without them.
+            with tracer.start_as_current_span("signals.reports.list.fetch_link_summaries"):
+                try:
+                    link_summaries_map = link_summaries(
+                        team_id=self.team_id,
+                        report_ids=report_ids,
+                        monitoring_enabled=self._report_monitoring_enabled,
+                    )
+                except Exception:
+                    logger.exception("signals.reports.list.link_summaries_failed", report_count=len(report_ids))
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -3938,6 +4146,8 @@ class SignalReportViewSet(
             ),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "monitoring_summaries_map": monitoring_summaries_map,
+            "monitoring_outcomes_map": monitoring_outcomes_map,
+            "link_summaries_map": link_summaries_map,
             "ranked_inbox_sort": self._ranked_inbox_sort,
             "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
@@ -4305,6 +4515,170 @@ class SignalReportViewSet(
                 {"report": survivor, "sources": result.sources},
                 context=self._enriched_report_context(survivor),
             ).data
+        )
+
+    def _plan_edit_response(
+        self,
+        request: ValidatedRequest,
+        plan: SignalReport,
+        *,
+        edit: Literal["add_step", "remove_step", "set_dependencies"],
+        step_id: str,
+        attribution: ArtefactAttribution,
+        dependency_count: int | None = None,
+    ) -> Response:
+        report_user_action(
+            request.user,
+            "signals_report_plan_edited",
+            properties={
+                "team_id": self.team.id,
+                "organization_id": str(self.organization.id),
+                "report_id": str(plan.id),
+                "step_report_id": step_id,
+                "edit": edit,
+                "dependency_count": dependency_count,
+                "actor_kind": attribution.kind,
+                "task_id": attribution.task_id,
+                "surface": "mcp" if is_mcp_request(request) else "api",
+            },
+            team=self.team,
+            organization=self.organization,
+            request=request,
+        )
+        plan.refresh_from_db()
+        return Response(SignalReportSerializer(plan, context=self._enriched_report_context(plan)).data)
+
+    @validated_request(
+        request_serializer=SignalReportPlanStepAddRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportSerializer, description="The plan report, with the new step in `plan.steps`."
+            ),
+            **_PLAN_EDIT_ERROR_RESPONSES,
+            409: OpenApiResponse(description="The report is already a step of this plan or of another plan."),
+        },
+        summary="Add a step to this plan",
+        description=(
+            "Link an existing report to this report as a plan step, with `part_of`. A report becomes a plan when it "
+            "gets its first step. The step goes last in plan order. When the step is already resolved or archived "
+            "and every other step is too, the plan closes the same way a plan closes when its last step does."
+        ),
+        operation_id="signals_reports_plan_steps_create",
+    )
+    @action(detail=True, methods=["post"], url_path="plan_steps", required_scopes=["inbox:write"])
+    def plan_steps(self, request: ValidatedRequest, pk=None, **kwargs) -> Response:
+        plan = cast(SignalReport, self.get_object())
+        data = request.validated_data
+        attribution = resolve_request_attribution(request, self.team.id)
+        step_id = str(data["report_id"])
+        depends_on = [str(report_id) for report_id in data["depends_on"]]
+        try:
+            add_plan_step(
+                team_id=self.team.id,
+                plan_id=str(plan.id),
+                step_id=step_id,
+                depends_on=depends_on,
+                reason=(data.get("reason") or "").strip() or None,
+                attribution=attribution,
+            )
+        except ArtefactContentValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except PlanEditConflict as e:
+            return Response({"error": e.detail}, status=status.HTTP_409_CONFLICT)
+        return self._plan_edit_response(
+            request, plan, edit="add_step", step_id=step_id, attribution=attribution, dependency_count=len(depends_on)
+        )
+
+    @validated_request(
+        query_serializer=SignalReportPlanStepRemoveQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportSerializer, description="The plan report, without the step in `plan.steps`."
+            ),
+            **_PLAN_EDIT_ERROR_RESPONSES,
+            409: OpenApiResponse(description="The report is not a step of this plan."),
+        },
+        summary="Remove a step from this plan",
+        description=(
+            "Remove the step's `part_of` link to this plan, and every `depends_on` link between the step and the "
+            "plan's other steps. The step report keeps its status, pull requests and claim. A note on the step and "
+            "on the plan records the removal. When every step left is resolved or archived, the plan closes."
+        ),
+        parameters=[_PLAN_STEP_ID_PARAMETER],
+        operation_id="signals_reports_plan_steps_destroy",
+    )
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"plan_steps/(?P<step_id>[0-9a-fA-F-]+)",
+        required_scopes=["inbox:write"],
+    )
+    def plan_step(self, request: ValidatedRequest, pk=None, step_id: str = "", **kwargs) -> Response:
+        plan = cast(SignalReport, self.get_object())
+        attribution = resolve_request_attribution(request, self.team.id)
+        try:
+            remove_plan_step(
+                team_id=self.team.id,
+                plan_id=str(plan.id),
+                step_id=step_id,
+                reason=(request.validated_query_data.get("reason") or "").strip() or None,
+                attribution=attribution,
+            )
+        except ArtefactContentValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except PlanEditConflict as e:
+            return Response({"error": e.detail}, status=status.HTTP_409_CONFLICT)
+        return self._plan_edit_response(request, plan, edit="remove_step", step_id=step_id, attribution=attribution)
+
+    @validated_request(
+        request_serializer=SignalReportPlanStepDependenciesRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalReportSerializer,
+                description="The plan report, with the step's new `depends_on` in `plan.steps`.",
+            ),
+            **_PLAN_EDIT_ERROR_RESPONSES,
+            409: OpenApiResponse(description="The report is not a step of this plan."),
+        },
+        summary="Replace what a plan step builds on",
+        description=(
+            "Replace the step's `depends_on` links to the other steps of this plan with the given set. The "
+            "step's links to reports outside the plan are unchanged. A note on the step records removed links."
+        ),
+        parameters=[_PLAN_STEP_ID_PARAMETER],
+        operation_id="signals_reports_plan_steps_depends_on_update",
+    )
+    @action(
+        detail=True,
+        methods=["put"],
+        url_path=r"plan_steps/(?P<step_id>[0-9a-fA-F-]+)/depends_on",
+        required_scopes=["inbox:write"],
+    )
+    def plan_step_depends_on(self, request: ValidatedRequest, pk=None, step_id: str = "", **kwargs) -> Response:
+        plan = cast(SignalReport, self.get_object())
+        data = request.validated_data
+        attribution = resolve_request_attribution(request, self.team.id)
+        depends_on = [str(report_id) for report_id in data["depends_on"]]
+        try:
+            set_step_dependencies(
+                team_id=self.team.id,
+                plan_id=str(plan.id),
+                step_id=step_id,
+                depends_on=depends_on,
+                reason=(data.get("reason") or "").strip() or None,
+                attribution=attribution,
+            )
+        except ArtefactContentValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except PlanEditConflict as e:
+            return Response({"error": e.detail}, status=status.HTTP_409_CONFLICT)
+        return self._plan_edit_response(
+            request,
+            plan,
+            edit="set_dependencies",
+            step_id=step_id,
+            attribution=attribution,
+            dependency_count=len(depends_on),
         )
 
     @staticmethod
@@ -5794,7 +6168,11 @@ class SignalReportViewSet(
             ),
             403: OpenApiResponse(
                 response=PullRequestChecksPermissionErrorSerializer,
-                description="GitHub is connected without permission to read pull request checks.",
+                description=(
+                    "GitHub is connected without permission to read pull request checks (code "
+                    "`github_checks_permission_missing`), or the GitHub App installation is suspended or "
+                    "uninstalled (code `github_installation_unavailable`). Both carry a `remediation_url`."
+                ),
             ),
             502: OpenApiResponse(description="GitHub could not return the checks."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -5905,6 +6283,10 @@ class SignalReportViewSet(
                     "Report has no implementation PR, or no GitHub integration can access it "
                     "(code `github_repository_inaccessible`, with a `remediation_url`)."
                 )
+            ),
+            403: OpenApiResponse(
+                response=GitHubInstallationUnavailableErrorSerializer,
+                description="The GitHub App installation is suspended or uninstalled (code `github_installation_unavailable`).",
             ),
             502: OpenApiResponse(description="GitHub could not return the comments."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -6321,6 +6703,8 @@ class SignalReportViewSet(
             )
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
             logger.warning(f"signals pr {noun} fetch errored", repository=repository, pr_number=pr_number)
+            if github.installation_unavailable():
+                return github_installation_unavailable_response(self.team.id)
             return Response(
                 {"error": f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -6346,6 +6730,8 @@ class SignalReportViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
         if not result.get("success"):
+            if github.installation_unavailable():
+                return github_installation_unavailable_response(self.team.id)
             return Response(
                 {"error": result.get("error") or f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -6387,6 +6773,19 @@ class SignalReportViewSet(
             )
         except GitHubRateLimitError as e:
             return None, repository, pr_number, github_rate_limited_response(e)
+        except GitHubInstallationUnavailableError:
+            return None, repository, pr_number, github_installation_unavailable_response(self.team.id)
+        except GitHubIntegrationError:
+            logger.warning("signals pr github lookup errored", repository=repository, pr_number=pr_number)
+            return (
+                None,
+                repository,
+                pr_number,
+                Response(
+                    {"error": "GitHub could not return this pull request."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                ),
+            )
         except GitHubEgressBudgetExhausted:
             return (
                 None,
@@ -7855,6 +8254,10 @@ class SignalReportArtefactViewSet(
                     "(code `github_repository_inaccessible`, with a `remediation_url`)."
                 )
             ),
+            403: OpenApiResponse(
+                response=GitHubInstallationUnavailableErrorSerializer,
+                description="The GitHub App installation is suspended or uninstalled (code `github_installation_unavailable`).",
+            ),
             502: OpenApiResponse(description="GitHub could not produce the diff (branch not found, fetch failed)."),
         },
         summary="Fetch the diff for a commit artefact",
@@ -7900,6 +8303,14 @@ class SignalReportArtefactViewSet(
             )
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
+        except GitHubInstallationUnavailableError:
+            return github_installation_unavailable_response(self.team.id)
+        except GitHubIntegrationError:
+            logger.warning("signals diff github lookup errored", repository=repository, branch=branch)
+            return Response(
+                {"error": "GitHub could not produce the diff. Try again shortly."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         if github is None:
             return github_repository_inaccessible_response(self.team.id, str(repository))
         try:

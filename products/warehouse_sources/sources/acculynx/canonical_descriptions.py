@@ -167,6 +167,48 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "appliedAmount": "Amount applied to the job.",
         },
     },
+    "supplement_notations": {
+        "description": "Notes recorded on each supplement, with who was contacted, the supplement status, and the author.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getfinancialssupplementnotationcollection",
+        "columns": {
+            "id": "Unique notation identifier.",
+            "supplement_id": "Identifier of the supplement whose notations were requested.",
+            "status": "Reference to the supplement status recorded with the notation.",
+            "spokeWith": "Person contacted for the notation.",
+            "notes": "Text of the notation.",
+            "createdBy": "User who created the notation.",
+            "createdDate": "Date and time the notation was created.",
+            "emailRecipients": "Users who received the notation by email.",
+        },
+    },
+    "job_insurance": {
+        "description": "Insurance claim details for each job, with the insurance company, date of loss, and claim number.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getinsuranceforjob",
+        "columns": {
+            "job_id": "Identifier of the job whose insurance was requested.",
+            "insuranceCompany": "Insurance company from the list managed in account settings.",
+            "customInsuranceCompanyName": "Insurance company name when it is not in the managed list.",
+            "dateOfLoss": "Date the damage occurred, in UTC.",
+            "claimFiled": "Whether the claim has been filed.",
+            "claimFiledDate": "Date the claim was filed, in UTC.",
+            "claimNumber": "Claim identifier given by the insurance company.",
+            "hasPaperwork": "Whether the paperwork for the job is collected.",
+        },
+    },
+    "insurance_companies": {
+        "description": "Insurance companies defined for the connected location.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getinsurancecompanies",
+        "columns": {
+            "id": "Unique insurance company identifier.",
+            "name": "Insurance company name.",
+            "isActive": "Whether the insurance company is active.",
+        },
+    },
+    "workflow_milestones": {
+        "description": "Job workflow milestones defined for the company.",
+        "docs_url": "https://apidocs.acculynx.com/reference/getmilestones",
+        "columns": {"id": "Unique milestone identifier.", "name": "Milestone name."},
+    },
     "calendars": {
         "description": "Calendars available for the connected AccuLynx location.",
         "docs_url": "https://apidocs.acculynx.com/reference/getcalendars",

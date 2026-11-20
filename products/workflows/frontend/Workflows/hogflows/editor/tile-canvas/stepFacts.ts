@@ -1,5 +1,8 @@
+import { EmailPreviewPerson, renderEmailPreviewText } from 'scenes/hog-functions/email-templater/preview/emailPreview'
+
 import type { HogFlow, HogFlowAction } from '../../types'
 import { isBranchingAction } from '../../workflowBranches'
+import { renderWithinBudget } from './canvasRenderBudget'
 import { StepPresentation, stepPresentation, TimeWindowPresentation, WaitPresentation } from './stepPresentation'
 import {
     ActionOf,
@@ -19,6 +22,9 @@ import { outgoingEdges, pathActions, PathGroup } from './tileCanvasModel'
 
 type Field = [label: string, value: string]
 
+/** The person email steps render as, or nothing to show their tags as plain words. */
+type PreviewPersonInput = EmailPreviewPerson | null | undefined
+
 export interface StepFacts {
     headline: string
     detail?: string
@@ -29,13 +35,18 @@ type PresentationOf<Kind extends StepPresentation['kind']> = Extract<StepPresent
 
 const fieldIf = (label: string, value: string | undefined): Field[] => (value ? [[label, value]] : [])
 
-function emailFacts(email: EmailContent, action: HogFlowAction): StepFacts {
+function emailFacts(email: EmailContent, action: HogFlowAction, person: PreviewPersonInput): StepFacts {
+    const text = (template: string): string =>
+        (person && email.liquid ? renderWithinBudget(() => renderEmailPreviewText(template, person)) : null) ??
+        plainVariables(template)
+    const subject = text(email.subject)
     const isTransactional =
         (action.type === 'function_email' || action.type === 'email_sandbox') &&
         action.config.message_category_type === 'transactional'
-    const preheader = email.preheader && plainVariables(email.preheader)
+    const preheader = email.preheader && text(email.preheader)
     return {
-        headline: plainVariables(email.subject),
+        // A subject whose logic no person has resolved reads as code, so the step's own name stands in.
+        headline: subject.trim() && !subject.includes('{%') ? subject : action.name || 'Email',
         detail: preheader,
         fields: [
             ['Preview', preheader ?? 'None'],
@@ -212,11 +223,12 @@ function otherStepFacts(action: HogFlowAction, templateName: string | undefined)
 function presentationFacts(
     presentation: StepPresentation,
     action: HogFlowAction,
-    templateName: string | undefined
+    templateName: string | undefined,
+    person: PreviewPersonInput
 ): StepFacts {
     switch (presentation.kind) {
         case 'email':
-            return emailFacts(presentation.email, action)
+            return emailFacts(presentation.email, action, person)
         case 'slack':
             return slackFacts(presentation)
         case 'webhook':
@@ -304,7 +316,7 @@ function triggerFacts(trigger: TriggerConfig, templateName: string | undefined):
             }
         case 'api':
             return {
-                headline: 'Transactional email',
+                headline: 'Transactional message',
                 detail: 'Starts each time the send endpoint is called',
                 fields: [['Starts on', 'A send API call']],
             }
@@ -349,7 +361,8 @@ function factsOf(
     workflow: Pick<HogFlow, 'exit_condition'>,
     action: HogFlowAction,
     presentation: StepPresentation,
-    templateName: string | undefined
+    templateName: string | undefined,
+    person: PreviewPersonInput
 ): StepFacts {
     switch (action.type) {
         case 'trigger':
@@ -357,7 +370,7 @@ function factsOf(
         case 'exit':
             return exitFacts(workflow, action)
         default:
-            return presentationFacts(presentation, action, templateName)
+            return presentationFacts(presentation, action, templateName, person)
     }
 }
 
@@ -433,10 +446,11 @@ const sameInputs = (a: unknown[], b: unknown[]): boolean =>
 export function stepView(
     workflow: Pick<HogFlow, 'edges' | 'exit_condition' | 'actions'>,
     action: HogFlowAction,
-    templateName?: string
+    templateName?: string,
+    person?: PreviewPersonInput
 ): StepView {
     const pathCount = outgoingEdges(workflow, action.id).length
-    const inputs = [pathCount, action.type === 'exit' ? workflow.exit_condition : undefined, templateName]
+    const inputs = [pathCount, action.type === 'exit' ? workflow.exit_condition : undefined, templateName, person]
     const cached = stepViews.get(action)
     if (cached && sameInputs(cached.inputs, inputs)) {
         return cached.view
@@ -445,15 +459,20 @@ export function stepView(
         action.type === 'trigger' || action.type === 'exit' ? { kind: 'fields' } : stepPresentation(action)
     const view = {
         presentation,
-        facts: factsOf(workflow, action, presentation, templateName),
+        facts: factsOf(workflow, action, presentation, templateName, person),
         badge: badgeOf(action, presentation, pathCount),
     }
     stepViews.set(action, { inputs, view })
     return view
 }
 
-export function stepFacts(workflow: HogFlow, action: HogFlowAction, templateName?: string): StepFacts {
-    return stepView(workflow, action, templateName).facts
+export function stepFacts(
+    workflow: HogFlow,
+    action: HogFlowAction,
+    templateName?: string,
+    person?: PreviewPersonInput
+): StepFacts {
+    return stepView(workflow, action, templateName, person).facts
 }
 
 export function stepBadge(
@@ -474,12 +493,13 @@ function summarizedSteps(actions: HogFlowAction[]): HogFlowAction[] {
 export function pathSummary(
     workflow: HogFlow,
     group: PathGroup,
-    templateNameOf?: (id: string) => string | undefined
+    templateNameOf?: (id: string) => string | undefined,
+    person?: PreviewPersonInput
 ): string {
     return summarizedSteps(pathActions(workflow, group))
         .map((action) => {
             const templateId = templateIdOf(action)
-            return stepFacts(workflow, action, templateId ? templateNameOf?.(templateId) : undefined).headline
+            return stepFacts(workflow, action, templateId ? templateNameOf?.(templateId) : undefined, person).headline
         })
         .join(', then ')
 }

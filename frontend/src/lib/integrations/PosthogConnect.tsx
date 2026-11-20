@@ -1,24 +1,36 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { useMemo, useState } from 'react'
 
 import { IconLogomark, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { Badge, Button, Skeleton } from '@posthog/quill'
 
 import api from 'lib/api'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import {
     API_SCOPES,
     clampToKeyCreationScopes,
+    type APIScope,
     type ScopeAccessLevel,
+    type ScopePickerRow,
     scopeMatchesSearch,
     scopesArrayToObject,
     scopesObjectToArray,
 } from 'lib/scopes'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { IntegrationType } from '~/types'
+
+import { getIntegrationsAuthorizeRetrieveUrl } from 'products/integrations/frontend/generated/api'
+
+import { QuillIntegrationList } from './QuillIntegrationList'
+import { QuillIntegrationRow } from './QuillIntegrationRow'
+import { QuillPosthogConnectDialog } from './QuillPosthogConnectDialog'
 
 type PosthogConnectRegion = 'US' | 'EU'
 
@@ -48,6 +60,7 @@ const SCOPE_PRESETS: { value: string; label: string; scopes: () => string[] }[] 
 
 function PosthogConnectionRow({ integration }: { integration: IntegrationType }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const region = (integration.config?.region as string | undefined) || 'Unknown'
 
     const handleDisconnect = (): void => {
@@ -66,6 +79,36 @@ function PosthogConnectionRow({ integration }: { integration: IntegrationType })
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillIntegrationRow
+                icon={<IconLogomark />}
+                title={integration.display_name || 'PostHog'}
+                badges={<Badge>{`${region} region`}</Badge>}
+                meta={
+                    integration.created_at ? (
+                        <>
+                            Connected <TZLabel time={integration.created_at} className="align-baseline" />
+                        </>
+                    ) : (
+                        'Connected'
+                    )
+                }
+                action={
+                    <Button
+                        variant="destructive-outline"
+                        size="icon"
+                        aria-label="Disconnect this connection"
+                        tooltip="Disconnect this connection"
+                        onClick={handleDisconnect}
+                    >
+                        <IconTrash />
+                    </Button>
+                }
+            />
+        )
     }
 
     return (
@@ -110,6 +153,8 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     const [region, setRegion] = useState<PosthogConnectRegion>('EU')
     const [scopes, setScopes] = useState<string[]>(['task:read', 'task:write', 'inbox:read', 'inbox:write'])
     const [searchTerm, setSearchTerm] = useState<string>('')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { currentTeamId } = useValues(teamLogic)
 
     const scopeActions = useMemo(() => scopesArrayToObject(scopes), [scopes])
 
@@ -128,6 +173,60 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
         [searchTerm]
     )
 
+    const connectDisabledReason = scopes.length === 0 ? 'Select at least one scope' : undefined
+
+    const applyPreset = (value: string | null): void => {
+        const preset = SCOPE_PRESETS.find((p) => p.value === value)
+        if (preset) {
+            setScopes(preset.scopes())
+        }
+    }
+
+    const scopeRow = (scope: APIScope): ScopePickerRow => {
+        const disabledReason = (action: 'read' | 'write'): string | undefined =>
+            scope.disabledActions?.includes(action) ? 'Does not apply to this resource' : undefined
+
+        return {
+            key: scope.key,
+            label: scope.objectName,
+            info: scope.info,
+            value: (scopeActions[scope.key] ?? 'none') as ScopeAccessLevel,
+            disabledReasons: {
+                read: disabledReason('read'),
+                write: disabledReason('write'),
+            },
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillPosthogConnectDialog
+                isOpen={isOpen}
+                onClose={onClose}
+                region={region}
+                regionOptions={REGION_OPTIONS}
+                onRegionChange={setRegion}
+                presetOptions={SCOPE_PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+                onApplyPreset={applyPreset}
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                scopeRows={filteredScopes.map(scopeRow)}
+                onScopeActionChange={setScopeAction}
+                connectDisabledReason={connectDisabledReason}
+                onConnect={() =>
+                    window.location.assign(
+                        combineUrl(getIntegrationsAuthorizeRetrieveUrl(String(currentTeamId)), {
+                            kind: 'posthog',
+                            next: window.location.pathname,
+                            region,
+                            scopes: scopes.join(','),
+                        }).url
+                    )
+                }
+            />
+        )
+    }
+
     return (
         <LemonModal
             isOpen={isOpen}
@@ -144,7 +243,7 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                         extraParams: { region, scopes: scopes.join(',') },
                     })}
                     disableClientSideRouting
-                    disabledReason={scopes.length === 0 ? 'Select at least one scope' : undefined}
+                    disabledReason={connectDisabledReason}
                 >
                     Connect {region}
                 </LemonButton>
@@ -166,12 +265,7 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                             placeholder="Apply a preset"
                             size="small"
                             value={null}
-                            onChange={(value) => {
-                                const preset = SCOPE_PRESETS.find((p) => p.value === value)
-                                if (preset) {
-                                    setScopes(preset.scopes())
-                                }
-                            }}
+                            onChange={applyPreset}
                             options={SCOPE_PRESETS.map((p) => ({ value: p.value, label: p.label }))}
                             dropdownMatchSelectWidth={false}
                         />
@@ -187,28 +281,9 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                         {filteredScopes.length === 0 ? (
                             <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
                         ) : (
-                            filteredScopes.map((scope) => {
-                                const disabledReason = (action: 'read' | 'write'): string | undefined =>
-                                    scope.disabledActions?.includes(action)
-                                        ? 'Does not apply to this resource'
-                                        : undefined
-                                return (
-                                    <ScopeAccessRow
-                                        key={scope.key}
-                                        row={{
-                                            key: scope.key,
-                                            label: scope.objectName,
-                                            info: scope.info,
-                                            value: (scopeActions[scope.key] ?? 'none') as ScopeAccessLevel,
-                                            disabledReasons: {
-                                                read: disabledReason('read'),
-                                                write: disabledReason('write'),
-                                            },
-                                        }}
-                                        onChange={setScopeAction}
-                                    />
-                                )
-                            })
+                            filteredScopes.map((scope) => (
+                                <ScopeAccessRow key={scope.key} row={scopeRow(scope)} onChange={setScopeAction} />
+                            ))
                         )}
                     </div>
                 </div>
@@ -221,9 +296,10 @@ export function PersonalPosthogConnections(): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { user } = useValues(userLogic)
     const [modalOpen, setModalOpen] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (integrationsLoading && !integrations) {
-        return <LemonSkeleton className="h-10" />
+        return todayRailNav ? <Skeleton className="h-10" /> : <LemonSkeleton className="h-10" />
     }
 
     // A connection acts as the user who created it (the forward endpoint is creator-gated), so only
@@ -232,6 +308,34 @@ export function PersonalPosthogConnections(): JSX.Element {
     const connections = (integrations ?? []).filter(
         (i) => (i.kind as string) === 'posthog' && i.created_by?.id === user?.id
     )
+
+    const openModal = (): void => setModalOpen(true)
+
+    const closeModal = (): void => setModalOpen(false)
+
+    if (todayRailNav) {
+        return (
+            <>
+                <QuillIntegrationList
+                    isEmpty={connections.length === 0}
+                    emptyIcon={<IconLogomark />}
+                    emptyTitle="No PostHog projects connected yet"
+                    emptyDescription="Connect another PostHog project to act in it through its API, for example to dispatch tasks that must run there."
+                    footer={
+                        <Button variant="outline" onClick={openModal}>
+                            <IconPlus />
+                            {connections.length === 0 ? 'Connect a PostHog project' : 'Connect another project'}
+                        </Button>
+                    }
+                >
+                    {connections.map((integration) => (
+                        <PosthogConnectionRow key={integration.id} integration={integration} />
+                    ))}
+                </QuillIntegrationList>
+                <ConnectModal isOpen={modalOpen} onClose={closeModal} />
+            </>
+        )
+    }
 
     return (
         <div className="deprecated-space-y-2">
@@ -250,12 +354,12 @@ export function PersonalPosthogConnections(): JSX.Element {
                     ))
                 )}
                 <div className="p-2">
-                    <LemonButton type="secondary" icon={<IconPlus />} onClick={() => setModalOpen(true)}>
+                    <LemonButton type="secondary" icon={<IconPlus />} onClick={openModal}>
                         {connections.length === 0 ? 'Connect a PostHog project' : 'Connect another project'}
                     </LemonButton>
                 </div>
             </div>
-            <ConnectModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
+            <ConnectModal isOpen={modalOpen} onClose={closeModal} />
         </div>
     )
 }

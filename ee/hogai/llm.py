@@ -196,14 +196,6 @@ def _posthog_callback_handlers(callbacks: Callbacks) -> list[CallbackHandler]:
     return [handler for handler in handlers if isinstance(handler, CallbackHandler)]
 
 
-def _is_unbilled_credit_bucket_denial(error: anthropic.APIStatusError) -> bool:
-    if error.status_code != 402:
-        return False
-    if error.request.headers.get("X-PostHog-Billable") != "false":
-        return False
-    return error.response.headers.get("X-PostHog-Denial", "").startswith("credit_bucket_exhausted")
-
-
 def _carries_output(chunk: ChatGenerationChunk) -> bool:
     """Thinking counts: the user sees it stream. An opening metadata chunk does not."""
     return bool(chunk.message.content) or bool(getattr(chunk.message, "tool_call_chunks", None))
@@ -231,8 +223,6 @@ def _ai_gateway_fallback_reason(error: Exception) -> str | None:
             return "server_error"
         if isinstance(error, anthropic.APIStatusError) and _is_provider_billing_block(error):
             return "provider_billing"
-        if isinstance(error, anthropic.APIStatusError) and _is_unbilled_credit_bucket_denial(error):
-            return "credit_bucket"
     return None
 
 

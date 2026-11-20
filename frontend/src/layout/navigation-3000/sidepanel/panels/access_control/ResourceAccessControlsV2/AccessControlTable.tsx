@@ -12,7 +12,7 @@ import { APIScopeObject } from '~/types'
 import { getAccessSummaryTags, getEntryId, isMemberEntry, isRoleEntry } from './helpers'
 import { AccessControlSettingsEntry, AccessControlsTab } from './types'
 
-const MAX_VISIBLE_TAGS = 4
+export const MAX_VISIBLE_TAGS = 4
 
 function getScopeColumnsForTab(activeTab: AccessControlsTab): LemonTableColumns<AccessControlSettingsEntry> {
     switch (activeTab) {

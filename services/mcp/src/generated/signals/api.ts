@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 92 enabled ops
+ * PostHog API - MCP 95 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -252,6 +252,10 @@ export const signalsAnomaliesSearchRetrieveQueryIncludePointsDefault = false
 export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
 export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
 
+export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateDefault = 0.1
+export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMin = 0
+export const signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMax = 1
+
 export const signalsAnomaliesSearchRetrieveQueryOffsetDefault = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMin = 0
 export const signalsAnomaliesSearchRetrieveQueryOffsetMax = 10000
@@ -282,7 +286,7 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .boolean()
         .default(signalsAnomaliesSearchRetrieveQueryIncludePointsDefault)
         .describe(
-            'Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.'
+            'Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 14 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.'
         ),
     insight_id: zod.number().optional().describe('Only the series of this insight, by numeric id.'),
     interval: zod
@@ -297,6 +301,14 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
         .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
         .describe('The most rows to return.'),
+    max_anomaly_rate: zod
+        .number()
+        .min(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMin)
+        .max(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateMax)
+        .default(signalsAnomaliesSearchRetrieveQueryMaxAnomalyRateDefault)
+        .describe(
+            'The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.'
+        ),
     offset: zod
         .number()
         .min(signalsAnomaliesSearchRetrieveQueryOffsetMin)
@@ -315,7 +327,7 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .enum(['unusual', 'recent', 'rate'])
         .default(signalsAnomaliesSearchRetrieveQueryOrderDefault)
         .describe(
-            '`unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
+            '`unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent\n\* `rate` - Rate'
         ),
     search: zod
         .string()
@@ -562,6 +574,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.'
         ),
+    connected: zod
+        .string()
+        .optional()
+        .describe(
+            "Comma-separated ways the requesting user is connected to a report; a report matching any of them is kept. 'assigned': the user claimed it, themselves or through their MCP agents, as with assignee=mine. 'suggested_reviewer': it names the user as a suggested reviewer, as with scope=for_me."
+        ),
     count_only: zod
         .boolean()
         .default(signalsReportsListQueryCountOnlyDefault)
@@ -626,6 +644,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .optional()
         .describe(
             "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_open, ranking_action, ranking_fix. Defaults to '-is_suggested_reviewer,status,-updated_at'. Each ranking_<outcome> field sorts by the served ranking model's probability for that public outcome, with unscored reports last in either direction. Read inbox-ranking-outcomes-list for what each outcome means. The ranking fields need staff or the inbox model sort rollout: other users get a 400."
+        ),
+    plan: zod
+        .string()
+        .optional()
+        .describe(
+            'Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.'
         ),
     priority: zod
         .string()
@@ -727,7 +751,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
+            "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, monitoring_recent, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. monitoring_recent adds the resolved and closed reports whose Monitoring ended in the last 14 days, each with its `monitoring_outcome` and the final state of every check. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which."
         ),
 })
 
@@ -1225,6 +1249,105 @@ export const SignalsReportsMergeCreateBody = () => zod.object({
         .optional()
         .describe(
             "Optional one-line explanation of why these reports are the same issue. Recorded on each source's 'duplicate of' link and on the note left on the survivor. Capped at 500 characters."
+        ),
+})
+
+/**
+ * Link an existing report to this report as a plan step, with `part_of`. A report becomes a plan when it gets its first step. The step goes last in plan order. When the step is already resolved or archived and every other step is too, the plan closes the same way a plan closes when its last step does.
+ * @summary Add a step to this plan
+ */
+export const SignalsReportsPlanStepsCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsPlanStepsCreateBodyDependsOnMax = 10
+
+export const signalsReportsPlanStepsCreateBodyReasonMax = 500
+
+export const SignalsReportsPlanStepsCreateBody = () => zod.object({
+    report_id: zod
+        .string()
+        .describe(
+            'Id of the report to add as a step of this plan. It must be a live report in this project that is not already a step of a plan. The report itself is unchanged.'
+        ),
+    depends_on: zod
+        .array(zod.string())
+        .max(signalsReportsPlanStepsCreateBodyDependsOnMax)
+        .optional()
+        .describe(
+            'Ids of steps already in this plan that the new step builds on. Omit when it builds on none. At most 10.'
+        ),
+    reason: zod
+        .string()
+        .max(signalsReportsPlanStepsCreateBodyReasonMax)
+        .optional()
+        .describe(
+            'Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.'
+        ),
+})
+
+/**
+ * Remove the step's `part_of` link to this plan, and every `depends_on` link between the step and the plan's other steps. The step report keeps its status, pull requests and claim. A note on the step and on the plan records the removal. When every step left is resolved or archived, the plan closes.
+ * @summary Remove a step from this plan
+ */
+export const SignalsReportsPlanStepsDestroyParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    step_id: zod.string().describe('Id of a report that is a step of this plan.'),
+})
+
+export const signalsReportsPlanStepsDestroyQueryReasonMax = 500
+
+export const SignalsReportsPlanStepsDestroyQueryParams = () => zod.object({
+    reason: zod
+        .string()
+        .max(signalsReportsPlanStepsDestroyQueryReasonMax)
+        .optional()
+        .describe(
+            'Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.'
+        ),
+})
+
+/**
+ * Replace the step's `depends_on` links to the other steps of this plan with the given set. The step's links to reports outside the plan are unchanged. A note on the step records removed links.
+ * @summary Replace what a plan step builds on
+ */
+export const SignalsReportsPlanStepsDependsOnUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    step_id: zod.string().describe('Id of a report that is a step of this plan.'),
+})
+
+export const signalsReportsPlanStepsDependsOnUpdateBodyDependsOnMax = 10
+
+export const signalsReportsPlanStepsDependsOnUpdateBodyReasonMax = 500
+
+export const SignalsReportsPlanStepsDependsOnUpdateBody = () => zod.object({
+    depends_on: zod
+        .array(zod.string())
+        .max(signalsReportsPlanStepsDependsOnUpdateBodyDependsOnMax)
+        .describe(
+            'Ids of the other steps of this plan that this step builds on, replacing the current set. Pass an empty list for a step that builds on none. At most 10.'
+        ),
+    reason: zod
+        .string()
+        .max(signalsReportsPlanStepsDependsOnUpdateBodyReasonMax)
+        .optional()
+        .describe(
+            'Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.'
         ),
 })
 
@@ -2256,7 +2379,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
 export const signalsScoutCreateBodyConfigOneWriteScopesMax = 16
 
-export const signalsScoutCreateBodyConfigOneReportActionsMax = 1
+export const signalsScoutCreateBodyConfigOneReportActionsMax = 2
 
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMin = 0
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMax = 20
@@ -2376,7 +2499,7 @@ export const SignalsScoutCreateBody = () => zod
                     .max(signalsScoutCreateBodyConfigOneReportActionsMax)
                     .optional()
                     .describe(
-                        "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                        "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
                     ),
                 max_report_actions_per_day: zod
                     .number()
@@ -2584,7 +2707,7 @@ export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigCreateBodyWriteScopesMax = 16
 
-export const signalsScoutConfigCreateBodyReportActionsMax = 1
+export const signalsScoutConfigCreateBodyReportActionsMax = 2
 
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMax = 20
@@ -2664,7 +2787,7 @@ export const SignalsScoutConfigCreateBody = () => zod
             .max(signalsScoutConfigCreateBodyReportActionsMax)
             .optional()
             .describe(
-                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
             ),
         max_report_actions_per_day: zod
             .number()
@@ -2860,7 +2983,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigUpdateBodyWriteScopesMax = 16
 
-export const signalsScoutConfigUpdateBodyReportActionsMax = 1
+export const signalsScoutConfigUpdateBodyReportActionsMax = 2
 
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMax = 20
@@ -3038,7 +3161,7 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .max(signalsScoutConfigUpdateBodyReportActionsMax)
             .optional()
             .describe(
-                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
             ),
         max_report_actions_per_day: zod
             .number()
@@ -5323,7 +5446,7 @@ export const SignalsScoutReportCheckListQueryParams = () => zod.object({
 })
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank `content` instead of nothing. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const SignalsScoutScratchpadSearchParams = () => zod.object({
@@ -5337,6 +5460,7 @@ export const SignalsScoutScratchpadSearchParams = () => zod.object({
 export const signalsScoutScratchpadSearchQueryContentMaxCharsMin = 0
 
 export const signalsScoutScratchpadSearchQueryIncludeExpiredDefault = false
+export const signalsScoutScratchpadSearchQueryIncludeRevisionsDefault = false
 export const signalsScoutScratchpadSearchQueryLimitMax = 1000
 
 export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
@@ -5363,12 +5487,24 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
         .describe(
             'Include entries whose `expires_at` has passed. Off by default so a time-boxed memory retires itself; turn it on to audit what the fleet remembered and when it lapsed.'
         ),
+    include_revisions: zod
+        .boolean()
+        .default(signalsScoutScratchpadSearchQueryIncludeRevisionsDefault)
+        .describe(
+            "With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content."
+        ),
     key: zod
         .string()
         .min(1)
         .optional()
         .describe(
-            'Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key \*and\* content, so it can push the row you asked for past the limit.'
+            'Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key \*and\* content, so it can push the row you asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` and a blank `content`, and every entry it returns carries `last_changed_by_skill` \/ `last_changed_at`.'
+        ),
+    key_prefix: zod
+        .string()
+        .optional()
+        .describe(
+            'Return only the entries whose key starts with this prefix, case-sensitive, with `%` and `_` matched literally. Use it to read one family of keys, such as `followup:<skill-name>:`; unlike `text`, it ignores what entry bodies say. Combines with every other filter.'
         ),
     keys_only: zod
         .boolean()
@@ -5397,7 +5533,7 @@ export const SignalsScoutScratchpadSearchQueryParams = () => zod.object({
 })
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read. A write onto an expired entry succeeds, and the response's `revived_expiry` reports the expiry it replaced.
  * @summary Remember a scratchpad entry
  */
 export const SignalsScoutScratchpadRememberParams = () => zod.object({

@@ -24,6 +24,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 DEFAULT_BASE_URL = "https://api.flagsmith.com"
+API_PATH = "/api/v1"
 
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
@@ -212,6 +213,9 @@ def normalize_base_url(base_url: str | None) -> str:
         raise ValueError(f"Invalid Flagsmith base URL: {base_url}")
     if parsed.query or parsed.fragment or parsed.params:
         raise ValueError(f"Invalid Flagsmith base URL: {base_url}")
+    # Self-hosted users often paste the API root, and _api_base would append the path again.
+    if parsed.path.lower().endswith(API_PATH):
+        host = host[: -len(API_PATH)].rstrip("/")
     return host
 
 
@@ -224,7 +228,7 @@ def scheme_of(base_url: str | None) -> str:
 
 
 def _api_base(base: str) -> str:
-    return f"{base}/api/v1"
+    return f"{base}{API_PATH}"
 
 
 def _headers(api_key: str) -> dict[str, str]:

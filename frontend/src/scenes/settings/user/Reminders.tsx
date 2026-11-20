@@ -7,6 +7,7 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTable, LemonTag 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -16,29 +17,14 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { ReminderApi, ReminderStatusEnumApi } from 'products/reminders/frontend/generated/api.schemas'
 
+import { QuillReminders } from './QuillReminders'
+import { RECURRENCE_OPTIONS, scheduleSummary } from './reminderSchedule'
 import { remindersLogic } from './remindersLogic'
-
-const RECURRENCE_OPTIONS = [
-    { value: 'daily', label: 'Daily' },
-    { value: 'weekly', label: 'Weekly' },
-    { value: 'monthly', label: 'Monthly' },
-    { value: 'yearly', label: 'Yearly' },
-]
 
 const STATUS_TAG_TYPE: Record<ReminderStatusEnumApi, 'primary' | 'muted' | 'danger'> = {
     active: 'primary',
     completed: 'muted',
     errored: 'danger',
-}
-
-function scheduleSummary(reminder: ReminderApi): string {
-    if (reminder.cron_expression) {
-        return `Cron: ${reminder.cron_expression}`
-    }
-    if (reminder.recurrence_interval) {
-        return capitalizeFirstLetter(reminder.recurrence_interval)
-    }
-    return 'One-off'
 }
 
 function ReminderModal(): JSX.Element {
@@ -182,6 +168,23 @@ function ReminderModal(): JSX.Element {
 export function Reminders(): JSX.Element {
     const { reminders, remindersLoading } = useValues(remindersLogic)
     const { setEditingReminderId, deleteReminder } = useActions(remindersLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const confirmDeleteReminder = (reminder: ReminderApi): void =>
+        LemonDialog.open({
+            title: 'Delete reminder?',
+            description: `"${reminder.title}" will be permanently deleted.`,
+            primaryButton: {
+                children: 'Delete',
+                status: 'danger',
+                onClick: () => deleteReminder(reminder.id),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+
+    if (todayRailNav) {
+        return <QuillReminders onDelete={confirmDeleteReminder} />
+    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -240,18 +243,7 @@ export function Reminders(): JSX.Element {
                                     status="danger"
                                     icon={<IconTrash />}
                                     tooltip="Delete"
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: 'Delete reminder?',
-                                            description: `"${reminder.title}" will be permanently deleted.`,
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => deleteReminder(reminder.id),
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }
+                                    onClick={() => confirmDeleteReminder(reminder)}
                                 />
                             </div>
                         ),

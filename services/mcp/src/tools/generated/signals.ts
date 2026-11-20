@@ -143,6 +143,7 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
                 insight_id: params.insight_id,
                 interval: params.interval,
                 limit: params.limit,
+                max_anomaly_rate: params.max_anomaly_rate,
                 offset: params.offset,
                 only_flagged: params.only_flagged,
                 order: params.order,
@@ -868,6 +869,7 @@ const inboxReportsList = (): ToolBase<
                 already_addressed: params.already_addressed,
                 assignee: params.assignee,
                 channel_id: params.channel_id,
+                connected: params.connected,
                 count_only: params.count_only,
                 created_after: params.created_after,
                 created_before: params.created_before,
@@ -880,6 +882,7 @@ const inboxReportsList = (): ToolBase<
                 needs_you: params.needs_you,
                 offset: params.offset,
                 ordering: params.ordering,
+                plan: params.plan,
                 priority: params.priority,
                 ranking_id: params.ranking_id,
                 ranking_min_lift: params.ranking_min_lift,
@@ -940,6 +943,7 @@ const inboxReportsList = (): ToolBase<
                     'personal_tier',
                     'personal_reason',
                     'monitoring_started_at',
+                    'monitoring_ended_at',
                     'monitoring_summary.state',
                     'monitoring_summary.started_at',
                     'monitoring_summary.ends_at',
@@ -948,6 +952,8 @@ const inboxReportsList = (): ToolBase<
                     'monitoring_summary.lead_check.comparison',
                     'monitoring_summary.lead_check.baseline_value',
                     'monitoring_summary.lead_check.next_measurement_at',
+                    'monitoring_summary.checks',
+                    'monitoring_outcome',
                     'created_at',
                     'updated_at',
                 ])
@@ -997,6 +1003,112 @@ const inboxReportsMerge = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/merge/`,
             body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
+const InboxReportsPlanStepDependenciesUpdateSchema = () => {
+    const SignalsReportsPlanStepsDependsOnUpdateBody = orvalSchemas.SignalsReportsPlanStepsDependsOnUpdateBody()
+    const SignalsReportsPlanStepsDependsOnUpdateParams = orvalSchemas.SignalsReportsPlanStepsDependsOnUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['plan_report_id'] }),
+        SignalsReportsPlanStepsDependsOnUpdateParams.omit({ project_id: true })
+            .extend(SignalsReportsPlanStepsDependsOnUpdateBody.shape)
+            .extend({ id: SignalsReportsPlanStepsDependsOnUpdateParams.shape['id'].describe('Id of the plan report.') })
+    )
+}
+
+const inboxReportsPlanStepDependenciesUpdate = (): ToolBase<
+    ReturnType<typeof InboxReportsPlanStepDependenciesUpdateSchema>,
+    WithPostHogUrl<Schemas.SignalReport>
+> => ({
+    name: 'inbox-reports-plan-step-dependencies-update',
+    schema: InboxReportsPlanStepDependenciesUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof InboxReportsPlanStepDependenciesUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.depends_on !== undefined) {
+            body['depends_on'] = params.depends_on
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.SignalReport>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/plan_steps/${encodeURIComponent(String(params.step_id))}/depends_on/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
+const InboxReportsPlanStepsAddSchema = () => {
+    const SignalsReportsPlanStepsCreateBody = orvalSchemas.SignalsReportsPlanStepsCreateBody()
+    const SignalsReportsPlanStepsCreateParams = orvalSchemas.SignalsReportsPlanStepsCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['plan_report_id'] }),
+        SignalsReportsPlanStepsCreateParams.omit({ project_id: true })
+            .extend(SignalsReportsPlanStepsCreateBody.shape)
+            .extend({ id: SignalsReportsPlanStepsCreateParams.shape['id'].describe('Id of the plan report.') })
+    )
+}
+
+const inboxReportsPlanStepsAdd = (): ToolBase<
+    ReturnType<typeof InboxReportsPlanStepsAddSchema>,
+    WithPostHogUrl<Schemas.SignalReport>
+> => ({
+    name: 'inbox-reports-plan-steps-add',
+    schema: InboxReportsPlanStepsAddSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsPlanStepsAddSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.depends_on !== undefined) {
+            body['depends_on'] = params.depends_on
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.SignalReport>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/plan_steps/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
+const InboxReportsPlanStepsRemoveSchema = () => {
+    const SignalsReportsPlanStepsDestroyParams = orvalSchemas.SignalsReportsPlanStepsDestroyParams()
+    const SignalsReportsPlanStepsDestroyQueryParams = orvalSchemas.SignalsReportsPlanStepsDestroyQueryParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['plan_report_id'] }),
+        SignalsReportsPlanStepsDestroyParams.omit({ project_id: true })
+            .extend(SignalsReportsPlanStepsDestroyQueryParams.shape)
+            .extend({ id: SignalsReportsPlanStepsDestroyParams.shape['id'].describe('Id of the plan report.') })
+    )
+}
+
+const inboxReportsPlanStepsRemove = (): ToolBase<
+    ReturnType<typeof InboxReportsPlanStepsRemoveSchema>,
+    WithPostHogUrl<Schemas.SignalReport>
+> => ({
+    name: 'inbox-reports-plan-steps-remove',
+    schema: InboxReportsPlanStepsRemoveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsPlanStepsRemoveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SignalReport>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/plan_steps/${encodeURIComponent(String(params.step_id))}/`,
+            query: {
+                reason: params.reason,
+            },
         })
         return await withPostHogUrl(context, result, `/inbox/${params.id}`)
     },
@@ -2962,7 +3074,9 @@ const scoutScratchpadSearch = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
+                include_revisions: params.include_revisions,
                 key: params.key,
+                key_prefix: params.key_prefix,
                 keys_only: params.keys_only,
                 limit: params.limit,
                 skill_name: params.skill_name,
@@ -4062,7 +4176,9 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
+                include_revisions: params.include_revisions,
                 key: params.key,
+                key_prefix: params.key_prefix,
                 keys_only: params.keys_only,
                 limit: params.limit,
                 skill_name: params.skill_name,
@@ -4101,6 +4217,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
+    'inbox-reports-plan-step-dependencies-update': inboxReportsPlanStepDependenciesUpdate,
+    'inbox-reports-plan-steps-add': inboxReportsPlanStepsAdd,
+    'inbox-reports-plan-steps-remove': inboxReportsPlanStepsRemove,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-search': inboxReportsSearch,
     'inbox-reports-set-state': inboxReportsSetState,

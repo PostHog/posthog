@@ -90,6 +90,50 @@ describe('LiquidRenderer', () => {
         }
     })
 
+    describe('templates imported from SendGrid', () => {
+        // Each `expected` is what Handlebars printed for `source`, and Python writes `liquid`, so this proves they agree.
+        const renders: { name: string; liquid: string; data: object; expected: string; text?: boolean }[] = parseJSON(
+            fs.readFileSync(
+                path.join(
+                    __dirname,
+                    '../../../../products/messaging/backend/tests/fixtures/sendgrid_template_renders.json'
+                ),
+                'utf8'
+            )
+        )
+        // Engines spell entities differently. Escaped characters stay escaped, so an escaped quote never equals a raw one.
+        const escapedCharacters: Record<string, string> = {
+            '<': '&lt;',
+            '>': '&gt;',
+            '&': '&amp;',
+            '"': '&quot;',
+            "'": '&#39;',
+            '=': '&#x3D;',
+            '`': '&#x60;',
+        }
+        const namedEntities: Record<string, string> = { quot: '"', apos: "'", lt: '<', gt: '>', amp: '&' }
+        const sameCharacters = (html: string): string =>
+            html.replace(/&(#x[0-9a-f]+|#\d+|quot|apos|lt|gt|amp);/gi, (_, entity: string) => {
+                const lower = entity.toLowerCase()
+                const character = lower.startsWith('#x')
+                    ? String.fromCodePoint(parseInt(lower.slice(2), 16))
+                    : lower.startsWith('#')
+                      ? String.fromCodePoint(Number(lower.slice(1)))
+                      : namedEntities[lower]
+                return escapedCharacters[character] ?? character
+            })
+
+        it.each(renders)('$name', ({ liquid, data, expected, text }) => {
+            const result = LiquidRenderer.renderWithHogFunctionGlobals(
+                liquid,
+                { ...globals, variables: data } as HogFunctionInvocationGlobalsWithInputs,
+                new LiquidRenderBudget(),
+                { escapeHtml: !text }
+            )
+            expect(sameCharacters(result)).toEqual(sameCharacters(expected))
+        })
+    })
+
     describe('basic rendering', () => {
         it('renders simple variables', () => {
             const template = 'Hello {{ person.name }}!'
@@ -515,6 +559,61 @@ describe('LiquidRenderer', () => {
             }
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatch(/^\d{8}$/)
+        })
+    })
+
+    // Written from real Handlebars and Go html/template output, and pinned to the Python converter by test_mailgun_import.py.
+    describe('templates imported from Mailgun', () => {
+        const cases: {
+            name: string
+            liquid: string
+            variables: Record<string, unknown>
+            expected: string
+            collapse_whitespace?: boolean
+        }[] = parseJSON(
+            fs.readFileSync(
+                path.join(
+                    __dirname,
+                    '../../../../products/messaging/backend/tests/fixtures/mailgun_template_renders.json'
+                ),
+                'utf8'
+            )
+        )
+        // Engines spell entities differently. Keep markup characters escaped so escaped text never equals real tags.
+        const markupEntities: Record<string, string> = {
+            '<': '&lt;',
+            '>': '&gt;',
+            '&': '&amp;',
+            '"': '&quot;',
+            "'": '&#39;',
+            '=': '&#x3D;',
+            '`': '&#x60;',
+        }
+        const namedEntities: Record<string, string> = { quot: '"', apos: "'", lt: '<', gt: '>', amp: '&' }
+        const decodeEntities = (text: string): string =>
+            text.replace(/&(#x[0-9a-f]+|#\d+|quot|apos|lt|gt|amp);/gi, (_, entity: string) => {
+                const lower = entity.toLowerCase()
+                const character = lower.startsWith('#x')
+                    ? String.fromCodePoint(parseInt(lower.slice(2), 16))
+                    : lower.startsWith('#')
+                      ? String.fromCodePoint(Number(lower.slice(1)))
+                      : namedEntities[lower]
+                return markupEntities[character] ?? character
+            })
+
+        it.each(cases.map((testCase) => [testCase.name, testCase] as const))('renders %s', (_name, testCase) => {
+            const rendered = decodeEntities(
+                LiquidRenderer.renderWithHogFunctionGlobals(testCase.liquid, {
+                    ...globals,
+                    variables: testCase.variables,
+                } as HogFunctionInvocationGlobalsWithInputs)
+            )
+            const expected = decodeEntities(testCase.expected)
+            if (testCase.collapse_whitespace) {
+                expect(rendered.replace(/\s+/g, ' ')).toEqual(expected.replace(/\s+/g, ' '))
+            } else {
+                expect(rendered).toEqual(expected)
+            }
         })
     })
 })

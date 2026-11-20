@@ -7,6 +7,7 @@ import { personalCodexIntegrationLogic } from 'scenes/settings/user/personalCode
 
 import { usersIntegrationsCodexRetrieve } from '~/generated/core/api'
 import { CodexIntegrationStatusEnumApi, type UserCodexIntegrationApi } from '~/generated/core/api.schemas'
+import type { UserCodexAuthTokensApi } from '~/generated/core/api.schemas'
 
 import { ModelAccessEnumApi, RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -26,10 +27,10 @@ export interface codexBillingLogicActions {
     } // personalCodexIntegrationLogic
     connectCodexSuccess: (
         codexIntegration: UserCodexIntegrationApi,
-        payload?: import('~/generated/core/api.schemas').UserCodexAuthTokensApi | undefined
+        payload?: UserCodexAuthTokensApi | undefined
     ) => {
         codexIntegration: UserCodexIntegrationApi
-        payload?: import('~/generated/core/api.schemas').UserCodexAuthTokensApi
+        payload?: UserCodexAuthTokensApi
     } // personalCodexIntegrationLogic
     openConnectModal: (opener: string) => {
         opener: string

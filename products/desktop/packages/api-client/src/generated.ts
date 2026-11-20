@@ -217,6 +217,7 @@ export namespace Schemas {
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;
+        optimizeCrossJoins: boolean | null;
         optimizeJoinedFilters: boolean | null;
         optimizeProjections: boolean | null;
         parserMode: ParserMode | null;
@@ -5078,6 +5079,7 @@ export namespace Schemas {
         leftYAxisSettings: YAxisSettings | null;
         legendPosition: LegendPosition | null;
         metric: MetricChartSettings | null;
+        movingAverageIntervals: number | null;
         pie: PieChartSettings | null;
         resultCustomizations: Record<string, ResultCustomizationByValue> | null;
         rightYAxisSettings: YAxisSettings | null;
@@ -5085,6 +5087,7 @@ export namespace Schemas {
         seriesBreakdownColumn: string | null;
         showAnnotations: boolean | null;
         showLegend: boolean | null;
+        showMovingAverage: boolean | null;
         showNullsAsZero: boolean | null;
         showPieTotal: boolean | null;
         showTotalRow: boolean | null;
@@ -12618,12 +12621,14 @@ export namespace Schemas {
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
      * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
         | "transactional_emails"
-        | "transactional_email_keys";
+        | "transactional_email_keys"
+        | "transactional_push";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -12867,6 +12872,22 @@ export namespace Schemas {
         ran_at: string;
     };
     /**
+     * * `test_sender_live` - Test sender live
+     */
+    export type HogFlowWarningCodeEnum = "test_sender_live";
+    export type HogFlowWarning = {
+        /**
+         * test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.
+         *
+         * * `test_sender_live` - Test sender live
+         */
+        code: HogFlowWarningCodeEnum & unknown;
+        /**
+         * What to tell the user, with the link that fixes it.
+         */
+        message: string;
+    };
+    /**
      * Mixin for serializers to add user access control fields
      */
     export type HogFlow = {
@@ -12976,6 +12997,10 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -13024,6 +13049,10 @@ export namespace Schemas {
          * Whether someone turned suggestions on for this workflow. Read on the list only.
          */
         suggestions_enabled: boolean | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     export type HogFlowRunRequest = Partial<{
         variables: Record<string, unknown>;
@@ -13067,6 +13096,7 @@ export namespace Schemas {
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
          * * `transactional_email_keys` - Transactional email keys
+         * * `transactional_push` - Transactional push notifications
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -13149,6 +13179,10 @@ export namespace Schemas {
          * Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run.
          */
         last_run: HogFlowLastRun | null;
+        /**
+         * Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user.
+         */
+        warnings: Array<HogFlowWarning>;
     };
     export type HogQueryResponse = {
         bytecode?: (Array<unknown> | null) | undefined;
@@ -15244,6 +15278,9 @@ export namespace Schemas {
     };
     export type Organization = {
         id: string;
+        /**
+         * Name of the organization.
+         */
         name: string;
         slug: string;
         logo_media_id?: (string | null) | undefined;
@@ -15275,6 +15312,10 @@ export namespace Schemas {
         member_notice?: (OrganizationMemberNotice | null) | undefined;
         member_count: number;
         is_ai_data_processing_approved?: (boolean | null) | undefined;
+        /**
+         * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+         */
+        is_ai_data_processing_locked: boolean | null;
         is_ai_training_opted_in?: (boolean | null) | undefined;
         /**
          * When True, the AI training opt-out setting cannot be modified through the UI or API.
@@ -16688,6 +16729,7 @@ export namespace Schemas {
         email_sending_pause_requires_support: boolean;
         email_sending_resumed_at: string | null;
         last_run: HogFlowLastRun | null;
+        warnings: Array<HogFlowWarning>;
     }>;
     /**
      * Simplified serializer to speed response times when loading large amounts of objects.
@@ -17731,8 +17773,6 @@ export namespace Schemas {
          * onto /api/projects/ never loses a field.
          */
         flags_persistence_default?: (boolean | null) | undefined;
-        secret_api_token: string | null;
-        secret_api_token_backup: string | null;
         /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          */
@@ -19549,6 +19589,7 @@ export namespace Endpoints {
                 filters_override: string;
                 format: "json" | "txt";
                 include_dashboards: boolean;
+                omit_tile_results: boolean;
                 variables_override: string;
             }>;
             path: { id: number; project_id: string };
@@ -20039,7 +20080,11 @@ export namespace Endpoints {
                 name: string;
                 offset: number;
                 optimization_enabled: boolean;
-                origin_product: "broadcasts" | "loops" | "transactional_emails";
+                origin_product:
+                    | "broadcasts"
+                    | "loops"
+                    | "transactional_emails"
+                    | "transactional_push";
                 search: string;
                 source_record: string;
                 status: "active" | "archived" | "draft";

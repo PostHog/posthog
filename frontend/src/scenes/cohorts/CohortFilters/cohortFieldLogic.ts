@@ -23,6 +23,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature } from '~/types'
+import type { CohortCriteriaType } from '~/types'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { AnyPropertyFilter, GroupType, GroupTypeIndex, PropertyFilterValue } from '../../../types'
@@ -40,7 +41,7 @@ export interface CohortFieldLogicProps {
 export interface cohortFieldLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     calculatedValue: (
         taxonomicGroupType: TaxonomicFilterGroupType
     ) => PropertyFilterValue | AnyPropertyFilter[] | undefined
@@ -63,7 +64,7 @@ export interface cohortFieldLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasBehavioralCohortFiltering: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         fieldOptionGroups: (
             arg: any,
@@ -78,14 +79,14 @@ export interface cohortFieldLogicMeta {
         calculatedValueLoading: (
             value: PropertyFilterValue | AnyPropertyFilter[] | undefined,
             criteria: AnyCohortCriteriaType,
-            fieldKey: keyof import('~/types').CohortCriteriaType,
+            fieldKey: keyof CohortCriteriaType,
             allCohortsLoading: boolean,
             actionsLoading: boolean
         ) => (taxonomicGroupType: TaxonomicFilterGroupType) => boolean
         calculatedValue: (
             value: PropertyFilterValue | AnyPropertyFilter[] | undefined,
             criteria: AnyCohortCriteriaType,
-            fieldKey: keyof import('~/types').CohortCriteriaType,
+            fieldKey: keyof CohortCriteriaType,
             allCohortsLoading: boolean,
             actionsLoading: boolean
         ) => (taxonomicGroupType: TaxonomicFilterGroupType) => PropertyFilterValue | AnyPropertyFilter[] | undefined
