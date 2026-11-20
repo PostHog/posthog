@@ -109,7 +109,7 @@ _BODY_CASES: list[tuple[str, Callable[[], str], list[str]]] = [
         lambda: _running("validating", 1, 3, pairs=_PAIRS, failed=True, **_DEEP),
         [
             "### PostHog Review · Deep · couldn't finish reviewing `b81c2e1`",
-            'The review failed at "Validate findings". Ask for a Deep review again to retry.',
+            'The review failed at "Validate findings". Ask for a Deep review to retry.',
             "| Merge overlapping findings | done | 16 → 3 |\n| Validate findings | failed |  |\n| Publish | skipped |  |",
         ],
     ),

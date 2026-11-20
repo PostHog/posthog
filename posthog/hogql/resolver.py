@@ -1,4 +1,5 @@
 import string
+import dataclasses
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -50,6 +51,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+from posthog.hogql.functions.posthog import BOT_DETECTION_FUNCTIONS
 from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
@@ -279,7 +281,15 @@ def resolve_types_from_table(
     expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
 ) -> ast.Expr:
     scope = resolve_table_scope(table_chain, context, dialect)
-    return resolve_types(expr, context, dialect, [scope])
+    return resolve_types(expr, context, dialect, [scope], resolver_factory=_signature_typing_resolver)
+
+
+def _signature_typing_resolver(
+    context: HogQLContext, dialect: HogQLDialect, scopes: Optional[list[ast.SelectQueryType]]
+) -> "Resolver":
+    resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+    resolver.type_posthog_calls_by_signature = True
+    return resolver
 
 
 ResolverFactory = Callable[
@@ -501,6 +511,7 @@ class Resolver(CloningVisitor):
         self.union_view_name_by_id: dict[int, str] = {}
         self._pending_saved_view: str | None = None
         self.swap_flag_calls_in_views = False
+        self.type_posthog_calls_by_signature = False
         # The unresolved body that the flag call swap chose for each view, by the CTEs in scope where it was read. A
         # CTE's body can change the swap's decision, so the key holds each CTE's text. The text stays the same when
         # the resolver visits the same CTE again and builds a new node for it.
@@ -2017,7 +2028,7 @@ class Resolver(CloningVisitor):
             index += 1
         alias = f"__using_join_{index}"
         self._synthetic_using_join_aliases.add(alias)
-        return alias
+        return scope.register_implicit_table_alias(alias)
 
     def _synthesize_join_alias(self, scope: ast.SelectQueryType, node: ast.JoinExpr) -> str:
         """Alias a joined sub-select because ClickHouse requires a name for it."""
@@ -2031,7 +2042,7 @@ class Resolver(CloningVisitor):
         index = 1
         while f"__join_{index}" in reserved_aliases:
             index += 1
-        return f"__join_{index}"
+        return scope.register_implicit_table_alias(f"__join_{index}")
 
     def _using_constraint_column_names(self, constraint: ast.JoinConstraint) -> list[str]:
         exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
@@ -2267,6 +2278,12 @@ class Resolver(CloningVisitor):
                 end=node.end,
             )
 
+        declared_return_type = self._declared_posthog_return_type(node.name)
+        if declared_return_type is not None:
+            node = super().visit_call(node)
+            node.type = ast.CallType(name=node.name, arg_types=[], return_type=declared_return_type)
+            return node
+
         if func_meta := find_hogql_posthog_function(node.name):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
 
@@ -2395,6 +2412,14 @@ class Resolver(CloningVisitor):
             return_type=return_type,
         )
         return node
+
+    def _declared_posthog_return_type(self, name: str) -> ConstantType | None:
+        if not self.type_posthog_calls_by_signature or name not in BOT_DETECTION_FUNCTIONS:
+            return None
+        meta = find_hogql_posthog_function(name)
+        if meta is None or not meta.signatures:
+            return None
+        return dataclasses.replace(meta.signatures[0][1])
 
     def _is_higher_order_array_call(self, node: ast.Call) -> bool:
         return (

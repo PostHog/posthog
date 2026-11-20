@@ -585,6 +585,11 @@
     "task_queues": "DATA_WAREHOUSE_METADATA_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "entitlement-reactions",
+    "product": "temporal/entitlement_reactions",
+    "task_queues": "BILLING_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "error-tracking-alert-delivery",
     "product": "error_tracking",
     "task_queues": "ERROR_TRACKING_TASK_QUEUE"
@@ -810,6 +815,11 @@
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "knowledge-writer-pull-request",
+    "product": "knowledge_writer",
+    "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "knowledge-writer-start-held-requests",
     "product": "knowledge_writer",
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
@@ -923,6 +933,11 @@
     "temporal_workflow_type": "mcpa-intent-clustering-coordinator",
     "product": "temporal/mcp_analytics",
     "task_queues": "MCPA_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "messaging-provider-contacts-import",
+    "product": "messaging",
+    "task_queues": "MESSAGING_IMPORT_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "messaging-provider-import",
@@ -1058,6 +1073,11 @@
     "temporal_workflow_type": "redshift-export",
     "product": "batch_exports",
     "task_queues": "BATCH_EXPORTS_TASK_QUEUE,SYNC_BATCH_EXPORTS_TASK_QUEUE"
+  },
+  {
+    "temporal_workflow_type": "repair-entitlement-reactions",
+    "product": "temporal/entitlement_reactions",
+    "task_queues": "BILLING_TASK_QUEUE"
   },
   {
     "temporal_workflow_type": "replay-count-metrics",

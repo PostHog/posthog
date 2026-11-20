@@ -10,7 +10,12 @@ from rest_framework import status
 from posthog.api.test.test_log_entries import create_log_entry
 from posthog.models import Team
 
-from products.endpoints.backend.logs import ENDPOINTS_LOG_SOURCE, build_execution_message, log_endpoint_execution
+from products.endpoints.backend.logs import (
+    ENDPOINTS_LOG_SOURCE,
+    RunRequestShape,
+    build_execution_message,
+    log_endpoint_execution,
+)
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 
@@ -43,6 +48,34 @@ class TestBuildExecutionMessage(SimpleTestCase):
                 "success_partial_tokens_omitted",
                 {"succeeded": True, "execution_type": "inline", "version": 1},
                 "Endpoint executed · path=inline version=1",
+            ),
+            (
+                "request_shape_full",
+                {
+                    "succeeded": True,
+                    "execution_type": "inline",
+                    "version": 1,
+                    "request": RunRequestShape(
+                        refresh="force",
+                        access="personal_api_key",
+                        variables=2,
+                        filters_override=True,
+                        limit=100,
+                        offset=0,
+                    ),
+                },
+                "Endpoint executed · path=inline version=1 refresh=force access=personal_api_key "
+                "variables=2 filters_override=true limit=100 offset=0",
+            ),
+            (
+                "request_shape_unset_tokens_omitted",
+                {
+                    "succeeded": True,
+                    "execution_type": "inline",
+                    "version": 1,
+                    "request": RunRequestShape(refresh="cache"),
+                },
+                "Endpoint executed · path=inline version=1 refresh=cache",
             ),
         ]
     )
@@ -108,6 +141,8 @@ class TestEndpointExecutionLogs(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(kwargs["endpoint_id"], str(endpoint.id))
         self.assertIn("Endpoint execution failed", kwargs["message"])
         self.assertIn("error=", kwargs["message"])
+        self.assertRegex(kwargs["message"], r"duration_ms=\d+")
+        self.assertIn("refresh=cache access=session", kwargs["message"])
 
     def test_successful_run_returns_execution_id_matching_log(self):
         endpoint = self._create_hogql_endpoint("logs_exec_id", "SELECT 1")

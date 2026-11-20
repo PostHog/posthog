@@ -92,6 +92,7 @@ class TestFirstReportNotification(BaseTest):
             latest_actionability="requires_human_input",
             scout_idempotency_key=f"first-report:{self.team.id}",
         )
+        self.report(first_visible_at=timezone.now() + timedelta(minutes=1))
         deliver_first_report_email(self.team.id)
         assert self.notification().report_id == report.id
         self.send.assert_called_once()

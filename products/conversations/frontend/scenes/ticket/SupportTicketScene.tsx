@@ -176,7 +176,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
-    const conversationsSettingsUrl = urls.settings('environment-conversations', 'conversations-general')
+    const conversationsSettingsUrl = urls.settings('environment-conversations', 'conversations-channels')
     const replyDisabledReason: JSX.Element | undefined = emailReplyBlockedReason
         ? {
               email_disabled: (

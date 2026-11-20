@@ -156,6 +156,12 @@ describe('pg.failover', () => {
             /was above its 2.5 ACU idle limit in its last 5 minutes: 3 at /,
         ],
         [
+            'a reader above the idle limit only in the oldest of the five minutes before the check',
+            { liveReaderAcu: { maxima: [3, 1, 1, 1, 1] } },
+            () => undefined,
+            /was above its 2.5 ACU idle limit in its last 5 minutes: 3 at /,
+        ],
+        [
             'a reader above the lower idle limit its run manifest names',
             { liveReaderAcu: { maxima: [2, 2, 2, 2, 2] } },
             (run) => (run.manifest.readerIdleMaxAcu = 1.5),
@@ -163,7 +169,7 @@ describe('pg.failover', () => {
         ],
         [
             'a capacity read with fewer values than timestamps',
-            { shortValuesOf: 'Maximum' },
+            { shortValuesOf: 'Average' },
             () => undefined,
             /-reader's capacity read has 5 timestamps and 4 values/,
         ],
@@ -181,7 +187,7 @@ describe('pg.failover', () => {
         ],
         [
             'a capacity read with a timestamp that is not a time',
-            { unknownTimestampOf: 'Maximum' },
+            { unknownTimestampOf: 'Average' },
             () => undefined,
             /-reader's capacity read has a timestamp that is not a time: unknown/,
         ],
@@ -204,10 +210,10 @@ describe('pg.failover', () => {
             /-reader's capacity read has a timestamp outside the .* it asked for: /,
         ],
         [
-            'a capacity read with a negative value',
-            { liveReaderAcu: { maxima: [-1, -1, -1, -1, -1] } },
+            'a capacity read with a reading under the minimum its run manifest names before its last five minutes',
+            { liveReaderAcu: { maxima: [1, 0, 1, 1, 1, 1, 1] } },
             () => undefined,
-            /-reader's capacity read has a value below 0 at /,
+            /-reader's capacity read has a value below 1 at /,
         ],
         [
             'a capacity read whose minutes sit off the minute',
@@ -246,6 +252,12 @@ describe('pg.failover', () => {
             /names no idle limit for .*-reader, so set readerAcu\.idleMax in the cloud profile/,
         ],
         [
+            'a run manifest without the reader minimum',
+            {},
+            (run) => delete run.manifest.readerMinAcu,
+            /names no minimum for .*-reader, so lease the run again/,
+        ],
+        [
             'a reader with fewer than five capacity minutes',
             { liveReaderAcu: { maxima: [1, 1, 1, 1] } },
             () => undefined,
@@ -277,51 +289,76 @@ describe('pg.failover', () => {
         expect(run.cloud.promotions).toEqual([])
     })
 
-    it('judges the reader against the idle limit its cloud profile leases into the manifest the host reads', async () => {
-        const cloud = new FakeCloud({
-            now: () => new Date(),
-            failover: { takesMs: 20 },
-            liveReaderAcu: { maxima: [2, 2, 2, 2, 2] },
-        })
+    const leasedHostRun = async (cloud: FakeCloud, dir: string, idleMax: number): Promise<Run> => {
         const controller = {
             aws: cloud,
             now: () => new Date(),
             print: () => undefined,
             warn: () => undefined,
         } as unknown as Controller
+        const profile = CloudProfile.parse({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax } })
+        const runner = { file: 'runner.yaml', bytes: Buffer.from(''), sha256: '' }
+        const { runId } = await lease(
+            controller,
+            { profile, runner, inputs: [runner], card: { id: 'cyclotron-failover-under-load', failsOver: true } },
+            { owner: 'scenario-tests', commit: 'abc123' }
+        )
+        const file = path.join(dir, `${runId}.json`)
+        writeFileSync(file, cloud.objects.get(keyOf(runId, 'input/manifest.json'))!)
+        const manifest = runManifestOf({ SCENARIO_RUN_MANIFEST: file })!
+        return { cloud, ...cloud.runCluster(runId), manifest }
+    }
+
+    const cloudReading = (maxima: number[]): FakeCloud =>
+        new FakeCloud({ now: () => new Date(), failover: { takesMs: 20 }, liveReaderAcu: { maxima } })
+
+    it('refuses a reader under the minimum its cloud profile leases into the manifest the host reads', async () => {
         using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
-        const hostRunUnder = async (idleMax: number): Promise<Run> => {
-            const profile = CloudProfile.parse({ ...PROFILE, readerAcu: { ...PROFILE.readerAcu, idleMax } })
-            const runner = { file: 'runner.yaml', bytes: Buffer.from(''), sha256: '' }
-            const { runId } = await lease(
-                controller,
-                { profile, runner, inputs: [runner], card: { id: 'cyclotron-failover-under-load', failsOver: true } },
-                { owner: 'scenario-tests', commit: 'abc123' }
-            )
-            const file = path.join(dir.path, `${runId}.json`)
-            writeFileSync(file, cloud.objects.get(keyOf(runId, 'input/manifest.json'))!)
-            const manifest = runManifestOf({ SCENARIO_RUN_MANIFEST: file })!
-            return { cloud, ...cloud.runCluster(runId), manifest }
-        }
+        const cloud = cloudReading([1, 0.5, 1, 1, 1])
 
-        const lower = await hostRunUnder(1.5)
-        await expect(failOverOn(lower)).rejects.toThrow(/was above its 1.5 ACU idle limit in its last 5 minutes: 2 at /)
+        await expect(failOverOn(await leasedHostRun(cloud, dir.path, 2.5))).rejects.toThrow(
+            /-reader's capacity read has a value below 1 at /
+        )
         expect(cloud.promotions).toEqual([])
-
-        const higher = await hostRunUnder(2.5)
-        const actuation = await failOverOn(higher)
-        await actuation.release()
-        expect(cloud.promotions.map(({ to }) => to)).toEqual([higher.reader, higher.writer])
     })
 
-    it.each([
-        ['at its minimum', [1, 1, 1, 1, 1]],
-        ['idle above its minimum, under the idle limit', [2, 2, 2, 2, 2]],
-        ['at the idle limit', [2, 2.5, 2, 2, 2]],
+    it('refuses a reader above the idle limit its cloud profile leases into the manifest the host reads', async () => {
+        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
+        const cloud = cloudReading([2, 2, 2, 2, 2])
+
+        await expect(failOverOn(await leasedHostRun(cloud, dir.path, 1.5))).rejects.toThrow(
+            /was above its 1.5 ACU idle limit in its last 5 minutes: 2 at /
+        )
+        expect(cloud.promotions).toEqual([])
+    })
+
+    it('promotes a reader inside the bounds its cloud profile leases into the manifest the host reads', async () => {
+        using dir = mkdtempDisposableSync(path.join(tmpdir(), 'failover-manifest-'))
+        const cloud = cloudReading([2, 2, 2, 2, 2])
+        const run = await leasedHostRun(cloud, dir.path, 2.5)
+
+        const actuation = await failOverOn(run)
+        await actuation.release()
+
+        expect(cloud.promotions.map(({ to }) => to)).toEqual([run.reader, run.writer])
+    })
+
+    it.each<[string, FakeCloudOptions['liveReaderAcu']]>([
+        ['at its minimum', { maxima: [1, 1, 1, 1, 1] }],
+        ['idle above its minimum, under the idle limit', { maxima: [2, 2, 2, 2, 2] }],
+        ['at the idle limit', { maxima: [2, 2.5, 2, 2, 2] }],
+        [
+            'idle on average in a minute its maximum bursts above the idle limit',
+            { maxima: [1, 1, 5, 1, 1], averages: [1, 1, 1.6, 1, 1] },
+        ],
+        [
+            'idle in the five minutes before the request, with its newest minute late and a busy minute before them',
+            { maxima: [3, 1, 1, 1, 1], lagMinutes: 1 },
+        ],
     ])(
         'promotes a reader %s, observes each recovery stage, then fails back to the original writer',
-        async (_story, maxima) => {
-            const run = runOf({ liveReaderAcu: { maxima } })
+        async (_story, liveReaderAcu) => {
+            const run = runOf({ liveReaderAcu })
 
             const actuation = await failOverOn(run)
             await expect(actuation.observed()).resolves.toBe(true)

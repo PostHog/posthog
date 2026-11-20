@@ -1,13 +1,13 @@
 import io
 import gzip
 import json
-import time
 import hashlib
 import datetime as dt
-from collections.abc import Iterator
+import tempfile
+from collections.abc import Callable, Iterator
 from itertools import batched
-from typing import Any, Optional
-from urllib.parse import parse_qsl, urlparse, urlsplit
+from typing import IO, Any, Optional, cast
+from urllib.parse import parse_qsl, quote, urlparse, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -22,12 +22,14 @@ from products.warehouse_sources.sources.amazon_ads.settings import (
     AmazonAdsReportConfig,
 )
 from products.warehouse_sources.sources.sdk import (
+    JobStatus,
     ResumableSourceManager,
     SourceResponse,
     SyncWindow,
     capture_exception,
     frozen,
     make_tracked_session,
+    poll_until_done,
     request_deadline,
     stop_at_request_deadline,
 )
@@ -45,8 +47,9 @@ MAX_RETRY_ATTEMPTS = 5
 # The vendor's own examples send this on both the create and the status call, and no Accept.
 REPORT_MEDIA_TYPE = "application/vnd.createasyncreportrequest.v3+json"
 REPORT_POLL_INTERVAL_SECONDS = 30
-REPORT_POLL_MAX_ATTEMPTS = 40
+REPORT_POLL_BUDGET_SECONDS = 20 * 60
 REPORT_DOWNLOAD_TIMEOUT_SECONDS = 300
+REPORT_READ_CHUNK_BYTES = 1024 * 1024
 REPORT_ROWS_PER_BATCH = 2000
 # The generated file sits on presigned Amazon storage rather than the API host. Pinning the host
 # keeps a tampered `url` from pointing the download somewhere else.
@@ -213,7 +216,51 @@ def report_request_body(report: AmazonAdsReportConfig, start: dt.date, end: dt.d
     }
 
 
-def download_report_rows(url: str, client_id: str, client_secret: str, refresh_token: str) -> list[dict[str, Any]]:
+def iter_json_array(stream: IO[bytes], chunk_size: int = REPORT_READ_CHUNK_BYTES) -> Iterator[Any]:
+    """Yield the elements of a top-level JSON array, holding one chunk and one element at a time.
+
+    A report can hold millions of rows, so the file is never parsed as one document.
+    """
+    decoder = json.JSONDecoder()
+    text = io.TextIOWrapper(stream, encoding="utf-8")
+    buffer = ""
+    position = 0
+    opened = False
+    eof = False
+    while True:
+        while position < len(buffer) and buffer[position] in " \t\r\n,":
+            position += 1
+        if position < len(buffer):
+            if not opened:
+                if buffer[position] != "[":
+                    return
+                opened = True
+                position += 1
+                continue
+            if buffer[position] == "]":
+                return
+            try:
+                value, end = decoder.raw_decode(buffer, position)
+            except json.JSONDecodeError:
+                if eof:
+                    raise
+            else:
+                # A value that ends at the buffer edge can be a number cut short by the chunk.
+                if end < len(buffer) or eof:
+                    yield value
+                    position = end
+                    continue
+        elif eof:
+            if opened:
+                raise ValueError("Amazon Ads report file ended before its JSON array closed")
+            return
+        chunk = text.read(chunk_size)
+        eof = not chunk
+        buffer = buffer[position:] + chunk
+        position = 0
+
+
+def download_report_rows(url: str, client_id: str, client_secret: str, refresh_token: str) -> Iterator[dict[str, Any]]:
     host = (urlparse(url).hostname or "").lower()
     if not host.endswith(REPORT_URL_HOST_SUFFIXES):
         raise ValueError(f"Amazon Ads report download URL points outside Amazon: host={host}")
@@ -221,12 +268,18 @@ def download_report_rows(url: str, client_id: str, client_secret: str, refresh_t
     session = _get_session(
         client_secret, refresh_token, client_id, capture=False, extra_redact=presigned_secret_values(url)
     )
-    response = session.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT_SECONDS)
-    response.raise_for_status()
-    with gzip.GzipFile(fileobj=io.BytesIO(response.content)) as unzipped:
-        rows = json.load(unzipped)
-
-    return rows if isinstance(rows, list) else []
+    # The file goes to disk before parsing, so the download connection is not held open while the
+    # pipeline writes each batch.
+    with tempfile.TemporaryFile() as spool:
+        with session.get(url, timeout=REPORT_DOWNLOAD_TIMEOUT_SECONDS, stream=True) as response:
+            response.raise_for_status()
+            for chunk in response.iter_content(chunk_size=REPORT_READ_CHUNK_BYTES):
+                spool.write(chunk)
+        spool.seek(0)
+        with gzip.GzipFile(fileobj=spool) as unzipped:
+            for row in iter_json_array(cast(IO[bytes], unzipped)):
+                if isinstance(row, dict):
+                    yield row
 
 
 class AmazonAdsClient:
@@ -341,12 +394,17 @@ class AmazonAdsClient:
         ).json()
         return created["reportId"]
 
-    def download_report(self, url: str) -> list[dict[str, Any]]:
+    def download_report(self, url: str) -> Iterator[dict[str, Any]]:
         return download_report_rows(url, self.client_id, self.client_secret, self.refresh_token)
 
-    def await_report_url(self, report: AmazonAdsReportConfig, profile_id: str, report_id: str) -> Optional[str]:
-        status = None
-        for _attempt in range(REPORT_POLL_MAX_ATTEMPTS):
+    def await_report_url(
+        self,
+        report: AmazonAdsReportConfig,
+        profile_id: str,
+        report_id: str,
+        safe_point: Optional[Callable[[], None]] = None,
+    ) -> Optional[str]:
+        def check() -> JobStatus[Optional[str]]:
             body = self.request(
                 "GET",
                 f"{self.config.path}/{report_id}",
@@ -355,18 +413,23 @@ class AmazonAdsClient:
                 http=self.report_session,
             ).json()
             status = body.get("status")
-
             if status == "COMPLETED":
-                return body.get("url")
+                return JobStatus(done=True, result=body.get("url"))
             if status == "FAILED":
-                raise AmazonAdsReportError(
-                    f"Amazon Ads could not generate the {report.report_type_id} report: {body.get('failureReason')}"
-                )
+                return JobStatus(failed=True, message=str(body.get("failureReason")))
+            return JobStatus(message=str(status))
 
-            time.sleep(REPORT_POLL_INTERVAL_SECONDS)
-
-        raise AmazonAdsRetryableError(
-            f"Amazon Ads {report.report_type_id} report {report_id} still {status} after the polling budget"
+        return poll_until_done(
+            check,
+            interval=REPORT_POLL_INTERVAL_SECONDS,
+            budget_seconds=REPORT_POLL_BUDGET_SECONDS,
+            safe_point=safe_point,
+            failed_error=lambda status: AmazonAdsReportError(
+                f"Amazon Ads could not generate the {report.report_type_id} report: {status.message}"
+            ),
+            timeout_error=lambda status: AmazonAdsRetryableError(
+                f"Amazon Ads {report.report_type_id} report {report_id} still {status.message} after the polling budget"
+            ),
         )
 
 
@@ -383,9 +446,20 @@ def _report_start_date(
     return max(cursor, earliest) if cursor is not None else earliest
 
 
-def _batched_report_rows(rows: list[dict[str, Any]], profile_id: str) -> Iterator[list[dict[str, Any]]]:
+def _report_row_id(row: dict[str, Any], key_columns: tuple[str, ...]) -> str:
+    return hashlib.sha256(json.dumps([row.get(column) for column in key_columns], default=str).encode()).hexdigest()
+
+
+def _batched_report_rows(
+    rows: Iterator[dict[str, Any]], profile_id: str, report: AmazonAdsReportConfig
+) -> Iterator[list[dict[str, Any]]]:
     for chunk in batched(rows, REPORT_ROWS_PER_BATCH, strict=False):
-        yield [{**row, "_profile_id": profile_id} for row in chunk]
+        if report.key_columns:
+            yield [
+                {**row, "_profile_id": profile_id, "_row_id": _report_row_id(row, report.key_columns)} for row in chunk
+            ]
+        else:
+            yield [{**row, "_profile_id": profile_id} for row in chunk]
 
 
 def _report_rows(
@@ -429,34 +503,42 @@ def _report_rows(
                         )
                     )
 
-            url = client.await_report_url(report, profile_id, report_id)
+            # The report id is committed and earlier windows are yielded, so a shutdown can hand the run over here.
+            url = client.await_report_url(
+                report,
+                profile_id,
+                report_id,
+                safe_point=resumable_source_manager.safe_point if resumable_source_manager is not None else None,
+            )
             if not url:
                 continue
 
             rows = client.download_report(url)
-            # Amazon does not order the file. The sort gives each report an ascending `date`, but
-            # the run has no order: the dates start again for each profile in a window.
-            rows.sort(key=lambda row: str(row.get("date") or ""))
-            yield from _batched_report_rows(rows, profile_id)
+            yield from _batched_report_rows(rows, profile_id, report)
 
     if resumable_source_manager is not None:
         resumable_source_manager.clear_state()
 
 
 def _list_page(
-    client: AmazonAdsClient, profile_id: Optional[str], query: dict[str, Any], next_token: Optional[str]
+    client: AmazonAdsClient,
+    profile_id: Optional[str],
+    query: dict[str, Any],
+    next_token: Optional[str],
+    config: Optional[AmazonAdsEndpointConfig] = None,
+    path: Optional[str] = None,
 ) -> dict[str, Any]:
-    config = client.config
+    config = config or client.config
+    path = path or config.path
     query = dict(query)
     if next_token:
         query[config.next_token_key] = next_token
-    if config.method == "GET":
-        # `/invoices` refuses a page size next to a cursor, so only the first page sends one.
-        if next_token:
+        if not config.page_size_with_token:
             query.pop(config.page_size_key, None)
-        response = client.request("GET", config.path, profile_id=profile_id, params=query)
+    if config.method == "GET":
+        response = client.request("GET", path, profile_id=profile_id, params=query)
     else:
-        response = client.request("POST", config.path, profile_id=profile_id, body=query)
+        response = client.request("POST", path, profile_id=profile_id, body=query)
 
     data = response.json()
     if not isinstance(data, dict):
@@ -472,13 +554,17 @@ def _page_items(data: dict[str, Any], config: AmazonAdsEndpointConfig) -> list[d
 
 
 def _paged_rows(
-    client: AmazonAdsClient, profile_id: Optional[str], query: dict[str, Any]
+    client: AmazonAdsClient,
+    profile_id: Optional[str],
+    query: dict[str, Any],
+    config: Optional[AmazonAdsEndpointConfig] = None,
+    path: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    config = client.config
+    config = config or client.config
     next_token_key = config.next_token_response_key or config.next_token_key
     next_token: Optional[str] = None
     while True:
-        data = _list_page(client, profile_id, query, next_token)
+        data = _list_page(client, profile_id, query, next_token, config, path)
         items = _page_items(data, config)
         if profile_id is not None:
             items = [{**item, "_profile_id": profile_id} for item in items]
@@ -502,6 +588,31 @@ def _entity_rows(client: AmazonAdsClient, profile_ids: list[str]) -> Iterator[li
     """Entity list endpoints, fanned out per profile."""
     for profile_id in profile_ids:
         yield from _paged_rows(client, profile_id, _list_query(client.config))
+
+
+def _fan_out_rows(
+    client: AmazonAdsClient,
+    parent: AmazonAdsEndpointConfig,
+    parent_key: str,
+    profile_ids: list[str],
+    resumable_source_manager: Optional[ResumableSourceManager[AmazonAdsResumeConfig]],
+) -> Iterator[list[dict[str, Any]]]:
+    """A child endpoint read once per parent row, in each profile."""
+    config = client.config
+    for profile_id in profile_ids:
+        for parent_page in _paged_rows(client, profile_id, _list_query(parent), parent):
+            for parent_row in parent_page:
+                parent_id = parent_row.get(parent_key)
+                if parent_id is None:
+                    continue
+                path = config.path.format(parent_id=quote(str(parent_id), safe=""))
+                found = False
+                for page in _paged_rows(client, profile_id, _list_query(config), config, path):
+                    found = True
+                    yield [{**row, parent_key: parent_id} for row in page]
+                # Nothing is staged for this full refresh table, so a hand-off here only restarts it.
+                if not found and resumable_source_manager is not None:
+                    resumable_source_manager.safe_point()
 
 
 def _history_event_id(event: dict[str, Any]) -> str:
@@ -627,6 +738,16 @@ def get_rows(
             resumable_source_manager,
             should_use_incremental_field,
             db_incremental_field_last_value,
+        )
+        return
+
+    if config.fan_out_parent is not None and config.fan_out_parent_key is not None:
+        yield from _fan_out_rows(
+            client,
+            AMAZON_ADS_ENDPOINTS[config.fan_out_parent],
+            config.fan_out_parent_key,
+            profile_ids,
+            resumable_source_manager,
         )
         return
 

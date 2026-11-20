@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -24,7 +25,7 @@ _PER_PAGE = 1000
 @dataclasses.dataclass(frozen=False)
 class BillomatResumeConfig:
     next_page: int | None = None
-    # ClientContacts fans out over clients and resumes by parent — see
+    # ClientContacts and InvoiceComments fan out over a parent list and resume by parent — see
     # `common.rest_source.__init__._make_paginate_dependent_resource` for the state shape.
     completed: list[str] | None = None
     current: str | None = None
@@ -327,6 +328,35 @@ def _client_contacts_resources() -> list[str | EndpointResource]:
     ]
 
 
+def _invoice_comments_resources() -> list[str | EndpointResource]:
+    return [
+        get_resource("Invoices", should_use_incremental_field=False),
+        {
+            "name": "InvoiceComments",
+            "table_name": "invoice_comments",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": '"invoice-comments"."invoice-comment"',
+                # Comments are only listed per invoice (invoice_id is mandatory), and the API has no
+                # date filter, so this stays a full-refresh fan-out over every invoice.
+                "path": "/invoice-comments?invoice_id={invoice_id}",
+                "params": {
+                    "invoice_id": {"type": "resolve", "resource": "Invoices", "field": "id"},
+                    "per_page": _PER_PAGE,
+                    "order_by": "id ASC",
+                },
+            },
+            "table_format": "delta",
+        },
+    ]
+
+
+_FANOUT_RESOURCES: dict[str, Callable[[], list[str | EndpointResource]]] = {
+    "ClientContacts": _client_contacts_resources,
+    "InvoiceComments": _invoice_comments_resources,
+}
+
+
 def billomat_source(
     api_key: str,
     billomat_id: str,
@@ -354,7 +384,7 @@ def billomat_source(
         "paginator": BillomatPaginator(per_page=_PER_PAGE, base_page=1, page=1, page_param="page"),
     }
 
-    if endpoint == "ClientContacts":
+    if endpoint in _FANOUT_RESOURCES:
         fanout_state: Optional[dict[str, Any]] = None
         if resume_config is not None and (resume_config.completed or resume_config.current):
             fanout_state = {
@@ -374,14 +404,14 @@ def billomat_source(
                 )
 
         resources = rest_api_resources(
-            {"client": client, "resources": _client_contacts_resources()},
+            {"client": client, "resources": _FANOUT_RESOURCES[endpoint]()},
             team_id,
             job_id,
             None,
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=fanout_state,
         )
-        return next(resource for resource in resources if resource.name == "ClientContacts")
+        return next(resource for resource in resources if resource.name == endpoint)
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resume_config is not None and resume_config.next_page is not None:

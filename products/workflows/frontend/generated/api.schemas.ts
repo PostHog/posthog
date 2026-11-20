@@ -419,6 +419,7 @@ export const HogFlowStateEnumApi = {
  * * `broadcasts` - Broadcasts
  * * `transactional_emails` - Transactional emails
  * * `transactional_email_keys` - Transactional email keys
+ * * `transactional_push` - Transactional push notifications
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
@@ -427,6 +428,7 @@ export const HogFlowOriginProductEnumApi = {
     Broadcasts: 'broadcasts',
     TransactionalEmails: 'transactional_emails',
     TransactionalEmailKeys: 'transactional_email_keys',
+    TransactionalPush: 'transactional_push',
 } as const
 
 /**
@@ -496,6 +498,24 @@ export interface HogFlowLastRunApi {
 }
 
 /**
+ * * `test_sender_live` - Test sender live
+ */
+export type HogFlowWarningCodeEnumApi = (typeof HogFlowWarningCodeEnumApi)[keyof typeof HogFlowWarningCodeEnumApi]
+
+export const HogFlowWarningCodeEnumApi = {
+    TestSenderLive: 'test_sender_live',
+} as const
+
+export interface HogFlowWarningApi {
+    /** test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.
+     *
+     * * `test_sender_live` - Test sender live */
+    readonly code: HogFlowWarningCodeEnumApi
+    /** What to tell the user, with the link that fixes it. */
+    readonly message: string
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface HogFlowMinimalApi {
@@ -541,6 +561,8 @@ export interface HogFlowMinimalApi {
      * @nullable
      */
     readonly suggestions_enabled: boolean | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings: readonly HogFlowWarningApi[]
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -779,7 +801,8 @@ export interface HogFlowApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     origin_product?: HogFlowOriginProductEnumApi | null
     /**
      * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -851,6 +874,8 @@ export interface HogFlowApi {
     readonly email_sending_resumed_at: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings: readonly HogFlowWarningApi[]
 }
 
 /**
@@ -895,7 +920,8 @@ export interface HogFlowUpdateApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -960,6 +986,8 @@ export interface HogFlowUpdateApi {
     readonly email_sending_resumed_at: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings: readonly HogFlowWarningApi[]
 }
 
 /**
@@ -1004,7 +1032,8 @@ export interface PatchedHogFlowUpdateApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1069,6 +1098,8 @@ export interface PatchedHogFlowUpdateApi {
     readonly email_sending_resumed_at?: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run?: HogFlowLastRunApi | null
+    /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+    readonly warnings?: readonly HogFlowWarningApi[]
 }
 
 /**
@@ -1258,7 +1289,8 @@ export interface HogFlowConvertedToBroadcastApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     readonly origin_product: HogFlowOriginProductEnumApi
 }
 
@@ -1388,9 +1420,126 @@ export interface HogInvocationResultsCountApi {
  */
 export type HogFlowInvocationApiGlobals = { [key: string]: unknown }
 
+/**
+ * Variable: {key, type: string|number|boolean, default}.
+ */
+export type HogFlowTestConfigurationApiVariablesItem = { [key: string]: string }
+
+/**
+ * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+ * @nullable
+ */
+export type HogFlowTestConfigurationApiActionRedirects = { [key: string]: string } | null
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface HogFlowTestConfigurationApi {
+    readonly id: string
+    /**
+     * Workflow name.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional description. */
+    description?: string
+    /**
+     * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    tags?: string[]
+    readonly version: number
+    /** draft (no execution), active (live), archived (disabled).
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    status?: HogFlowStateEnumApi
+    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
+    origin_product?: HogFlowOriginProductEnumApi | null
+    /**
+     * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
+     * @maxLength 255
+     * @nullable
+     * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
+     */
+    source_record?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+    readonly trigger: unknown
+    /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
+    trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+    conversion?: HogFlowConversionApi | null
+    /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
+    exit_condition?: ExitConditionEnumApi
+    /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+    email_sending_rate_limit?: HogFlowEmailSendingRateLimitApi | null
+    /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+    edges?: HogFlowEdgeApi[]
+    /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
+    actions: HogFlowActionApi[]
+    /** @nullable */
+    readonly abort_action: string | null
+    /** Workflow vars (key, type, default). Total <5KB. */
+    variables?: HogFlowTestConfigurationApiVariablesItem[]
+    readonly billable_action_types: unknown
+    /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+    readonly schedules: readonly HogFlowScheduleApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+    readonly draft: unknown
+    /**
+     * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+     * @nullable
+     */
+    readonly draft_updated_at: string | null
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    readonly action_redirects: HogFlowTestConfigurationApiActionRedirects
+    /**
+     * When PostHog paused this workflow's email automatically because its spam complaint or hard bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it.
+     * @nullable
+     */
+    readonly email_sending_paused_at: string | null
+    /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
+    readonly email_sending_paused_reason: string
+    /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+    readonly email_sending_paused_by: string
+    /** True when only PostHog staff can lift the current pause: staff placed it, or it landed shortly after a resume, so another self-serve resume is not offered. False when not paused or when the resume endpoint would accept the caller. */
+    readonly email_sending_pause_requires_support: boolean
+    /**
+     * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
+     * @nullable
+     */
+    readonly email_sending_resumed_at: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
+}
+
 export interface HogFlowInvocationApi {
     /** Optional override; omit to use saved definition. */
-    configuration?: HogFlowApi
+    configuration?: HogFlowTestConfigurationApi
     /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
     globals?: HogFlowInvocationApiGlobals
     /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
@@ -1710,6 +1859,11 @@ export interface HogFlowPublishRequestApi {
     confirm?: boolean
     /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
     confirm_token?: string
+    /**
+     * With confirm=true, whether the preview's moves_to_sandbox_sender warning was shown. False refuses the publish (409) when the live workflow changed so that it now moves steps onto the PostHog test sender. Omit it to skip that check.
+     * @nullable
+     */
+    sandbox_sender_warned?: boolean | null
 }
 
 export interface HogFlowPublishImpactMoveTargetApi {
@@ -1788,6 +1942,11 @@ export interface HogFlowPublishResponseApi {
     confirm_token: string | null
     /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
     impact: HogFlowPublishImpactApi | null
+    /**
+     * Whether publishing moves email steps of the enabled workflow onto the PostHog test sender, which reaches only verified members of the organization. Only set on previews.
+     * @nullable
+     */
+    moves_to_sandbox_sender: boolean | null
     /** The workflow after publishing (only set when published=true). */
     workflow?: HogFlowApi | null
 }
@@ -2362,7 +2521,8 @@ export interface SendCalendarFlowApi {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
-     * * `transactional_email_keys` - Transactional email keys */
+     * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     /** User who created the workflow. */
     readonly created_by: UserBasicApi | null
@@ -3418,6 +3578,7 @@ export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
     Loops: 'loops',
     TransactionalEmails: 'transactional_emails',
+    TransactionalPush: 'transactional_push',
 } as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]

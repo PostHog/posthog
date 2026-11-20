@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
+import { IconApps, IconClock, IconCopy, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -23,10 +25,10 @@ import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPanel?: boolean }): JSX.Element {
     const { preparePrint, prepareImage } = useActions(notebookExportLogic({ shortId }))
-    const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
-    const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(
-        notebookLogic({ shortId })
-    )
+    const { notebook, showHistory, isLocalOnly, canEditNotebook } = useValues(notebookLogic({ shortId }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory, saveNotebookNow } =
+        useActions(notebookLogic({ shortId }))
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
@@ -41,6 +43,24 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
             </DropdownMenuTrigger>
             <DropdownMenuContent align="center" side="bottom">
                 <DropdownMenuGroup>
+                    {featureFlags[FEATURE_FLAGS.NOTEBOOK_APP_BUILDER] &&
+                        canEditNotebook &&
+                        !isLocalOnly &&
+                        !notebook?.is_template && (
+                            <DropdownMenuItem asChild>
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        saveNotebookNow()
+                                        router.actions.push(urls.notebook(shortId), { view: 'builder' })
+                                    }}
+                                    menuItem
+                                    data-attr="notebook-open-app-builder"
+                                >
+                                    <IconApps />
+                                    App builder
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        )}
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive onClick={() => duplicateNotebook()} menuItem>
                             <IconCopy />
