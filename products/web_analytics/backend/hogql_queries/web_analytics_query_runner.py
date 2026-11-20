@@ -82,6 +82,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     is_precompute_enabled_for_team,
     is_team_above_volume_floor,
 )
+from products.web_analytics.backend.warming.predictive import warming_arm
 from products.web_analytics.backend.warming.read_history import record_shape_read
 
 logger = structlog.get_logger(__name__)
@@ -795,7 +796,7 @@ WHERE and(
         return compute_shape_key(self.query, self.team.timezone, self._test_account_filters)
 
     def _runner_event_properties(self) -> dict[str, Any]:
-        return {"shape_key": self.shape_key}
+        return {"shape_key": self.shape_key, "warming_arm": warming_arm(self.team.pk)}
 
     def _record_runner_read(self) -> None:
         try:

@@ -454,6 +454,13 @@ CONSTANCE_CONFIG = {
         "Cache warming reads this history to predict demand. Turning it off stops the per-request Redis write.",
         bool,
     ),
+    "WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT": (
+        get_from_env("WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT", default=20, type_cast=int),
+        "For projects in the web-analytics-predictive-warming flag, the cache warmer only warms a query shape "
+        "when the demand model gives at least this percent chance of a request in the next four hours. "
+        "Lower values warm more shapes at a higher cost.",
+        int,
+    ),
     "REALTIME_COHORT_JOIN_OPEN": (
         False,
         "Whether a project in this region joins the realtime cohorts beta when a member opts in. "
@@ -546,6 +553,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SHARDS",
     "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
     "WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED",
+    "WEB_ANALYTICS_PREDICTIVE_WARMING_THRESHOLD_PERCENT",
     "REALTIME_COHORT_JOIN_OPEN",
     "WORKOS_RADAR_LOGIN_MODE",
     "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
