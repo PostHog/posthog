@@ -6130,9 +6130,9 @@ Diffed against: <https://developers.freshchat.com/api/>
 - [x] `/v2/users/{user_id}/conversations` — conversations are the product's core analytical object and are entirely absent today (high)
 - [x] `/v2/conversations/{conversation_id}/messages` — message-level data for response time, volume and agent workload analysis (high)
 - [x] `/v2/roles` — lookup resolving the role IDs carried on agents (high)
-- [ ] `/v2/reports/raw` — bulk raw data export - the practical way to land conversation/agent history at scale (medium) — not a readable collection: `POST /reports/raw` submits an async extraction job and `GET /reports/raw/{id}` returns a status plus a link to a generated CSV/JSON file. It needs a mandatory `event` type from a fixed enum, each of which yields a different report schema, over a window capped at one month (24 hours for chat transcripts) and no earlier than 15 months back. There is no single stable table behind it.
+- [ ] `/v2/reports/raw` — bulk raw data export - the practical way to land conversation/agent history at scale (medium) — not a readable collection: `POST /reports/raw` submits an async extraction job and `GET /reports/raw/{id}` returns a status plus a link to a generated CSV/JSON file. It needs a mandatory `event` type from a fixed enum, each of which yields a different report schema, over a window capped at one month (24 hours for chat transcripts) and no earlier than 15 months back. There is no single stable table behind it. Skipped: async export job with a per-event report schema, not a readable collection.
 - [x] `/v2/outbound-messages` — outbound campaign message sends and their delivery state (medium)
-- [ ] `/v2/metrics/historical` — vendor-computed historical conversation/agent metrics (medium)
+- [x] `/v2/metrics/historical` — vendor-computed historical conversation/agent metrics (medium)
 
 Note: There is no top-level GET /v2/conversations list - conversations are only enumerable per user (/v2/users/{user_id}/conversations), so an implementation must fan out from the users table already synced, then fan out again for messages. /v2/agents/{id} status updates and business-hours/within-bh are write/check endpoints, not collections.
 
@@ -11695,13 +11695,13 @@ Diffed against: <https://core-api.uk.plain.com/graphql/v1/schema.graphql>
 - [x] `tenants` — multi-tenant grouping dimension for customers and threads (high)
 - [x] `customerSurveys` — CSAT survey definitions: template, targeting and send settings, not responses (high)
 - [ ] CSAT survey responses — individual responses and scores, the headline support-quality metric; the schema has no list query for them (high)
-- [ ] `tiers` — SLA tier per company/tenant, needed to segment thread response times (medium)
-- [ ] `tasks` — work items attached to threads, needed for workload analysis (medium)
+- [x] `tiers` — SLA tier per company/tenant, needed to segment thread response times (medium)
+- [x] `tasks` — work items attached to threads, needed for workload analysis (medium)
 - [x] `discussions` — internal discussion threads separate from customer-facing threads (medium)
 - [x] `customerGroups` — lookup resolving group IDs on customers (medium)
 - [x] `workflowExecutions` — automation run history, for measuring deflection and routing (medium)
-- [ ] `threadFieldSchemas` — lookup defining the custom thread fields whose values appear on threads (medium)
-- [ ] `knowledgeGaps` — AI knowledge-gap records for content prioritization (low)
+- [x] `threadFieldSchemas` — lookup defining the custom thread fields whose values appear on threads (medium)
+- [x] `knowledgeGaps` — AI knowledge-gap records for content prioritization (low)
 
 Note: Plain is GraphQL-only; I enumerated every \*Connection field on type Query from the published SDL. 62 paginated collections exist against the 3 tables PostHog exposes. Non-analytical Connections (webhookTargets, workspaceSlackIntegrations, serviceAuthorizations, savedThreadsViews, chatApps, roles, billingPlans) were deliberately excluded as config/plumbing.
 
@@ -13453,7 +13453,7 @@ Note: Coverage of the flat top-level collections is complete — every un-pagina
 
 ## Shortio — **thin**
 
-Today (5): `domains`, `links`, `link_clicks`, `last_clicks`, `link_by_interval`
+Today (8): `domains`, `links`, `link_clicks`, `last_clicks`, `link_by_interval`, `domain_by_interval`, `domain_top`, `link_top`
 
 Diffed against: <https://api.short.io/openapi.json>
 
@@ -13461,10 +13461,10 @@ Diffed against: <https://api.short.io/openapi.json>
 - [x] `statistics/domain/{domainId}/last_clicks (POST, statistics.short.io)` — paginated raw clicks for every domain (high)
 - [x] `statistics/domain/{domainId}/link_clicks (GET/POST, statistics.short.io)` — click counts by link ID through GET (high)
 - [x] `statistics/link/{linkId}/by_interval (POST, statistics.short.io)` — daily click counts by link (high)
-- [ ] `statistics/domain/{domainId}/by_interval (POST, statistics.short.io)` — domain-level click time series (medium)
-- [ ] `statistics/domain/{domainId}/top (POST, statistics.short.io)` — breakdown dimensions (country, referrer, device, browser) ordered by clicks (medium)
-- [ ] `statistics/link/{linkId}/top (POST, statistics.short.io)` — same breakdown dimensions scoped to a single link (medium)
-- [ ] `links/folders/{domainId} (GET)` — lookup resolving the folder a link belongs to (medium)
+- [x] `statistics/domain/{domainId}/by_interval (POST, statistics.short.io)` — domain-level click time series (medium)
+- [x] `statistics/domain/{domainId}/top (POST, statistics.short.io)` — breakdown dimensions (country, referrer, device, browser) ordered by clicks (medium)
+- [x] `statistics/link/{linkId}/top (POST, statistics.short.io)` — same breakdown dimensions scoped to a single link (medium)
+- [ ] `links/folders/{domainId} (GET)` — lookup resolving the folder a link belongs to (medium) Skipped: the spec and the official SDK publish no response schema, so the row shape and key are unknown.
 - [ ] `tags/{domainId} (GET)` — lookup for link tags used to group campaign links (medium)
 - [ ] `statistics/domain/{domainId}/paths (GET, statistics.short.io)` — most popular link paths in a time window (low)
 - [ ] `links/bundle/{id}/links (GET)` — link-in-bio bundle membership (low)
@@ -16653,17 +16653,17 @@ Out of scope — the Metering/meters API (`/meters/*`): despite the "Metering/me
 
 ## Zylo — gaps
 
-Today (18): `ActivityHistory`, `ApplicationBudgets`, `ApplicationLicenses`, `ApplicationStats`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `POLineItems`, `Payments`, `PendingContracts`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`, `Users`, `Views`
+Today (21): `ActivityHistory`, `ApplicationBudgets`, `ApplicationFunctionalities`, `ApplicationLicenses`, `ApplicationStats`, `ApplicationUsers`, `Applications`, `AutomationExecutions`, `Automations`, `ContractLineItems`, `Contracts`, `CustomFields`, `POLineItems`, `Payments`, `PendingContractLineItems`, `PendingContracts`, `PurchaseOrders`, `SavingsEvents`, `Suppliers`, `Users`, `Views`
 
 Diffed against: <https://developer.zylo.com/sitemap.xml>
 
 - [x] `/v2/users` — the company employee directory - lookup resolving the user IDs on the ApplicationUsers rows we already sync (high) (`users`)
 - [x] `/v2/applicationStats` — per-application spend and utilization stats, Zylo's headline metric and the whole point of SaaS management (high) (`application_stats`, full refresh only: the stats change daily but the only timestamp filters are the application's own dates)
 - [x] `/v2/pendingContracts` — contracts in flight/awaiting approval - the renewal pipeline, invisible from the committed Contracts table (high) (`pending_contracts`)
-- [ ] `/v2/pendingContractLineItems` — line-item grain for pending contracts, needed to forecast renewal spend by product (medium)
-- [ ] `/v2/applications/{applicationId}/functionalities` — functionality taxonomy per app - the breakdown dimension for redundant-spend analysis across the Applications we sync (medium)
-- [ ] `/v2/zybrary` — Zylo's reference SaaS catalog - lookup enriching synced Applications with vendor/category benchmark data (medium)
-- [ ] `/v2/customFields` — custom field definitions - lookup resolving the customer-defined field IDs that appear on applications, contracts and suppliers (medium)
+- [x] `/v2/pendingContractLineItems` — line-item grain for pending contracts, needed to forecast renewal spend by product (medium) (`pending_contract_line_items`)
+- [x] `/v2/applications/{applicationId}/functionalities` — functionality taxonomy per app - the breakdown dimension for redundant-spend analysis across the Applications we sync (medium) (`application_functionalities`, fanned out over `/v2/applications`)
+- [ ] `/v2/zybrary` — Zylo's reference SaaS catalog - lookup enriching synced Applications with vendor/category benchmark data (medium) Skipped: search-only endpoint that requires one of search, app_domain, id or app_name, so it cannot list the full catalog.
+- [x] `/v2/customFields` — custom field definitions - lookup resolving the customer-defined field IDs that appear on applications, contracts and suppliers (medium) (`custom_fields`; needs the `admin` scope)
 - [ ] `/v2/zyloUsers` — Zylo platform users - lookup resolving owner/approver IDs referenced on applications and contracts (medium)
 - [x] `/v2/views` — application groupings (cost centers, business units) - the org breakdown dimension for spend rollups (medium) (`views`; needs the `admin` scope)
 - [ ] `/v2/applicationBudgets/stats` — budget-vs-actual aggregates alongside the raw ApplicationBudgets we already sync (medium)

@@ -334,6 +334,7 @@ export function alertPatternsFromConfig(
  */
 export type InboxTabKey =
     | 'reports'
+    | 'monitoring'
     | 'scouts'
     | 'sources'
     | 'settings'
@@ -344,10 +345,11 @@ export type InboxTabKey =
     | 'config'
 
 /** The page tabs the inbox renders. */
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'sources', 'settings']
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'monitoring', 'scouts', 'sources', 'settings']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     reports: 'Reports',
+    monitoring: 'Monitoring',
     scouts: 'Scouts',
     sources: 'Sources',
     settings: 'Settings',
@@ -361,6 +363,7 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 /** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     reports: 'Issues and opportunities found in your product, ready to review.',
+    monitoring: 'Fixes PostHog is checking after they merged, and how the recent ones turned out.',
     scouts: 'Scouts run on a schedule and investigate the areas you choose.',
     sources: 'Sources send signals for self-driving to investigate.',
     settings: 'Configure autonomy, agent instructions, code access, and notifications.',

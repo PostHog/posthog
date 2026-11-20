@@ -44,6 +44,8 @@ export const INBOX_EVENTS = {
     VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
     VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
+    // Sent by the cloud inbox only, because the desktop inbox does not retry a failed list load.
+    REPORT_LIST_RETRY_RECOVERED: 'Inbox report list retry recovered',
     WRITE_TIMED_OUT: 'Inbox write timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -106,6 +108,10 @@ export const INBOX_EVENTS = {
     RUN_OPENED: 'Inbox run opened',
     RUN_SUMMARY_VIEWED: 'Inbox run summary viewed',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
+    // Cloud-only: the desktop app has no Monitoring tab.
+    MONITORING_ROW_EXPANDED: 'Inbox monitoring row expanded',
+    MONITORING_SCOPE_CHANGED: 'Inbox monitoring scope changed',
+    MONITORING_ACTION: 'Inbox monitoring action',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -260,7 +266,15 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
  * `config` is the Settings tab; the value predates the rename and stays so the panel breakdown
  * reads continuously. The onboarding panel can appear alongside the report list.
  */
-export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
+export type InboxPanelName =
+    | 'runs'
+    | 'config'
+    | 'sources'
+    | 'scratchpad'
+    | 'findings'
+    | 'triage'
+    | 'onboarding'
+    | 'monitoring'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
@@ -331,7 +345,11 @@ export type ScoutActionType =
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
-function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>, options?: CaptureOptions): void {
+export function captureInboxEvent(
+    event: InboxEvent,
+    properties: Record<string, unknown>,
+    options?: CaptureOptions
+): void {
     posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties }, options)
 }
 
@@ -1000,6 +1018,20 @@ export function captureSignalSourceToggleFailed(params: {
         enabled: params.enabled,
         reason: params.reason,
         error_message: params.errorMessage,
+    })
+}
+
+/** An automatic retry loaded the report list. Without this event, a recovered list looks like one that never failed. */
+export function captureInboxReportListRetryRecovered(params: {
+    sectionKey: InboxReportSectionKey
+    retryCount: number
+    error: unknown
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_LIST_RETRY_RECOVERED, {
+        section_key: params.sectionKey,
+        retry_count: params.retryCount,
+        error_type: params.error instanceof Error ? params.error.name : null,
+        status: (params.error as { status?: number } | null)?.status ?? null,
     })
 }
 
