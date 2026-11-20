@@ -92,7 +92,8 @@ CREATE_SKILL_DESCRIPTION = """Create a new agent skill (a reusable workflow stor
 # Optional input
 - `license`, `compatibility`, `allowed_tools`, `metadata`: spec fields (see agentskills.io).
 - `files`: bundled files (`path`, `content`, `content_type`). Use `scripts/` for executable code, `references/` for
-  docs, `assets/` for templates."""
+  docs, `assets/` for templates.
+- `version_description`: a short note on where the skill came from — it is shown in the skill's version history."""
 
 
 UPDATE_SKILL_DESCRIPTION = """Publish a new version of an existing skill. Any field not provided is carried forward from the current latest.
@@ -176,6 +177,11 @@ class CreateSkillArgs(BaseModel):
             "Optional bundled files. Each item: {path, content, content_type?}. "
             "Use scripts/, references/, or assets/ subdirs by convention."
         ),
+    )
+    version_description: str | None = Field(
+        default=None,
+        max_length=400,
+        description="Optional note (max 400 chars) on where the skill came from. Shown in the skill's version history.",
     )
 
 
@@ -406,6 +412,7 @@ class CreateLLMSkillTool(MaxTool):
         allowed_tools: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         files: list[dict[str, str]] | None = None,
+        version_description: str | None = None,
     ) -> tuple[str, None]:
         # The tool calls create_skill directly, which skips the serializer's name validation, so a
         # reserved name would persist a skill whose /skills/<name> page is taken by a tab route,
@@ -427,6 +434,7 @@ class CreateLLMSkillTool(MaxTool):
                 allowed_tools=allowed_tools,
                 metadata=metadata,
                 files=files,
+                version_description=(version_description or "").strip() or None,
             )
         except LLMSkillDuplicateNameConflictError:
             raise MaxToolFatalError(f"A skill named '{name}' already exists.")

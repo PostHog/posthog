@@ -38,6 +38,12 @@ const releaseCreate = (): ToolBase<ReturnType<typeof ReleaseCreateSchema>, WithP
         if (params.insight_ids !== undefined) {
             body['insight_ids'] = params.insight_ids
         }
+        if (params.metric_insight_ids !== undefined) {
+            body['metric_insight_ids'] = params.metric_insight_ids
+        }
+        if (params.metric_goals !== undefined) {
+            body['metric_goals'] = params.metric_goals
+        }
         const result = await context.api.request<Schemas.ReleaseDTO>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/releases/`,
@@ -148,6 +154,12 @@ const releaseUpdate = (): ToolBase<ReturnType<typeof ReleaseUpdateSchema>, WithP
         }
         if (params.insight_ids !== undefined) {
             body['insight_ids'] = params.insight_ids
+        }
+        if (params.metric_insight_ids !== undefined) {
+            body['metric_insight_ids'] = params.metric_insight_ids
+        }
+        if (params.metric_goals !== undefined) {
+            body['metric_goals'] = params.metric_goals
         }
         const result = await context.api.request<Schemas.ReleaseDTO>({
             method: 'PATCH',

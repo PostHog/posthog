@@ -22,7 +22,6 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.exceptions import Conflict
 from posthog.models.user import User
-from posthog.storage import object_storage
 
 from products.posthog_ai.backend.context_wrapper import (
     ALLOWED_TYPES,
@@ -527,7 +526,7 @@ class SandboxSession(BaseSandboxService):
 
         for chain_run in run.get_resume_chain():
             _absorb((chain_run.state or {}).get("attached_context"))
-            log_content = object_storage.read(chain_run.log_url, missing_ok=True) or ""
+            log_content = tasks_facade.read_task_run_log_content([chain_run.log])
             for line in log_content.splitlines():
                 line = line.strip()
                 if not line:

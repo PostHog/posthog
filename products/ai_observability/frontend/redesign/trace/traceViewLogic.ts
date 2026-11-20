@@ -299,7 +299,11 @@ export const traceViewLogic = kea<traceViewLogicType>([
         return {
             loadTraceSuccess: ({ trace }) => {
                 // The timeline lists every step but the root.
-                traceViewTracking.viewLoaded(elapsedMs(cache.traceRequestedAt), trace.timeline.length + 1)
+                traceViewTracking.viewLoaded(
+                    elapsedMs(cache.traceRequestedAt),
+                    trace.timeline.length + 1,
+                    trace.createdAt
+                )
                 for (const nodeId of trace.threadNodeIds) {
                     actions.loadNode(nodeId, 'thread')
                 }

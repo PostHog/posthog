@@ -9,10 +9,10 @@ from posthog.exceptions_capture import capture_exception
 from ...facade import contracts
 from ..message_normalizer.errors import RecipeRuntimeError
 from ..message_normalizer.normalizer import RecipeNormalizer
-from ..message_normalizer.run_limits import time_limit
+from ..message_normalizer.run_limits import execution_budget, time_limit
 from ..message_normalizer.values import MISSING, CompatMessage, Value
 from .message_lists import conversation_of
-from .step_messages import to_messages
+from .step_messages import parsed_json_text, to_messages
 
 logger = structlog.get_logger(__name__)
 
@@ -176,9 +176,15 @@ def _team_recipe_or_json_side(
         )
         if team_side is not None:
             return _ReadSide(side=team_side, reading=SideReading(recognized=True))
+        try:
+            with execution_budget():
+                shown = parsed_json_text(value)
+        except RecipeRuntimeError:
+            # Parsing JSON text only changes how the side looks, so running out of budget is not a recipe failure.
+            shown = value
         return _ReadSide(
-            side=contracts.TraceJsonSide(kind="json", value=value),
-            reading=SideReading(recognized=not _is_unreadable_json(value)),
+            side=contracts.TraceJsonSide(kind="json", value=shown),
+            reading=SideReading(recognized=not _is_unreadable_json(shown)),
         )
 
     return _guarded(build, kind, value, team_id=team_id)

@@ -25,7 +25,7 @@ const meta: Meta<typeof OfflineEvaluationsTabs> = {
     ],
     parameters: {
         pageUrl: urls.aiObservabilityDataset('example-dataset'),
-        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS, FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
+        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
     },
 }
 export default meta
@@ -33,21 +33,12 @@ export default meta
 type Story = StoryObj<typeof OfflineEvaluationsTabs>
 
 export const DatasetDetail: Story = {}
-export const DatasetsOnly: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
-            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: false,
-        },
-    },
-}
 export const DatasetsUnavailable: Story = {
     render: () => <OfflineExperimentsScene />,
     parameters: {
         pageUrl: urls.aiObservabilityDatasets(),
         featureFlags: {
             [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: false,
-            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
         },
     },
     play: async ({ canvasElement }) => {

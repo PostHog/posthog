@@ -13,7 +13,9 @@ from products.warehouse_sources.sources.sdk import (
     JSONResponseCursorPaginator,
     RESTClient,
     ResumableSourceManager,
+    format_datetime,
     make_tracked_session,
+    resolve_incremental_start,
 )
 from products.warehouse_sources.sources.trunk_io.settings import (
     BASE_URL,
@@ -182,10 +184,6 @@ def _coerce_datetime(value: Any) -> datetime:
     return date_parser.parse(str(value)).astimezone(UTC)
 
 
-def _format_rfc3339(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def unhealthy_tests(
     api_token: str,
     repo: TrunkRepo,
@@ -277,20 +275,22 @@ def failing_tests(
         window_start = _coerce_datetime(resume.window_start)
         page_token = resume.page_token or ""
     else:
-        if should_use_incremental_field and db_incremental_field_last_value:
-            window_start = _coerce_datetime(db_incremental_field_last_value)
-        else:
-            window_start = now - timedelta(days=FAILING_TESTS_DEFAULT_LOOKBACK_DAYS)
+        window_start = resolve_incremental_start(
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            default=timedelta(days=FAILING_TESTS_DEFAULT_LOOKBACK_DAYS),
+            now=now,
+        )
         page_token = ""
 
     while window_start < now:
         window_end = min(window_start + timedelta(days=FAILING_TESTS_WINDOW_DAYS), now)
-        synced_through = _format_rfc3339(window_end)
+        synced_through = format_datetime(window_end)
         paginator = TrunkPageQueryPaginator(page_token=page_token)
         body = {
             "repo": repo.as_dict(),
             "org_url_slug": org_url_slug,
-            "start_time": _format_rfc3339(window_start),
+            "start_time": format_datetime(window_start),
             "end_time": synced_through,
         }
 
@@ -336,11 +336,11 @@ def merge_queue_pull_requests(
     cursor = (resume.cursor if resume else None) or ""
     # Pin the stamp across a resume so the second half of an interrupted run doesn't claim
     # coverage the first half never had.
-    synced_through = (resume.synced_through if resume else None) or _format_rfc3339(datetime.now(UTC))
+    synced_through = (resume.synced_through if resume else None) or format_datetime(datetime.now(UTC))
 
     body: dict[str, Any] = {"repo": repo.as_dict(), "targetBranch": target_branch}
-    if should_use_incremental_field and db_incremental_field_last_value:
-        body["since"] = _format_rfc3339(_coerce_datetime(db_incremental_field_last_value))
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        body["since"] = format_datetime(db_incremental_field_last_value)
 
     def checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("cursor"):
@@ -454,7 +454,7 @@ def list_failing_tests(
     repository_id: Optional[str] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    synced_through = (resume.synced_through if resume else None) or _format_rfc3339(datetime.now(UTC))
+    synced_through = (resume.synced_through if resume else None) or format_datetime(datetime.now(UTC))
     # A `lastFailureAt` sort drops tests with no failure in `period`, which is what makes this
     # the failing set rather than every test.
     return _v2_list(

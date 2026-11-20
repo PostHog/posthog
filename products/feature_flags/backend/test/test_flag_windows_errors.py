@@ -306,10 +306,10 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            (f"{mode_name}_{response_name}", mode, in_flag_evaluations, response, expected)
-            for mode_name, mode, in_flag_evaluations in (
-                ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
-                ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+            (f"{mode_name}_{response_name}", mode, response, expected)
+            for mode_name, mode in (
+                ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+                ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
             )
             for response_name, response, expected in (
                 ("true", True, ErrorsByLastValue(exposed_with_errors=1, unexposed_with_errors=0)),
@@ -322,12 +322,13 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         self,
         _name: str,
         mode: FlagEvaluationsMode,
-        calls_in_flag_evaluations: bool,
         response: bool | None,
         expected: ErrorsByLastValue,
     ) -> None:
         # A team on the native JSON events table reads flag calls from flag_evaluations on every mode.
-        calls_in_flag_evaluations = calls_in_flag_evaluations or settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        calls_only_in_flag_evaluations = (
+            mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY or settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        )
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
@@ -341,14 +342,16 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         calls = [("person-1", "new-checkout", {}), ("person-2", "org-beta", {"$group_0": "org-a"})]
         people = {distinct_id: create_person(team=self.team, distinct_ids=[distinct_id]) for distinct_id, _, _ in calls}
         people["person-3"] = create_person(team=self.team, distinct_ids=["person-3"])
-        if not calls_in_flag_evaluations:
+        if not calls_only_in_flag_evaluations:
+            # The events copy carries a different response, so only a scan of flag_evaluations gives `expected`.
+            events_response = not response
             for distinct_id, flag_key, properties in calls:
                 _create_event(
                     team=self.team,
                     event="$feature_flag_called",
                     distinct_id=distinct_id,
                     timestamp=EDITED_AT + timedelta(minutes=1),
-                    properties={**properties, "$feature_flag": flag_key, "$feature_flag_response": response},
+                    properties={**properties, "$feature_flag": flag_key, "$feature_flag_response": events_response},
                 )
         for distinct_id, properties in (("person-1", {}), ("person-3", {"$group_0": "org-a"})):
             _create_event(
@@ -359,17 +362,16 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                 properties=properties,
             )
         flush_persons_and_events()
-        if calls_in_flag_evaluations:
-            for distinct_id, flag_key, properties in calls:
-                _create_flag_evaluations(
-                    self.team.pk,
-                    flag_key,
-                    timestamp=EDITED_AT + timedelta(minutes=1),
-                    distinct_id=distinct_id,
-                    person_id=people[distinct_id].uuid,
-                    response=response,
-                    properties=properties,
-                )
+        for distinct_id, flag_key, properties in calls:
+            _create_flag_evaluations(
+                self.team.pk,
+                flag_key,
+                timestamp=EDITED_AT + timedelta(minutes=1),
+                distinct_id=distinct_id,
+                person_id=people[distinct_id].uuid,
+                response=response,
+                properties=properties,
+            )
         group = dataclasses.replace(BOOLEAN, id="group", flag_key="org-beta", group_type_index=0)
 
         errors = errors_by_bucket(self.team, [BOOLEAN, group], EDITED_AT, EDITED_AT + WINDOW, WINDOW)

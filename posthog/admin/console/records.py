@@ -3,6 +3,7 @@ from typing import ClassVar
 from django.db.models import Model, QuerySet
 from django.urls import reverse
 
+from posthog.admin.dagster_links import dagster_run_url
 from posthog.dataclasses import frozen
 from posthog.models.data_deletion_request import DataDeletionRequest
 from posthog.models.oauth import OAuthApplication
@@ -216,13 +217,20 @@ class DeletionRequestRecord(RecordType):
         return [*TeamRecord().parents(team), RecordLink(label=team.name, href=TeamRecord().url(team))]
 
     def links(self, obj: Model) -> list[RecordLink]:
-        return [
+        assert isinstance(obj, DataDeletionRequest)
+        links = [
             RecordLink(
                 label="Raw record in Django admin",
                 href=reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]),
                 title="The raw request, with every field",
             ),
         ]
+        run_url = dagster_run_url(obj.last_dagster_run_id) if obj.last_dagster_run_id else None
+        if run_url is not None:
+            links.append(
+                RecordLink(label="Last run in Dagster", href=run_url, title="The latest deletion run of this request")
+            )
+        return links
 
 
 class OAuthApplicationRecord(RecordType):

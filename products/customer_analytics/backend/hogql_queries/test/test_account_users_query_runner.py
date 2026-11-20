@@ -4,7 +4,7 @@ from functools import partial
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -35,8 +35,10 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.customer_analytics.backend.hogql_queries.account_persons_catalog import (
     ACCOUNT_PERSONS_CATALOG_FLAG,
+    ACCOUNT_PERSONS_FEWER_HOPS_FLAG,
     AccountPersonsCatalog,
 )
+from products.customer_analytics.backend.hogql_queries.account_users_query_runner import AccountUsersQueryRunner
 from products.customer_analytics.backend.logic import account_person_memberships as memberships_logic
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
@@ -161,19 +163,33 @@ class TestAccountPersonsQueryValidation(SimpleTestCase):
 class TestAccountPersonsCatalogEvents(SimpleTestCase):
     @parameterized.expand(
         [
-            ("control", False, True),
-            ("test", False, True),
-            ("test", True, True),
-            ("test", False, False),
-            (None, False, True),
+            ("control", None, False, True),
+            ("test", None, False, True),
+            ("test", None, True, True),
+            ("test", None, False, False),
+            (None, None, False, True),
+            (None, "control", False, True),
+            (None, "test", False, True),
+            (None, "test", True, True),
+            (None, "test", False, False),
+            ("control", "test", False, True),
+            ("test", "control", False, True),
+            (None, "unexpected", False, True),
         ]
     )
-    def test_exposure_and_outcome(self, variant: str | None, failed: bool, track: bool) -> None:
+    def test_exposure_and_outcome(
+        self, variant: str | None, query_variant: str | None, failed: bool, track: bool
+    ) -> None:
         team = Team(id=123, organization_id="00000000-0000-0000-0000-000000000001")
         user = User(distinct_id="example-reader", email="reader@example.com")
         catalog = AccountPersonsCatalog(team, user)
         with (
-            patch("posthog.ph_client.posthoganalytics.get_feature_flag", return_value=variant) as flag_check,
+            patch(
+                "posthog.ph_client.posthoganalytics.get_feature_flag",
+                side_effect=lambda flag, *args, **kwargs: (
+                    variant if flag == ACCOUNT_PERSONS_CATALOG_FLAG else query_variant
+                ),
+            ) as flag_check,
             patch(
                 "products.customer_analytics.backend.hogql_queries.account_persons_catalog.emit_slo_started"
             ) as started,
@@ -189,13 +205,28 @@ class TestAccountPersonsCatalogEvents(SimpleTestCase):
                     catalog.cache_hit = True
             assert flag_check.call_args.kwargs["only_evaluate_locally"] is True
             assert flag_check.call_args.kwargs["send_feature_flag_events"] is False
-            if variant is None or not track:
+            expected_query_variant = query_variant if query_variant in {"control", "test"} else None
+            assert catalog.variant == variant
+            assert catalog.query_variant == expected_query_variant
+            if (variant is None and expected_query_variant is None) or not track:
                 assert not started.called and not completed.called
             else:
+                assert started.call_count == completed.call_count == 1
                 exposure = started.call_args.kwargs["extra_properties"]
+                assert (
+                    started.call_args.kwargs["distinct_id"]
+                    == completed.call_args.kwargs["distinct_id"]
+                    == "example-reader"
+                )
                 assert started.call_args.kwargs["properties"].operation == "account_persons_query"
                 assert completed.call_args.kwargs["properties"].operation == "account_persons_query"
-                assert exposure[f"$feature/{ACCOUNT_PERSONS_CATALOG_FLAG}"] == variant
+                assert exposure.get(f"$feature/{ACCOUNT_PERSONS_CATALOG_FLAG}") == variant
+                assert exposure.get(f"$feature/{ACCOUNT_PERSONS_FEWER_HOPS_FLAG}") == expected_query_variant
+                assert completed.call_args.kwargs["extra_properties"] == {
+                    **exposure,
+                    "cache_hit": not failed,
+                    "catalog_build_ms": 0.0,
+                }
                 assert completed.call_args.kwargs["properties"].outcome == ("failure" if failed else "success")
                 assert "error_message" not in completed.call_args.kwargs["extra_properties"]
                 assert completed.call_args.kwargs["extra_properties"]["cache_hit"] is not failed
@@ -214,7 +245,9 @@ class TestMembershipSchema(QueryMatchingTest, SimpleTestCase):
             restricted_properties=set(),
             use_new_events_schema=False,
         )
-        sql, _ = prepare_and_print_ast(reader.get_source_query(), context=context, dialect="clickhouse")
+        sql, _ = prepare_and_print_ast(
+            reader.get_optimized_source_query(reader.get_membership_query()), context=context, dialect="clickhouse"
+        )
         self.assertQueryMatchesSnapshot(sql)
         assert group_key not in sql
         assert group_key in context.values.values()
@@ -225,7 +258,16 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch(FLAG_CHECK, return_value=True))
-        self.catalog_flag_check = self.enterContext(patch(CATALOG_FLAG_CHECK, return_value=None))
+        self.catalog_flag_check = Mock(return_value=None)
+        self.fewer_hops_flag_check = Mock(return_value=None)
+        self.enterContext(
+            patch(
+                CATALOG_FLAG_CHECK,
+                side_effect=lambda flag, *args, **kwargs: (
+                    self.catalog_flag_check if flag == ACCOUNT_PERSONS_CATALOG_FLAG else self.fewer_hops_flag_check
+                )(flag, *args, **kwargs),
+            )
+        )
         TeamCustomerAnalyticsConfig.objects.update_or_create(team=self.team, defaults={"account_group_type_index": 0})
         self.account = create_account(team_id=self.team.pk, external_id="workspace-demo")
         self.endpoint = f"/api/projects/{self.team.pk}/accounts/{self.account.id}/persons/"
@@ -270,11 +312,14 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             format="json",
         )
 
-    @parameterized.expand([(False, None), (True, 120)])
+    @parameterized.expand(
+        [(False, None, "control"), (False, None, "test"), (True, 120, "control"), (True, 120, "test")]
+    )
     def test_widget_query_supports_display_names_filters_search_sort_and_pages(
-        self, materialized_cte: bool, max_threads: int | None
+        self, materialized_cte: bool, max_threads: int | None, query_variant: str
     ) -> None:
         self.catalog_flag_check.return_value = "test"
+        self.fewer_hops_flag_check.return_value = query_variant
         self.enterContext(
             self.settings(
                 HOGQL_MATERIALIZED_CTE_SUPPORTED=materialized_cte, CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS=max_threads
@@ -289,13 +334,13 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         assert page["hasMore"] and page["limit"] == 1
         runner = get_query_runner(self._get_widget_query(limit=1), self.team, user=self.user)
         assert isinstance(runner, ActorsQueryRunner)
-        query = runner.paginator.paginate(runner.to_query())
-        context = runner.build_hogql_context(enable_select_queries=True, modifiers=runner.modifiers)
-        sql, _ = prepare_and_print_ast(
-            query,
-            context=context,
-            dialect="clickhouse",
-        )
+        assert isinstance(runner.source_query_runner, AccountUsersQueryRunner)
+        with runner.source_query_runner.catalog_context(runner.query, track_catalog=False):
+            query = runner.paginator.paginate(runner.to_query())
+            context = runner.build_hogql_context(enable_select_queries=True, modifiers=runner.modifiers)
+            sql, _ = prepare_and_print_ast(query, context=context, dialect="clickhouse")
+        assert ("globalIn(" in sql) is (query_variant == "test")
+        assert ("__account_membership AS MATERIALIZED" in sql) is (materialized_cte and query_variant == "test")
         self.assertQueryMatchesSnapshot(sql)
         plan = json.loads(sync_execute("EXPLAIN PLAN indexes=1, json=1 " + sql, context.values)[0][0])
         pending = [plan[0]["Plan"]]
@@ -325,10 +370,14 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0][0]["id"] == str(self.first.uuid)
 
-    def test_widget_catalog_variants_keep_results_and_caches_separate(self) -> None:
-        self.catalog_flag_check.return_value = "control"
-        control = self._run_widget_query().json()
+    @parameterized.expand([("catalog_flag_check",), ("fewer_hops_flag_check",)])
+    def test_widget_catalog_variants_keep_results_and_caches_separate(self, flag_check: str) -> None:
         self.catalog_flag_check.return_value = "test"
+        self.fewer_hops_flag_check.return_value = "test"
+        flag = getattr(self, flag_check)
+        flag.return_value = "control"
+        control = self._run_widget_query().json()
+        flag.return_value = "test"
         treatment = self._run_widget_query().json()
         cached = self._run_widget_query().json()
         assert control["results"] == treatment["results"] == cached["results"]

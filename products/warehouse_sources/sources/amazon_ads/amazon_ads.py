@@ -1,10 +1,9 @@
 import io
 import gzip
 import json
-import time
 import hashlib
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from itertools import batched
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlparse, urlsplit
@@ -22,12 +21,14 @@ from products.warehouse_sources.sources.amazon_ads.settings import (
     AmazonAdsReportConfig,
 )
 from products.warehouse_sources.sources.sdk import (
+    JobStatus,
     ResumableSourceManager,
     SourceResponse,
     SyncWindow,
     capture_exception,
     frozen,
     make_tracked_session,
+    poll_until_done,
     request_deadline,
     stop_at_request_deadline,
 )
@@ -45,7 +46,7 @@ MAX_RETRY_ATTEMPTS = 5
 # The vendor's own examples send this on both the create and the status call, and no Accept.
 REPORT_MEDIA_TYPE = "application/vnd.createasyncreportrequest.v3+json"
 REPORT_POLL_INTERVAL_SECONDS = 30
-REPORT_POLL_MAX_ATTEMPTS = 40
+REPORT_POLL_BUDGET_SECONDS = 20 * 60
 REPORT_DOWNLOAD_TIMEOUT_SECONDS = 300
 REPORT_ROWS_PER_BATCH = 2000
 # The generated file sits on presigned Amazon storage rather than the API host. Pinning the host
@@ -344,9 +345,14 @@ class AmazonAdsClient:
     def download_report(self, url: str) -> list[dict[str, Any]]:
         return download_report_rows(url, self.client_id, self.client_secret, self.refresh_token)
 
-    def await_report_url(self, report: AmazonAdsReportConfig, profile_id: str, report_id: str) -> Optional[str]:
-        status = None
-        for _attempt in range(REPORT_POLL_MAX_ATTEMPTS):
+    def await_report_url(
+        self,
+        report: AmazonAdsReportConfig,
+        profile_id: str,
+        report_id: str,
+        safe_point: Optional[Callable[[], None]] = None,
+    ) -> Optional[str]:
+        def check() -> JobStatus[Optional[str]]:
             body = self.request(
                 "GET",
                 f"{self.config.path}/{report_id}",
@@ -355,18 +361,23 @@ class AmazonAdsClient:
                 http=self.report_session,
             ).json()
             status = body.get("status")
-
             if status == "COMPLETED":
-                return body.get("url")
+                return JobStatus(done=True, result=body.get("url"))
             if status == "FAILED":
-                raise AmazonAdsReportError(
-                    f"Amazon Ads could not generate the {report.report_type_id} report: {body.get('failureReason')}"
-                )
+                return JobStatus(failed=True, message=str(body.get("failureReason")))
+            return JobStatus(message=str(status))
 
-            time.sleep(REPORT_POLL_INTERVAL_SECONDS)
-
-        raise AmazonAdsRetryableError(
-            f"Amazon Ads {report.report_type_id} report {report_id} still {status} after the polling budget"
+        return poll_until_done(
+            check,
+            interval=REPORT_POLL_INTERVAL_SECONDS,
+            budget_seconds=REPORT_POLL_BUDGET_SECONDS,
+            safe_point=safe_point,
+            failed_error=lambda status: AmazonAdsReportError(
+                f"Amazon Ads could not generate the {report.report_type_id} report: {status.message}"
+            ),
+            timeout_error=lambda status: AmazonAdsRetryableError(
+                f"Amazon Ads {report.report_type_id} report {report_id} still {status.message} after the polling budget"
+            ),
         )
 
 
@@ -429,7 +440,13 @@ def _report_rows(
                         )
                     )
 
-            url = client.await_report_url(report, profile_id, report_id)
+            # The report id is committed and earlier windows are yielded, so a shutdown can hand the run over here.
+            url = client.await_report_url(
+                report,
+                profile_id,
+                report_id,
+                safe_point=resumable_source_manager.safe_point if resumable_source_manager is not None else None,
+            )
             if not url:
                 continue
 

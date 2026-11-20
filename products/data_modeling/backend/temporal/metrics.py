@@ -62,6 +62,18 @@ UNKNOWN_RUN_MODE = "unknown"
 _TIER_WORKFLOW_ID = re.compile(r"^execute-dag-(?:trino-)?[0-9a-f-]{36}:(\d+)")
 
 
+NO_ERROR_LABEL = "none"
+OTHER_ERROR_CODE = "other"
+DEADLINE_EXCEEDED_ERROR_CODE = "DEADLINE_EXCEEDED"
+TRINO_DEADLINE_ERROR_PREFIXES = (
+    "Trino model execution exceeded its ",
+    "Trino model execution was canceled or exceeded its deadline",
+)
+_TRINO_COMPILER_CODE = re.compile(r"\[(TRINO_[A-Z0-9_]+)\]")
+_TRINO_ERROR_NAME = re.compile(r"Trino\w*Error\(type=\w+, name=(\w+),")
+_HTTP_ERROR_STATUS = re.compile(r"error (\d{3}):")
+
+
 def tier_label(dag_workflow_id: str | None) -> str:
     """The cadence tier in seconds of the DAG run with this workflow id, or `ad_hoc` for any other run."""
     match = _TIER_WORKFLOW_ID.match(dag_workflow_id or "")
@@ -153,23 +165,50 @@ def get_trino_shadow_start_metric(outcome: str) -> MetricCounter:
 
 
 def get_node_finished_metric(
-    status: str, engine: str, *, tier: str, run_mode: str, error_class: str = "none"
+    status: str,
+    engine: str,
+    *,
+    tier: str,
+    run_mode: str,
+    error_class: str = NO_ERROR_LABEL,
+    error_code: str = NO_ERROR_LABEL,
 ) -> MetricCounter:
     return (
         workflow.metric_meter()
         .with_additional_attributes(
-            {"status": status, "engine": engine, "tier_seconds": tier, "run_mode": run_mode, "error_class": error_class}
+            {
+                "status": status,
+                "engine": engine,
+                "tier_seconds": tier,
+                "run_mode": run_mode,
+                "error_class": error_class,
+                "error_code": error_code,
+            }
         )
         .create_counter(
             "data_modeling_node_finished",
             "Number of node materializations finished. Status is completed, failed, cancelled, or quality_blocked. "
-            "A failure's error_class is infra when it does not count toward suspension, otherwise other.",
+            "A failure's error_class is infra when it does not count toward suspension, otherwise other. "
+            "A managed warehouse failure's error_code is the Trino compiler code, the Trino error name, "
+            "HTTP_<status>, DEADLINE_EXCEEDED, or other.",
         )
     )
 
 
 def error_class(error: str) -> str:
     return "infra" if is_externally_aborted(error) else "other"
+
+
+def error_code(error: str) -> str:
+    named = _TRINO_COMPILER_CODE.match(error) or _TRINO_ERROR_NAME.match(error)
+    if named:
+        return named.group(1)
+    http_status = _HTTP_ERROR_STATUS.match(error)
+    if http_status:
+        return f"HTTP_{http_status.group(1)}"
+    if error.startswith(TRINO_DEADLINE_ERROR_PREFIXES):
+        return DEADLINE_EXCEEDED_ERROR_CODE
+    return OTHER_ERROR_CODE
 
 
 def get_node_duration_metric(engine: str, *, run_mode: str) -> MetricHistogramFloat:

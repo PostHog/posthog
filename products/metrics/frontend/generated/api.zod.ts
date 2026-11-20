@@ -333,6 +333,8 @@ export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 export const metricsQueryCreateBodyQueryOneQuantileMin = 0
 export const metricsQueryCreateBodyQueryOneQuantileMax = 1
 
+export const metricsQueryCreateBodyQueryOneApdexThresholdMsMin = 0.001
+
 export const metricsQueryCreateBodyQueryOneFiltersItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneFiltersItemOpDefault = `eq`
@@ -349,6 +351,8 @@ export const metricsQueryCreateBodyQueryOneClausesItemMetricNameMax = 255
 export const metricsQueryCreateBodyQueryOneClausesItemAggregationDefault = `sum`
 export const metricsQueryCreateBodyQueryOneClausesItemQuantileMin = 0
 export const metricsQueryCreateBodyQueryOneClausesItemQuantileMax = 1
+
+export const metricsQueryCreateBodyQueryOneClausesItemApdexThresholdMsMin = 0.001
 
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemKeyMax = 255
 
@@ -425,6 +429,13 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .max(metricsQueryCreateBodyQueryOneQuantileMax)
                 .nullish()
                 .describe("Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations."),
+            apdexThresholdMs: zod
+                .number()
+                .min(metricsQueryCreateBodyQueryOneApdexThresholdMsMin)
+                .nullish()
+                .describe(
+                    "Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics."
+                ),
             filters: zod
                 .array(
                     zod.object({
@@ -561,6 +572,13 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                             .max(metricsQueryCreateBodyQueryOneClausesItemQuantileMax)
                             .nullish()
                             .describe("Quantile in (0, 1) for 'histogram_quantile'."),
+                        apdexThresholdMs: zod
+                            .number()
+                            .min(metricsQueryCreateBodyQueryOneClausesItemApdexThresholdMsMin)
+                            .nullish()
+                            .describe(
+                                "Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics."
+                            ),
                         filters: zod
                             .array(
                                 zod.object({
