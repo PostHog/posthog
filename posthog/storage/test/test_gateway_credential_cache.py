@@ -1007,6 +1007,23 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
             self.organization.save()
             self.assertIsNotNone(self._read_blob(cache_hash))
 
+    def test_organization_deactivation_survives_a_failed_enqueue(self):
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch(
+                "posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+            self.organization.is_active = False
+            self.organization.save()
+
+        self.organization.refresh_from_db()
+        self.assertIs(self.organization.is_active, False)
+
     @parameterized.expand([("set", None, Decimal("5")), ("clear", Decimal("5"), None)])
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
