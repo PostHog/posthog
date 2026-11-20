@@ -118,8 +118,15 @@ const STRIPPED_BLOCKS: [opener: string, closer: string][] = [
     ['<style', '</style>'],
 ]
 
+const STRIP_HTML_INPUT_LIMIT = 10_000_000
+
 function stripHtml(value: unknown): string {
-    const text = Array.isArray(value) ? value.join('') : String(value ?? '')
+    const parts = Array.isArray(value) ? value.map(String) : [String(value ?? '')]
+    // Joining is the one allocation here that the template's memory budget does not see.
+    if (parts.reduce((total, part) => total + part.length, 0) > STRIP_HTML_INPUT_LIMIT) {
+        throw new Error('strip_html input is too large')
+    }
+    const text = parts.join('')
     // ASCII only, so every offset in `lower` points at the same character in `text`.
     const lower = text.replace(/[A-Z]/g, (char) => char.toLowerCase())
     const missingClosers = new Set<string>()

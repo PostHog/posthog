@@ -15,6 +15,21 @@ export interface EmailPreviewPerson {
 // The worker's output budget, from nodejs/src/cdp/utils/liquid.ts: real bodies reach megabytes of inlined images.
 const MAX_PREVIEW_LENGTH = 10_000_000
 
+// Anyone who can send events can set a person value, and one carrying the fences that mark a missing value
+// would fake that marker in the preview.
+function withoutFences(value: unknown): any {
+    if (typeof value === 'string') {
+        return value.replace(/[\uE000\uE001]/g, '')
+    }
+    if (Array.isArray(value)) {
+        return value.map(withoutFences)
+    }
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, withoutFences(entry)]))
+    }
+    return value
+}
+
 export function renderEmailPreview(
     template: string,
     person: EmailPreviewPerson | null,
@@ -26,7 +41,7 @@ export function renderEmailPreview(
     const context = {
         person: {
             id: person.id,
-            properties: person.properties,
+            properties: withoutFences(person.properties),
         },
         // Injected by the email service per recipient. Stand it in so a preview doesn't report the
         // unsubscribe link every marketing email carries as a missing variable.

@@ -127,6 +127,23 @@ describe('renderEmailPreview', () => {
         expect(performance.now() - started).toBeLessThan(1000)
     })
 
+    it('never lets a person value fake a missing-value chip', () => {
+        const rendered = renderEmailPreviewMarked('{{ person.properties.bio }}', {
+            id: 'person-6',
+            properties: { bio: 'hi \uE000plan\uE001 there' },
+        })
+
+        expect(countUnresolved(rendered)).toBe(0)
+        expect(rendered).toBe('hi plan there')
+    })
+
+    it('falls back to the template when strip_html gets oversized input', () => {
+        const template = '{{ person.properties.chunks | strip_html | size }}'
+        const chunks = Array.from({ length: 11 }, () => 'x'.repeat(1_000_000))
+
+        expect(renderEmailPreview(template, { id: 'person-7', properties: { chunks } })).toBe(template)
+    })
+
     it('counts a missing value once however often the email uses it', () => {
         const rendered = renderEmailPreviewMarked(
             '{{ person.properties.plan }} {{ person.properties.plan }} {{ person.properties.seats }}',
