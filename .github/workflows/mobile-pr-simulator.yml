@@ -1,9 +1,9 @@
 name: Test mobile PR on iOS
-run-name: iOS simulator for PR ${{ github.event.client_payload.pr }} at ${{ github.event.client_payload.revision }}
+run-name: iOS simulator request for PR ${{ github.event.issue.number }}
 
 on:
-    repository_dispatch:
-        types: [mobile-pr-simulator]
+    issue_comment:
+        types: [created]
 
 permissions: {}
 cache-mode: none
@@ -12,11 +12,27 @@ jobs:
     authorize:
         if: >-
             github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master' &&
-            github.run_attempt == 1 && github.event.sender.type == 'User' &&
-            github.event.sender.id == github.actor_id && github.actor == github.triggering_actor
+            github.event.issue.pull_request && github.event.issue.state == 'open' &&
+            startsWith(github.event.comment.body, '/ios-smoke ') &&
+            github.run_attempt == 1 && github.event.comment.user.type == 'User' &&
+            github.event.comment.user.id == github.actor_id && github.actor == github.triggering_actor
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        outputs:
+            revision: ${{ steps.request.outputs.revision }}
         steps:
+            - name: Read the requested commit
+              id: request
+              env:
+                  COMMENT: ${{ github.event.comment.body }}
+              run: |
+                  if [[ "$COMMENT" =~ ^/ios-smoke[[:blank:]]([0-9a-f]{40})$ ]]; then
+                      echo "revision=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::error::Use /ios-smoke followed by the full commit SHA."
+                      exit 1
+                  fi
+
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: members
               with:
@@ -24,13 +40,13 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
                   permission-members: read
 
-            - name: Verify the requester belongs to the mobile team
+            - name: Verify the requester is an active PostHog organization member
               id: membership
               env:
                   GH_TOKEN: ${{ steps.members.outputs.token }}
                   REQUESTER: ${{ github.actor }}
               run: |
-                  state=$(gh api "orgs/PostHog/teams/team-mobile-app/memberships/$REQUESTER" --jq .state)
+                  state=$(gh api "orgs/PostHog/memberships/$REQUESTER" --jq .state)
                   [[ "$state" == active ]]
 
     simulator:
@@ -46,8 +62,8 @@ jobs:
         steps:
             - name: Fetch the public PR revision
               env:
-                  PR: ${{ github.event.client_payload.pr }}
-                  REVISION: ${{ github.event.client_payload.revision }}
+                  PR: ${{ github.event.issue.number }}
+                  REVISION: ${{ needs.authorize.outputs.revision }}
               run: |
                   # A partial rerun can reuse a successful authorization job.
                   [[ "$GITHUB_RUN_ATTEMPT" == 1 ]] || { echo "::error::Submit a fresh simulator request."; exit 1; }
@@ -95,7 +111,7 @@ jobs:
               if: ${{ !cancelled() }}
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
-                  name: ios-pr-${{ github.event.client_payload.pr }}-${{ github.event.client_payload.revision }}
+                  name: ios-pr-${{ github.event.issue.number }}-${{ needs.authorize.outputs.revision }}
                   path: |
                       ${{ runner.temp }}/results/*.json
                       ${{ runner.temp }}/results/**/*.png

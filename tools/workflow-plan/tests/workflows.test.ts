@@ -1056,7 +1056,7 @@ describe('CI workflow run plans', () => {
 
     it.each([
         {
-            name: 'active mobile team member',
+            name: 'active organization member',
             membership: 'success',
             attempt: '1',
             triggeringActor: 'operator',
@@ -1079,13 +1079,16 @@ describe('CI workflow run plans', () => {
         },
     ] as const)('mobile simulator allocation for $name', ({ name, membership, attempt, triggeringActor, runs }) => {
         const wf = workflow('mobile-pr-simulator.yml')
-        expect(wf.on).toEqual({ repository_dispatch: { types: ['mobile-pr-simulator'] } })
+        expect(wf.on).toEqual({ issue_comment: { types: ['created'] } })
         const plan = planWorkflow(wf, {
             name,
             github: {
                 ...workflowDispatch(),
-                event_name: 'repository_dispatch',
-                event: { sender: { type: 'User', id: 123 }, client_payload: { pr: '42', revision: 'a'.repeat(40) } },
+                event_name: 'issue_comment',
+                event: {
+                    issue: { state: 'open', number: 42, pull_request: { url: 'https://example.com/pulls/42' } },
+                    comment: { user: { type: 'User', id: 123 }, body: `/ios-smoke ${'a'.repeat(40)}` },
+                },
                 actor: 'operator',
                 actor_id: '123',
                 triggering_actor: triggeringActor,

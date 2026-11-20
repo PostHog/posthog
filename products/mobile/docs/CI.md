@@ -4,15 +4,11 @@ Four GitHub Actions workflows cover the app. They install the independent `produ
 
 ## Test a mobile PR on iOS
 
-Active members of `PostHog/team-mobile-app` with repository write access can test a PR from any fork. Set `pr` to its number and run:
+Any active member of the PostHog GitHub organization can test an open PR, including one from a fork.
+Post a new comment on the PR containing only `/ios-smoke <full commit SHA>`.
+To get the current SHA, run `gh pr view <number> --repo PostHog/posthog --json headRefOid --jq .headRefOid`.
 
-```sh
-revision=$(gh pr view "$pr" --repo PostHog/posthog --json headRefOid --jq .headRefOid) &&
-    gh api --method POST repos/PostHog/posthog/dispatches \
-        -f event_type=mobile-pr-simulator -f "client_payload[pr]=$pr" -f "client_payload[revision]=$revision"
-```
-
-Open **Actions → Test mobile PR on iOS** for the result. To retry, send a fresh request so GitHub checks the requester's current team membership.
+Open **Actions → Test mobile PR on iOS** for the result. To retry, post a fresh command so GitHub checks your current organization membership.
 The job checks that the PR still points to that commit, builds a bundled app on a fresh GitHub-hosted Mac, and runs the iOS demo walkthroughs and portrait capture.
 Download the reports and screenshots from the run's artifacts within three days. Inspect the images before adding them to a PR.
 For your own changes, use the usual [local testing commands](TESTING.md).
