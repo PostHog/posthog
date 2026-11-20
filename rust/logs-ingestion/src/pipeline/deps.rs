@@ -11,6 +11,7 @@ use crate::normalize::LogsSettings;
 use crate::rate_limiter::{Clock, KeyRoot, TokenBucketRedis};
 use crate::retention::CompiledRetentionRuleSet;
 use crate::sampling::CompiledRuleSet;
+use crate::transformations::TransformationBatchBudget;
 
 use super::errors::DependencyRetry;
 
@@ -68,14 +69,17 @@ pub trait TracingConfigSource: Send + Sync {
     async fn get_retention_days(&self, team_id: i64) -> anyhow::Result<f64>;
 }
 
-/// The Rust port does not run hog, so no implementation exists, and the consumer runs the stage only when one is given.
+/// `LogsTransformerService`. The consumer runs the stage only when one is given.
 #[async_trait]
 pub trait LogsTransformer: Send + Sync {
+    fn start_batch(&self) -> Arc<TransformationBatchBudget>;
+    /// Fails open, so an `Err` here is never a fetch failure.
     async fn team_has_transformations(&self, team_id: i64) -> anyhow::Result<bool>;
     async fn transform_records(
         &self,
         team_id: i64,
         records: &mut Vec<StagedRecord>,
+        batch_budget: Option<Arc<TransformationBatchBudget>>,
     ) -> anyhow::Result<()>;
     async fn flush(&self) -> anyhow::Result<()>;
 }
