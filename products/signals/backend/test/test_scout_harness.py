@@ -1896,6 +1896,7 @@ class TestPromptBuilder(BaseTest):
         # An edit-only scout can still rescue an unrouted report's reviewers, so the editing guidance
         # carries the in-run member lookup too — even though the standalone author-time deep-dive drops.
         assert "scout-members-list" in prompt
+        assert "recent_reviewer_corrections" in prompt
         # An edit-only scout searches the inbox to find the report to update, so it needs the same
         # dedup nuance — else the default ordering hides the most recently updated match.
         assert "ordering=-updated_at" in prompt
