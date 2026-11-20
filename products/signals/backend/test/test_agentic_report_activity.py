@@ -263,6 +263,7 @@ async def _run_activity_with_output(
     research_kwargs=None,
     during_research=None,
     repo_selection=None,
+    signal_id=None,
 ):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
@@ -292,6 +293,7 @@ async def _run_activity_with_output(
                 signals=_build_signals(),
                 repo_selection=repo_selection or RepoSelectionResult(repository="posthog/posthog", reason="test"),
                 repo_selection_as_of=repo_selection_as_of,
+                signal_id=signal_id,
             )
         )
 
@@ -1785,9 +1787,11 @@ async def test_run_agentic_report_activity_judges_suggested_prompts(
         suggested_prompts=["A prompt a scout wrote"],
     )
     judged: list[str] = []
+    judged_signal_ids: list[object] = []
 
     async def judge(team_id: int, signals: list[SignalData], **kwargs: object) -> SafetyJudgeResponse:
         judged.append(signals[0].content)
+        judged_signal_ids.append(kwargs.get("signal_id"))
         if isinstance(verdict, Exception):
             raise verdict
         assert verdict is not None
@@ -1797,7 +1801,9 @@ async def test_run_agentic_report_activity_judges_suggested_prompts(
     research_kwargs: dict[str, object] = {}
     output = _build_research_output().model_copy(update={"suggested_prompts": authored})
 
-    result = await _run_activity_with_output(monkeypatch, ateam, report, output, research_kwargs=research_kwargs)
+    result = await _run_activity_with_output(
+        monkeypatch, ateam, report, output, research_kwargs=research_kwargs, signal_id="triggering-signal"
+    )
 
     assert result.suggested_prompts == expected
     assert research_kwargs["current_suggested_prompts"] == ["A prompt a scout wrote"]
@@ -1805,6 +1811,8 @@ async def test_run_agentic_report_activity_judges_suggested_prompts(
         assert judged == []
     else:
         assert len(judged) == 1
+        # Spend settlement skips the judge's LLM cost when it has no signal to charge.
+        assert judged_signal_ids == ["triggering-signal"]
         assert judged[0].startswith("Suggested prompts")
         assert judged[0].split("\n\n")[1:] == expected_judged
 

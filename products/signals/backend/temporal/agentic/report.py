@@ -845,7 +845,9 @@ def _resolve_report_charts_payload(
     return [chart.model_dump(mode="json") for chart in charts]
 
 
-async def _resolve_suggested_prompts(prompts: Sequence[str], *, team_id: int, report_id: str) -> list[str]:
+async def _resolve_suggested_prompts(
+    prompts: Sequence[str], *, team_id: int, report_id: str, signal_id: str | None
+) -> list[str]:
     """The suggested prompts to store with the run's title and summary.
 
     Returns `[]` rather than `None` when the run keeps none. Research rewrites the prose that the
@@ -865,7 +867,7 @@ async def _resolve_suggested_prompts(prompts: Sequence[str], *, team_id: int, re
         return []
     try:
         safety = await report_safety_judge.judge_suggested_prompts(
-            team_id=team_id, report_id=report_id, suggested_prompts=normalized
+            team_id=team_id, report_id=report_id, signal_id=signal_id, suggested_prompts=normalized
         )
     except LLMRefusalError:
         log.warning("dropping research suggested prompts", reason="safety model refused")
@@ -1486,7 +1488,10 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
         # timeout is shorter than a slow judge call.
         async with Heartbeater():
             suggested_prompts = await _resolve_suggested_prompts(
-                result.suggested_prompts, team_id=input.team_id, report_id=input.report_id
+                result.suggested_prompts,
+                team_id=input.team_id,
+                report_id=input.report_id,
+                signal_id=input.signal_id,
             )
         logger.info(
             "signals agentic report completed",

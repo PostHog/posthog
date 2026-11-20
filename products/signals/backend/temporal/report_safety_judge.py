@@ -287,7 +287,7 @@ def suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | N
 
 
 async def judge_suggested_prompts(
-    *, team_id: int, report_id: str, suggested_prompts: Sequence[str]
+    *, team_id: int, report_id: str, signal_id: str | None, suggested_prompts: Sequence[str]
 ) -> SafetyJudgeResponse:
     """Run the safety judge over a suggested-prompt set on its own.
 
@@ -298,7 +298,9 @@ async def judge_suggested_prompts(
     prompts_signal = suggested_prompts_signal(suggested_prompts)
     if prompts_signal is None:
         return SafetyJudgeResponse(choice=True, explanation="")
-    return await judge_report_safety(team_id=team_id, signals=[prompts_signal], report_id=report_id)
+    return await judge_report_safety(
+        team_id=team_id, signals=[prompts_signal], report_id=report_id, signal_id=signal_id
+    )
 
 
 @temporalio.activity.defn
