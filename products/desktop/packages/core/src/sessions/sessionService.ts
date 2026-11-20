@@ -9483,7 +9483,13 @@ export class SessionService {
       }
 
       return result;
-    } catch {
+    } catch (error) {
+      this.d.log.warn("Failed to fetch run log", {
+        taskId,
+        taskRunId,
+        status: requestErrorStatus(error),
+        error,
+      });
       return localResult ?? empty;
     }
   }

@@ -2856,7 +2856,14 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         method: "GET",
         signal: AbortSignal.timeout(ARCHIVED_LOG_FETCH_TIMEOUT_MS),
       });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        this.log.warn("Cloud task archived logs fetch failed", {
+          status: response.status,
+          taskId: watcher.taskId,
+          runId: watcher.runId,
+        });
+        return null;
+      }
       const content = await response.text();
       if (!content.trim()) return [];
       return content
