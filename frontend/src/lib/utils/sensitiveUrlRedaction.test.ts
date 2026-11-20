@@ -23,6 +23,11 @@ describe('redactSensitiveUrl', () => {
         ['an invite request', `/api/signup/${INVITE}/`, '/api/signup/:id/'],
         ['a reset request', `/api/reset/${USER}/?token=${TOKEN}`, `/api/reset/${USER}/?token=:token`],
         [
+            'a reset request with a long parameter before the token',
+            `/api/reset/${USER}/?x=${'a'.repeat(300)}&token=${TOKEN}`,
+            `/api/reset/${USER}/?x=${'a'.repeat(300)}&token=:token`,
+        ],
+        [
             'a two-factor reset request',
             `https://us.posthog.com/api/reset_2fa/${USER}/?a=1&token=${TOKEN}&b=2`,
             `https://us.posthog.com/api/reset_2fa/${USER}/?a=1&token=:token&b=2`,

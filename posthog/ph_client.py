@@ -92,11 +92,21 @@ def self_hosted_capture_reaches_posthog() -> bool:
 _URL_SEPARATOR = r"(?:/|%2F)"
 _UUID = r"[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}"
 _URL_VALUE = r"[^/?#&%\s\"'<>\\]+"
-# Bounded, so a long text with many reset prefixes and no token takes linear time, not quadratic.
-_PARAMS_BEFORE_TOKEN = r"(?:[^#\s\"'<>]{0,256}?(?:&|%26))?"
+# The query of a reset link runs to its end in one greedy match, and a second pattern finds the token in it.
+# Two passes keep the scan linear, whatever the length or number of the query parameters.
+_RESET_QUERY = re.compile(
+    rf"{_URL_SEPARATOR}(?:reset|reset_2fa){_URL_SEPARATOR}{_UUID}{_URL_SEPARATOR}?(?:\?|%3F)[^#\s\"'<>]*", re.IGNORECASE
+)
+_QUERY_TOKEN = re.compile(rf"((?:\?|&|%3F|%26)token(?:=|%3D)){_URL_VALUE}", re.IGNORECASE)
+
+
+def _redact_query_token(query: re.Match[str]) -> str:
+    return _QUERY_TOKEN.sub(r"\1:token", query.group(0))
+
+
 # Mirrors frontend/src/lib/utils/sensitiveUrlRedaction.ts. Password reset, two-factor reset and email
 # verification links carry a token after the user id. The id of an invite link is itself the secret.
-_SENSITIVE_URL_SEGMENTS = (
+_SENSITIVE_URL_SEGMENTS: tuple[tuple[re.Pattern[str], str | Callable[[re.Match[str]], str]], ...] = (
     (
         re.compile(
             rf"({_URL_SEPARATOR}(?:reset|reset_2fa|verify_email){_URL_SEPARATOR}{_UUID}{_URL_SEPARATOR}){_URL_VALUE}",
@@ -104,14 +114,7 @@ _SENSITIVE_URL_SEGMENTS = (
         ),
         r"\1:token",
     ),
-    (
-        re.compile(
-            rf"({_URL_SEPARATOR}(?:reset|reset_2fa){_URL_SEPARATOR}{_UUID}{_URL_SEPARATOR}?(?:\?|%3F)"
-            rf"{_PARAMS_BEFORE_TOKEN}token(?:=|%3D)){_URL_VALUE}",
-            re.IGNORECASE,
-        ),
-        r"\1:token",
-    ),
+    (_RESET_QUERY, _redact_query_token),
     (re.compile(rf"({_URL_SEPARATOR}signup{_URL_SEPARATOR}){_UUID}(?![0-9a-f])", re.IGNORECASE), r"\1:id"),
     # Invite signup passes the invite id to social login in the query.
     (re.compile(rf"((?:\?|&|%3F|%26)invite_id(?:=|%3D)){_UUID}(?![0-9a-f])", re.IGNORECASE), r"\1:id"),

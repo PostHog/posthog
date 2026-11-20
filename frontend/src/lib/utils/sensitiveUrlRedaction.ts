@@ -3,22 +3,21 @@ import type { BeforeSendFn, CaptureResult } from 'posthog-js'
 const SEPARATOR = '(?:/|%2F)'
 const UUID = '[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}'
 const VALUE = `[^/?#&%\\s"'<>\\\\]+`
-// Bounded, so a long text with many reset prefixes and no token takes linear time, not quadratic.
-const PARAMS_BEFORE_TOKEN = `(?:[^#\\s"'<>]{0,256}?(?:&|%26))?`
+// The query of a reset link runs to its end in one greedy match, and a second pattern finds the token in it.
+// Two passes keep the scan linear, whatever the length or number of the query parameters.
+const RESET_QUERY = new RegExp(
+    `${SEPARATOR}(?:reset|reset_2fa)${SEPARATOR}${UUID}${SEPARATOR}?(?:\\?|%3F)[^#\\s"'<>]*`,
+    'gi'
+)
+const QUERY_TOKEN = new RegExp(`((?:\\?|&|%3F|%26)token(?:=|%3D))${VALUE}`, 'gi')
 // Password reset, two-factor reset and email verification links carry a token after the user id.
 // The id of an invite link is itself the secret: anyone who has it can accept the invite.
-const SENSITIVE_SEGMENTS: [RegExp, string][] = [
+const SENSITIVE_SEGMENTS: [RegExp, string | ((match: string) => string)][] = [
     [
         new RegExp(`(${SEPARATOR}(?:reset|reset_2fa|verify_email)${SEPARATOR}${UUID}${SEPARATOR})${VALUE}`, 'gi'),
         '$1:token',
     ],
-    [
-        new RegExp(
-            `(${SEPARATOR}(?:reset|reset_2fa)${SEPARATOR}${UUID}${SEPARATOR}?(?:\\?|%3F)${PARAMS_BEFORE_TOKEN}token(?:=|%3D))${VALUE}`,
-            'gi'
-        ),
-        '$1:token',
-    ],
+    [RESET_QUERY, (query) => query.replace(QUERY_TOKEN, '$1:token')],
     [new RegExp(`(${SEPARATOR}signup${SEPARATOR})${UUID}(?![0-9a-f])`, 'gi'), '$1:id'],
     // Invite signup passes the invite id to social login in the query.
     [new RegExp(`((?:\\?|&|%3F|%26)invite_id(?:=|%3D))${UUID}(?![0-9a-f])`, 'gi'), '$1:id'],
@@ -35,7 +34,13 @@ export function redactSensitiveUrl(text: string): string {
     if (!MAY_HOLD_SECRET.test(text)) {
         return text
     }
-    return SENSITIVE_SEGMENTS.reduce((redacted, [pattern, replacement]) => redacted.replace(pattern, replacement), text)
+    return SENSITIVE_SEGMENTS.reduce(
+        (redacted, [pattern, replacement]) =>
+            typeof replacement === 'string'
+                ? redacted.replace(pattern, replacement)
+                : redacted.replace(pattern, replacement),
+        text
+    )
 }
 
 /** Replay compresses the page's DOM before `before_send` runs, so a link whose URL holds a secret is blocked

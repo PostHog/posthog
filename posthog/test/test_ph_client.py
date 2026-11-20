@@ -369,6 +369,7 @@ class TestSensitiveUrlRedaction(SimpleTestCase):
                 "http_referer": f"https://us.posthog.com/reset/{USER_UUID}/{RESET_TOKEN}",
                 "nested": {"urls": [f"/api/reset_2fa/{USER_UUID}/?token={RESET_TOKEN}"]},
                 "social_login": f"/login/google-oauth2/?invite_id={INVITE_ID}",
+                "long_query": f"/api/reset/{USER_UUID}/?x={'a' * 300}&token={RESET_TOKEN}",
                 "kept": 1,
             },
         }
@@ -384,6 +385,7 @@ class TestSensitiveUrlRedaction(SimpleTestCase):
                 "http_referer": f"https://us.posthog.com/reset/{USER_UUID}/:token",
                 "nested": {"urls": [f"/api/reset_2fa/{USER_UUID}/?token=:token"]},
                 "social_login": "/login/google-oauth2/?invite_id=:id",
+                "long_query": f"/api/reset/{USER_UUID}/?x={'a' * 300}&token=:token",
                 "kept": 1,
             },
         )
