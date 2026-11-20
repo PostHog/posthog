@@ -1,8 +1,23 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { IntegrationType, TeamPublicType, TeamType } from '~/types'
@@ -47,11 +62,15 @@ export interface emailSenderControlLogicValues {
     canAdoptSandbox: boolean // sandboxSenderLogic
     sandboxStatus: WorkflowEmailSandboxStatusApi | null // sandboxSenderLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    isViewOnly: boolean // workflowLogic
     workflow: HogFlow // workflowLogic
     action: EmailStepAction | null
+    awaitsVerifiedSender: boolean
     defaultSender: DefaultEmailSender | null
     hasVerifiedSender: boolean | null
     pendingSwitch: PendingSwitch | null
+    projectDefaultSenderId: number | null
+    senderToPreselect: number | null
     showSandboxOption: boolean
     testSenderOnly: boolean
 }
@@ -107,13 +126,26 @@ export interface emailSenderControlLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         action: (workflow: HogFlow, actionId: string) => EmailStepAction | null
-        hasVerifiedSender: (integrations: any) => boolean | null
-        testSenderOnly: (canAdoptSandbox: boolean, hasVerifiedSender: any) => boolean
-        defaultSender: (canAdoptSandbox: boolean, integrations: any, currentTeam: any) => DefaultEmailSender | null
+        hasVerifiedSender: (integrations: IntegrationType[] | null) => boolean | null
+        testSenderOnly: (canAdoptSandbox: boolean, hasVerifiedSender: boolean | null) => boolean
+        awaitsVerifiedSender: (action: EmailStepAction | null, testSenderOnly: boolean) => boolean
+        projectDefaultSenderId: (currentTeam: TeamPublicType | TeamType | null) => number | null
+        defaultSender: (
+            canAdoptSandbox: boolean,
+            integrations: IntegrationType[] | null,
+            projectDefaultSenderId: any
+        ) => DefaultEmailSender | null
+        senderToPreselect: (
+            action: EmailStepAction | null,
+            defaultSender: DefaultEmailSender | null,
+            projectDefaultSenderId: any,
+            integrations: IntegrationType[] | null,
+            isViewOnly: any
+        ) => number | null
         showSandboxOption: (
             action: EmailStepAction | null,
             canAdoptSandbox: boolean,
-            hasVerifiedSender: any,
+            hasVerifiedSender: boolean | null,
             workflow: HogFlow,
             workflowLogicProps: WorkflowLogicProps
         ) => boolean
@@ -147,7 +179,7 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
     connect(({ workflowLogicProps }: EmailSenderControlLogicProps) => ({
         values: [
             workflowLogic(workflowLogicProps),
-            ['workflow'],
+            ['workflow', 'isViewOnly'],
             sandboxSenderLogic,
             ['canAdoptSandbox', 'sandboxStatus'],
             integrationsLogic,
@@ -194,27 +226,49 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null): boolean | null => hasOwnSender(integrations),
         ],
-        // Only a verified sender can send, so until one exists the test sender is the step's only working choice.
         testSenderOnly: [
             (s) => [s.canAdoptSandbox, s.hasVerifiedSender],
             (canAdoptSandbox: boolean, hasVerifiedSender: boolean | null): boolean =>
                 canAdoptSandbox && hasVerifiedSender === false,
         ],
+        awaitsVerifiedSender: [
+            (s) => [s.action, s.testSenderOnly],
+            (action: EmailStepAction | null, testSenderOnly: boolean): boolean =>
+                testSenderOnly && action?.type === 'email_sandbox',
+        ],
+        projectDefaultSenderId: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | TeamPublicType | null): number | null =>
+                (currentTeam && 'workflows_config' in currentTeam
+                    ? currentTeam.workflows_config?.default_email_integration_id
+                    : null) ?? null,
+        ],
         defaultSender: [
-            (s) => [s.canAdoptSandbox, s.integrations, s.currentTeam],
+            (s) => [s.canAdoptSandbox, s.integrations, s.projectDefaultSenderId],
             (
                 canAdoptSandbox: boolean,
                 integrations: IntegrationType[] | null,
-                currentTeam: TeamType | TeamPublicType | null
+                projectDefaultSenderId: number | null
             ): DefaultEmailSender | null =>
-                canAdoptSandbox
-                    ? resolveDefaultEmailSender(
-                          integrations,
-                          currentTeam && 'workflows_config' in currentTeam
-                              ? currentTeam.workflows_config?.default_email_integration_id
-                              : null
-                      )
-                    : null,
+                canAdoptSandbox ? resolveDefaultEmailSender(integrations, projectDefaultSenderId) : null,
+        ],
+        senderToPreselect: [
+            (s) => [s.action, s.defaultSender, s.projectDefaultSenderId, s.integrations, s.isViewOnly],
+            (
+                action: EmailStepAction | null,
+                defaultSender: DefaultEmailSender | null,
+                projectDefaultSenderId: number | null,
+                integrations: IntegrationType[] | null,
+                isViewOnly: boolean
+            ): number | null => {
+                if (action?.type !== 'email_sandbox' || !defaultSender || isViewOnly) {
+                    return null
+                }
+                const projectDefaultHidden =
+                    defaultSender.reason !== 'project_default' && projectDefaultSenderId !== null
+                const sender = integrations?.find((integration) => integration.id === defaultSender.integrationId)
+                return sender && !projectDefaultHidden && !isSendingStopped(sender) ? sender.id : null
+            },
         ],
         showSandboxOption: [
             (s, p) => [s.action, s.canAdoptSandbox, s.hasVerifiedSender, s.workflow, p.workflowLogicProps],
@@ -241,6 +295,13 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
                 posthog.capture('workflows sandbox sender offered', { step_type: values.action?.type ?? null })
             }
         },
+        awaitsVerifiedSender: (awaits: boolean, previous: boolean | undefined) => {
+            if (awaits && !previous) {
+                integrationsLogic.actions.startPolling()
+            } else if (!awaits && previous) {
+                integrationsLogic.actions.stopPolling()
+            }
+        },
     })),
     listeners(({ actions, values, props }) => {
         function replaceStep(next: EmailStepAction, previous: EmailStepAction, preselected = false): void {
@@ -255,13 +316,15 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
             }
         }
 
-        // A step saved on the test sender moves to the default sender once a verified one exists.
-        // The move edits the draft, so a live workflow keeps sending from the test sender until it is published.
-        function preselectDefaultSender(): void {
+        async function preselectDefaultSender(): Promise<void> {
+            if (values.senderToPreselect === null) {
+                return
+            }
+            await emailTemplaterLogic.findMounted()?.asyncActions.flushPendingDesignEdit()
             const action = values.action
-            const sender = values.defaultSender
-            if (action?.type === 'email_sandbox' && sender) {
-                replaceStep(toOwnEmailAction(action, sender.integrationId), action, true)
+            const senderId = values.senderToPreselect
+            if (action?.type === 'email_sandbox' && senderId !== null) {
+                replaceStep(toOwnEmailAction(action, senderId), action, true)
             }
         }
 
@@ -307,5 +370,10 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
     }),
     afterMount(({ actions }) => {
         actions.preselectDefaultSender()
+    }),
+    beforeUnmount(({ values }) => {
+        if (values.awaitsVerifiedSender) {
+            integrationsLogic.actions.stopPolling()
+        }
     }),
 ])

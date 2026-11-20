@@ -76,7 +76,6 @@ export function EmailSenderRow(): JSX.Element {
         setIsEditing(visible)
     }
 
-    // With no verified sender, the test sender is the only one that can send, so the row shows it instead of a choice.
     if (sandbox?.selected && sandbox.onlySender) {
         const unverified = senders.map((sender) => sender.config?.email ?? sender.display_name ?? `Sender ${sender.id}`)
         return (
@@ -101,7 +100,7 @@ export function EmailSenderRow(): JSX.Element {
                     icon={<IconExternal />}
                     data-attr="workflow-email-test-sender-add"
                 >
-                    Add email sender
+                    Add new email sender
                 </LemonButton>
             </EmailHeaderRow>
         )

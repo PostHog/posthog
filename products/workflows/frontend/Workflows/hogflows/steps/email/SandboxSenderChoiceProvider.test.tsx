@@ -295,14 +295,17 @@ describe('SandboxSenderChoiceProvider', () => {
         }
     )
 
-    it('shows the PostHog test sender without a choice while no sender is verified', async () => {
-        useSenderMocks([VERIFYING_SENDER])
+    it.each<[string, IntegrationType[], string | null]>([
+        ['a sender is still verifying', [VERIFYING_SENDER], "hello@example.com isn't verified yet."],
+        ['the project has no sender', [], null],
+    ])('shows the PostHog test sender without a choice while %s', async (_, senders, warning) => {
+        useSenderMocks(senders)
         showSenderRow()
         await renderStep(SANDBOX_STEP, 'workflow-email-test-sender')
 
         const row = screen.getByTestId('workflow-email-test-sender')
         expect(within(row).getByText('PostHog test sender')).toBeInTheDocument()
-        expect(within(row).getByText(/^hello@example\.com isn't verified yet\./)).toBeInTheDocument()
+        expect(within(row).queryByText(/verified yet\./)?.textContent ?? null).toEqual(warning)
         expect(screen.getByTestId('workflow-email-test-sender-add')).toHaveAttribute(
             'href',
             expect.stringMatching(/\/workflows\/channels$/)
