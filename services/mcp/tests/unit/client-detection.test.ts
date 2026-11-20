@@ -4,6 +4,7 @@ import {
     ANTHROPIC_CLIENT_NAME_FRAGMENTS,
     ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
     ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS,
+    CODEX_TOOL_RESULT_TOKEN_LIMIT,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
     OPENAI_RENDER_UI_CLIENT_NAMES,
@@ -369,6 +370,17 @@ describe('MCPClientProfile', () => {
         it.each([[undefined], [''], ['   ']])('defaults to true for %s', (clientName) => {
             expect(new MCPClientProfile({ clientName }).capabilities.supportsInstructions).toBe(true)
         })
+    })
+
+    it.each([
+        [{ clientName: 'Codex CLI' }, CODEX_TOOL_RESULT_TOKEN_LIMIT],
+        [{ userAgent: 'openai-mcp/1.0.0 (Codex)' }, CODEX_TOOL_RESULT_TOKEN_LIMIT],
+        [{ userAgent: 'openai-mcp/1.0.0 (ChatGPT)' }, undefined],
+        [{ clientName: 'claude-code' }, undefined],
+        [{ clientName: 'cursor' }, undefined],
+        [{}, undefined],
+    ])('resolves capabilities.toolResultTokenLimit for %j to %j', (input, expected) => {
+        expect(new MCPClientProfile(input).capabilities.toolResultTokenLimit).toBe(expected)
     })
 
     it('caches capabilities across reads', () => {

@@ -1,0 +1,286 @@
+import { describe, expect, it } from 'vitest'
+
+import {
+    STRUCTURED_CONTENT_ONLY_TEXT,
+    buildToolResultPayload,
+    capResponseToBudget,
+    estimateResponseTokens,
+    type ToolResultPayload,
+} from '@/lib/build-tool-result'
+import { estimateTokens } from '@/lib/estimate-tokens'
+import {
+    DEFAULT_MAX_RESPONSE_TOKENS,
+    RESPONSE_BUDGET_KEY,
+    boundText,
+    jsonResponseBody,
+    maxResponseBytes,
+    responseTokenBudget,
+} from '@/lib/response-budget'
+import { withAgentNote, withInformationalResponse } from '@/tools/tool-utils'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
+
+const BUDGET = 10_000
+const MAX_BYTES = maxResponseBytes(BUDGET)
+
+function byteLength(value: string): number {
+    return Buffer.byteLength(value, 'utf8')
+}
+
+function textPayload(text: string): ToolResultPayload {
+    return { content: [{ type: 'text', text }] }
+}
+
+function text(response: ToolResultPayload): string {
+    return response.content.map((part) => part.text).join('')
+}
+
+function rows(count: number): Record<string, unknown>[] {
+    return Array.from({ length: count }, (_, i) => ({ id: i, name: `row-${i}`, blob: 'x'.repeat(200) }))
+}
+
+function table(count: number): string {
+    return ['id,name,value', ...Array.from({ length: count }, (_, i) => `${i},row-${i},${'x'.repeat(80)}`)].join('\n')
+}
+
+describe('capResponseToBudget', () => {
+    it.each([
+        ['fits the budget', table(10), BUDGET],
+        ['has no budget', table(20_000), undefined],
+    ])('returns the response untouched when it %s', (_, body, budget) => {
+        const response = textPayload(body)
+
+        expect(capResponseToBudget(response, budget)).toBe(response)
+    })
+
+    it('re-serializes an oversized result as whole rows and keeps its pointer fields', () => {
+        const url = 'https://us.posthog.com/project/2/insights/abc'
+        const built = buildToolResultPayload({
+            handlerResult: withAgentNote({ results: rows(5_000), _posthogUrl: url }, 'Open the url to see every row.'),
+            toolName: 'query-run',
+            params: {},
+        })
+
+        const capped = text(capResponseToBudget(built, BUDGET))
+
+        expect(byteLength(capped)).toBeLessThanOrEqual(MAX_BYTES)
+        expect(capped.startsWith(`${RESPONSE_BUDGET_KEY}: "[Response shortened`)).toBe(true)
+        expect(capped).toContain(`_posthogUrl: "${url}"`)
+        expect(capped).toContain('_agentNote: Open the url to see every row.')
+        const header = /results\[(\d+)\]\{id,name,blob\}:/.exec(capped)
+        expect(Number(header?.[1])).toBeGreaterThan(0)
+        expect(capped.split('\n').filter((line) => /^ {2}\d+,row-\d+,x{200}$/.test(line))).toHaveLength(
+            Number(header?.[1])
+        )
+    })
+
+    it.each([
+        [
+            'output_format json',
+            buildToolResultPayload({
+                handlerResult: { results: rows(5_000), _truncated: { reason: 'compacted by the tool' } },
+                toolName: 'query-run',
+                params: { output_format: 'json' },
+            }),
+        ],
+        [
+            'an exec --json string',
+            textPayload(JSON.stringify({ results: rows(5_000), _truncated: { reason: 'compacted by the tool' } })),
+        ],
+    ])('keeps %s parseable, with the tool notice and its own', (_, response) => {
+        const capped = text(capResponseToBudget(response, BUDGET))
+
+        expect(byteLength(capped)).toBeLessThanOrEqual(MAX_BYTES)
+        const parsed = JSON.parse(capped) as Record<string, unknown>
+        expect(parsed._truncated).toEqual({ reason: 'compacted by the tool' })
+        expect(parsed[RESPONSE_BUDGET_KEY]).toContain('results: kept')
+        expect((parsed.results as unknown[]).length).toBeGreaterThan(0)
+    })
+
+    it.each([
+        ['nextCursor', { results: rows(5_000), hasMore: true, nextCursor: 'cursor-after-row-4999' }],
+        ['next', { results: rows(5_000), next: 'https://us.posthog.com/api/items/?offset=5000', count: 9_000 }],
+    ])('drops %s once the rows before it are cut, because following it skips them', (key, result) => {
+        const parsed = JSON.parse(text(capResponseToBudget(textPayload(JSON.stringify(result)), BUDGET)))
+
+        expect((parsed.results as unknown[]).length).toBeLessThan(5_000)
+        expect(parsed).not.toHaveProperty(key)
+    })
+
+    it('keeps the cursor when only another field is cut', () => {
+        const result = { results: rows(3), nextCursor: 'cursor-after-row-2', notes: 'n'.repeat(100_000) }
+
+        const parsed = JSON.parse(text(capResponseToBudget(textPayload(JSON.stringify(result)), BUDGET)))
+
+        expect(parsed.nextCursor).toBe('cursor-after-row-2')
+    })
+
+    it('drops the next-page hint once the page is shortened, because its offset skips the cut rows', () => {
+        const built = buildToolResultPayload({
+            handlerResult: {
+                count: 9_000,
+                next: 'https://us.posthog.com/api/items/?offset=5000',
+                previous: null,
+                results: rows(5_000),
+            },
+            toolName: 'items-list',
+            params: {},
+        })
+
+        const capped = text(capResponseToBudget(built, BUDGET))
+
+        expect(capped).not.toContain('More results exist')
+    })
+
+    it('keeps a top-level array an array, closed by a notice element', () => {
+        const capped = JSON.parse(text(capResponseToBudget(textPayload(JSON.stringify(rows(5_000))), BUDGET)))
+
+        expect(Array.isArray(capped)).toBe(true)
+        expect(capped.at(-1)[RESPONSE_BUDGET_KEY]).toContain('kept')
+        expect(capped.slice(0, -1)).toEqual(rows(capped.length - 1))
+    })
+
+    it('cuts plain text at a line boundary and keeps the tool preview line', () => {
+        const preview = '[SQL result preview: Showing 900 of 5000 returned rows. Set truncate to false.]'
+        const wide = ['id,properties', `1,${'P'.repeat(30_000)}`, table(2_000), preview].join('\n')
+        const sourceLines = new Set(wide.split('\n'))
+
+        const capped = text(capResponseToBudget(textPayload(wide), BUDGET))
+
+        expect(byteLength(capped)).toBeLessThanOrEqual(MAX_BYTES)
+        const [notice, kept] = capped.split('\n\n')
+        expect(notice).toMatch(/kept \d+ of 2003 lines/)
+        expect(kept!.split('\n').every((line) => sourceLines.has(line))).toBe(true)
+        expect(kept!.endsWith(preview)).toBe(true)
+    })
+
+    it('keeps the tags of an informational response balanced around the shortened payload', () => {
+        const built = buildToolResultPayload({
+            handlerResult: withInformationalResponse({ results: rows(5_000) }, 'workspace_data'),
+            toolName: 'query-run',
+            params: {},
+        })
+
+        const capped = text(capResponseToBudget(built, BUDGET))
+
+        expect(byteLength(capped)).toBeLessThanOrEqual(MAX_BYTES)
+        const payload =
+            /\n<workspace_data informational="true" instructional="false">\n([\s\S]+)\n<\/workspace_data>$/.exec(capped)
+        expect(JSON.parse(payload![1]!).results.length).toBeGreaterThan(0)
+    })
+
+    it('measures the budget in UTF-8 bytes, as Codex counts it', () => {
+        const capped = text(capResponseToBudget(textPayload('数据'.repeat(40_000)), BUDGET))
+
+        expect(byteLength(capped)).toBeLessThanOrEqual(MAX_BYTES)
+        expect(capped).toContain('数据数据')
+        expect(capped).toContain('…[line cut]')
+    })
+
+    it('bounds the structuredContent a UI app carries alone and counts what it kept', () => {
+        const built = buildToolResultPayload({
+            handlerResult: { results: rows(5_000) },
+            toolMeta: { ui: { resourceUri: 'ui://query' } },
+            toolName: 'query-run',
+            params: {},
+            forceUiDataToMeta: true,
+            distinctId: 'user-1',
+        })
+        expect(text(built)).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+
+        const capped = capResponseToBudget(built, BUDGET)
+
+        expect(byteLength(JSON.stringify(capped.structuredContent))).toBeLessThanOrEqual(MAX_BYTES)
+        expect(capped.structuredContent!._analytics).toEqual(built.structuredContent!._analytics)
+        expect(estimateResponseTokens(capped)).toBe(estimateTokens(capped.structuredContent))
+    })
+
+    it('bounds structuredContent that mirrors the text, because Codex reads it instead of the text', () => {
+        const built = buildToolResultPayload({
+            handlerResult: { results: rows(5_000) },
+            toolMeta: { ui: { resourceUri: 'ui://query' } },
+            toolName: 'query-run',
+            params: {},
+        })
+
+        const capped = capResponseToBudget(built, BUDGET)
+
+        expect(byteLength(text(capped))).toBeLessThanOrEqual(MAX_BYTES)
+        expect(byteLength(JSON.stringify(capped.structuredContent))).toBeLessThanOrEqual(MAX_BYTES)
+        expect(capped._meta?.[APP_DATA_META_KEY]).toEqual(built.structuredContent)
+    })
+})
+
+describe('boundText', () => {
+    it('keeps the head of a single-line body rather than returning only the notice', () => {
+        const bounded = boundText('y'.repeat(100_000), BUDGET)
+
+        expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_BYTES)
+        expect(bounded).toContain('y'.repeat(30_000))
+    })
+
+    it('keeps a JSON result valid JSON when it cuts a field with a very long key', () => {
+        const value = { attributes: { ['k'.repeat(60_000)]: 'v'.repeat(60_000) } }
+
+        const bounded = boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value))
+
+        expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_BYTES)
+        expect(() => JSON.parse(bounded)).not.toThrow()
+    })
+
+    it.each([
+        ['a page with more after it', 'a line of the skill\n', 50_000],
+        ['the last page', 'a line of the skill\n', null],
+        ['a page of emoji, counted in code points', '🚀 launch step\n', 50_000],
+    ])('points the next body offset past only the body it keeps, on %s', (_, line, nextOffset) => {
+        const body = line.repeat(2_500)
+        const value = { body, body_total_length: 200_000, body_next_offset: nextOffset }
+
+        const bounded = JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value)))
+
+        const start = (nextOffset ?? value.body_total_length) - [...body].length
+        expect(bounded.body_next_offset).toBe(start + [...bounded.body].length)
+    })
+
+    it.each([
+        ['a field', true],
+        ['a whole text result', false],
+    ])('leaves text in %s as written, even where it looks like a TOON header', (_, inField) => {
+        const notes = `steps[9000]:\n${'  - a step the vendor wrote\n'.repeat(3_000)}`
+        const value = { notes }
+
+        const bounded = inField
+            ? JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value))).notes
+            : boundText(notes, BUDGET)
+
+        expect(bounded).toContain('steps[9000]:\n')
+    })
+
+    it('counts a next offset in bytes when the pager reports no total length', () => {
+        const content = '💬 a comment line\n'.repeat(2_500)
+        const value = { content, content_next_offset: 60_000 }
+
+        const bounded = JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value)))
+
+        expect(bounded.content_next_offset).toBe(60_000 - byteLength(content) + byteLength(bounded.content))
+    })
+
+    it('keeps a JSON string result a JSON string', () => {
+        const value = 'line of schema\n'.repeat(10_000)
+
+        const bounded = boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value))
+
+        expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_BYTES)
+        expect(JSON.parse(bounded)).toContain('line of schema\nline of schema')
+    })
+})
+
+describe('responseTokenBudget', () => {
+    it.each([
+        [undefined, {}, DEFAULT_MAX_RESPONSE_TOKENS],
+        [undefined, { truncate: false }, undefined],
+        [10_000, {}, 10_000],
+        [10_000, { truncate: false }, 10_000],
+    ])('with client limit %j and args %j resolves %j', (clientLimit, args, expected) => {
+        expect(responseTokenBudget(clientLimit, args)).toBe(expected)
+    })
+})

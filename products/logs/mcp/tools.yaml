@@ -573,8 +573,11 @@ tools:
         system_prompt_hint: Log filtering by severity/service/attribute
         exclude_params:
             - trigger
-        hooks: logs/redactCredentialsHooks
+        hooks: logs/queryLogsHooks
         response:
             include:
                 - results
                 - columns
+                - hasMore
+                - nextCursor
+                - next

@@ -4,6 +4,7 @@ import type { PreparedToolCall } from '@posthog/mcp-analytics'
 
 import {
     buildToolResultPayload,
+    capResponseToBudget,
     estimateResponseTokens,
     isToolCallPayload,
     toolResultAnalyticsProperties,
@@ -33,6 +34,7 @@ import { resolveMetricCatalogMode } from '@/lib/metric-catalog'
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
+import { byteLength, responseTokenBudget } from '@/lib/response-budget'
 import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
@@ -81,7 +83,7 @@ import {
 } from './guidance/engine'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
-import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
+import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal, toolResponsesShortenedTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
 import type { ToolCatalog } from './tool-catalog'
@@ -227,7 +229,7 @@ export class ToolExecutor {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(state),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(state, { inlineReference: true }),
                 }
             }
             return entry
@@ -464,14 +466,14 @@ export class ToolExecutor {
         )
     }
 
-    // execute-sql is the one tool whose advertised description is formatted per
-    // request (the schema-discovery splice is assembled at render time) instead of served
-    // from the catalog, on both the native tools/list path and exec's `info` output.
+    // execute-sql's advertised description is formatted per request rather than served from the catalog.
     // trackToolCall stamps the catalog text by default, so it needs the served text
     // for this tool or $mcp_tool_description records words the agent never saw.
     private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
         if (toolName === EXECUTE_SQL_TOOL_NAME) {
-            return this.instructionsBuilder.formatExecuteSqlDescription(state)
+            return this.instructionsBuilder.formatExecuteSqlDescription(state, {
+                inlineReference: !state.useSingleExec,
+            })
         }
         return undefined
     }
@@ -624,6 +626,7 @@ export class ToolExecutor {
                     appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 })
             }
+            response = this.capResponse(response, tool.name, state, validation.data, guidance)
 
             const guided = attachGuidanceNotice(response, guidance)
             void trackToolCall(
@@ -743,6 +746,29 @@ export class ToolExecutor {
         }
     }
 
+    /** The guidance notice joins the result after the cap, so its bytes come out of the same budget. */
+    private capResponse(
+        response: ToolResultPayload,
+        toolName: string,
+        state: ResolvedState,
+        args: unknown,
+        guidance: GuidanceNotice | undefined
+    ): ToolResultPayload {
+        const clientLimit = state.clientProfile.capabilities.toolResultTokenLimit
+        const capped = capResponseToBudget(
+            response,
+            responseTokenBudget(clientLimit, args),
+            guidance?.text ? byteLength(guidance.text) : 0
+        )
+        if (capped !== response) {
+            toolResponsesShortenedTotal.inc({
+                tool: toolName,
+                budget: clientLimit === undefined ? 'default' : 'client',
+            })
+        }
+        return capped
+    }
+
     private async callExecTool(
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
@@ -833,7 +859,7 @@ export class ToolExecutor {
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
 
-            const response = isToolCallPayload(handlerResult)
+            const built = isToolCallPayload(handlerResult)
                 ? handlerResult
                 : buildToolResultPayload({
                       handlerResult,
@@ -860,6 +886,13 @@ export class ToolExecutor {
                 resultEmpty: execMetrics.resultEmpty,
             })
             const duration = Date.now() - startMs
+            const response = this.capResponse(
+                built,
+                execToolName(),
+                state,
+                execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : undefined,
+                guidance
+            )
             const guided = attachGuidanceNotice(response, guidance, {
                 jsonOutput: execMetrics.innerOutputFormat === 'json',
             })
@@ -1035,8 +1068,8 @@ export class ToolExecutor {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
         // CLI `info execute-sql` returns the tool's static description from the catalog.
-        // Override it with the same prompt tools-mode advertises, so the
-        // information_schema schema-discovery steering matches across both modes.
+        // Override it with the formatted prompt, so the information_schema schema-discovery
+        // steering matches tools mode.
         const execTools = state.allTools.map((tool) =>
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
@@ -1058,6 +1091,7 @@ export class ToolExecutor {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 appendTimeSeriesChartData: drawsTimeSeriesCharts(state),
                 mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
+                toolResultTokenLimit: state.clientProfile.capabilities.toolResultTokenLimit,
                 learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
                     state,
                     this.skillCatalogService?.getCatalog()

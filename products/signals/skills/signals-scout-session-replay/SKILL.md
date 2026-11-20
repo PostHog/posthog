@@ -1,5 +1,6 @@
 ---
 name: signals-scout-session-replay
+disable-model-invocation: true
 scout-display-name: Session replay
 description: >
   Signals scout for PostHog session replay. Watches that sessions keep recording (capture

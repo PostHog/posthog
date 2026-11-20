@@ -15,6 +15,7 @@ import {
     pickResponseFields,
     withInformationalResponse,
     omitResponseFields,
+    stripNullFields,
     type WithPostHogUrl,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
@@ -828,11 +829,18 @@ const projectGet = (): ToolBase<ReturnType<typeof ProjectGetSchema>, Schemas.Pro
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
         })
-        const filtered = omitResponseFields(result, [
-            'live_events_token',
-            'heatmaps_screenshot_secret',
-            'default_modifiers',
-        ]) as typeof result
+        const filtered = stripNullFields(
+            omitResponseFields(result, [
+                'live_events_token',
+                'heatmaps_screenshot_secret',
+                'default_modifiers',
+                'available_setup_task_ids',
+                'onboarding_tasks',
+                'live_events_columns',
+                'product_intents.*.created_at',
+                'product_intents.*.updated_at',
+            ])
+        ) as typeof result
         return filtered
     },
 })

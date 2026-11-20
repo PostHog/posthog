@@ -1,5 +1,6 @@
 ---
 name: signals-scout-inbox-validation
+disable-model-invocation: true
 scout-display-name: Inbox validation
 description: >
   Follow-up Signals scout for the inbox itself. Attaches a check to each newly resolved

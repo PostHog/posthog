@@ -1553,10 +1553,10 @@ const ExperimentUpdateSchema = () => {
             .extend({
                 id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
                 feature_flag: ExperimentsPartialUpdateBody.shape['feature_flag'].describe(
-                    "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100; the analysis baseline defaults to the variant keyed 'control' when present, else the first variant — except web experiments, which must keep a variant keyed 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first)."
+                    'Flag variants, rollout, and payloads. Omitted settings are preserved. Running experiments require confirmation and update_feature_flag_params=true.'
                 ),
                 running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
-                    "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
+                    "Persist the experiment's sample size, detectable effect, and planned running time."
                 ),
                 saved_metrics_ids: SavedMetricsAttachSchema.optional(),
                 variant_notes: ExperimentVariantNotesSchema.optional(),

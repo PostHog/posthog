@@ -617,7 +617,8 @@ tools:
             need the user, waiting on their input or claimed by them, pass `needs_you=true`, with `sort=personal` to
             keep their personal order.
 
-            Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
+            Without `limit`, a page holds up to 100 reports. Each row carries `summary_lead`, the opening of the
+            report's summary; inbox-reports-retrieve returns the whole summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
 
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
@@ -657,7 +658,7 @@ tools:
             include:
                 - id
                 - title
-                - summary
+                - summary_lead
                 - metrics
                 - tags
                 - status

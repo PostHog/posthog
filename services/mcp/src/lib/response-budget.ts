@@ -1,0 +1,438 @@
+/**
+ * Bounds one tool result so a client never has to cut it, which Codex does mid-value.
+ * JSON and TOON are re-serialized from a projection, so the output stays parseable.
+ */
+
+import { formatResponse } from '@/lib/response'
+
+/** Codex converts a token limit to bytes at this rate, so a budget here is measured the same way. */
+const BYTES_PER_TOKEN = 4
+
+/** A backstop for clients with no documented limit. Claude Code saves a result over 50,000 characters to a file instead of cutting it. */
+export const DEFAULT_MAX_RESPONSE_TOKENS = 100_000
+
+export const RESPONSE_BUDGET_KEY = '_responseBudget'
+
+const NOTICE_RESERVE_BYTES = 1_024
+/** Entries this small are kept before bulk fields, so ids, URLs, counts and tool notices survive. */
+const POINTER_ENTRY_BYTES = 512
+const MIN_STRING_KEEP_BYTES = 64
+const MAX_PROJECTION_DEPTH = 6
+const MAX_FIT_ATTEMPTS = 6
+const MAX_LISTED_CUTS = 5
+/** A cut names its path, and a key can be any length, so a long one would crowd out the result it describes. */
+const MAX_CUT_CHARS = 160
+const POINTER_LINE = /^(_posthogUrl|_agentNote): /
+/** A bracketed last line is a tool's own notice, such as the execute-sql preview line. */
+const TRAILING_NOTICE_LINE = /^\[.*\]$/
+const INFORMATIONAL_OPEN_TAG = /<([A-Za-z0-9_-]+) informational="true" instructional="false">\n/
+/** These point past the last item of the full page, so they skip every item the projection drops. */
+const CONTINUATION_KEYS = ['next', 'nextCursor', 'next_cursor']
+
+export interface ResponseBodySource {
+    value: unknown
+    serialize: (value: unknown) => string
+}
+
+export function byteLength(text: string): number {
+    return Buffer.byteLength(text, 'utf8')
+}
+
+export function maxResponseBytes(maxTokens: number): number {
+    return maxTokens * BYTES_PER_TOKEN
+}
+
+/** `truncate: false` asks for the complete result, so only a client's own limit applies to it. */
+export function responseTokenBudget(clientLimit: number | undefined, args: unknown): number | undefined {
+    if (clientLimit !== undefined) {
+        return clientLimit
+    }
+    const wantsFullResult =
+        typeof args === 'object' && args !== null && (args as Record<string, unknown>).truncate === false
+    return wantsFullResult ? undefined : DEFAULT_MAX_RESPONSE_TOKENS
+}
+
+function jsonBytes(value: unknown): number {
+    try {
+        const text = JSON.stringify(value)
+        return text === undefined ? 0 : byteLength(text)
+    } catch {
+        return Number.POSITIVE_INFINITY
+    }
+}
+
+function formatTokens(tokens: number): string {
+    return tokens >= 1000 ? `${Math.round(tokens / 1000)}K` : String(tokens)
+}
+
+function overflowNotice(fullBytes: number, maxTokens: number, cuts: string[]): string {
+    const listed = cuts
+        .slice(0, MAX_LISTED_CUTS)
+        .map((cut) => (cut.length > MAX_CUT_CHARS ? `${cut.slice(0, MAX_CUT_CHARS)}…` : cut))
+        .join('; ')
+    const more = cuts.length > MAX_LISTED_CUTS ? `; and ${cuts.length - MAX_LISTED_CUTS} more` : ''
+    return (
+        `[Response shortened to about ${formatTokens(maxTokens)} tokens, the most this client accepts in one tool result. ` +
+        `The full result is about ${formatTokens(Math.ceil(fullBytes / BYTES_PER_TOKEN))} tokens. ` +
+        (cuts.length > 0 ? `Shortened: ${listed}${more}. ` : '') +
+        'To get the rest, ask for less per call: lower the tool’s limit and page from there, add filters, ' +
+        'shorten the date range, or request fewer fields.]'
+    )
+}
+
+function prefixWithinBytes(text: string, maxBytes: number): string {
+    let end = Math.min(text.length, maxBytes)
+    while (end > 0 && byteLength(text.slice(0, end)) > maxBytes) {
+        end = Math.floor((end * maxBytes) / byteLength(text.slice(0, end)))
+    }
+    const last = text.charCodeAt(end - 1)
+    return last >= 0xd800 && last <= 0xdbff ? text.slice(0, end - 1) : text.slice(0, end)
+}
+
+/** Lines are never rewritten: the clip cannot tell a tool's own TOON from text that only looks like it. */
+function linesKept(kept: number, total: number): string {
+    return `kept ${kept} of ${total} lines, so any [N] count still describes the full result`
+}
+
+export function clipLines(text: string, maxBytes: number): { text: string; cut: string } {
+    let prefix = ''
+    let body = text
+    let suffix = ''
+    const open = INFORMATIONAL_OPEN_TAG.exec(text)
+    if (open) {
+        const bodyStart = open.index + open[0].length
+        const closeIndex = text.lastIndexOf(`\n</${open[1]}>`)
+        if (closeIndex >= bodyStart) {
+            prefix = text.slice(0, bodyStart)
+            body = text.slice(bodyStart, closeIndex)
+            suffix = text.slice(closeIndex)
+        }
+    }
+
+    const lines = body.split('\n')
+    const pointers = lines.filter(
+        (line, index) => POINTER_LINE.test(line) || (index === lines.length - 1 && TRAILING_NOTICE_LINE.test(line))
+    )
+    const pointerLines = new Set(pointers)
+    let rows = lines.filter((line) => !pointerLines.has(line))
+    let room = maxBytes - byteLength(prefix) - byteLength(suffix) - byteLength(pointers.join('\n')) - 1
+    if (room < MIN_STRING_KEEP_BYTES) {
+        prefix = suffix = ''
+        pointers.length = 0
+        rows = text.split('\n')
+        room = maxBytes
+    }
+
+    const kept: string[] = []
+    let spent = 0
+    for (const row of rows) {
+        const cost = byteLength(row) + (kept.length > 0 ? 1 : 0)
+        if (spent + cost > room) {
+            break
+        }
+        kept.push(row)
+        spent += cost
+    }
+    let cut = linesKept(kept.length, rows.length)
+    if (kept.length === 0 && rows.length > 0) {
+        const marker = ' …[line cut]'
+        kept.push(prefixWithinBytes(rows[0]!, Math.max(0, room - byteLength(marker))) + marker)
+        cut = `kept the start of line 1 of ${rows.length}`
+    }
+    return { text: prefix + [...kept, ...pointers].join('\n') + suffix, cut }
+}
+
+const DROPPED = Symbol('dropped')
+
+function projectString(value: string, budget: number, path: string, cuts: string[]): string | typeof DROPPED {
+    // Two bytes for the quotes, plus room for escapes JSON adds to the kept head.
+    const room = budget - 2 - Math.ceil(budget / 10)
+    if (room < MIN_STRING_KEEP_BYTES) {
+        cuts.push(`${path || 'value'} omitted`)
+        return DROPPED
+    }
+    const clipped = value.includes('\n')
+        ? clipLines(value, room)
+        : { text: `${prefixWithinBytes(value, room - 16)} …[cut]`, cut: `shortened from ${value.length} characters` }
+    cuts.push(`${path || 'value'}: ${clipped.cut}`)
+    return clipped.text
+}
+
+function projectArray(value: unknown[], budget: number, path: string, cuts: string[], depth: number): unknown[] {
+    const kept: unknown[] = []
+    let spent = 2
+    for (const item of value) {
+        const cost = jsonBytes(item) + (kept.length > 0 ? 1 : 0)
+        if (spent + cost <= budget) {
+            kept.push(item)
+            spent += cost
+            continue
+        }
+        if (kept.length === 0) {
+            const projected = project(item, budget - spent, `${path}[0]`, cuts, depth + 1)
+            if (projected !== DROPPED) {
+                kept.push(projected)
+            }
+        }
+        break
+    }
+    if (kept.length < value.length) {
+        cuts.push(`${path || 'items'}: kept ${kept.length} of ${value.length} items`)
+    }
+    return kept
+}
+
+/** Character offsets count code points, as the API's Python strings do, not UTF-16 units. */
+function codePointLength(text: string): number {
+    let length = 0
+    for (const _ of text) {
+        length++
+    }
+    return length
+}
+
+/** The longest shared prefix, never ending inside a surrogate pair. */
+function commonPrefix(a: string, b: string): string {
+    let length = 0
+    while (length < a.length && length < b.length && a[length] === b[length]) {
+        length++
+    }
+    const splitsPair = length > 0 && /[\uD800-\uDBFF]/.test(a[length - 1]!)
+    return a.slice(0, splitsPair ? length - 1 : length)
+}
+
+/**
+ * A text field paged by `<field>_next_offset` would skip what the projection cut, so point it at the first
+ * character the response no longer carries. A pager that reports `<field>_total_length` counts characters
+ * (as `skill-get` pages its body); the comment pagers report no total and count UTF-8 bytes.
+ */
+function realignPagedText(
+    value: Record<string, unknown>,
+    kept: Map<string, unknown>,
+    key: string,
+    full: unknown
+): void {
+    const nextKey = `${key}_next_offset`
+    const shortened = kept.get(key)
+    if (typeof full !== 'string' || shortened === full || !kept.has(nextKey)) {
+        return
+    }
+    const next = value[nextKey]
+    const total = value[`${key}_total_length`]
+    const keptPrefix = typeof shortened === 'string' ? commonPrefix(full, shortened) : ''
+    if (typeof total === 'number') {
+        const end = typeof next === 'number' ? next : total
+        kept.set(nextKey, end - codePointLength(full) + codePointLength(keptPrefix))
+    } else if (typeof next === 'number') {
+        kept.set(nextKey, next - byteLength(full) + byteLength(keptPrefix))
+    }
+}
+
+function projectRecord(
+    value: Record<string, unknown>,
+    budget: number,
+    path: string,
+    cuts: string[],
+    depth: number
+): Record<string, unknown> {
+    const entries = Object.entries(value)
+    const kept = new Map<string, unknown>()
+    let spent = 2
+    const entryBytes = (key: string, entryValue: unknown): number =>
+        byteLength(JSON.stringify(key)) + jsonBytes(entryValue) + 2
+
+    for (const [key, entryValue] of entries) {
+        const cost = entryBytes(key, entryValue)
+        if (cost <= POINTER_ENTRY_BYTES && spent + cost <= budget) {
+            kept.set(key, entryValue)
+            spent += cost
+        }
+    }
+    for (const [key, entryValue] of entries) {
+        if (kept.has(key)) {
+            continue
+        }
+        const childPath = path ? `${path}.${key}` : key
+        const cost = entryBytes(key, entryValue)
+        if (spent + cost <= budget) {
+            kept.set(key, entryValue)
+            spent += cost
+            continue
+        }
+        const keyCost = byteLength(JSON.stringify(key)) + 2
+        const projected = project(entryValue, budget - spent - keyCost, childPath, cuts, depth + 1)
+        if (projected === DROPPED) {
+            continue
+        }
+        kept.set(key, projected)
+        spent += keyCost + jsonBytes(projected)
+    }
+    const droppedItems = entries.some(
+        ([key, entryValue]) =>
+            Array.isArray(entryValue) && (kept.get(key) as unknown[] | undefined)?.length !== entryValue.length
+    )
+    if (droppedItems) {
+        for (const key of CONTINUATION_KEYS.filter((key) => kept.has(key))) {
+            kept.delete(key)
+            cuts.push(`${path ? `${path}.${key}` : key} removed, because it skips the omitted items`)
+        }
+    }
+    for (const [key, entryValue] of entries) {
+        realignPagedText(value, kept, key, entryValue)
+    }
+    return Object.fromEntries(entries.filter(([key]) => kept.has(key)).map(([key]) => [key, kept.get(key)]))
+}
+
+function project(value: unknown, budget: number, path: string, cuts: string[], depth: number): unknown {
+    if (jsonBytes(value) <= budget) {
+        return value
+    }
+    if (typeof value === 'string') {
+        return projectString(value, budget, path, cuts)
+    }
+    if (depth < MAX_PROJECTION_DEPTH && Array.isArray(value)) {
+        return projectArray(value, budget, path, cuts, depth)
+    }
+    if (depth < MAX_PROJECTION_DEPTH && typeof value === 'object' && value !== null) {
+        return projectRecord(value as Record<string, unknown>, budget, path, cuts, depth)
+    }
+    cuts.push(`${path || 'value'} omitted`)
+    return DROPPED
+}
+
+function withNotice(value: unknown, notice: string): unknown {
+    if (Array.isArray(value)) {
+        return [...value, { [RESPONSE_BUDGET_KEY]: notice }]
+    }
+    return { [RESPONSE_BUDGET_KEY]: notice, ...(value as Record<string, unknown>) }
+}
+
+/** The projection counts JSON bytes, so its budget is scaled to the real serializer and then narrowed. */
+export function fitValue(
+    value: unknown,
+    serialize: (value: unknown) => string,
+    maxBytes: number,
+    maxTokens: number
+): { value: unknown; text: string } | undefined {
+    if (typeof value !== 'object' || value === null) {
+        return undefined
+    }
+    const fullBytes = byteLength(serialize(value))
+    const ratio = fullBytes / Math.max(1, jsonBytes(value))
+    let budget = Math.floor((maxBytes - NOTICE_RESERVE_BYTES) / ratio)
+    for (let attempt = 0; attempt < MAX_FIT_ATTEMPTS && budget > MIN_STRING_KEEP_BYTES; attempt++) {
+        const cuts: string[] = []
+        const projected = withNotice(project(value, budget, '', cuts, 0), overflowNotice(fullBytes, maxTokens, cuts))
+        const text = serialize(projected)
+        const bytes = byteLength(text)
+        if (bytes <= maxBytes) {
+            return { value: projected, text }
+        }
+        budget = Math.floor((budget * maxBytes * 0.95) / bytes)
+    }
+    return undefined
+}
+
+/** A string result keeps its serialization, so a JSON string stays one JSON string, notice included. */
+function fitString(
+    value: string,
+    serialize: (value: unknown) => string,
+    fullBytes: number,
+    maxBytes: number,
+    maxTokens: number
+): string | undefined {
+    let room = maxBytes - NOTICE_RESERVE_BYTES
+    for (let attempt = 0; attempt < MAX_FIT_ATTEMPTS && room > MIN_STRING_KEEP_BYTES; attempt++) {
+        const clipped = clipLines(value, room)
+        const text = serialize(`${overflowNotice(fullBytes, maxTokens, [clipped.cut])}\n\n${clipped.text}`)
+        const bytes = byteLength(text)
+        if (bytes <= maxBytes) {
+            return text
+        }
+        room = Math.floor((room * maxBytes * 0.95) / bytes)
+    }
+    return undefined
+}
+
+function parseJsonText(text: string): unknown {
+    const first = text.trimStart()[0]
+    if (first !== '{' && first !== '[') {
+        return undefined
+    }
+    try {
+        return JSON.parse(text)
+    } catch {
+        return undefined
+    }
+}
+
+/** Escapes markup characters, so data inside an informational tag can never close the tag. */
+export function serializeInformationalJson(value: unknown): string {
+    return (JSON.stringify(value) ?? String(value)).replace(
+        /[<>&]/g,
+        (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+    )
+}
+
+/** An informational wrapper holds one JSON value, which is re-serialized so the tag still wraps valid JSON. */
+function fitInformationalJson(text: string, maxBytes: number, maxTokens: number): string | undefined {
+    const open = INFORMATIONAL_OPEN_TAG.exec(text)
+    if (!open) {
+        return undefined
+    }
+    const bodyStart = open.index + open[0].length
+    const closeIndex = text.lastIndexOf(`\n</${open[1]}>`)
+    const json = closeIndex >= bodyStart ? parseJsonText(text.slice(bodyStart, closeIndex)) : undefined
+    if (json === undefined) {
+        return undefined
+    }
+    const wrapperBytes = byteLength(text) - byteLength(text.slice(bodyStart, closeIndex))
+    const fitted = fitValue(json, serializeInformationalJson, maxBytes - wrapperBytes, maxTokens)
+    return fitted ? text.slice(0, bodyStart) + fitted.text + text.slice(closeIndex) : undefined
+}
+
+export function boundText(
+    text: string,
+    maxTokens: number,
+    source?: ResponseBodySource,
+    maxBytes: number = maxResponseBytes(maxTokens)
+): string {
+    const fullBytes = byteLength(text)
+    if (fullBytes <= maxBytes) {
+        return text
+    }
+    if (source && typeof source.value === 'string') {
+        const fitted = fitString(source.value, source.serialize, fullBytes, maxBytes, maxTokens)
+        if (fitted !== undefined) {
+            return fitted
+        }
+    } else if (source) {
+        const fitted = fitValue(source.value, source.serialize, maxBytes, maxTokens)
+        if (fitted) {
+            return fitted.text
+        }
+    }
+    const json = parseJsonText(text)
+    if (json !== undefined) {
+        const fitted = fitValue(json, (value) => JSON.stringify(value), maxBytes, maxTokens)
+        if (fitted) {
+            return fitted.text
+        }
+    }
+    const wrapped = fitInformationalJson(text, maxBytes, maxTokens)
+    if (wrapped !== undefined) {
+        return wrapped
+    }
+    const lineCount = text.split('\n').length
+    const notice = overflowNotice(fullBytes, maxTokens, [linesKept(lineCount, lineCount)])
+    const clipped = clipLines(text, maxBytes - byteLength(notice) - 2)
+    return `${overflowNotice(fullBytes, maxTokens, [clipped.cut])}\n\n${clipped.text}`
+}
+
+export function toonResponseBody(value: unknown): ResponseBodySource {
+    return { value, serialize: formatResponse }
+}
+
+export function jsonResponseBody(value: unknown): ResponseBodySource {
+    return { value, serialize: (projected) => JSON.stringify(projected) }
+}

@@ -134,18 +134,15 @@ const TOOL_ERROR_MESSAGE = 'The tool call failed, so there are no results to sho
  * fallback. Never falls back to text content.
  */
 export function parseToolResultContent<T>(structuredContent: unknown, meta?: unknown): T | null {
-    // Prefer structuredContent when the host forwards it.
-    if (structuredContent !== undefined && structuredContent !== null) {
-        return structuredContent as T
-    }
-
-    // Coding-agent hosts suppress `structuredContent` so the model reads the
-    // compact text table; the app's data then rides on `_meta` instead.
+    // `_meta` wins because it always holds the complete data: `structuredContent` is suppressed
+    // for coding-agent hosts and shortened to the model's response budget.
     const appData = (meta as Record<string, unknown> | undefined)?.[APP_DATA_META_KEY]
     if (appData !== undefined && appData !== null) {
         return appData as T
     }
-
+    if (structuredContent !== undefined && structuredContent !== null) {
+        return structuredContent as T
+    }
     return null
 }
 

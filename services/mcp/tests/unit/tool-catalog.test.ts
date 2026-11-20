@@ -46,7 +46,7 @@ const fakeDef = (overrides?: Record<string, unknown>): FakeDefinition => ({
 vi.mock('@/tools', () => ({
     TOOL_MAP: {
         'tool-a': () => makeToolBase('tool-a'),
-        'tool-b': () => makeToolBase('tool-b'),
+        'tool-b': () => makeToolBase('tool-b', { infoFieldDescriptions: { url: 'Run `schema tool-b url`.' } }),
         'update-feature-flag': () =>
             makeToolBase('update-feature-flag', {
                 schema: z.object({ source: z.literal('handwritten') }),
@@ -148,6 +148,38 @@ describe('ToolCatalog', () => {
             expect(result.type).toBe('object')
         })
 
+        it('keeps the descriptions of a repeated subschema on its first occurrence only', () => {
+            const filter = z
+                .object({
+                    key: z.string().describe('The property to filter on, as named in the project schema.'),
+                    operator: z.enum(['exact', 'is_not', 'icontains']).describe('How to compare the value.'),
+                    description: z.string().describe('A property named description stays a property.'),
+                    options: z.object({ label: z.string() }).default({ label: 'kept' }).describe('Filter options.'),
+                })
+                .describe('A property filter.')
+            const result = toMcpInputSchema(z.object({ first: filter, second: filter })) as Record<string, unknown>
+            const properties = result.properties as Record<string, Record<string, unknown>>
+            const described = z.toJSONSchema(filter, { target: 'draft-7', io: 'input' }) as Record<string, unknown>
+            delete described.$schema
+
+            expect(properties.first).toEqual(described)
+            expect(properties.second).toEqual({
+                type: 'object',
+                properties: {
+                    key: { type: 'string' },
+                    operator: { type: 'string', enum: ['exact', 'is_not', 'icontains'] },
+                    description: { type: 'string' },
+                    options: {
+                        type: 'object',
+                        properties: { label: { type: 'string' } },
+                        required: ['label'],
+                        default: { label: 'kept' },
+                    },
+                },
+                required: ['key', 'operator', 'description'],
+            })
+        })
+
         it('returns plain data with no handle back to the zod instance', () => {
             // zod puts a non-enumerable `~standard` handle on its JSON Schema output. Kept on a
             // catalog entry, it would pin every built schema for the life of the process.
@@ -199,6 +231,11 @@ describe('ToolCatalog', () => {
             // Schema is from the TOOL_MAP mock (handwritten), not GENERATED_TOOL_MAP.
             expect(update!.schema.safeParse({ source: 'handwritten' }).success).toBe(true)
             expect(update!.schema.safeParse({ source: 'generated' }).success).toBe(false)
+        })
+
+        it('keeps the info field descriptions exec info shows instead of the full ones', () => {
+            const toolB = catalog.getFilteredTools({ scopes: [] }).find((t) => t.name === 'tool-b')
+            expect(toolB?.infoFieldDescriptions).toEqual({ url: 'Run `schema tool-b url`.' })
         })
 
         it('should exclude tools by name', () => {

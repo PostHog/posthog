@@ -1,5 +1,6 @@
 ---
 name: signals-scout-observability-gaps
+disable-model-invocation: true
 scout-display-name: Observability gaps
 description: >
   Signals scout for observability gaps — significant event volumes with no insight, dashboard,

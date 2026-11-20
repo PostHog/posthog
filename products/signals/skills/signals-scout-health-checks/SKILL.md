@@ -1,5 +1,6 @@
 ---
 name: signals-scout-health-checks
+disable-model-invocation: true
 scout-display-name: Health checks
 description: >
   Signals scout over PostHog's own health checks. Bundles the project's active health issues by

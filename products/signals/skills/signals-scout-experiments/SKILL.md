@@ -1,5 +1,6 @@
 ---
 name: signals-scout-experiments
+disable-model-invocation: true
 scout-display-name: Experiments
 description: >
   Signals scout for PostHog A/B experiments. Watches running experiments for validity threats —

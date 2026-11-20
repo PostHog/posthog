@@ -1,5 +1,6 @@
 ---
 name: review-hog-perspective-logic-correctness
+disable-model-invocation: true
 description: >
   Checks business logic, edge cases, data transformations, and queries. Reports correctness issues only.
 metadata:
