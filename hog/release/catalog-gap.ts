@@ -8,7 +8,6 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import ts from 'typescript'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
@@ -57,6 +56,9 @@ export interface CompiledGraph {
 }
 
 export const UNNAMED_IMPORT = ''
+
+const NAMED_IMPORT = /\bimport\s+(type\s+)?\{([^}]*)\}\s*from\s*(['"])([^'"\n]*)\3/g
+const IMPORT_BINDING = /^(type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+[A-Za-z_$][\w$]*)?$/
 
 export interface GapInput {
     changed: string[]
@@ -236,51 +238,49 @@ function schemasByTool(source: string | undefined): Map<string, Set<string>> | u
 }
 
 // The values a module imports from a schema file by name. The build resolved which of the module's specifiers
-// name the file, and the TypeScript parser reads the statements that use them. Undefined when the module reads
-// the file any other way, such as a namespace or default import, a re-export or `import()`, or through a
-// specifier no statement accounts for, so every schema counts as read.
+// name the file. Only `import { ... } from '<specifier>'` statements whose bindings are plain names count, and
+// each quoted copy of a specifier must belong to one of them. Undefined otherwise, such as for a namespace or
+// default import, a re-export, `import()`, a comment inside the braces, or a specifier no statement accounts
+// for, so every schema counts as read.
 function namedImports(source: string | undefined, specifiers: string[] | undefined): Set<string> | undefined {
     if (!specifiers?.length || specifiers.includes(UNNAMED_IMPORT)) {
         return undefined
     }
     const wanted = new Set(specifiers)
-    const file = ts.createSourceFile('importer.ts', source ?? '', ts.ScriptTarget.Latest, true)
+    const text = source ?? ''
     const names = new Set<string>()
-    const parsed = new Set<ts.Node>()
+    const accounted = new Set<string>()
+    let statements = 0
 
-    for (const statement of file.statements) {
-        if (
-            !ts.isImportDeclaration(statement) ||
-            !ts.isStringLiteralLike(statement.moduleSpecifier) ||
-            !wanted.has(statement.moduleSpecifier.text)
-        ) {
+    for (const [, typeOnly, bindings = '', , specifier = ''] of text.matchAll(NAMED_IMPORT)) {
+        if (!wanted.has(specifier)) {
             continue
         }
-        parsed.add(statement.moduleSpecifier)
-        const clause = statement.importClause
-        if (clause?.isTypeOnly) {
-            continue
+        statements++
+        accounted.add(specifier)
+        const elements = bindings.split(',').map((element) => element.trim())
+        if (elements.at(-1) === '') {
+            elements.pop()
         }
-        if (!clause || clause.name || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) {
-            return undefined
-        }
-        for (const element of clause.namedBindings.elements) {
-            if (!element.isTypeOnly) {
-                names.add((element.propertyName ?? element.name).text)
+        for (const element of elements) {
+            const binding = element.match(IMPORT_BINDING)
+            if (!binding) {
+                return undefined
+            }
+            const [, typeElement, name] = binding
+            if (!typeOnly && !typeElement && name) {
+                names.add(name)
             }
         }
     }
 
-    const accounted = new Set([...parsed].map((node) => (node as ts.StringLiteralLike).text))
-    let unfollowed = [...wanted].some((specifier) => !accounted.has(specifier))
-    const visit = (node: ts.Node): void => {
-        if (ts.isStringLiteralLike(node) && wanted.has(node.text) && !parsed.has(node)) {
-            unfollowed = true
-        }
-        ts.forEachChild(node, visit)
-    }
-    visit(file)
-    return unfollowed ? undefined : names
+    const quoted = [...wanted].reduce(
+        (count, specifier) =>
+            count +
+            ["'", '"', '`'].reduce((sum, quote) => sum + text.split(`${quote}${specifier}${quote}`).length - 1, 0),
+        0
+    )
+    return accounted.size === wanted.size && quoted === statements ? names : undefined
 }
 
 // Code other than the registry that imports a generated module, like an alias that wraps its tools. hog runs that
