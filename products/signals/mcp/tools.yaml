@@ -1800,7 +1800,8 @@ tools:
             write happens only if nobody changed the entry since you read it. Otherwise nothing is written and the call
             returns 409 with the current `updated_at`, also when no entry has the key, so read the entry again before
             you retry. Omit `if_updated_at` to overwrite unconditionally. Use `scout-scratchpad-forget` to delete an
-            entry.
+            entry. The version a write replaces is kept for two weeks: read it with `scout-scratchpad-search` passing
+            `key` and `include_revisions=true`, and restore it by remembering its content.
     scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
@@ -1865,7 +1866,7 @@ tools:
             - signal_scout:write
             - llm_skill:write
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: true
         title: Read one private scout run's output

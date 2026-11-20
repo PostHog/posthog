@@ -16,9 +16,8 @@ in the metrics below, also when the activity was timed out, cancelled or killed.
 import json
 import time
 import dataclasses
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -46,6 +45,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     record_started_runs,
     run_person_property_sync,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -218,7 +220,7 @@ class SyncWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
 
 PERSON_PROPERTY_SYNC_WORKFLOWS = [SyncWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_SYNC_ACTIVITIES: list[Callable[..., Any]] = [
+PERSON_PROPERTY_SYNC_ACTIVITIES: list[ActivityDefinition] = [
     sync_warehouse_person_properties_activity,
     record_failed_person_property_sync_runs_activity,
 ]

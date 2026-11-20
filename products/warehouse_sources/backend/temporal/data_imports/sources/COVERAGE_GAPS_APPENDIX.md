@@ -124,10 +124,10 @@ Note: Parsed the official index and embedded OpenAPI operations on reference pag
 
 Re-audited 2026-11-19 against: <https://apidocs.acculynx.com/llms.txt>
 
-- [ ] `Workflow milestones (GET /api/v2/company-settings/job-file-settings/workflow-milestones; GET /api/v2/company-settings/job-file-settings/workflow-milestones/{milestone}/statuses)` — lookup of milestones and their statuses, to decode the milestone IDs in job_milestone_history and jobs (high)
-- [ ] `Insurance companies (GET /api/v2/company-settings/job-file-settings/insurance-companies)` — lookup of insurance carriers for claim and insurance analysis (medium)
-- [ ] `Job insurance (GET /api/v2/jobs/{jobId}/insurance)` — per-job insurance claim details, a fan-out over jobs (medium)
-- [ ] `Supplement notations (GET /api/v2/supplements/{supplementId}/notations)` — notes explaining each supplement, a fan-out under the synced supplements (medium)
+- [x] `Workflow milestones (GET /api/v2/company-settings/job-file-settings/workflow-milestones; GET /api/v2/company-settings/job-file-settings/workflow-milestones/{milestone}/statuses)` — lookup of milestones and their statuses, to decode the milestone IDs in job_milestone_history and jobs (high). Statuses not built: the endpoint takes one milestone name per request, documents a single object as its response, and has data only on accounts with custom workflows.
+- [x] `Insurance companies (GET /api/v2/company-settings/job-file-settings/insurance-companies)` — lookup of insurance carriers for claim and insurance analysis (medium)
+- [x] `Job insurance (GET /api/v2/jobs/{jobId}/insurance)` — per-job insurance claim details, a fan-out over jobs (medium)
+- [x] `Supplement notations (GET /api/v2/supplements/{supplementId}/notations)` — notes explaining each supplement, a fan-out under the synced supplements (medium)
 - [ ] `Contact types (GET /api/v2/contacts/contact-types)` — lookup that decodes the type of each synced contact (medium)
 - [ ] `Lead history (GET /api/v2/leads/{leadId}/history)` — status and change history of each lead (medium)
 - [ ] `Account types (GET /api/v2/company-settings/location-settings/account-types)` — lookup of active company account types (low)
@@ -10263,9 +10263,9 @@ Today (7): `adgroup_stats`, `adgroups`, `ads`, `campaign_stats`, `campaigns`, `k
 
 Diffed against: <https://github.com/naver/searchad-apidoc/tree/master/java-sample/src/main/java/com/naver/searchad/api/rest>
 
-- [ ] `Business channels (GET /ncc/channels)` — List the sites and channels that ads point to, so campaigns and ads can be reported by landing property (medium)
-- [ ] `Ad extensions (GET /ncc/ad-extensions?ownerId={id})` — Read extension assets such as extra links and phone numbers attached to campaigns and ad groups we sync (medium)
-- [ ] `Customer links (GET /customer-links)` — Resolve which advertiser accounts a manager account can access, for agency setups (low)
+- [x] `Business channels (GET /ncc/channels)` — List the sites and channels that ads point to, so campaigns and ads can be reported by landing property (medium)
+- [x] `Ad extensions (GET /ncc/ad-extensions?ownerId={id})` — Read extension assets such as extra links and phone numbers attached to campaigns and ad groups we sync (medium)
+- [ ] `Customer links (GET /customer-links)` — Resolve which advertiser accounts a manager account can access, for agency setups (low) Skipped: Naver ended support for /customer-links in 2025 when it merged ad accounts.
 
 Note: The official doc site is a JavaScript app with no machine-readable spec, so I diffed against the vendor's public SDK samples on GitHub (Java rest classes, with route comments). Routes confirmed there are campaigns, adgroups, ads, keywords, channels, ad-extensions, customer-links, stats, stat-reports and master-reports. Ad extensions need an ownerId, so fan out under campaigns or ad groups. Excluded estimate endpoints, write routes, and the async master-reports jobs, which only repeat the same objects in bulk. The SDK is a sample, so other routes may exist that I could not verify.
 
