@@ -120,7 +120,9 @@ def _derive_blobs(teams: list[Team], now: datetime) -> dict[int, dict[str, Any] 
 
     # A NULL is_active counts as active.
     active_by_org = dict(
-        Organization.objects.filter(id__in={team.organization_id for team in teams}).values_list("id", "is_active")
+        Organization.objects.using("default")
+        .filter(id__in={team.organization_id for team in teams})
+        .values_list("id", "is_active")
     )
     active = {team.id: active_by_org.get(team.organization_id) is not False for team in teams}
     limited = get_teams_limited_until([team.api_token for team in teams if active[team.id]], AI_GATEWAY_QUOTA_BUCKETS)
