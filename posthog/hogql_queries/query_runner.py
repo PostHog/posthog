@@ -2319,6 +2319,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
+            # The worker loads the user by id, which restores stored staff rights this request withholds.
+            staff_rights_withheld=isinstance(principal, User) and principal.staff_rights_withheld,
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
@@ -2796,6 +2798,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                     if not query_run.is_warming:
                         cache_manager.record_read()
+                        self._record_runner_read()
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
                         # The forced dispatch skips the result cache, but not the breaker: the
@@ -2982,6 +2985,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
         query_executed_props = {
             **query_run.event_properties(self.modifiers),
+            **self._runner_event_properties(),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
             **self._staleness_event_properties(),
@@ -3019,6 +3023,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
             query_failed_props = {
                 **query_run.event_properties(self.modifiers),
+                **self._runner_event_properties(),
                 "calculation_trigger": query_run.trigger,
                 "failed_in": phase.name,
                 "outcome": "refused" if refused else "failed",
@@ -3251,6 +3256,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
                 **query_run.event_properties(self.modifiers),
+                **self._runner_event_properties(),
                 "cache_hit": False,
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
@@ -3270,6 +3276,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
                 **notes_outcome.event_properties(),
+                **self._query_executed_event_properties(),
                 **phase_times,
             }
             report_user_or_team_action(
@@ -3640,6 +3647,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _staleness_event_properties(self) -> dict[str, Any]:
         return {}
 
+    def _runner_event_properties(self) -> dict[str, Any]:
+        return {}
+
+    def _record_runner_read(self) -> None:
+        return None
+
     def _prepare_blocking_calculation(
         self, *, dashboard_id: Optional[int], previous_entry: Callable[[], Optional[dict[str, Any]]]
     ) -> None:
@@ -3648,6 +3661,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         A runner that recomputes only part of a result calls `previous_entry` to read the entry this
         calculation replaces, with any extra keys that `_cache_entry_with_freshness` stored in it.
         """
+
+    def _query_executed_event_properties(self) -> dict[str, Any]:
+        """Runner-specific properties for the `query executed` event of a run that computed its result."""
+        return {}
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
         """Adds the runner's freshness decision to a cache entry before it is stored.

@@ -498,6 +498,9 @@ class SignalReport(UUIDModel):
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
     monitoring_started_at = models.DateTimeField(null=True, blank=True)
+    # When Monitoring ended in Resolved or Closed. Archiving only pauses Monitoring, so it leaves this unset,
+    # and reopening clears it with `monitoring_started_at`. Lets the inbox list reports that left Monitoring recently.
+    monitoring_ended_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -594,6 +597,11 @@ class SignalReport(UUIDModel):
                 fields=["last_run_at"],
                 condition=models.Q(status="in_progress"),
                 name="signals_report_in_progress",
+            ),
+            models.Index(
+                fields=["team", "monitoring_ended_at"],
+                condition=models.Q(monitoring_ended_at__isnull=False, status__in=["resolved", "closed"]),
+                name="signals_report_monitoring_end",
             ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(
@@ -698,7 +706,8 @@ class SignalReport(UUIDModel):
                 if monitoring_started_at is None or timezone.is_naive(monitoring_started_at):
                     raise ValueError("An aware implementation-complete timestamp is required to enter Monitoring.")
                 self.monitoring_started_at = monitoring_started_at
-                updated_fields.add("monitoring_started_at")
+                self.monitoring_ended_at = None
+                updated_fields.update(["monitoring_started_at", "monitoring_ended_at"])
 
             case (S.MONITORING, S.MONITORING):
                 if self.monitoring_started_at is None:
@@ -712,7 +721,9 @@ class SignalReport(UUIDModel):
                 updated_fields.add("status_before_suppression")
 
             case (S.MONITORING, S.RESOLVED | S.READY | S.CLOSED):
-                pass
+                if new_status != S.READY:
+                    self.monitoring_ended_at = timezone.now()
+                    updated_fields.add("monitoring_ended_at")
 
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
@@ -797,6 +808,9 @@ class SignalReport(UUIDModel):
             # so they are preserved as-is. In-flight states (candidate/in_progress) are never restored
             # here — they have no live workflow to resume and instead route back through POTENTIAL above.
             case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.CLOSED | S.FAILED):
+                if self.status_before_suppression == S.MONITORING and new_status in (S.RESOLVED, S.CLOSED):
+                    self.monitoring_ended_at = timezone.now()
+                    updated_fields.add("monitoring_ended_at")
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
 
@@ -878,7 +892,8 @@ class SignalReport(UUIDModel):
         self.status = new_status
         if new_status in (S.POTENTIAL, S.READY) and self.monitoring_started_at is not None:
             self.monitoring_started_at = None
-            updated_fields.add("monitoring_started_at")
+            self.monitoring_ended_at = None
+            updated_fields.update(["monitoring_started_at", "monitoring_ended_at"])
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
 
@@ -3928,6 +3943,10 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
     `prune_expired_scratchpad_entries` janitor hard-deletes the row, so a lapsed
     memory cannot pile up forever. A durable entry (`expires_at` NULL) is never
     swept.
+
+    A `remember` that changes an entry's `content` or `expires_at`, and a `forget`, first
+    copy the previous state to `SignalScratchpadRevision`, so a bad write can be read back
+    and restored with a plain `remember`. The entry row itself keeps only its current state.
     """
 
     # See SignalScoutConfig.all_teams for rationale.
@@ -3990,6 +4009,54 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
                 name="signal_scratchpad_key_trgm",
                 fastupdate=False,
             ),
+        ]
+
+
+class SignalScratchpadRevision(TeamScopedRootMixin, UUIDModel):
+    """The state a `SignalScratchpad` entry held before a write replaced or deleted it.
+
+    Written in the transaction that locks the entry, and only when the write changes
+    `content` or `expires_at`, so an identical rewrite stores nothing. Keyed on the entry's
+    `(team, key)` rather than a foreign key, because a `forget` deletes the entry and its
+    revisions stay readable by that key. The daily `prune_expired_scratchpad_entries` janitor
+    removes revisions older than `SCRATCHPAD_REVISION_RETENTION_DAYS` and any past
+    `SCRATCHPAD_REVISIONS_PER_KEY` for one key. A separate table leaves the hot entry row and
+    its search indexes alone. Private trial memory never reaches it.
+    """
+
+    class Change(models.TextChoices):
+        OVERWRITE = "overwrite"
+        FORGET = "forget"
+
+    # See SignalScoutConfig.all_teams for rationale: the janitor sweeps with no team scope set.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    key = models.CharField(max_length=300)
+    content = models.TextField()
+    expires_at = models.DateTimeField(null=True, blank=True)
+    change = models.CharField(max_length=16, choices=Change.choices)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    # Who made the change: the scout run its sandbox token is bound to, or the `pipeline:*`
+    # identity of a report-pipeline stage. Editor discard does not create a revision.
+    changed_by_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    changed_by_identity = models.CharField(max_length=64, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Signal scratchpad revision"
+        verbose_name_plural = "Signal scratchpad revisions"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "key", "-changed_at"], name="signal_scratchpad_rev_key_idx"),
+            models.Index(fields=["changed_at"], name="signal_scratchpad_rev_at_idx"),
         ]
 
 

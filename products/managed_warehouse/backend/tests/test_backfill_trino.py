@@ -624,6 +624,18 @@ class TestTransientFailures:
             ("commit_retries_exhausted", _query_error(TrinoExternalError, "DUCKLAKE_COMMIT_FAILED", "EXTERNAL")),
             ("cluster_out_of_memory", _query_error(TrinoQueryError, "CLUSTER_OUT_OF_MEMORY", "INSUFFICIENT_RESOURCES")),
             ("worker_lost", _query_error(TrinoQueryError, "TOO_MANY_REQUESTS_FAILED", "INTERNAL_ERROR")),
+            (
+                "instance_replaced",
+                TrinoUserError(
+                    {
+                        "errorName": "ADMINISTRATIVELY_KILLED",
+                        "errorType": "USER_ERROR",
+                        "message": "Query killed by user 'ops'. Message: this query was cancelled because the Trino "
+                        "instance running it was being replaced; please run it again",
+                    },
+                    "query-1",
+                ),
+            ),
             ("connection_lost", TrinoConnectionError("failed to fetch: connection reset")),
             ("gateway_unavailable", Http503Error("error 503: service unavailable")),
         ]

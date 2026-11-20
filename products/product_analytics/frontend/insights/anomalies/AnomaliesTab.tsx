@@ -12,10 +12,25 @@ import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogi
 import { AnomalyInsightGroup } from './AnomalyInsightGroup'
 
 export function AnomaliesTab(): JSX.Element {
-    const { anomalies, anomaliesLoading, loadingMore, loadError, series, insightGroups, expandedInsightIds, hasMore } =
-        useValues(anomaliesTabLogic)
-    const { loadAnomalies, loadMoreAnomalies, reportInsightOpened, toggleInsightExpanded } =
-        useActions(anomaliesTabLogic)
+    const {
+        anomalies,
+        anomaliesLoading,
+        loadingMore,
+        loadError,
+        series,
+        insightGroups,
+        expandedInsightIds,
+        hasMore,
+        seriesRatings,
+    } = useValues(anomaliesTabLogic)
+    const {
+        loadAnomalies,
+        loadMoreAnomalies,
+        reportInsightOpened,
+        toggleInsightExpanded,
+        rateSeries,
+        reportCreateAlertOpened,
+    } = useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
     const scoredThrough = series
@@ -78,8 +93,11 @@ export function AnomaliesTab(): JSX.Element {
                                 expanded={!!expandedInsightIds[group.insightId]}
                                 dateFrom={anomalies.date_from}
                                 dateTo={anomalies.date_to}
+                                seriesRatings={seriesRatings}
                                 onToggleExpanded={() => toggleInsightExpanded(group.insightId, index)}
                                 onOpenInsight={(row) => reportInsightOpened(row, index)}
+                                onRateSeries={(row, rating) => rateSeries(row, rating, index)}
+                                onCreateAlert={(row) => reportCreateAlertOpened(row, index)}
                             />
                         ))}
                     </div>
