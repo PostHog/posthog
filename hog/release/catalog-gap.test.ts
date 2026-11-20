@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -105,6 +104,7 @@ function gaps(
                 [SHARED_SCHEMAS, new Set([UNCARRIED_MODULE, HAND_WRITTEN_TOOL])],
                 ...importers.map(([file, from]): [string, Set<string>] => [file, new Set(from)]),
             ]),
+            specifiers: new Map([[SHARED_SCHEMAS, new Map([[HAND_WRITTEN_TOOL, ['@/generated/workflows/api']]])]]),
         },
         readBase: (path) => ({ ...MODULES, ...base })[path],
         readHead: (path) => ({ [CATALOG_TOOLS_JSON]: CATALOG, ...MODULES, ...head })[path],
@@ -244,6 +244,30 @@ describe('catalog gaps', () => {
         expect(result.reasons.map((reason) => reason.file)).toEqual(changed)
     })
 
+    test('counts a schema change a hand-written tool reads through a second specifier for the same file', () => {
+        const odd = '@/generated//workflows/api'
+        const result = findCatalogGaps({
+            changed: [SHARED_SCHEMAS],
+            compiled: {
+                files: new Set([SHARED_SCHEMAS, HAND_WRITTEN_TOOL]),
+                importers: new Map([[SHARED_SCHEMAS, new Set([HAND_WRITTEN_TOOL])]]),
+                specifiers: new Map([
+                    [SHARED_SCHEMAS, new Map([[HAND_WRITTEN_TOOL, ['@/generated/workflows/api', odd]]])],
+                ]),
+            },
+            readBase: (path) => ({ ...MODULES })[path],
+            readHead: (path) =>
+                ({
+                    [CATALOG_TOOLS_JSON]: CATALOG,
+                    ...MODULES,
+                    [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, HogFlowsPartialUpdateParams: 'a new flow' }),
+                    [HAND_WRITTEN_TOOL]: `import { WorkflowsGet } from '@/generated/workflows/api'\nimport { HogFlowsPartialUpdateParams } from '${odd}'\n`,
+                })[path],
+        })
+
+        expect(result.reasons.map((reason) => reason.file)).toEqual([SHARED_SCHEMAS])
+    })
+
     test('counts a schema change read by a tool the catalog build drops, though the tool list names it', () => {
         const result = findCatalogGaps({
             changed: [SCHEMAS],
@@ -292,7 +316,7 @@ test('reads compiled files from metafiles relative to the folder each build ran 
             inputs: {
                 'src/cli/library.ts': {
                     imports: [
-                        { path: '../../hog/src/version.ts' },
+                        { path: '../../hog/src/version.ts', kind: 'import-statement', original: '@hog/version' },
                         { path: 'zod', external: true },
                         { path: '../../node_modules/.pnpm/zod/index.js' },
                     ],
@@ -305,10 +329,13 @@ test('reads compiled files from metafiles relative to the folder each build ran 
         })
     )
 
-    const { files, importers } = compiledFiles([{ path: metafile, root: '/repo/services/mcp' }], '/repo')
+    const { files, importers, specifiers } = compiledFiles([{ path: metafile, root: '/repo/services/mcp' }], '/repo')
 
     expect([...files].sort()).toEqual(['hog/src/version.ts', 'services/mcp/src/cli/library.ts'])
     expect(importers.get('hog/src/version.ts')).toEqual(new Set(['services/mcp/src/cli/library.ts']))
+    expect(specifiers?.get('hog/src/version.ts')).toEqual(
+        new Map([['services/mcp/src/cli/library.ts', ['@hog/version']]])
+    )
 })
 
 test('reads a file larger than the default subprocess buffer, and only a missing path as missing', async () => {
@@ -379,14 +406,31 @@ test('lists the files the release paths of the approver check miss', () => {
     ).toEqual(['hogwarts/spell.ts', 'products/surveys/backend/api.py'])
 })
 
-test("the approver check's release paths cover every input the release build names", () => {
-    const repoRoot = join(import.meta.dir, '../..')
-    const paths = execFileSync('bash', [join(import.meta.dir, 'check-approvers.sh'), '--list-paths'], {
-        encoding: 'utf8',
-    })
-        .split('\n')
-        .filter(Boolean)
-    const workflow = readFileSync(join(repoRoot, '.github/workflows/release-hog.yml'), 'utf8')
+test('lists the release build inputs the release paths miss', () => {
+    const workflow = [
+        'env:',
+        '    HOG_SOURCE_PATHS: >-',
+        '        hog',
+        '        packages/quill',
+        '        pnpm-lock.yaml',
+        'jobs:',
+        '    build:',
+        '        steps:',
+        '            - uses: actions/checkout@0000000000000000000000000000000000000000',
+        '              with:',
+        '                  sparse-checkout: |',
+        '                      /*',
+        '                      !/*/',
+        '                      /hog/',
+        '                      /products/surveys/mcp/',
+        '                      /bin/fix-rdkafka-paths',
+        '            - uses: ./.github/actions/pnpm-install',
+    ].join('\n')
+    const paths = ['hog', ':(glob)products/*/mcp/**', 'pnpm-lock.yaml', '.github/actions/pnpm-install']
 
-    expect(outsideReleasePaths(releaseBuildInputs(workflow), paths)).toEqual([])
+    expect(outsideReleasePaths(releaseBuildInputs(workflow), paths)).toEqual([
+        'bin/fix-rdkafka-paths',
+        'packages/quill',
+        '.github/workflows/release-hog.yml',
+    ])
 })

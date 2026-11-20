@@ -72,6 +72,7 @@ beforeAll(async () => {
     await commit('docs/notes.md', 'carol', 'chore: change docs (#4)')
     await commit('products/surveys/mcp/tools.yaml', 'dana', 'feat(surveys): change a product tool (#5)')
     await commit('hog/release/check-approvers.sh', 'erin', 'chore(cli): change the approver check (#6)')
+    await commit('packages/charts/index.ts', 'hana', 'feat(charts): add a package hog starts to build from (#9)')
     await commit('drafts/exec-helper.ts', 'frank', 'chore: draft a helper (#7)')
     execFileSync('git', ['mv', 'drafts/exec-helper.ts', 'services/mcp/src/tools/exec-helper.ts'], { cwd: repo })
     execFileSync(
@@ -96,11 +97,16 @@ beforeAll(async () => {
     await chmod(join(fakeBin, 'gh'), 0o755)
 })
 
-async function check(approver: string): Promise<{ status: number | null; output: string }> {
+async function check(approver: string, extraPaths?: string[]): Promise<{ status: number | null; output: string }> {
     const output = join(repo, '.github-output')
     await writeFile(output, '')
+    const options: string[] = []
+    if (extraPaths) {
+        await writeFile(join(repo, '.extra-paths'), extraPaths.join('\n'))
+        options.push('--extra-paths', join(repo, '.extra-paths'))
+    }
 
-    const run = spawnSync(BASH!, [CHECKER, base, 'HEAD', approver], {
+    const run = spawnSync(BASH!, [CHECKER, ...options, base, 'HEAD', approver], {
         cwd: repo,
         env: {
             ...process.env,
@@ -130,9 +136,26 @@ describe.skipIf(!BASH)('check-approvers.sh', () => {
     test.each([
         ['a change hog does not compile', 'carol'],
         ['a file before it moved into the MCP code, when hog did not compile it', 'frank'],
+        ['a path outside the release paths when the caller adds none', 'hana'],
     ])('clears the author of %s', async (_name, approver) => {
         const result = await check(approver)
 
         expect(result).toEqual({ status: 0, output: '' })
+    })
+
+    test('blocks the author of a change to a path the caller adds', async () => {
+        const result = await check('hana', ['packages/charts'])
+
+        expect(result).toEqual({ status: 1, output: 'violations=hana (#9)\n' })
+    })
+
+    test.each([
+        ['a glob', ['packages/*']],
+        ['a pathspec magic word', [':(glob)packages/**']],
+        ['a path that climbs out', ['hog/../packages/charts']],
+    ])('stops on an extra path that is %s', async (_name, extraPaths) => {
+        const result = await check('hana', extraPaths)
+
+        expect(result).toEqual({ status: 1, output: '' })
     })
 })
