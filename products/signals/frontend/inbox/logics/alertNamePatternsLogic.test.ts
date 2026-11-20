@@ -96,6 +96,7 @@ describe('alertNamePatternsLogic', () => {
             }
             return {
                 ...analyticsConfig,
+                filter_status: null,
                 config: { ...analyticsConfig.config, alert_allow_patterns: ['^Daily'] },
             } as SignalSourceConfigApi
         })

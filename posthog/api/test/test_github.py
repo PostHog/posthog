@@ -34,6 +34,8 @@ from posthog.models.utils import (
 )
 from posthog.test.api_keys import create_project_secret_api_key
 
+from products.conversations.backend.models import SigningSecret
+
 
 class TestGitHubSignatureVerification(TestCase):
     def setUp(self):
@@ -619,6 +621,7 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         token = "phs_legacy_team_secret_token_123"
         self.team.secret_api_token = token
         self.team.save()
+        signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=token)
 
         response = self._post_alert([token])
 
@@ -627,7 +630,15 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
+        # Recorded so the pre-drop backfill rerun cannot mint a fresh mirror row for it.
+        self.assertTrue(
+            RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
+        )
+        signing_secret.refresh_from_db()
+        self.assertNotEqual(signing_secret.secret, token)
+        self.assertTrue(signing_secret.rotated_independently)
         mock_ff_exposed.assert_called_once()
+        self.assertIs(mock_ff_exposed.call_args[0][3], True)
         mock_psak_exposed.assert_not_called()
 
     @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
@@ -657,6 +668,8 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         )
         mock_psak_exposed.assert_not_called()
         mock_ff_exposed.assert_called_once()
+        # No signing secret row carried the token, so the email must not claim a replacement.
+        self.assertIs(mock_ff_exposed.call_args[0][3], False)
         alert_events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "github_secret_alert"]
         self.assertEqual(len(alert_events), 1)
         self.assertEqual(alert_events[0].kwargs["properties"]["key_kind"], "team_secret_token")

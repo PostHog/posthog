@@ -2,6 +2,9 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -28,7 +31,15 @@ describe('RepositorySelector', () => {
         useMocks({
             get: {
                 '/api/projects/:team/integrations/': {
-                    results: [{ id: 7, kind: 'github', display_name: 'acme', config: {} }],
+                    results: [
+                        { id: 7, kind: 'github', display_name: 'acme', config: {} },
+                        {
+                            id: 12,
+                            kind: 'gitlab',
+                            display_name: 'acme/platform/api',
+                            config: { hostname: 'https://gitlab.com' },
+                        },
+                    ],
                 },
                 // Gate the repo list so the loading → loaded transition is deterministic.
                 '/api/environments/:team/integrations/7/github_repos/': async () => {
@@ -65,5 +76,21 @@ describe('RepositorySelector', () => {
         releaseRepos()
         expect(await screen.findByTestId('branch-combobox')).toBeInTheDocument()
         expect(screen.queryByLabelText('Branch')).not.toBeInTheDocument()
+    })
+
+    // A GitLab task starts from the project's default branch, and the GitHub branch picker can't list GitLab branches.
+    it('shows the GitLab project without a branch picker', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS_GITLAB], { [FEATURE_FLAGS.TASKS_GITLAB]: true })
+        render(
+            <RepositorySelector
+                value={{ integrationId: 7, repositoryIntegrationId: 12, repository: 'acme/platform/api' }}
+                onChange={jest.fn()}
+            />
+        )
+
+        expect(await screen.findByText('acme/platform/api')).toBeInTheDocument()
+        expect(screen.getByTestId('repo-combobox')).toBeInTheDocument()
+        expect(screen.queryByLabelText('Branch')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('branch-combobox')).not.toBeInTheDocument()
     })
 })

@@ -67,7 +67,7 @@ export interface sharedMetricModalLogicActions {
         sharedMetricsResponse: {
             count: number
             next: null
-            previous?: string | null | undefined
+            previous?: string | null
             results: SharedMetric[]
         },
         payload?: void
@@ -75,7 +75,7 @@ export interface sharedMetricModalLogicActions {
         sharedMetricsResponse: {
             count: number
             next: null
-            previous?: string | null | undefined
+            previous?: string | null
             results: SharedMetric[]
         }
         payload?: void

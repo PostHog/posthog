@@ -75,6 +75,8 @@ class CheckFrequency(LabeledStrEnum):
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
+# The window the page opens on, and so the one the stored results are kept ready for.
+DEFAULT_STATS_DAYS = 30
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
 MAX_RANKED_DOMAINS = 20

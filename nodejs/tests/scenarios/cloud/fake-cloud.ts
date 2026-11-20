@@ -6,6 +6,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import type { ValveTimelineEntry } from '../valves/valves'
 import { Aws, AwsError } from './aws'
+import { PROFILE } from './fixtures'
 import type { RunManifest } from './lease'
 
 type Schedule = { expression: string; target: { Arn: string; RoleArn: string; Input: string } }
@@ -25,6 +26,7 @@ type Resource = {
     image?: string
     seeded?: boolean
     writer?: string
+    monitoringInterval?: string
 }
 
 type Command = {
@@ -69,7 +71,7 @@ type Stack = {
     runTag?: string
     parameters: Record<string, string>
     template: {
-        Parameters: Record<string, { Type: string }>
+        Parameters: Record<string, { Type: string; Default?: unknown }>
         Resources: Record<string, { Type: string; Condition?: string; Properties: Record<string, unknown> }>
     }
     resources: Resource[]
@@ -91,7 +93,7 @@ const FAILOVER_CARD = 'cyclotron-failover-under-load'
 const FAILOVER_AFTER_MS = 15 * MINUTE_MS
 const STATUSES = ['passed', 'failed', 'invalid', 'passed']
 const DEFAULT_READER_ACU: ReaderMinute[] = [
-    ...[-3, -2, -1].map((minute) => ({ minute, max: 1, avg: 1 })),
+    ...[-5, -4, -3, -2, -1].map((minute) => ({ minute, max: 1, avg: 1 })),
     { minute: 0, max: 2, avg: 1.5 },
     ...[1, 2, 3].map((minute) => ({ minute, max: 6, avg: 5 })),
 ]
@@ -119,12 +121,16 @@ export type FakeCloudOptions = {
         uploadFails?: boolean
         diesAfterMs?: number
         runnerStatus?: string
+        runnerStatusReason?: unknown
         journalsIntent?: boolean
     }
     probe?: 'lost' | 'timedOut'
     agent?: 'offline'
     readerAcu?: ReaderMinute[]
     averageStatuses?: string[]
+    shortValuesOf?: 'Maximum' | 'Average'
+    unknownTimestampOf?: 'Maximum' | 'Average'
+    omitsCapacityStatus?: boolean
     liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
     failover?: { takesMs?: number; showsAfterMs?: number }
 }
@@ -257,7 +263,19 @@ export class FakeCloud implements Aws {
             }))
         )
         const expiresAt = new Date(this.options.now().getTime() + RUN_LEASE_MS).toISOString()
-        return { cluster, writer, reader, manifest: { runId, account: this.account, expiresAt, stackName: cluster } }
+        return {
+            cluster,
+            writer,
+            reader,
+            manifest: {
+                runId,
+                account: this.account,
+                expiresAt,
+                stackName: cluster,
+                readerIdleMaxAcu: PROFILE.readerAcu.idleMax,
+                readerMinAcu: PROFILE.readerAcu.min,
+            },
+        }
     }
 
     writerOf(clusterId: string): string | undefined {
@@ -332,8 +350,21 @@ export class FakeCloud implements Aws {
         return answer
     }
 
-    private parametersOf(flags: Map<string, string>, template: Stack['template']): Record<string, string> {
+    private parametersOf(
+        operation: string,
+        flags: Map<string, string>,
+        template: Stack['template']
+    ): Record<string, string> {
         const listed = parseJSON(flags.get('parameters')!) as { ParameterKey: string; ParameterValue: string }[]
+        const missing = Object.entries(template.Parameters)
+            .filter(
+                ([key, { Default }]) =>
+                    Default === undefined && !listed.some(({ ParameterKey }) => ParameterKey === key)
+            )
+            .map(([key]) => key)
+        if (missing.length > 0) {
+            throw serviceError(operation, 'ValidationError', `Parameters: [${missing.join(', ')}] must have values`)
+        }
         return Object.fromEntries(
             listed.map(({ ParameterKey, ParameterValue }) => {
                 const fromStore = template.Parameters[ParameterKey].Type.startsWith('AWS::SSM::Parameter::Value')
@@ -389,6 +420,7 @@ export class FakeCloud implements Aws {
                 )
             } else if (Type === 'AWS::RDS::DBInstance') {
                 const instanceId = identifier('DBInstanceIdentifier')
+                const interval = Properties.MonitoringInterval as number | { Ref: string } | undefined
                 created.push({
                     logicalId,
                     type: Type,
@@ -397,6 +429,12 @@ export class FakeCloud implements Aws {
                     state: 'available',
                     runTag,
                     seeded: this.backlogSeeded(),
+                    monitoringInterval:
+                        interval === undefined
+                            ? undefined
+                            : typeof interval === 'object'
+                              ? stack.parameters[interval.Ref]
+                              : String(interval),
                 })
             } else if (Type === 'AWS::EC2::Instance') {
                 if (!this.serviceRoleAllowsHost(Properties, stack.parameters)) {
@@ -482,7 +520,12 @@ export class FakeCloud implements Aws {
 
     private runnerScorecard(card: Card, runnerRunId: string, exitCode: number): string {
         const status = this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid'
-        const statusReason = status === 'passed' ? '' : `the card ended ${status}`
+        const statusReason =
+            this.options.card && 'runnerStatusReason' in this.options.card
+                ? this.options.card.runnerStatusReason
+                : status === 'passed'
+                  ? ''
+                  : `the card ended ${status}`
         const failoverAt = this.failovers.get(card.runId)
         const timeline: ValveTimelineEntry[] =
             failoverAt === undefined
@@ -529,7 +572,8 @@ export class FakeCloud implements Aws {
         { Id, MetricStat: { Metric, Period, Stat } }: MetricQuery,
         from: number,
         to: number,
-        averageStatus: string
+        averageStatus: string,
+        ascending: boolean
     ) {
         if (Id === 'avg' && averageStatus !== 'Complete') {
             return {
@@ -556,13 +600,16 @@ export class FakeCloud implements Aws {
                           value: { Maximum: max, Average: avg, SampleCount: 60 }[Stat],
                       })
                   )
-        const points = recorded.filter(({ at, value }) => at >= from && at < to && value !== undefined)
+        const inWindow = recorded.filter(({ at, value }) => at >= from && at < to && value !== undefined)
+        const points = ascending ? inWindow : inWindow.reverse()
+        const values = points.map(({ value }) => value)
+        const timestamps = points.map(({ at }) => new Date(at).toISOString())
         return {
             Id,
             Label: Id,
-            Timestamps: points.map(({ at }) => new Date(at).toISOString()),
-            Values: points.map(({ value }) => value),
-            StatusCode: 'Complete',
+            Timestamps: Stat === this.options.unknownTimestampOf ? ['unknown', ...timestamps.slice(1)] : timestamps,
+            Values: Stat === this.options.shortValuesOf ? values.slice(0, -1) : values,
+            ...(this.options.omitsCapacityStatus ? {} : { StatusCode: 'Complete' }),
         }
     }
 
@@ -846,7 +893,7 @@ export class FakeCloud implements Aws {
                     status: 'CREATE_IN_PROGRESS',
                     settlesAt: this.options.now().getTime() + TAKES_MS.CREATE_IN_PROGRESS,
                     runTag: tags.find(({ Key }) => Key === 'scenario-run')?.Value,
-                    parameters: this.parametersOf(flags, template),
+                    parameters: this.parametersOf(operation, flags, template),
                     template,
                     resources: [],
                 }
@@ -856,7 +903,7 @@ export class FakeCloud implements Aws {
             }
             case 'cloudformation update-stack': {
                 const stack = this.stackOf(operation, flags.get('stack-name')!)
-                stack.parameters = this.parametersOf(flags, stack.template)
+                stack.parameters = this.parametersOf(operation, flags, stack.template)
                 this.transition(stack, 'UPDATE_IN_PROGRESS')
                 this.provision(stack)
                 return { StackId: stack.name }
@@ -928,19 +975,22 @@ export class FakeCloud implements Aws {
                 this.pendingPromotions.push({ cluster, to, showsAt, at })
                 return { DBCluster: { DBClusterIdentifier: cluster.id, Status: cluster.state } }
             }
-            case 'rds describe-db-instances':
+            case 'rds describe-db-instances': {
+                const instance = this.liveResource(
+                    'AWS::RDS::DBInstance',
+                    flags.get('db-instance-identifier')!,
+                    operation,
+                    'DBInstanceNotFound'
+                )
                 return {
                     DBInstances: [
                         {
-                            DBInstanceStatus: this.liveResource(
-                                'AWS::RDS::DBInstance',
-                                flags.get('db-instance-identifier')!,
-                                operation,
-                                'DBInstanceNotFound'
-                            ).state,
+                            DBInstanceStatus: instance.state,
+                            MonitoringInterval: Number(instance.monitoringInterval ?? 0),
                         },
                     ],
                 }
+            }
             case 'rds describe-db-cluster-snapshots': {
                 const kept = this.resources.filter(({ type, state }) => type === SNAPSHOT && state !== 'gone')
                 if (flags.has('db-cluster-snapshot-identifier')) {
@@ -1028,11 +1078,14 @@ export class FakeCloud implements Aws {
                     ? (parseJSON(flags.get('metric-data-queries')!) as MetricQuery[])
                     : []
                 const [from, to] = ['start-time', 'end-time'].map((flag) => Date.parse(flags.get(flag) ?? ''))
-                const averageStatus = flags.has('scan-by')
+                const averageStatus = queries.some(({ Id }) => Id === 'avg')
                     ? (this.options.averageStatuses?.[this.metricReads++] ?? 'Complete')
                     : 'Complete'
+                const ascending = flags.get('scan-by') === 'TimestampAscending'
                 return {
-                    MetricDataResults: queries.map((query) => this.readerCapacity(query, from, to, averageStatus)),
+                    MetricDataResults: queries.map((query) =>
+                        this.readerCapacity(query, from, to, averageStatus, ascending)
+                    ),
                 }
             }
             case 'resourcegroupstaggingapi get-resources': {

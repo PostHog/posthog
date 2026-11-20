@@ -42,7 +42,28 @@ export function trendLine(values: number[], fitUpTo?: number, xs?: number[]): nu
     return values.map((_, i) => m * xAt(i) + b)
 }
 
-export function movingAverage(values: number[], intervals: number = 7): number[] {
+export function movingAverage(
+    values: number[],
+    intervals: number = 7,
+    alignment: 'centered' | 'trailing' = 'centered'
+): number[] {
+    if (alignment === 'trailing') {
+        let sum = 0
+        let count = 0
+        return values.map((value, index) => {
+            const expired = values[index - intervals]
+            if (Number.isFinite(expired)) {
+                sum -= expired
+                count--
+            }
+            if (Number.isFinite(value)) {
+                sum += value
+                count++
+            }
+            return count ? sum / count : NaN
+        })
+    }
+
     const n = values.length
     if (n < intervals) {
         return values.slice()

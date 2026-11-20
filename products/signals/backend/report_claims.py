@@ -151,16 +151,8 @@ def actor_owns_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
     )
 
 
-def actor_can_release_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
-    if actor_owns_claim(claim, actor):
-        return True
-    if actor.user_id is None or claim.actor_user_id != actor.user_id:
-        return False
-    # A person can release their agent's claim, and their agent can release the person's own claim.
-    # One agent cannot release a claim that another agent of the same person holds.
-    return (actor.kind == "user" and claim.actor_kind == "agent") or (
-        actor.kind == "agent" and claim.actor_kind == "user"
-    )
+def actor_can_release_claim(claim: ReportClaim, actor: ArtefactAttribution, *, user_id: int | None = None) -> bool:
+    return actor_owns_claim(claim, actor) or is_claim_of_person(claim, _actor_person_id(claim, actor, user_id))
 
 
 def is_claim_of_person(claim: ReportClaim, user_id: int | None) -> bool:
@@ -176,15 +168,34 @@ def is_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
     return bool(tasks) and is_claim_of_person(claim, tasks[0].created_by_id)
 
 
-def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
-    """Whether the actor can resume the claim and add work to it. `actor_can_release_claim` decides who can release it.
+def _actor_person_id(claim: ReportClaim, actor: ArtefactAttribution, user_id: int | None) -> int | None:
+    """The person an actor acts for, given `user_id` or the attribution's `request_user_id`, the authenticated
+    principal of the request.
 
-    Requests reach this with a caller-supplied task id. A task inherits its creator's direct claim, and an
-    agent claim only when task creation already associated the task with it, which is a server-side fact.
+    The task id is caller-supplied, so a task acts for its creator only when the creator made the request.
+    """
+    if actor.kind in ("user", "agent"):
+        return actor.user_id
+    principal = user_id if user_id is not None else actor.request_user_id
+    if actor.task_id is None or principal is None:
+        return None
+    tasks = tasks_facade.get_tasks_by_ids([actor.task_id], [claim.team_id])
+    return principal if tasks and tasks[0].created_by_id == principal else None
+
+
+def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution, *, user_id: int | None = None) -> bool:
+    """Whether the actor can resume the claim and add work to it.
+
+    A person's claim, direct or through an agent, covers all of their actors: themselves, their agents, and
+    tasks they started. Without `user_id`, a task inherits its creator's direct claim, and an agent claim
+    only when task creation already associated the task with it, which is a server-side fact. On a request,
+    the task id is caller-supplied, so a task counts only through the person check.
     """
     if actor_owns_claim(claim, actor):
         return True
-    if actor.task_id is None:
+    if is_claim_of_person(claim, _actor_person_id(claim, actor, user_id)):
+        return True
+    if actor.task_id is None or user_id is not None or actor.request_user_id is not None:
         return False
     if claim.actor_kind == "user":
         return is_claim_of_task_creator(claim, actor.task_id)

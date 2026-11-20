@@ -68,6 +68,8 @@ export interface PrecheckResponseType {
      * rest of the page session.
      */
     precheckFailed?: boolean
+    // WorkOS client ID for the Radar browser script. Present while Radar checks password logins.
+    radar_client_id?: string
 }
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
@@ -85,6 +87,51 @@ function precheckFallback(email: string): PrecheckResponseType {
 
 // Matches the backend's CodeBasedVerificationResendThrottle (1/minute), which also counts the first send
 export const CODE_RESEND_COOLDOWN_MS = 60_000
+
+// The longest a login waits for the Radar token, chunk download included, before it goes without one
+const RADAR_SIGNALS_WAIT_MS = 3000
+
+// Loaded only when precheck asks for it, so the login page downloads nothing extra while Radar is off
+function startRadarSignalsFor(precheckResponse: PrecheckResponseType): void {
+    const clientId = precheckResponse.radar_client_id
+    if (!clientId) {
+        return
+    }
+    void import('scenes/authentication/shared/radarSignals')
+        .then(({ startRadarSignals }) => startRadarSignals(clientId))
+        .catch(() => undefined)
+}
+
+async function radarSignalsIdFor(precheckResponse: PrecheckResponseType): Promise<string> {
+    if (!precheckResponse.radar_client_id) {
+        return ''
+    }
+    const radarSignals = import('scenes/authentication/shared/radarSignals')
+    const lookup = radarSignals.then(({ getRadarSignalsId }) => getRadarSignalsId()).catch(() => '')
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<string>((resolve) => {
+        timer = setTimeout(() => resolve(''), RADAR_SIGNALS_WAIT_MS)
+    })
+    try {
+        const radarSignalsId = await Promise.race([lookup, deadline])
+        if (radarSignalsId) {
+            // Marked only when the token goes out, so a token that arrives after the deadline is still sent with the next attempt
+            const { markRadarSignalsIdSent } = await radarSignals
+            markRadarSignalsIdSent(radarSignalsId)
+        }
+        return radarSignalsId
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
+async function loginRequestBody(
+    login: LoginForm,
+    precheckResponse: PrecheckResponseType
+): Promise<Record<string, string>> {
+    const radarSignalsId = await radarSignalsIdFor(precheckResponse)
+    return radarSignalsId ? { ...login, radar_signals_id: radarSignalsId } : { ...login }
+}
 
 function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
     if (detail) {
@@ -578,8 +625,9 @@ export const loginLogic = kea<loginLogicType>([
                 // Clear any previous passkey errors when submitting with password
                 actions.clearGeneralError()
                 try {
+                    const body = await loginRequestBody({ email, password }, values.precheckResponse)
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create<any>('api/login', { email, password })
+                    return await api.create<any>('api/login', body)
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
@@ -634,7 +682,6 @@ export const loginLogic = kea<loginLogicType>([
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create<any>('api/login/code-based-verification', {
                         code: normalizeVerificationCode(code),
-                        email: values.login.email,
                     })
                 } catch (e) {
                     const { detail } = e as Record<string, any>
@@ -732,6 +779,14 @@ export const loginLogic = kea<loginLogicType>([
         ],
     })),
     listeners(({ values, actions }) => ({
+        // The password login and a passkey prompt can't both finish: the login drops the passkey
+        // challenge. So close any open prompt, and don't auto-open one for this email after it.
+        submitLoginRequest: async ({ login }) => {
+            actions.markPasskeyPrompted(login.email)
+            // Dynamic import to avoid circular dependency
+            const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
+            passkeyLogic.findMounted()?.actions.cancelPasskeyLogin()
+        },
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
@@ -765,6 +820,7 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
+            startRadarSignalsFor(precheckResponse)
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (
@@ -774,13 +830,14 @@ export const loginLogic = kea<loginLogicType>([
                 !isWebKitBrowser()
             ) {
                 const promptEmail = precheckResponse.email ?? ''
-                if (values.passkeyPromptedForEmail === promptEmail) {
-                    return
-                }
                 breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
+                // Check after the import: a password login submitted during it also marks the email
+                if (values.passkeyPromptedForEmail === promptEmail) {
+                    return
+                }
                 // Mark only after the last breakpoint. A newer run that starts during the import cancels
                 // this one, so the email must still be unmarked when the newer run checks it.
                 actions.markPasskeyPrompted(promptEmail)
@@ -811,7 +868,13 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, message }) => {
+        '/login': (_, { error_code, error_detail, message, code_verification_pending, email }) => {
+            if (code_verification_pending) {
+                // The IdP round trip returns here with a code already emailed; continue that login.
+                actions.setCodeVerificationRequired(typeof email === 'string' ? email : '', null)
+                return
+            }
+
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})

@@ -84,10 +84,10 @@ def _measurement(main_rate: tuple[int, int], held_rate: tuple[int, int]) -> tupl
 class TestCodeCheckValidation:
     @parameterized.expand(
         [
-            ("rare_failure_kept", (3, 250), (0, 100), True),
+            ("rare_failure_kept", (5, 250), (0, 100), True),
             ("check_that_does_not_fit_the_app", (80, 250), (30, 100), False),
             ("no_failures", (0, 250), (0, 100), False),
-            ("single_failure_is_not_enough", (1, 250), (0, 100), False),
+            ("four_failures_are_not_enough", (4, 250), (0, 100), False),
             ("held_out_day_contradicts_a_common_failure", (40, 250), (0, 100), False),
             ("a_tiny_held_out_day_cannot_reject_alone", (12, 240), (1, 3), True),
             ("a_held_out_day_that_surely_fails_too_often", (12, 240), (20, 30), False),
@@ -111,7 +111,7 @@ class TestCodeCheckValidation:
     ]
 )
 def test_a_code_check_stays_near_the_weekly_run_cap(_name: str, traces: int, rollout: float, weekly_runs: int) -> None:
-    measurement, sample = _measurement((3, 250), (0, 100))
+    measurement, sample = _measurement((5, 250), (0, 100))
 
     proposal = ranking.code_check_proposal(
         measurement, sample, replace(PROFILE, traces=traces), similar_evaluation_id=None
@@ -251,7 +251,7 @@ def test_a_filtered_check_runs_where_any_generation_matches(
 # Above the 1,000-run weekly budget the rollout shrinks, so generations and traces both land near 1,000.
 @parameterized.expand([("generation", 1000), ("trace", 1000), ("session", 100)])
 def test_a_screened_judge_counts_runs_in_its_own_unit(target: str, weekly_units: int) -> None:
-    result = ranking.ScreeningResult(template_key="prompt_injection", screened=10, flagged=[("t1", "flagged")] * 3)
+    result = ranking.ScreeningResult(template_key="user_correction", screened=10, flagged=[("t1", "flagged")] * 3)
     sample = TraceSample(main=[_sampled("t1", "chat")], held_out=[])
 
     proposal = ranking.screened_proposal(

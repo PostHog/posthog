@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -84,6 +86,8 @@ describe('reviewHogSettingsLogic', () => {
         // The scope reducers persist; without this a prior test's explicit choice leaks over.
         localStorage.clear()
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REVIEW_HOG], { [FEATURE_FLAGS.REVIEW_HOG]: true })
         logic = reviewHogSettingsLogic()
     })
 
@@ -496,6 +500,69 @@ describe('reviewHogSettingsLogic', () => {
 
         logic.actions.setActiveTab('settings')
         expect(router.values.searchParams.tab).toBe('settings')
+
+        router.actions.push(urls.codeReview(), { tab: 'approval_history' })
+        expect(logic.values.activeTab).toBe('approval_history')
+
+        // The GitHub App callback keeps its path and its params, because the Approval settings tab
+        // reads them to finish the connection.
+        router.actions.push(urls.stamphogCallback(), { code: 'example-code', state: 'example-state' })
+        expect(logic.values.activeTab).toBe('approval_settings')
+        expect(router.values.location.pathname).toContain(urls.stamphogCallback())
+        expect(router.values.searchParams.code).toBe('example-code')
+    })
+
+    it('loads review data on the first visit to a review tab, not on an approval tab', async () => {
+        router.actions.push(urls.codeReview(), { tab: 'approval_settings' })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toNotHaveDispatchedActions(['loadAll'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('settings')
+        }).toDispatchActions(['loadAll'])
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('activity')
+        }).toNotHaveDispatchedActions(['loadAll'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab('approval_settings')
+            logic.actions.setActiveTab('settings')
+        })
+            .toDispatchActions(['loadSettings'])
+            .toNotHaveDispatchedActions(['loadAll'])
+    })
+
+    it('loads review data once for a deep link to a review tab', async () => {
+        let settingsRequests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/code_review/settings/': () => {
+                    settingsRequests += 1
+                    return [200, { review_inbox_prs: false, resolve_comments: true, urgency_threshold: 'should_fix' }]
+                },
+            },
+        })
+        router.actions.push(urls.codeReview(), { tab: 'settings' })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(settingsRequests).toBe(1)
+    })
+
+    it('opens Approval settings and loads no review data without the review-hog flag', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        router.actions.push(urls.codeReview(), { tab: 'settings', review: 'r-9' })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toNotHaveDispatchedActions(['loadAll', 'openReviewDetailById'])
+        expect(logic.values.activeTab).toBe('approval_settings')
+
+        // Approval settings is the default tab here, so it keeps the URL clean.
+        logic.actions.setActiveTab('approval_history')
+        expect(router.values.searchParams.tab).toBe('approval_history')
+        logic.actions.setActiveTab('approval_settings')
+        expect(router.values.searchParams.tab).toBeUndefined()
     })
 
     it('closes a deep-linked drawer when the review fails to load', async () => {
