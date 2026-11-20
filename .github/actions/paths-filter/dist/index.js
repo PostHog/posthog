@@ -43040,6 +43040,7 @@ const PASSING_CONCLUSIONS = ['success', 'skipped'];
 const INCONCLUSIVE_CONCLUSIONS = ['cancelled', 'stale'];
 const DEFAULT_CHECK_APPS = ['github-actions'];
 const TREES_PER_QUERY = 100;
+const NEWER_HEADS_PER_BATCH = 5;
 class BudgetExceeded extends Error {
 }
 function listInput(name) {
@@ -43179,6 +43180,17 @@ function firstFailure(config, shas, gatesByHead) {
     }
     return null;
 }
+async function firstFailedNewerHead(input, api, shas) {
+    for (let start = 0; start < shas.length; start += NEWER_HEADS_PER_BATCH) {
+        const batch = shas.slice(start, start + NEWER_HEADS_PER_BATCH);
+        const gatesByHead = await Promise.all(batch.map(async (sha) => checkRunsFrom(input, api, sha, input.config.checks)));
+        const failure = firstFailure(input.config, batch, gatesByHead);
+        if (failure) {
+            return failure;
+        }
+    }
+    return null;
+}
 async function proveRun(input, api, current, before) {
     const { config } = input;
     const differingFromBefore = await differingFrom(input, api, current, before);
@@ -43201,12 +43213,15 @@ async function proveRun(input, api, current, before) {
         const position = heads.shas.indexOf(sha);
         const newer = heads.shas.slice(unchecked, position);
         unchecked = position + 1;
-        const [gates, proofs, newerGates] = await Promise.all([
+        const newerFailure = await firstFailedNewerHead(input, api, newer);
+        if (newerFailure) {
+            return miss('previous-not-green', newerFailure, heads.listed);
+        }
+        const [gates, proofs] = await Promise.all([
             checkRunsFrom(input, api, sha, config.checks),
-            checkRunsFrom(input, api, sha, config.proofChecks),
-            Promise.all(newer.map(async (other) => checkRunsFrom(input, api, other, config.checks)))
+            checkRunsFrom(input, api, sha, config.proofChecks)
         ]);
-        const failure = firstFailure(config, [...newer, sha], [...newerGates, gates]);
+        const failure = firstFailure(config, [sha], [gates]);
         if (failure) {
             return miss('previous-not-green', failure, heads.listed);
         }

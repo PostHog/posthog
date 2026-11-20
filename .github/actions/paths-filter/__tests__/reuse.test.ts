@@ -400,6 +400,29 @@ describe('reuse of an earlier passing result', () => {
     expect(decision).toMatchObject({reuse: true, previousSha: EARLIER_HEAD})
   })
 
+  test('a failed head stops the search before it reads the gates of much older heads', async () => {
+    const olderHeads = Array.from({length: 20}, (_, index) => index.toString(16).padStart(40, 'f'))
+    const matchingHead = olderHeads[olderHeads.length - 1]
+    const headsRead = new Set<string>()
+
+    const decision = await evaluate(
+      input(),
+      api({
+        branchHeads: async () => [CURRENT_HEAD, PREVIOUS_HEAD, ...olderHeads],
+        filesAt: async (_base, sha) => (sha === matchingHead ? files(appFile) : files({...appFile, sha: 'app-other'})),
+        blobs: async (shas, paths) =>
+          new Map(shas.map(sha => [sha, paths.map(() => (sha === PREVIOUS_HEAD ? 'other' : 'blob'))])),
+        checkRuns: async (sha, name) => {
+          headsRead.add(sha)
+          return sha === PREVIOUS_HEAD && name === GATE ? [{...green, conclusion: 'failure'}] : [green]
+        }
+      })
+    )
+
+    expect(decision).toMatchObject({reuse: false, reason: 'previous-not-green'})
+    expect(headsRead.size).toBeLessThan(olderHeads.length / 2)
+  })
+
   test.each<[string, Partial<ReuseApi>]>([
     [
       'their sampled blobs differ',
@@ -474,7 +497,7 @@ describe('reuse of an earlier passing result', () => {
     ['names an unknown filter', {'reuse-proof-checks': PROOF, 'reuse-filters': 'frontend, fronted'}, 'fronted'],
     ['names no proof check', {}, 'reuse-proof-checks']
   ])('a configuration that %s fails the action', (_, inputs, message) => {
-    jest.mocked(core.getInput).mockImplementation(name => ({'reuse-checks': GATE, ...inputs})[name] ?? '')
+    jest.mocked(core.getInput).mockImplementation(name => ({'reuse-checks': GATE, ...inputs}[name] ?? ''))
 
     expect(() => loadConfig(filter, null)).toThrow(message)
   })
