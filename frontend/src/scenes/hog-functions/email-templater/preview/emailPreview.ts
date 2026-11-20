@@ -48,7 +48,7 @@ export function renderEmailPreview(
             id: person.id,
             properties: withoutFences(person.properties),
         },
-        event: person.event,
+        event: withoutFences(person.event),
         // Injected by the email service per recipient. Stand it in so a preview doesn't report the
         // unsubscribe link every marketing email carries as a missing variable.
         unsubscribe_url: '#unsubscribe',
