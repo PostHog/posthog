@@ -35,7 +35,7 @@ SKIPPED_DIRS = {"node_modules", ".git", "dist", ".venv", "target", ".flox", "bui
 # posthog-python is published under two names: `posthoganalytics` for this repo (its
 # Django package is also called posthog) and `posthog` everywhere else.
 EXPECTED_MAJORS = {
-    "posthoganalytics": 7,
+    "posthoganalytics": 8,
     "posthog": 7,
     "posthog-node": 6,
     "posthog-js": 1,

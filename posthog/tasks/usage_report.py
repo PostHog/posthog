@@ -44,7 +44,7 @@ from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import SYNC_SEND_MAX_RETRIES, SYNC_SEND_TIMEOUT_SECONDS, ph_scoped_capture
 from posthog.redis import get_celery_broker_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
@@ -695,7 +695,9 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         )
         capture_exception(err)
         capture_event(
-            pha_client=get_ph_client(sync_mode=True),
+            pha_client=get_ph_client(
+                sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS
+            ),
             name=f"organization usage report to billing service failure",
             organization_id=org_id,
             properties={"err": str(err)},
@@ -3161,7 +3163,7 @@ def capture_report(
     if not organization_id:
         raise ValueError("Organization_id must be provided")
 
-    pha_client = get_ph_client(sync_mode=True)
+    pha_client = get_ph_client(sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS)
 
     try:
         capture_event(
@@ -4210,7 +4212,7 @@ def send_all_org_usage_reports(
     except Exception:
         pass
 
-    pha_client = get_ph_client(sync_mode=True)
+    pha_client = get_ph_client(sync_mode=True, max_retries=SYNC_SEND_MAX_RETRIES, timeout=SYNC_SEND_TIMEOUT_SECONDS)
 
     if organization_ids:
         logger.info(
