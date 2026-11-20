@@ -11,6 +11,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
@@ -631,7 +632,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
         try:
             source = SourceRegistry.get_source(known_source_key(self.source.source_type))
-        except ValueError:
+        # The API projects a schema's mode on an instance built without its source.
+        except (ObjectDoesNotExist, ValueError):
             return False
         return isinstance(source, WebhookSource) and source.webhook_events(self.name) is not None
 

@@ -158,11 +158,20 @@ def _with_event_times(table: pa.Table, fallback_time: datetime) -> pa.Table:
     )
 
 
+def _is_event_batch(table: pa.Table) -> bool:
+    # A poll, or a reconciliation poll after the events, yields rows without an event id.
+    return EVENT_ID_COLUMN in table.column_names and table.column(EVENT_ID_COLUMN).null_count == 0
+
+
+def newest_events(table: pa.Table, primary_keys: Sequence[str]) -> pa.Table:
+    return latest_event_per_key(table, [normalize_column_name(key) for key in primary_keys])
+
+
 def newest_events_batch(table: pa.Table, *, primary_keys: Sequence[str], fallback_time: datetime) -> pa.Table:
-    # A run that polls the API reads rows, not events, and loads them as before.
-    if EVENT_ID_COLUMN not in table.column_names:
+    """The newest event of each key. Polled rows load as before."""
+    if not _is_event_batch(table):
         return table
-    return latest_event_per_key(_with_event_times(table, fallback_time), primary_keys)
+    return newest_events(_with_event_times(table, fallback_time), primary_keys)
 
 
 def history_events_batch(
@@ -170,7 +179,9 @@ def history_events_batch(
 ) -> pa.Table:
     """Every event as a version that starts at its change time. Polled rows make no version."""
     if EVENT_ID_COLUMN not in table.column_names:
-        return table.slice(0, 0)
+        # A history-only run stages its first batch even when empty, and staging needs `valid_from`.
+        return table.slice(0, 0).append_column(pa.field(naming.valid_from, _TIME_TYPE), pa.array([], _TIME_TYPE))
+    table = table.filter(pc.is_valid(table.column(EVENT_ID_COLUMN)))
     taken = reserved_column_collisions(table.column_names, history_columns(naming))
     if taken:
         raise IncrementalHistoryUnavailableError(
@@ -181,9 +192,9 @@ def history_events_batch(
     return table.append_column(pa.field(naming.valid_from, _TIME_TYPE), table.column(EVENT_TIME_COLUMN))
 
 
-def main_table_order_columns(schema: ExternalDataSchema, column_names: Sequence[str]) -> Sequence[str] | None:
+def main_table_order_columns(schema: ExternalDataSchema, table: pa.Table) -> Sequence[str] | None:
     """The order that keeps an older event out of a webhook main table, for a batch of events. None writes as before."""
-    if schema.is_webhook and all(name in column_names for name in WEBHOOK_EVENT_ORDER):
+    if schema.is_webhook and _is_event_batch(table) and all(name in table.column_names for name in WEBHOOK_EVENT_ORDER):
         return WEBHOOK_EVENT_ORDER
     return None
 
@@ -225,7 +236,12 @@ async def _stage_seed(
     stored = schema.sync_type_config.get(HISTORY_TRACKED_SINCE_KEY)
     tracked_since = datetime.fromisoformat(stored) if isinstance(stored, str) else datetime.now(UTC)
     reader = await asyncio.to_thread(
-        lambda: main_table.to_pyarrow_dataset().scanner(batch_size=_SEED_BATCH_ROWS).to_reader()
+        lambda: (
+            main_table.to_pyarrow_dataset()
+            # One decoded batch at a time: the seed reads every column of the table, outside the memory governor.
+            .scanner(batch_size=_SEED_BATCH_ROWS, batch_readahead=1, fragment_readahead=1, use_threads=False)
+            .to_reader()
+        )
     )
     batch_index = 0
     while (batch := await asyncio.to_thread(_next_batch, reader)) is not None:

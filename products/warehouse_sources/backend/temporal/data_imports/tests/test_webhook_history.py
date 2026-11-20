@@ -113,7 +113,7 @@ _GITHUB = _Source(
 _FILES: list[list[dict[str, Any]]] = []
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class _Loaded:
     history: HistoryFinalizeResult | None
     rows_older_than_main: int
@@ -159,7 +159,7 @@ class _Warehouse:
             "incremental",
             should_overwrite_table=False,
             primary_keys=["id"],
-            order_columns=main_table_order_columns(self.schema, main_batch.column_names),
+            order_columns=main_table_order_columns(self.schema, main_batch),
         )
         return _Loaded(finalized, writer.rows_older_than_main)
 
@@ -244,20 +244,23 @@ def test_history_turned_on_seeds_the_main_rows_from_when_tracking_began(local_ta
 
 @parameterized.expand(
     [
-        ("declares_events", "Invoice", "both", True),
-        ("one_row_per_event_already", "CustomerPaymentMethodHistory", "both", False),
-        ("consolidated", "Invoice", "consolidated", False),
+        ("declares_events", "Invoice", "both", "Stripe", True),
+        ("one_row_per_event_already", "CustomerPaymentMethodHistory", "both", "Stripe", False),
+        ("consolidated", "Invoice", "consolidated", "Stripe", False),
+        # The schema API projects the mode on an instance it builds without the source.
+        ("built_without_its_source", "Invoice", "both", None, False),
     ]
 )
 def test_keeps_history_for_a_webhook_table_whose_source_declares_events(
-    _name: str, schema_name: str, mode: str, expected: bool
+    _name: str, schema_name: str, mode: str, source_type: str | None, expected: bool
 ) -> None:
     schema = ExternalDataSchema(
         name=schema_name,
-        source=ExternalDataSource(source_type="Stripe"),
         sync_type=ExternalDataSchema.SyncType.WEBHOOK,
         sync_type_config={"cdc_table_mode": mode},
     )
+    if source_type is not None:
+        schema.source = ExternalDataSource(source_type=source_type)
 
     assert schema.keeps_history is expected
 

@@ -144,6 +144,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import prepar
 from products.warehouse_sources.backend.temporal.data_imports.webhook_history import (
     finalize_run_history,
     main_table_order_columns,
+    newest_events,
     record_webhook_history_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase, workload_reporting
@@ -1677,7 +1678,7 @@ def _process_message_reported(
             else:
                 pa_table = read_parquet(export_signal.s3_path)
         # Read before the schema evolves the batch, which adds the stored event columns as nulls.
-        order_columns = main_table_order_columns(schema, pa_table.column_names)
+        order_columns = main_table_order_columns(schema, pa_table)
 
         logger.debug(
             "parquet_file_read",
@@ -1849,6 +1850,9 @@ def _process_message_reported(
                 timer.step("write"),
                 DELTA_WRITE_DURATION_SECONDS.labels(write_type=write_type).time(),
             ):
+                if order_columns and primary_keys:
+                    # A coalesced set can hold a key's events from several batches, and the last one is not the newest.
+                    pa_table = newest_events(pa_table, primary_keys)
                 if write_type == "incremental" and primary_keys:
                     pa_table = _dedupe_before_write(pa_table, primary_keys)
                 delta_writer = DeltaWriter(delta_table_ref)
