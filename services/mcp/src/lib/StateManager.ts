@@ -21,7 +21,8 @@ import {
     isProjectSecretKey,
     PROJECT_SECRET_KEY_SCOPES,
     PROJECT_SECRET_KEY_TOOLS,
-    projectSecretKeyProbePath,
+    PROJECT_SECRET_KEY_ACCESS_PATH,
+    PROJECT_SECRET_KEY_REMEDIATION,
 } from '@/lib/project-secret-key'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -131,7 +132,7 @@ export class StateManager {
             throw new MissingProjectContextError()
         }
         try {
-            await this._api.request({ method: 'GET', path: projectSecretKeyProbePath(projectId) })
+            await this._api.request({ method: 'GET', path: PROJECT_SECRET_KEY_ACCESS_PATH })
         } catch (error) {
             const denied = findPostHogPermissionError(error)
             // The API answers 404 for a project ID that does not exist, which is the same mistake
@@ -145,7 +146,7 @@ export class StateManager {
                 missingScope: denied?.missingScope,
                 url: denied?.url ?? '',
                 method: denied?.method ?? '',
-                remediation: `This project secret API key cannot read business knowledge in project ${projectId}. To fix: in PostHog, open Project settings → Project secret API keys in the project that owns the knowledge, and use a key with the business_knowledge:read scope. Then check that project_id in the MCP URL is that project's ID.`,
+                remediation: PROJECT_SECRET_KEY_REMEDIATION,
             })
         }
         return {
@@ -455,13 +456,15 @@ export class StateManager {
         try {
             // This also reports key-refresh failures, so resolving the key again can recurse.
             const apiKey = await this._cache.get('apiKey').catch(() => undefined)
-            getPostHogClient().captureException(error, undefined, {
-                tag: 'mcp',
-                team: 'posthog_ai',
-                context,
-                transport_failure: findTransportError(error)?.failure,
-                ...extra,
-                suppress_analytics: apiKey?.suppress_analytics === true,
+            getPostHogClient().captureException(error, {
+                properties: {
+                    tag: 'mcp',
+                    team: 'posthog_ai',
+                    context,
+                    transport_failure: findTransportError(error)?.failure,
+                    ...extra,
+                    suppress_analytics: apiKey?.suppress_analytics === true,
+                },
             })
         } catch {
             // Never let observability break the request.
@@ -792,7 +795,6 @@ export class StateManager {
                 })
                 return { hasMetrics: availability.has_metrics }
             },
-            ttlMs: (cached) => (cached?.hasMetrics === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
             expectTimeouts: true,
             // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
             discardOnError: (cached) => cached?.hasMetrics === false,

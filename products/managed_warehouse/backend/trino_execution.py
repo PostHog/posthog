@@ -7,7 +7,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, TypeVar
 
 import structlog
-from trino.exceptions import HttpError
+from trino.exceptions import Http502Error, Http503Error, Http504Error, HttpError, TrinoConnectionError
 
 from posthog.sync import database_sync_to_async_pool
 
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 _Result = TypeVar("_Result")
 
 TRINO_QUERY_SECONDS = 6 * 60 * 60
+TRINO_QUERY_ID_LOG_SECONDS = 60
 # Trino stops these queries for a cluster fault, not for the query itself, and asks the client to try
 # again in a few minutes. The low-memory killer raises CLUSTER_OUT_OF_MEMORY when the whole cluster runs
 # out of memory. TOO_MANY_REQUESTS_FAILED means a worker node crashed or stopped answering. A query over
@@ -55,6 +56,10 @@ class TrinoQueryControl:
     def attach(self, cursor: Cursor) -> None:
         self.cursor = cursor
 
+    @property
+    def query_id(self) -> str | None:
+        return self.cursor.query_id if self.cursor is not None else None
+
     def record_processed_bytes(self, processed_bytes: object) -> None:
         if self.on_processed_bytes is not None and isinstance(processed_bytes, int):
             self.on_processed_bytes(processed_bytes)
@@ -79,6 +84,17 @@ class TrinoQueryControl:
             threading.Thread(target=self._cancel_until_finished, name="trino-model-cancel", daemon=True).start()
 
 
+async def _log_running_query_ids(control: TrinoQueryControl) -> None:
+    logged_query_id: str | None = None
+    while True:
+        await asyncio.sleep(TRINO_QUERY_ID_LOG_SECONDS)
+        query_id = control.query_id
+        if query_id is None or query_id == logged_query_id:
+            continue
+        logger.info("Trino model is still running", trino_query_id=query_id)
+        logged_query_id = query_id
+
+
 async def run_trino_model(
     execute: Callable[[TrinoQueryControl], _Result],
     *,
@@ -90,6 +106,7 @@ async def run_trino_model(
 ) -> _Result:
     control = TrinoQueryControl(query_seconds, on_processed_bytes, on_cpu_milliseconds)
     task = asyncio.create_task(database_sync_to_async_pool(execute, executor=_executor)(control))
+    query_id_logging = asyncio.create_task(_log_running_query_ids(control))
     timeout = asyncio.timeout(query_seconds)
     try:
         async with timeout:
@@ -111,10 +128,13 @@ async def run_trino_model(
             ) from error
         raise
     finally:
+        query_id_logging.cancel()
         control.finished.set()
 
 
 def is_transient_trino_error(error: BaseException) -> bool:
+    if isinstance(error, TrinoConnectionError | Http502Error | Http503Error | Http504Error):
+        return True
     if getattr(error, "error_name", None) in TRANSIENT_TRINO_ERROR_NAMES:
         return True
     return isinstance(error, HttpError) and str(error).startswith(TRINO_POOL_NOT_ADMITTED_ERROR_PREFIX)

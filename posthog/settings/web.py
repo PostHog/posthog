@@ -378,13 +378,6 @@ SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https
 
 LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
 
-# Kill switch for legacy Team.secret_api_token auth (#66179). When False, the legacy
-# verifiers (TeamSecretTokenAuthentication, the conversations/customer-analytics external
-# team-token branches, the widget identity-verification legacy fallback) all go inert, and
-# ProjectSecretAPIKeyAuthentication stops deferring tokens that match a team's legacy
-# token — migrated tokens then authenticate via their backfilled PSAK mirror rows.
-ACCEPT_TEAM_SECRET_TOKENS = get_from_env("ACCEPT_TEAM_SECRET_TOKENS", True, type_cast=str_to_bool)
-
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_ENGINE = "posthog.session.backend"
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
@@ -683,9 +676,6 @@ SPECTACULAR_SETTINGS = {
             # Dashboard filters and data catalog metric runs both take the query schema's IntervalType,
             # a plain enum no class can carry.
             "IntervalTypeEnum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
-            # The anomaly and explain bodies keep this name; the metrics query clause's own
-            # aggregation adds 'none' and is named by its MetricQueryAggregation class.
-            "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # The AEO prompt and keyword suggestion jobs share this status class, and another class has the same pairs.
             "AEOSuggestionJobStatusEnum": "products.aeo.backend.facade.contracts.SuggestionJobStatus.choices",
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
@@ -1309,6 +1299,16 @@ OIDC_RSA_PRIVATE_KEYS_INACTIVE = [
 ]
 
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+# The origin of the PostHog instance that issues CIMD verification tokens, for example https://us.posthog.com.
+# Leave it empty on the instance that issues them. One metadata document serves every region and carries one token,
+# so every other instance refuses to create tokens and checks published tokens with this one.
+CIMD_VERIFICATION_TOKEN_ISSUER_URL: str = get_from_env("CIMD_VERIFICATION_TOKEN_ISSUER_URL", "").rstrip("/")
+# Provisioning partner reviews post a thread per review to this channel in PostHog's own Slack workspace, with the
+# token of PostHog's staff bot for reviews. Leave either empty to post nothing.
+PROVISIONING_REVIEW_SLACK_BOT_TOKEN: str = get_from_env("PROVISIONING_REVIEW_SLACK_BOT_TOKEN", "")
+PROVISIONING_REVIEW_SLACK_CHANNEL: str = get_from_env("PROVISIONING_REVIEW_SLACK_CHANNEL", "")
+# Verifies the button clicks Slack sends that bot's interactivity endpoint.
+PROVISIONING_REVIEW_SLACK_SIGNING_SECRET: str = get_from_env("PROVISIONING_REVIEW_SLACK_SIGNING_SECRET", "")
 OAUTH_STALE_APPLICATION_GRACE_PERIOD = 60 * 60 * 24 * 30  # 30 days
 
 OAUTH2_PROVIDER = {
@@ -1344,6 +1344,7 @@ OAUTH2_PROVIDER = {
     "ACCESS_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_access_token",
     "REFRESH_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_refresh_token",
     "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.views.OAuthValidator",
+    "OAUTH2_BACKEND_CLASS": "posthog.api.oauth.oauthlib_core.CanonicalScopeOAuthLibCore",
     "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
     "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
     "REFRESH_TOKEN_REUSE_PROTECTION": True,
@@ -1588,14 +1589,6 @@ WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Sized well above any realistic team; 0 disables the cap.
 WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
     "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
-)
-
-WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
-    "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
-)
-
-WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
-    "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
 )
 
 # Stale-while-revalidate grace for user-facing web analytics precompute reads:

@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "enabled": {
+            "description": "Enable or disable automated clustering for this project.",
+            "type": "boolean"
+        }
+    },
+    "required": ["enabled"],
+    "type": "object"
+}

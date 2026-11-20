@@ -304,6 +304,9 @@ const inboxReportActionsRun = (): ToolBase<
         if (params.message !== undefined) {
             body['message'] = params.message
         }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
         const result = await context.api.request<Schemas.SignalReportTaskActionRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/actions/run/`,
@@ -865,6 +868,7 @@ const inboxReportsList = (): ToolBase<
                 already_addressed: params.already_addressed,
                 assignee: params.assignee,
                 channel_id: params.channel_id,
+                connected: params.connected,
                 count_only: params.count_only,
                 created_after: params.created_after,
                 created_before: params.created_before,
@@ -874,6 +878,7 @@ const inboxReportsList = (): ToolBase<
                 include_source_metadata: params.include_source_metadata,
                 include_unlisted: params.include_unlisted,
                 limit: params.limit,
+                needs_you: params.needs_you,
                 offset: params.offset,
                 ordering: params.ordering,
                 priority: params.priority,
@@ -889,6 +894,7 @@ const inboxReportsList = (): ToolBase<
                 source_product: params.source_product,
                 status: params.status,
                 suggested_reviewers: params.suggested_reviewers,
+                tags: params.tags,
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
                 unclaimed: params.unclaimed,
@@ -905,6 +911,7 @@ const inboxReportsList = (): ToolBase<
                     'title',
                     'summary',
                     'metrics',
+                    'tags',
                     'status',
                     'priority',
                     'actionability',
@@ -934,6 +941,7 @@ const inboxReportsList = (): ToolBase<
                     'personal_tier',
                     'personal_reason',
                     'monitoring_started_at',
+                    'monitoring_ended_at',
                     'monitoring_summary.state',
                     'monitoring_summary.started_at',
                     'monitoring_summary.ends_at',
@@ -942,6 +950,8 @@ const inboxReportsList = (): ToolBase<
                     'monitoring_summary.lead_check.comparison',
                     'monitoring_summary.lead_check.baseline_value',
                     'monitoring_summary.lead_check.next_measurement_at',
+                    'monitoring_summary.checks',
+                    'monitoring_outcome',
                     'created_at',
                     'updated_at',
                 ])
@@ -958,7 +968,7 @@ const inboxReportsList = (): ToolBase<
                 },
                 '/inbox'
             ),
-            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -1018,7 +1028,7 @@ const inboxReportsRetrieve = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, `/inbox/${result.id}`),
-            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
+            "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it, before you change any code. If the report's `assignee` shows that another person or their agent is working on it, tell your user and ask before you take it over. Taking ownership from another actor requires `takeover=true`, and from another person also `takeover_claim_id`. A claim held by your user, directly or through another of their agents, is already yours: resume it without takeover and without asking.\nBefore work, read the work log and follow the newest applicable `## Verification plan`. Confirm the current state before work and the outcome after the chosen resolution.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n"
         )
     },
 })
@@ -1447,6 +1457,56 @@ const inboxSourceConfigsUpdate = (): ToolBase<
     },
 })
 
+const InboxSourceFilterCatalogsListSchema = () => z.object({})
+
+const inboxSourceFilterCatalogsList = (): ToolBase<
+    ReturnType<typeof InboxSourceFilterCatalogsListSchema>,
+    Schemas.SourceFilterCatalogList
+> => ({
+    name: 'inbox-source-filter-catalogs-list',
+    schema: InboxSourceFilterCatalogsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxSourceFilterCatalogsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SourceFilterCatalogList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_catalogs/`,
+        })
+        return result
+    },
+})
+
+const InboxSourceFilterPreviewSchema = () => {
+    const SignalsSourceConfigsFilterPreviewCreateBody = orvalSchemas.SignalsSourceConfigsFilterPreviewCreateBody()
+    return SignalsSourceConfigsFilterPreviewCreateBody
+}
+
+const inboxSourceFilterPreview = (): ToolBase<
+    ReturnType<typeof InboxSourceFilterPreviewSchema>,
+    Schemas.SourceFilterPreviewResponse
+> => ({
+    name: 'inbox-source-filter-preview',
+    schema: InboxSourceFilterPreviewSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxSourceFilterPreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_product !== undefined) {
+            body['source_product'] = params.source_product
+        }
+        if (params.source_type !== undefined) {
+            body['source_type'] = params.source_type
+        }
+        if (params.expression !== undefined) {
+            body['expression'] = params.expression
+        }
+        const result = await context.api.request<Schemas.SourceFilterPreviewResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/filter_preview/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxSteeringInstructionsGetSchema = () => z.object({})
 
 const inboxSteeringInstructionsGet = (): ToolBase<
@@ -1479,6 +1539,9 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         default_slack_notification_min_priority: true,
         default_slack_notification_integration: true,
         autostart_base_branches: true,
+        scout_custom_image_id: true,
+        research_custom_image_id: true,
+        implementation_custom_image_id: true,
         issue_tracking_integration: true,
         issue_tracking_config: true,
         max_reports_per_day: true,
@@ -1599,6 +1662,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.model !== undefined) {
             body['model'] = params.model
         }
+        if (params.custom_image_id !== undefined) {
+            body['custom_image_id'] = params.custom_image_id
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -1613,6 +1679,12 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
         if (params.lifecycle_locked !== undefined) {
             body['lifecycle_locked'] = params.lifecycle_locked
@@ -1800,6 +1872,9 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.model !== undefined) {
             body['model'] = params.model
         }
+        if (params.custom_image_id !== undefined) {
+            body['custom_image_id'] = params.custom_image_id
+        }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
         }
@@ -1814,6 +1889,12 @@ const scoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
@@ -2777,6 +2858,32 @@ const scoutRunsRetrieve = (): ToolBase<ReturnType<typeof ScoutRunsRetrieveSchema
     },
 })
 
+const ScoutScratchpadDiscardSchema = () => {
+    const SignalsScoutScratchpadDiscardBody = orvalSchemas.SignalsScoutScratchpadDiscardBody()
+    return SignalsScoutScratchpadDiscardBody
+}
+
+const scoutScratchpadDiscard = (): ToolBase<
+    ReturnType<typeof ScoutScratchpadDiscardSchema>,
+    Schemas.ForgetResponse
+> => ({
+    name: 'scout-scratchpad-discard',
+    schema: ScoutScratchpadDiscardSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutScratchpadDiscardSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        const result = await context.api.request<Schemas.ForgetResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/discard/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutScratchpadForgetSchema = () => {
     const SignalsScoutScratchpadForgetBody = orvalSchemas.SignalsScoutScratchpadForgetBody()
     return SignalsScoutScratchpadForgetBody
@@ -2826,6 +2933,9 @@ const scoutScratchpadRemember = (): ToolBase<
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
         }
+        if (params.if_updated_at !== undefined) {
+            body['if_updated_at'] = params.if_updated_at
+        }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -2856,6 +2966,7 @@ const scoutScratchpadSearch = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
+                include_revisions: params.include_revisions,
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
@@ -3217,6 +3328,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.model !== undefined) {
             body['model'] = params.model
         }
+        if (params.custom_image_id !== undefined) {
+            body['custom_image_id'] = params.custom_image_id
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -3231,6 +3345,12 @@ const signalsScoutConfigCreate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
         if (params.lifecycle_locked !== undefined) {
             body['lifecycle_locked'] = params.lifecycle_locked
@@ -3389,6 +3509,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.model !== undefined) {
             body['model'] = params.model
         }
+        if (params.custom_image_id !== undefined) {
+            body['custom_image_id'] = params.custom_image_id
+        }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
         }
@@ -3403,6 +3526,12 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.report_actions !== undefined) {
+            body['report_actions'] = params.report_actions
+        }
+        if (params.max_report_actions_per_day !== undefined) {
+            body['max_report_actions_per_day'] = params.max_report_actions_per_day
         }
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
@@ -3905,6 +4034,9 @@ const signalsScoutScratchpadRemember = (): ToolBase<
         if (params.expires_at !== undefined) {
             body['expires_at'] = params.expires_at
         }
+        if (params.if_updated_at !== undefined) {
+            body['if_updated_at'] = params.if_updated_at
+        }
         const result = await context.api.request<Schemas.ScratchpadEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
@@ -3935,6 +4067,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 date_from: params.date_from,
                 date_to: params.date_to,
                 include_expired: params.include_expired,
+                include_revisions: params.include_revisions,
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
@@ -3988,6 +4121,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
+    'inbox-source-filter-catalogs-list': inboxSourceFilterCatalogsList,
+    'inbox-source-filter-preview': inboxSourceFilterPreview,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
     'inbox-usage-get': inboxUsageGet,
@@ -4025,6 +4160,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-runs-list': scoutRunsList,
     'scout-runs-recent-emissions': scoutRunsRecentEmissions,
     'scout-runs-retrieve': scoutRunsRetrieve,
+    'scout-scratchpad-discard': scoutScratchpadDiscard,
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,

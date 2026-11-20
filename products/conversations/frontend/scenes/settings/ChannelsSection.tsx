@@ -11,12 +11,11 @@ import { urls } from 'scenes/urls'
 import { ApiSection } from './ApiSection'
 import { EmailSection } from './EmailSection'
 import { GithubSection } from './GithubSection'
+import { type ChannelTabKey } from './openChannelSettings'
 import { SlackSection } from './SlackSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 import { TeamsSection } from './TeamsSection'
 import { WidgetSection } from './WidgetSection'
-
-type ChannelTabKey = 'widget' | 'email' | 'slack' | 'teams' | 'github' | 'api'
 
 const DEFAULT_CHANNEL_TAB: ChannelTabKey = 'widget'
 

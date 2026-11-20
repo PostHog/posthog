@@ -2,6 +2,7 @@ import { isAiEventName } from '~/ingestion/common/ai-event-types'
 
 export const EVENTS_USAGE_KEY = 'events'
 export const AI_EVENTS_USAGE_KEY = 'ai_events'
+export const AI_OVERAGE_BYTES_USAGE_KEY = 'ai_overage_bytes'
 export const EXCEPTIONS_USAGE_KEY = 'exceptions'
 export const SURVEY_RESPONSES_USAGE_KEY = 'survey_responses'
 
@@ -26,6 +27,7 @@ const NON_BILLABLE_EVENTS = new Set([
     '$conversations_back_to_tickets',
     '$anomaly_score',
     '$anomaly_score_shadow',
+    '$recording_observed',
 ])
 
 /**

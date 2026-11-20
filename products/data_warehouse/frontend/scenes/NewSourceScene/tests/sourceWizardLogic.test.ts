@@ -1482,6 +1482,7 @@ describe('sourceWizardLogic', () => {
             ],
             ['an id column', 'incremental', { available_columns: [column('ID'), column('updated_at')] }],
             ['no introspected columns', 'incremental', { available_columns: [] }],
+            ['a declared source key missing', 'full_refresh', { available_columns: [], declares_primary_keys: true }],
         ])('defaults a table with %s to %s', async (_, expectedSyncType, overrides) => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema({
@@ -1695,11 +1696,6 @@ describe('sourceWizardLogic', () => {
     describe('Supabase incremental defaults', () => {
         const supabaseSource = buildSourceConfig({ name: 'Supabase' })
         const postgresSource = buildSourceConfig({ name: 'Postgres' })
-
-        beforeEach(() => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: true })
-        })
 
         const apiSchema = (
             table: string,
@@ -2170,26 +2166,17 @@ describe('sourceWizardLogic', () => {
 
         it.each([
             {
-                name: 'without the feature flag',
-                flag: false,
-                schema: {},
-                before: (_logic: ReturnType<typeof sourceWizardLogic.build>) => {},
-            },
-            {
                 name: 'for a direct-query source, which syncs nothing',
-                flag: true,
                 schema: {},
                 before: (logic: ReturnType<typeof sourceWizardLogic.build>) =>
                     logic.actions.updateSource({ access_method: 'direct' }),
             },
             {
                 name: 'for a table the credentials cannot read',
-                flag: true,
                 schema: { permission_error: 'Missing read access' },
                 before: (_logic: ReturnType<typeof sourceWizardLogic.build>) => {},
             },
-        ])('asks for no recommendations $name', async ({ flag, schema, before }) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL]: flag })
+        ])('asks for no recommendations $name', async ({ schema, before }) => {
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
                 apiSchema('public.orders', {
                     incremental_fields: [

@@ -25,6 +25,9 @@ class DocsRequest:
     requested_by: str | None = None
     requested_by_user_id: int | None = None
     docs_content_root: str | None = None
+    source_repository: str | None = None
+    source_commit_sha: str | None = None
+    source_author_login: str | None = None
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
@@ -82,6 +85,7 @@ class MergeCheckReport:
     low_confidence: bool = False
     criteria: tuple[CriterionResult, ...] = ()
     docs_content_root: str | None = None
+    author_login: str | None = None
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
@@ -100,8 +104,6 @@ IntakeStatus = Literal[
     "capped",
     "shadow",
     "docs_in_source_repo",
-    "section_busy",
-    "joined",
     "started",
 ]
 

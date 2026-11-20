@@ -31,6 +31,7 @@ from temporalio.exceptions import (
 )
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.workflow import ChildWorkflowCancellationType, ParentClosePolicy
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, TaskRun
@@ -54,8 +55,6 @@ from products.tasks.backend.temporal.process_task.activities import (
     GetSandboxForRepositoryOutput,
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryOutput,
-    SendPermissionDenialGuidanceInput,
-    SendPermissionResponseToSandboxInput,
     StartAgentServerInput,
     StartAgentServerOutput,
     TaskProcessingContext,
@@ -71,17 +70,16 @@ from products.tasks.backend.temporal.process_task.activities import (
     invalidate_resume_snapshot,
     launch_agent_server,
     mark_repo_ready,
-    post_permission_delivery_failure_notice,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
-    send_permission_denial_guidance,
-    send_permission_response_to_sandbox,
     start_agent_server,
     track_workflow_event,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.activities.agent_egress import AgentEgressProbeInput
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
 from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
+from products.tasks.backend.temporal.process_task.activities.persist_agent_memory import PersistAgentMemoryOutput
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     RefreshSandboxCredentialsOutput,
@@ -102,7 +100,6 @@ from products.tasks.backend.temporal.process_task.credential_refresh import (
 from products.tasks.backend.temporal.process_task.workflow import (
     AGENT_LOST_ERROR_MESSAGE,
     PendingFollowup,
-    PendingPermissionResponse,
     ProcessTaskInput,
     ProcessTaskOutput,
     ProcessTaskWorkflow,
@@ -964,6 +961,101 @@ class TestSandboxRotation:
         assert rotation.credential_refresh_task is refresh_old
         provision.assert_not_awaited()
 
+    @pytest.mark.parametrize("slow_step", ["in_flight_persist", "rotation_persist"])
+    async def test_slow_memory_persistence_leaves_time_for_the_deadline_snapshot(self, monkeypatch, slow_step):
+        wf = self._workflow(monkeypatch)
+        wf._agent_memory_persist_enabled = True
+        wf.context.task_created_by_id = 42
+        clock = [datetime(2026, 11, 6, 12, 0, tzinfo=UTC)]
+        expires_at = clock[0] + timedelta(minutes=10)
+        wf._sandbox_ttl_expires_at = expires_at
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: clock[0])
+        if slow_step == "in_flight_persist":
+
+            async def never_finishes() -> None:
+                await asyncio.Future[None]()
+
+            wf._agent_memory_persist_task = asyncio.create_task(never_finishes())
+
+        async def wait_until_timeout(condition, *, timeout):
+            clock[0] += timeout
+            raise TimeoutError
+
+        async def persist_until_timeout(activity_fn, activity_input, **kwargs):
+            clock[0] += kwargs["schedule_to_close_timeout"]
+            raise TimeoutError("persist ran out of time")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", wait_until_timeout)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", persist_until_timeout)
+        snapshot_started_at: list[datetime] = []
+
+        async def record_snapshot(sandbox_id, *, reason, allow_pruning):
+            snapshot_started_at.append(clock[0])
+            return self._snapshot(None)
+
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", record_snapshot)
+
+        # An unbounded drain would wait forever on the in-flight persist.
+        await asyncio.wait_for(
+            wf._rotate_sandbox_before_deadline("sb-old", self._relay("relay-old"), self._relay("refresh-old")),
+            timeout=5,
+        )
+
+        # The run loop takes the fallback snapshot as soon as the rotation returns.
+        latest_snapshot_start = snapshot_started_at[0] if snapshot_started_at else clock[0]
+        assert latest_snapshot_start <= expires_at - timedelta(minutes=5)
+        if slow_step == "in_flight_persist":
+            wf._agent_memory_persist_task.cancel()  # type: ignore[union-attr]
+
+    @pytest.mark.parametrize(
+        "persist_result, expected_reason",
+        [
+            (PersistAgentMemoryOutput(outcome="persisted"), "snapshot_missing"),
+            (PersistAgentMemoryOutput(outcome="actor_changed"), "memory_persist_failed"),
+            (PersistAgentMemoryOutput(outcome="unsupported"), "memory_persist_failed"),
+            (PersistAgentMemoryOutput(outcome="partial"), "memory_persist_failed"),
+            (
+                PersistAgentMemoryOutput(outcome="sandbox_not_running", error="Sandbox not running"),
+                "memory_persist_failed",
+            ),
+            (RuntimeError("retries exhausted"), "memory_persist_failed"),
+        ],
+    )
+    async def test_rotation_proceeds_only_after_memory_is_saved(self, monkeypatch, persist_result, expected_reason):
+        wf = self._workflow(monkeypatch)
+        wf._agent_memory_persist_enabled = True
+        wf.context.task_created_by_id = 42
+        in_flight_finished = asyncio.Event()
+
+        async def in_flight_persist() -> None:
+            in_flight_finished.set()
+
+        wf._agent_memory_persist_task = asyncio.ensure_future(in_flight_persist())
+
+        async def run_persist_activity(activity_fn, activity_input, **kwargs):
+            assert in_flight_finished.is_set()
+            if isinstance(persist_result, Exception):
+                raise persist_result
+            return persist_result
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", run_persist_activity)
+        # A missing snapshot stops the rotation right after a successful persist.
+        snapshot = AsyncMock(return_value=self._snapshot(None))
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", snapshot)
+        provision = AsyncMock()
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision)
+
+        relay_old = self._relay("relay-old")
+        refresh_old = self._relay("refresh-old")
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", relay_old, refresh_old)
+
+        assert rotation.sandbox_id is None
+        assert rotation.relay_task is relay_old
+        assert rotation.credential_refresh_task is refresh_old
+        assert rotation.reason == expected_reason
+        assert snapshot.await_count == (1 if expected_reason == "snapshot_missing" else 0)
+        provision.assert_not_awaited()
+
     async def test_the_replacements_own_agent_server_boot_keeps_the_rotation(self, monkeypatch):
         wf = self._workflow(monkeypatch)
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
@@ -1685,19 +1777,24 @@ async def test_shared_startup_boundaries_are_present_only_for_new_workflows(
 
 
 @pytest.mark.parametrize(
-    ("origin_product", "team_id"),
+    ("origin_product", "team_id", "provisioning_fallback_reason", "expected_custom_image_id"),
     [
-        ("signals_scout", 314),  # platform start the alert must exclude
-        ("user_created", 42),  # customer start the alert must count
+        ("signals_scout", 314, None, "image-id"),  # platform start the alert must exclude
+        ("user_created", 42, None, "image-id"),  # customer start the alert must count
+        ("user_created", 42, "boot_failed", None),
     ],
 )
-async def test_sandbox_started_carries_run_attribution(origin_product, team_id, monkeypatch):
+async def test_sandbox_started_carries_run_attribution(
+    origin_product, team_id, provisioning_fallback_reason, expected_custom_image_id, monkeypatch
+):
     # The sandboxes-started alert filters platform work out by origin_product, and
     # cross-references team_id and task_run_id. Dropping any of them from this payload
     # blinds the alert to who a sandbox belongs to, so lock the three fields in.
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = dataclasses.replace(
-        _build_context(github_integration_id=123, origin_product=origin_product), team_id=team_id
+        _build_context(github_integration_id=123, origin_product=origin_product),
+        team_id=team_id,
+        state={"custom_image_id": "image-id"},
     )
 
     monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
@@ -1721,6 +1818,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
                 agent_invoke_ms=6,
                 agent_server_launched=False,
                 agent_shadow_launched=False,
+                custom_image_fallback_reason=provisioning_fallback_reason,
             )
         ),
     )
@@ -1757,6 +1855,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
     assert sandbox_started["team_id"] == team_id
     assert sandbox_started["task_run_id"] == "run-id"
     assert sandbox_started["agent_launcher_to_process_ms"] == 7
+    assert sandbox_started["custom_image_id"] == expected_custom_image_id
 
 
 @pytest.mark.parametrize(
@@ -1889,19 +1988,45 @@ class TestProcessTaskWorkflowUnit:
         )
         assert wf._self_driving_quota_recheck_scheduled() is False
 
-    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch):
+    @pytest.mark.parametrize("observe", [False, True])
+    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch, observe: bool):
         cleanup_inputs: list[CleanupSandboxInput] = []
+        events: list[str] = []
+        observing = asyncio.Event()
+
+        async def child_workflow(workflow_fn, input: AgentEgressProbeInput, **kwargs):
+            assert input == AgentEgressProbeInput(
+                config_path="/run/egress/observation.json", team_id=1, run_id="run-id", sandbox_id="sandbox-123"
+            )
+            assert kwargs["cancellation_type"] == ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED
+            assert kwargs["parent_close_policy"] == ParentClosePolicy.REQUEST_CANCEL
+            observing.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                events.append("revoke")
 
         async def fake_execute_activity(activity_fn, activity_input, **kwargs):
             assert activity_fn is cleanup_sandbox
             cleanup_inputs.append(activity_input)
+            events.append("destroy")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
+        )
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
+        if observe:
+            workflow._context.agent_egress_observation_config = "/run/egress/observation.json"
+            workflow._agent_egress_observation_task = asyncio.create_task(workflow._observe_egress("sandbox-123"))
+            await asyncio.wait_for(observing.wait(), timeout=5)
 
         await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
 
+        assert events == (["revoke", "destroy"] if observe else ["destroy"])
         assert cleanup_inputs == [
             CleanupSandboxInput(
                 sandbox_id="sandbox-123",
@@ -1975,183 +2100,6 @@ class TestProcessTaskWorkflowUnit:
             },
         )
         assert logger.info.call_count == 3
-
-    async def test_send_permission_response_can_arrive_before_context_is_loaded(self, monkeypatch):
-        logger = Mock()
-        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
-        workflow = ProcessTaskWorkflow()
-
-        await workflow.send_permission_response(
-            {
-                "request_id": "perm-1",
-                "option_id": "allow",
-                "actor_user_id": 42,
-                "actor_slack_user_id": "U123",
-                "broker_reason": "destructive_policy_auto_allow",
-            }
-        )
-
-        assert workflow._pending_permission_responses == [
-            PendingPermissionResponse(
-                request_id="perm-1",
-                option_id="allow",
-                actor_user_id=42,
-                actor_slack_user_id="U123",
-                broker_reason="destructive_policy_auto_allow",
-            )
-        ]
-        logger.info.assert_called_once_with(
-            "permission_response_signal_received",
-            extra={
-                "run_id": None,
-                "request_id": "perm-1",
-                "option_id": "allow",
-                "actor_user_id": 42,
-                "is_denial": False,
-            },
-        )
-
-    async def test_denial_schedules_guidance_before_permission_response(self, monkeypatch):
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        activity_calls: list[tuple[object, object]] = []
-
-        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
-            activity_calls.append((activity_fn, activity_input))
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._send_permission_response_to_sandbox(
-            PendingPermissionResponse(
-                request_id="perm-1",
-                option_id="reject",
-                actor_user_id=42,
-                actor_slack_user_id="U123",
-                is_denial=True,
-                denial_message="Please choose another path.",
-                broker_reason="slack_human_response",
-            )
-        )
-
-        assert [call[0] for call in activity_calls] == [
-            send_permission_denial_guidance,
-            send_permission_response_to_sandbox,
-        ]
-        assert activity_calls[0][1] == SendPermissionDenialGuidanceInput(
-            run_id="run-id",
-            request_id="perm-1",
-            actor_user_id=42,
-            denial_message="Please choose another path.",
-        )
-        assert activity_calls[1][1] == SendPermissionResponseToSandboxInput(
-            run_id="run-id",
-            request_id="perm-1",
-            option_id="reject",
-            actor_user_id=42,
-            actor_slack_user_id="U123",
-            is_denial=True,
-            broker_reason="slack_human_response",
-        )
-
-    async def test_denial_guidance_failure_still_delivers_permission_response(self, monkeypatch):
-        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        activity_calls: list[object] = []
-
-        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
-            activity_calls.append(activity_fn)
-            if activity_fn is send_permission_denial_guidance:
-                raise RuntimeError("sandbox unavailable")
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._send_permission_response_to_sandbox(
-            PendingPermissionResponse(
-                request_id="perm-1",
-                option_id="reject",
-                actor_user_id=42,
-                is_denial=True,
-                denial_message="Please choose another path.",
-            )
-        )
-
-        assert activity_calls == [send_permission_denial_guidance, send_permission_response_to_sandbox]
-
-    async def test_approval_skips_denial_guidance_activity(self, monkeypatch):
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        activity_calls: list[object] = []
-
-        async def fake_execute_activity(activity_fn, _activity_input, **_kwargs):
-            activity_calls.append(activity_fn)
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._send_permission_response_to_sandbox(
-            PendingPermissionResponse(
-                request_id="perm-1",
-                option_id="allow",
-                actor_user_id=42,
-                broker_reason="slack_human_response",
-            )
-        )
-
-        assert activity_calls == [send_permission_response_to_sandbox]
-
-    async def test_delivery_failure_does_not_raise_and_posts_thread_notice(self, monkeypatch):
-        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        workflow._slack_thread_context = {"channel": "C1", "thread_ts": "1.0"}
-        activity_calls: list[object] = []
-
-        async def fake_execute_activity(activity_fn, _activity_input, **_kwargs):
-            activity_calls.append(activity_fn)
-            if activity_fn is send_permission_response_to_sandbox:
-                raise RuntimeError("sandbox unavailable")
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._send_permission_response_to_sandbox(
-            PendingPermissionResponse(request_id="perm-1", option_id="allow", actor_user_id=42)
-        )
-
-        assert activity_calls == [send_permission_response_to_sandbox, post_permission_delivery_failure_notice]
-
-    async def test_pending_responses_are_drained_before_drainer_exits_on_completion(self, monkeypatch):
-        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
-        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=None))
-
-        async def fake_wait_condition(condition):
-            assert condition()
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
-
-        workflow = ProcessTaskWorkflow()
-        workflow._context = _build_context(github_integration_id=123)
-        workflow._task_completed = True
-        workflow._pending_permission_responses = [
-            PendingPermissionResponse(request_id="perm-1", option_id="allow", actor_user_id=42),
-            PendingPermissionResponse(request_id="perm-2", option_id="reject", actor_user_id=42),
-        ]
-        delivered: list[str] = []
-
-        async def fake_execute_activity(activity_fn, activity_input, **_kwargs):
-            if activity_fn is send_permission_response_to_sandbox:
-                delivered.append(activity_input.request_id)
-            return None
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-
-        await workflow._deliver_pending_permission_responses()
-
-        assert delivered == ["perm-1", "perm-2"]
-        assert workflow._pending_permission_responses == []
 
     @pytest.mark.parametrize(
         "state, expected",
@@ -2932,13 +2880,6 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_wait_for_event", wait_for_event)
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
 
-        # run() awaits the permission-response drainer on the completion path; outside a
-        # Temporal event loop the real workflow.wait_condition raises immediately.
-        async def fake_wait_condition(condition):
-            while not condition():
-                await asyncio.sleep(0)
-
-        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logging.getLogger("temporalio.workflow"))
 
         async def finish_spend(activity_fn, run_id, **kwargs):
@@ -4075,6 +4016,189 @@ class TestProcessTaskWorkflowUnit:
             create_resume_snapshot_mock.assert_not_awaited()
 
     @pytest.mark.parametrize(
+        "mode, flag_enabled, created_by_id, expected_calls",
+        [
+            (
+                "interactive",
+                True,
+                42,
+                [("persist", "sandbox-123", "teardown"), ("snapshot", "sandbox-123", "teardown")],
+            ),
+            ("interactive", False, 42, [("snapshot", "sandbox-123", "teardown")]),
+            ("interactive", True, None, [("snapshot", "sandbox-123", "teardown")]),
+            ("background", True, 42, []),
+        ],
+    )
+    async def test_teardown_persists_agent_memory_before_the_resume_snapshot(
+        self, monkeypatch, mode, flag_enabled, created_by_id, expected_calls
+    ):
+        workflow = ProcessTaskWorkflow()
+        context = _build_context(github_integration_id=123, state={"mode": mode})
+        context.persist_agent_memory_enabled = flag_enabled
+        context.task_created_by_id = created_by_id
+        calls: list[tuple[str, str, str]] = []
+
+        async def record_persist(sandbox_id: str, *, reason: str) -> None:
+            calls.append(("persist", sandbox_id, reason))
+
+        async def record_snapshot(sandbox_id: str, *, reason: str, allow_pruning: bool) -> bool:
+            calls.append(("snapshot", sandbox_id, reason))
+            return True
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
+        for name in (
+            "_update_task_run_status",
+            "_track_workflow_event",
+            "_post_slack_update",
+            "_read_sandbox_logs",
+            "_cleanup_sandbox",
+            "_emit_progress",
+        ):
+            monkeypatch.setattr(workflow, name, AsyncMock())
+        monkeypatch.setattr(workflow, "_persist_agent_memory", record_persist)
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", record_snapshot)
+
+        async def fail_after_sandbox_creation() -> GetSandboxForRepositoryOutput:
+            workflow._sandbox_id_for_cleanup = "sandbox-123"
+            raise RuntimeError("forced failure to reach finally block")
+
+        monkeypatch.setattr(workflow, "_get_sandbox_for_repository", fail_after_sandbox_creation)
+
+        await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert calls == expected_calls
+
+    async def test_an_actorless_followup_keeps_the_teammate_as_the_persist_actor(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._context.task_created_by_id = 42
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", AsyncMock(return_value="delivered"))
+        persist_inputs: list[Any] = []
+
+        async def capture_activity(activity_fn, activity_input, **kwargs):
+            persist_inputs.append(activity_input)
+            return PersistAgentMemoryOutput(outcome="persisted")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", capture_activity)
+
+        await workflow._dispatch_followup(
+            PendingFollowup(message="take a look", artifact_ids=[], actor_user_id=99, steer=True)
+        )
+        await workflow._dispatch_followup(PendingFollowup(message="from an unmapped member", artifact_ids=[]))
+        await workflow._persist_agent_memory("sandbox-123", reason="turn_completed")
+
+        assert [persist_input.actor_user_id for persist_input in persist_inputs] == [99]
+
+    async def test_a_declined_teammate_steer_leaves_the_creator_as_the_persist_actor(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._context.task_created_by_id = 42
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(
+            workflow, "_send_followup_to_sandbox", AsyncMock(side_effect=["delivered", STEER_DECLINED_OUTCOME])
+        )
+        persist_inputs: list[Any] = []
+
+        async def capture_activity(activity_fn, activity_input, **kwargs):
+            persist_inputs.append(activity_input)
+            return PersistAgentMemoryOutput(outcome="persisted")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", capture_activity)
+
+        await workflow._dispatch_followup(PendingFollowup(message="creator turn", artifact_ids=[], actor_user_id=42))
+        await workflow._dispatch_followup(
+            PendingFollowup(message="teammate steer", artifact_ids=[], actor_user_id=99, steer=True)
+        )
+        # Cancellation discards the requeued steer before its fallback delivery.
+        workflow._completion_status = "cancelled"
+        await workflow._finish_active_followup()
+        await workflow._persist_agent_memory_at_teardown("sandbox-123")
+
+        assert workflow._pending_followups == []
+        assert [persist_input.actor_user_id for persist_input in persist_inputs] == [42]
+
+    async def test_a_teammate_followup_waits_for_the_running_persist_before_delivery(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._context.task_created_by_id = 42
+        workflow._agent_memory_persist_enabled = True
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        persist_finished = asyncio.Event()
+
+        async def in_flight_persist() -> None:
+            await persist_finished.wait()
+
+        in_flight = asyncio.create_task(in_flight_persist())
+        workflow._agent_memory_persist_task = in_flight
+        persist_done_at_delivery: list[bool] = []
+
+        async def send(**kwargs):
+            persist_done_at_delivery.append(in_flight.done())
+            return "delivered"
+
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", send)
+
+        dispatch = asyncio.create_task(
+            workflow._dispatch_followup(PendingFollowup(message="teammate turn", artifact_ids=[], actor_user_id=99))
+        )
+        await asyncio.sleep(0)
+        assert persist_done_at_delivery == []
+        assert workflow._agent_memory_persist_enabled is False
+        persist_finished.set()
+        await dispatch
+
+        assert persist_done_at_delivery == [True]
+
+    async def test_after_a_teammate_turn_the_creator_turn_schedules_no_persist(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._context.task_created_by_id = 42
+        workflow._agent_memory_persist_enabled = True
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", AsyncMock(return_value="delivered"))
+        persist = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_agent_memory", persist)
+
+        await workflow._dispatch_followup(PendingFollowup(message="teammate turn", artifact_ids=[], actor_user_id=99))
+        await workflow._dispatch_followup(PendingFollowup(message="creator turn", artifact_ids=[], actor_user_id=42))
+        workflow._turn_completion_signal_count = 2
+        workflow._schedule_agent_memory_persist("sandbox-123")
+
+        assert workflow._agent_memory_persist_task is None
+        persist.assert_not_called()
+
+    async def test_turns_ending_during_a_persist_coalesce_into_one_trailing_persist(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._agent_memory_persist_enabled = True
+        release = asyncio.Event()
+        persisted: list[str] = []
+
+        async def slow_persist(sandbox_id: str, *, reason: str) -> None:
+            persisted.append(reason)
+            await release.wait()
+
+        monkeypatch.setattr(workflow, "_persist_agent_memory", slow_persist)
+
+        workflow._turn_completion_signal_count = 1
+        workflow._schedule_agent_memory_persist("sandbox-123")
+        await asyncio.sleep(0)
+        for _ in range(3):
+            workflow._turn_completion_signal_count += 1
+            workflow._schedule_agent_memory_persist("sandbox-123")
+        release.set()
+        assert workflow._agent_memory_persist_task is not None
+        await workflow._agent_memory_persist_task
+
+        assert persisted == ["turn_completed", "turn_completed"]
+        assert workflow._agent_memory_persisted_turns == 4
+
+    @pytest.mark.parametrize(
         "use_modal_resume_snapshots",
         [
             True,
@@ -4196,6 +4320,8 @@ class TestContinueAsNew:
         wf._agent_boot_interaction_telemetry_enabled = True
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
+        wf._agent_memory_persist_enabled = True
+        wf._agent_memory_last_actor_user_id = 99
 
         resumed_input = wf._build_resumed_input(ProcessTaskInput(run_id="run-id", create_pr=False), sandbox_id="sb-1")
 
@@ -4210,6 +4336,11 @@ class TestContinueAsNew:
         restored = ProcessTaskWorkflow()
         restored._context = dataclasses.replace(wf.context)
         restored._restore_resumed_state(rs)
+        # A teammate now steering the run makes the reloaded context ineligible; the chain keeps
+        # the first execution's decision and leaves the per-persist actor check to the activity.
+        restored.context.persist_agent_memory_enabled = False
+        assert restored._agent_memory_eligible(rs) is True
+        assert restored._agent_memory_last_actor_user_id == 99
 
         assert restored._ci_repetitions == 2
         assert restored._ci_idle_skips == 1
@@ -4257,12 +4388,6 @@ class TestContinueAsNew:
             (
                 "pending_followups",
                 lambda wf: wf._pending_followups.append(PendingFollowup(message="m", artifact_ids=[])),
-            ),
-            (
-                "pending_permission",
-                lambda wf: wf._pending_permission_responses.append(
-                    PendingPermissionResponse(request_id="r", option_id="o", actor_user_id=1)
-                ),
             ),
             ("heartbeat_pending", lambda wf: setattr(wf, "_heartbeat_received", True)),
             ("client_activity_pending", lambda wf: setattr(wf, "_client_activity_received", True)),

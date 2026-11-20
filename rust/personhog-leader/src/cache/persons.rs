@@ -1,5 +1,6 @@
+use std::collections::HashSet;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use foyer::{Cache, CacheBuilder, Event, EventListener};
 use metrics::counter;
@@ -42,7 +43,6 @@ pub struct CachedPerson {
     /// known (matching `created_at`'s unit). Max-merged on update — the
     /// value only ever advances — and deliberately not a change by itself.
     pub last_seen_at: Option<i64>,
-    // TODO: Add properties_last_updated_at and properties_last_operation
 }
 
 impl CachedPerson {
@@ -129,6 +129,26 @@ impl EventListener for CacheEventMetrics {
 pub struct PersonCache {
     inner: Cache<PersonCacheKey, StoredPerson>,
     codec: Arc<PropertiesCodec>,
+    capacity_bytes: usize,
+    /// Present while a fill is pending.
+    put_keys: Mutex<Option<PutTracking>>,
+}
+
+/// Every key put since a pending fill's warm build began.
+struct PutTracking {
+    keys: HashSet<PersonCacheKey>,
+    /// Tracking stops past this many keys, which ends the fill.
+    max_keys: usize,
+}
+
+/// What became of a record a fill offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FillOutcome {
+    Inserted,
+    /// The key was already put, or the record is a death document, which claims its key.
+    Skipped,
+    /// No fill is pending for this cache.
+    NotTracking,
 }
 
 impl PersonCache {
@@ -144,7 +164,58 @@ impl PersonCache {
         Self {
             inner: cache,
             codec,
+            capacity_bytes,
+            put_keys: Mutex::new(None),
         }
+    }
+
+    /// Start recording put keys, for a fill that will follow.
+    pub(super) fn track_puts(&self, max_keys: usize) {
+        *self.put_keys.lock().unwrap_or_else(PoisonError::into_inner) = Some(PutTracking {
+            keys: HashSet::new(),
+            max_keys,
+        });
+    }
+
+    pub fn stop_tracking_puts(&self) {
+        *self.put_keys.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    }
+
+    /// Whether a fill would skip the key; lets it drop a record before buffering or encoding.
+    pub fn was_put(&self, key: &PersonCacheKey) -> bool {
+        self.put_keys
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|tracking| tracking.keys.contains(key))
+    }
+
+    /// Insert unless the key was put since tracking began; a put records its key first.
+    pub fn fill(&self, key: PersonCacheKey, person: CachedPerson) -> FillOutcome {
+        let is_deleted = person.is_deleted;
+        // Encoded before the lock: live puts on this partition wait on it.
+        let stored = StoredPerson::new(person, &self.codec);
+        let mut put_keys = self.put_keys.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(tracking) = put_keys.as_mut() else {
+            return FillOutcome::NotTracking;
+        };
+        if !tracking.keys.insert(key.clone()) {
+            return FillOutcome::Skipped;
+        }
+        if tracking.keys.len() > tracking.max_keys {
+            *put_keys = None;
+            return FillOutcome::NotTracking;
+        }
+        if is_deleted {
+            return FillOutcome::Skipped;
+        }
+        self.inner.insert(key, stored);
+        FillOutcome::Inserted
+    }
+
+    /// Bytes left before the resident weight reaches `fraction` of the capacity.
+    pub fn free_room(&self, fraction: f64) -> usize {
+        ((self.capacity_bytes as f64 * fraction) as usize).saturating_sub(self.inner.usage())
     }
 
     pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
@@ -187,6 +258,14 @@ impl PersonCache {
             .increment(properties.raw_len() as u64);
         counter!("personhog_leader_cache_properties_put_bytes_total", "form" => "stored")
             .increment(properties.stored_len() as u64);
+        let mut put_keys = self.put_keys.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(tracking) = put_keys.as_mut() {
+            tracking.keys.insert(key.clone());
+            if tracking.keys.len() > tracking.max_keys {
+                *put_keys = None;
+            }
+        }
+        drop(put_keys);
         self.inner.insert(key, stored);
     }
 
@@ -240,6 +319,83 @@ mod tests {
             };
             assert_eq!(person.has_no_properties(), expected, "{properties:?}");
         }
+    }
+
+    fn tracking_cache(max_keys: usize) -> PersonCache {
+        let cache = PersonCache::new(1024 * 1024, Arc::new(PropertiesCodec::disabled()));
+        cache.track_puts(max_keys);
+        cache
+    }
+
+    fn key(person_id: i64) -> PersonCacheKey {
+        PersonCacheKey {
+            team_id: 42,
+            person_id,
+        }
+    }
+
+    fn at_version(version: i64) -> CachedPerson {
+        CachedPerson {
+            version,
+            ..test_person()
+        }
+    }
+
+    #[test]
+    fn a_fill_inserts_a_key_once_and_refuses_older_records_for_it() {
+        let cache = tracking_cache(1000);
+        assert_eq!(cache.fill(key(1), at_version(5)), FillOutcome::Inserted);
+        assert_eq!(cache.fill(key(1), at_version(4)), FillOutcome::Skipped);
+        assert_eq!(cache.get(&key(1)).unwrap().version, 5);
+    }
+
+    #[test]
+    fn a_fill_never_replaces_a_key_put_since_tracking_began() {
+        let cache = tracking_cache(1000);
+        cache.put(key(1), at_version(6));
+        cache.remove(&key(1));
+        assert_eq!(cache.fill(key(1), at_version(5)), FillOutcome::Skipped);
+        assert!(cache.get(&key(1)).is_none());
+    }
+
+    #[test]
+    fn a_death_document_keeps_older_records_of_its_person_out() {
+        let cache = tracking_cache(1000);
+        let death = CachedPerson {
+            is_deleted: true,
+            ..at_version(6)
+        };
+        assert_eq!(cache.fill(key(1), death), FillOutcome::Skipped);
+        assert_eq!(cache.fill(key(1), at_version(5)), FillOutcome::Skipped);
+        assert!(cache.get(&key(1)).is_none());
+    }
+
+    #[test]
+    fn tracking_stops_once_puts_or_fills_pass_its_bound() {
+        let by_puts = tracking_cache(2);
+        for person_id in 1..=3 {
+            by_puts.put(key(person_id), at_version(1));
+        }
+        assert_eq!(
+            by_puts.fill(key(4), at_version(1)),
+            FillOutcome::NotTracking
+        );
+
+        let by_fills = tracking_cache(1);
+        assert_eq!(by_fills.fill(key(1), at_version(1)), FillOutcome::Inserted);
+        assert_eq!(
+            by_fills.fill(key(2), at_version(1)),
+            FillOutcome::NotTracking
+        );
+        assert!(by_fills.get(&key(2)).is_none());
+    }
+
+    #[test]
+    fn a_fill_inserts_nothing_once_tracking_stops() {
+        let cache = tracking_cache(1000);
+        cache.stop_tracking_puts();
+        assert_eq!(cache.fill(key(1), at_version(5)), FillOutcome::NotTracking);
+        assert!(cache.get(&key(1)).is_none());
     }
 
     fn test_person() -> CachedPerson {

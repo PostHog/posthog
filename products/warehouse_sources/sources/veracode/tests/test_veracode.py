@@ -178,9 +178,26 @@ class TestGetRowsTopLevel:
         # State saved after the first page (more remained), so a crash re-yields page 2, not skips it.
         manager.save_state.assert_called_once_with(VeracodeResumeConfig(page=1))
 
-    def test_incremental_adds_modified_after_filter(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "incremental_applications_add_modified_after",
+                "applications",
+                True,
+                "https://api.veracode.com/appsec/v1/applications?size=100&modified_after=2026-03-03&page=0",
+            ),
+            # Without `all_for_org`, the Identity API lists only the teams of the service account.
+            (
+                "teams_list_whole_organization",
+                "teams",
+                False,
+                "https://api.veracode.com/api/authn/v2/teams?size=100&all_for_org=true&page=0",
+            ),
+        ]
+    )
+    def test_request_url(self, _name: str, endpoint: str, use_incremental: bool, expected_url: str) -> None:
         session = MagicMock()
-        session.get.return_value = _mock_response(200, _page([], "applications", total_pages=1))
+        session.get.return_value = _mock_response(200, _page([], VERACODE_ENDPOINTS[endpoint].embedded_key, 1))
         manager = MagicMock()
         manager.can_resume.return_value = False
 
@@ -190,15 +207,15 @@ class TestGetRowsTopLevel:
                     "id",
                     "secret",
                     "com",
-                    "applications",
+                    endpoint,
                     MagicMock(),
                     manager,
-                    should_use_incremental_field=True,
+                    should_use_incremental_field=use_incremental,
                     db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
                 )
             )
 
-        assert "modified_after=2026-03-03" in session.get.call_args_list[0].args[0]
+        assert session.get.call_args_list[0].args[0] == expected_url
 
 
 class TestGetRowsFanOut:
@@ -217,6 +234,27 @@ class TestGetRowsFanOut:
 
         rows = [row for batch in batches for row in batch]
         assert rows == [{"issue_id": 1, "application_guid": "app-ok"}]
+
+    def test_sca_issues_fan_out_over_workspaces_with_open_and_fixed_issues(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [
+            _mock_response(200, _page([{"id": "ws-1"}], "workspaces", total_pages=2)),
+            _mock_response(200, _page([{"id": "ws-2"}], "workspaces", total_pages=2)),
+            _mock_response(200, _page([{"id": "issue-1"}], "issues", total_pages=1)),
+            _mock_response(200, _page([{"id": "issue-2"}], "issues", total_pages=1)),
+        ]
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        with _patched_session(session):
+            batches = list(get_rows("id", "secret", "eu", "sca_workspace_issues", MagicMock(), manager))
+
+        assert batches == [[{"id": "issue-1", "workspace_id": "ws-1"}], [{"id": "issue-2", "workspace_id": "ws-2"}]]
+        # The API returns only open issues unless the status filter repeats each status.
+        assert [call.args[0] for call in session.get.call_args_list[2:]] == [
+            "https://api.veracode.eu/srcclr/v3/workspaces/ws-1/issues?size=100&status=open&status=fixed&page=0",
+            "https://api.veracode.eu/srcclr/v3/workspaces/ws-2/issues?size=100&status=open&status=fixed&page=0",
+        ]
 
     def test_summary_report_yields_one_row_per_application(self) -> None:
         session = MagicMock()

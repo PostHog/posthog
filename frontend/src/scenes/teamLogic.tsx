@@ -238,21 +238,6 @@ export interface teamLogicActions {
     currentProjectAccessDenied: () => {
         value: true
     }
-    deleteSecretTokenBackup: () => any
-    deleteSecretTokenBackupFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    deleteSecretTokenBackupSuccess: (
-        currentTeam: TeamPublicType | TeamType | null,
-        payload?: any
-    ) => {
-        currentTeam: TeamPublicType | TeamType | null
-        payload?: any
-    }
     deleteTeam: (team: TeamType) => {
         team: TeamType
     }
@@ -318,21 +303,6 @@ export interface teamLogicActions {
         errorObject?: any
     }
     resetTokenSuccess: (
-        currentTeam: TeamPublicType | TeamType | null,
-        payload?: any
-    ) => {
-        currentTeam: TeamPublicType | TeamType | null
-        payload?: any
-    }
-    rotateSecretToken: () => any
-    rotateSecretTokenFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    rotateSecretTokenSuccess: (
         currentTeam: TeamPublicType | TeamType | null,
         payload?: any
     ) => {
@@ -561,13 +531,6 @@ export const teamLogic = kea<teamLogicType>([
                 // Project API Token
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsResetTokenPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
-                // Feature Flags Secure API Token
-                rotateSecretToken: async () =>
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsRotateSecretTokenPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    await api.update(`api/projects/${values.currentTeamId}/rotate_secret_token`, {}),
-                deleteSecretTokenBackup: async () =>
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsDeleteSecretTokenBackupPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    await api.update(`api/projects/${values.currentTeamId}/delete_secret_token_backup`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  */

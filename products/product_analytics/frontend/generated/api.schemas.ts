@@ -1365,6 +1365,8 @@ export interface HogQLQueryModifiersApi {
     mergeFederatedAggregateJoins?: boolean | null
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean | null
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+    optimizeCrossJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -2114,18 +2116,28 @@ export const DataColorTokenApi = {
     Preset15: 'preset-15',
 } as const
 
+export type YAxisPosition2Api = (typeof YAxisPosition2Api)[keyof typeof YAxisPosition2Api]
+
+export const YAxisPosition2Api = {
+    Auto: 'auto',
+    Left: 'left',
+    Right: 'right',
+} as const
+
 export interface ResultCustomizationByValueApi {
     assignmentBy?: 'value'
     color?: DataColorTokenApi | null
     customColor?: string | null
     hidden?: boolean | null
     label?: string | null
+    yAxisPosition?: YAxisPosition2Api | null
 }
 
 export interface ResultCustomizationByPositionApi {
     assignmentBy?: 'position'
     color?: DataColorTokenApi | null
     hidden?: boolean | null
+    yAxisPosition?: YAxisPosition2Api | null
 }
 
 export type YAxisScaleTypeApi = (typeof YAxisScaleTypeApi)[keyof typeof YAxisScaleTypeApi]
@@ -2572,6 +2584,7 @@ export interface FunnelsFilterApi {
     showAnnotations?: boolean | null
     /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
     showLegend?: boolean | null
+    showSummaryOnDashboards?: boolean | null
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
@@ -8576,6 +8589,8 @@ export interface ChartSettingsApi {
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
     chartStyle?: ChartStyleApi | null
+    /** Color each X-axis category in single-series bar charts. */
+    colorBarsByCategory?: boolean | null
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
@@ -8600,6 +8615,8 @@ export interface ChartSettingsApi {
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean | null
     valueLabelBackground?: boolean | null
+    valueLabelBackgroundColor?: string | null
+    valueLabelColor?: string | null
     valueLabelFontSize?: number | null
     valueLabelPosition?: ValueLabelPositionApi | null
     valueLabelRotation?: number | null

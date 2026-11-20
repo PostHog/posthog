@@ -78,6 +78,11 @@ class WorkflowIdeaSource(LabeledStrEnum):
 
 class WorkflowImportSource(LabeledStrEnum):
     CUSTOMERIO = "customerio", "Customer.io"
+    RESEND = "resend", "Resend"
+
+
+class WorkflowImportRequestSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
 
 
 class WorkflowImportNoteLevel(LabeledStrEnum):
@@ -108,6 +113,10 @@ class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
     ARCHIVED = "archived"
+
+
+class HogFlowWarningCode(LabeledStrEnum):
+    TEST_SENDER_LIVE = "test_sender_live", "Test sender live"
 
 
 class HogFlowOriginProduct(LabeledStrEnum):

@@ -4,7 +4,7 @@ import hashlib
 from datetime import timedelta
 from typing import cast
 
-from django.core.cache import cache
+from django.core.cache import BaseCache, caches
 from django.db import models
 from django.utils import timezone
 
@@ -35,6 +35,8 @@ from products.surveys.backend.models import Survey, SurveyMatchType
 SNAPSHOT_WINDOW = timedelta(days=7)
 LONGEST_RECORDING = timedelta(days=1)
 NO_SNAPSHOT_TTL = timedelta(minutes=10)
+# Surveys with the same targeting share a snapshot, so a failed render is retried soon rather than blocking them all.
+FAILED_RENDER_RETRY_AFTER = timedelta(minutes=5)
 RENDER_CLAIM_TTL = timedelta(minutes=1)
 # Each cold snapshot runs a ClickHouse query and a browser render. Callers choose the URL targeting, so a budget per
 # team, not per target, bounds how many they can start.
@@ -277,13 +279,13 @@ def _recording_was_deleted(team: Team, session_id: str) -> bool:
     return bool(response.results and response.results[0][0])
 
 
-def _snapshot_key(survey: Survey, target: UrlTarget, device: SnapshotDevice) -> str:
-    # The key is stored on the export, which recording viewers can read, so it hides the survey and its targeting.
+def _snapshot_key(team: Team, target: UrlTarget, device: SnapshotDevice) -> str:
     targeting = {
-        "survey_id": str(survey.id),
+        "team_id": team.id,
         "device": device.value,
         "url": target.url,
-        "url_match_type": target.match_type.value,
+        # The match type is ignored without a URL, so it must not split the snapshots of surveys shown on every page.
+        "url_match_type": target.match_type.value if target.url else None,
     }
     return hashlib.sha256(json.dumps(targeting, sort_keys=True).encode()).hexdigest()
 
@@ -295,6 +297,21 @@ def _may_view_recording(user_access_control: UserAccessControl, team: Team, sess
     return user_access_control.check_access_level_for_resource("session_recording", required_level="viewer")
 
 
+def _cache() -> BaseCache:
+    return caches["survey_site_snapshot"]
+
+
+def _snapshot_asset_cache_key(team: Team, key: str) -> str:
+    # The exports API returns export_context to anyone who can view the recording, and the key can be checked
+    # against guessed URL targeting, so it is kept out of the export.
+    return _snapshot_cache_key("asset", team, key)
+
+
+def _denied_cache_key(team: Team, user: User, key: str) -> str:
+    # Without it, a user who cannot view the newest recording would spend the team's cold budget on every request.
+    return _snapshot_cache_key(f"denied_{user.id}", team, key)
+
+
 def _snapshot_cache_key(kind: str, team: Team, key: str) -> str:
     return f"survey_site_snapshot_{kind}:{team.id}:{key}"
 
@@ -304,8 +321,14 @@ def _may_see_page_urls(user: User, team: Team) -> bool:
     return "$current_url" not in split_restricted_property_names(restrictions).event
 
 
-def _is_abandoned(asset: ExportedAsset) -> bool:
-    return not asset.has_content and asset.created_at < timezone.now() - EXPORT_WORKFLOW_TIMEOUT
+def _may_render_again(asset: ExportedAsset) -> bool:
+    if asset.has_content:
+        return False
+    failed = bool(asset.exception) and is_export_failure_final(
+        exception_type=asset.exception_type, failure_type=asset.failure_type
+    )
+    retry_after = FAILED_RENDER_RETRY_AFTER if failed else EXPORT_WORKFLOW_TIMEOUT
+    return asset.created_at < timezone.now() - retry_after
 
 
 def _page_url_cache_key(asset: ExportedAsset) -> str:
@@ -347,7 +370,7 @@ def _snapshot_of(asset: ExportedAsset) -> SiteSnapshot:
     return SiteSnapshot(
         status=SnapshotStatus.READY if asset.has_content else SnapshotStatus.RENDERING,
         exported_asset_id=asset.id,
-        page_url=cache.get(_page_url_cache_key(asset)),
+        page_url=_cache().get(_page_url_cache_key(asset)),
         viewport_width=export_context["width"],
         site_style=_site_style_of(export_context),
     )
@@ -362,42 +385,40 @@ def get_site_snapshot(
         return UNAVAILABLE
 
     target = target or UrlTarget.of(survey)
-    key = _snapshot_key(survey, target, device)
-    cached = (
-        ExportedAsset.objects.filter(
-            team_id=team.id,
-            export_format=ExportedAsset.ExportFormat.PNG,
-            export_context__survey_site_snapshot=key,
-            export_context__read_site_style=True,
-            is_system=True,
-            created_at__gte=timezone.now() - SNAPSHOT_WINDOW,
-        )
-        .order_by("-created_at")
-        .first()
-    )
+    key = _snapshot_key(team, target, device)
+    cached = ExportedAsset.objects.filter(
+        id=_cache().get(_snapshot_asset_cache_key(team, key)),
+        team_id=team.id,
+        export_format=ExportedAsset.ExportFormat.PNG,
+        export_context__read_site_style=True,
+        is_system=True,
+        created_at__gte=timezone.now() - SNAPSHOT_WINDOW,
+    ).first()
     if cached is not None:
         session_id = (cached.export_context or {})["session_recording_id"]
-        if not _may_view_recording(user_access_control, team, session_id):
-            return UNAVAILABLE
-        if not _is_abandoned(cached) and not _recording_was_deleted(team, session_id):
+        if (
+            _may_view_recording(user_access_control, team, session_id)
+            and not _may_render_again(cached)
+            and not _recording_was_deleted(team, session_id)
+        ):
             return _snapshot_of(cached)
 
     no_snapshot_key = _snapshot_cache_key("none", team, key)
-    if cache.get(no_snapshot_key):
+    if _cache().get(no_snapshot_key) or _cache().get(_denied_cache_key(team, user, key)):
         return UNAVAILABLE
     render_claim_key = _snapshot_cache_key("claim", team, key)
-    if not cache.add(render_claim_key, True, timeout=RENDER_CLAIM_TTL.total_seconds()):
+    if not _cache().add(render_claim_key, True, timeout=RENDER_CLAIM_TTL.total_seconds()):
         return SiteSnapshot(status=SnapshotStatus.RENDERING)
     try:
         return _start_snapshot(team, target, device, user, user_access_control, key, no_snapshot_key)
     finally:
-        cache.delete(render_claim_key)
+        _cache().delete(render_claim_key)
 
 
 def _spend_cold_snapshot_budget(team: Team) -> bool:
     key = _snapshot_cache_key("cold", team, timezone.now().strftime("%Y%m%d%H"))
-    cache.add(key, 0, timeout=timedelta(hours=1).total_seconds())
-    return cache.incr(key) <= COLD_SNAPSHOTS_PER_TEAM_PER_HOUR
+    _cache().add(key, 0, timeout=timedelta(hours=1).total_seconds())
+    return _cache().incr(key) <= COLD_SNAPSHOTS_PER_TEAM_PER_HOUR
 
 
 def _start_snapshot(
@@ -413,9 +434,10 @@ def _start_snapshot(
         return UNAVAILABLE
     moment = find_snapshot_moment(team, target, device)
     if moment is None:
-        cache.set(no_snapshot_key, True, timeout=NO_SNAPSHOT_TTL.total_seconds())
+        _cache().set(no_snapshot_key, True, timeout=NO_SNAPSHOT_TTL.total_seconds())
         return UNAVAILABLE
     if not _may_view_recording(user_access_control, team, moment.session_id):
+        _cache().set(_denied_cache_key(team, user, key), True, timeout=NO_SNAPSHOT_TTL.total_seconds())
         return UNAVAILABLE
     asset = create_export_asset_async(
         team=team,
@@ -426,11 +448,11 @@ def _start_snapshot(
             "timestamp": moment.offset_seconds,
             "width": moment.viewport_width,
             "height": moment.viewport_height,
-            "survey_site_snapshot": key,
             "read_site_style": True,
         },
         expires_after=timezone.now() + SNAPSHOT_WINDOW,
         is_system=True,
     )
-    cache.set(_page_url_cache_key(asset), moment.page_url, timeout=SNAPSHOT_WINDOW.total_seconds())
+    _cache().set(_page_url_cache_key(asset), moment.page_url, timeout=SNAPSHOT_WINDOW.total_seconds())
+    _cache().set(_snapshot_asset_cache_key(team, key), asset.id, timeout=SNAPSHOT_WINDOW.total_seconds())
     return _snapshot_of(asset)

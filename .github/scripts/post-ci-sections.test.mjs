@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
+import { buildDependencyScanSection } from './post-dependency-scan-section.mjs'
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
 import { buildHogboxPreviewSection } from './post-hogbox-preview-section.mjs'
@@ -131,6 +132,48 @@ describe('CI report section builders', () => {
             null
         )
     })
+
+    for (const testCase of [
+        {
+            name: 'reports a clean dependency scan',
+            input: {
+                scanned: 4,
+                skipped: 0,
+                flagged: [{ ecosystem: 'pypi', package: 'idna@3.10', label: 'low', score: 4.9, rules: [] }],
+            },
+            status: 'ok',
+            summary: 'clean, 4 packages scanned',
+        },
+        {
+            name: 'warns on a high-risk package',
+            input: {
+                scanned: 2,
+                skipped: 0,
+                flagged: [
+                    { ecosystem: 'npm', package: 'left-pad@1.3.1', label: 'high_risk', score: 8.8, rules: ['a|b'] },
+                ],
+            },
+            status: 'warn',
+            summary: '1 high-risk package',
+        },
+        {
+            name: 'warns on packages the scanner could not read',
+            input: {
+                scanned: 1,
+                skipped: 2,
+                flagged: [{ ecosystem: 'go', package: 'example.com/m@v1.0.0', label: 'not_scanned', score: 0, rules: [] }],
+            },
+            status: 'warn',
+            summary: '3 packages not scanned',
+        },
+    ]) {
+        it(testCase.name, () => {
+            const section = buildDependencyScanSection(testCase.input)
+            assert.equal(section.status, testCase.status)
+            assert.equal(section.summary, testCase.summary)
+            assert.doesNotMatch(section.body.split('\n').at(-1), /a\|b/)
+        })
+    }
 
     it('renders a docs preview link after a successful trigger', () => {
         const section = buildDocsPreviewSection({

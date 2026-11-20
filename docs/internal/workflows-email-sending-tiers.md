@@ -16,6 +16,7 @@ Transactional email is never delayed by the send-time caps, but it is still char
 - Staff controls: the team's Django admin page (view state, set/pin a tier, recompute now).
 - Audit trail: every tier or pin change writes an `email_sending_tier_changed` row to the team's activity log, with the before and after values and the decision reason (`staff_set` for a tier staff set by hand). Staff rows name the acting user. Sweep and backfill rows carry a trigger with the job type and a per-run id. The rows are staff-only in the activity log (`products/workflows/backend/services/email_sending_tier_audit.py`).
 - Customer surface: the Reputation tab's sending allowance card, shown only while the team is enforced.
+  On cloud, a note under the Transactional emails list says those emails count toward the allowance and still go out after it is used up, with a link to the sending reputation docs (`TransactionalEmailsTable.tsx`).
 - Agent surface: the `workflows-reputation-get` MCP tool returns the same allowance (`sending_allowance` on `GET hog_flows/reputation`), behind the same `workflows-sending-tier-requests` flag.
 - Raise requests: the card's "Request a higher allowance" link opens a support ticket whose hidden context starts with `Email sending tier increase request`, followed by the project ID, tier, usage, and 30-day rates.
   Search tickets for that line to find these requests.
@@ -97,12 +98,17 @@ That is not a new trust boundary: the same field already exempts a send from rec
 They are kept out of `mode="shadow"` so the shadow counts stay a true forecast of what enforce would delay.
 A project appearing there often is spending more on transactional than its tier allows, which is the signal to check the categorization or raise the tier.
 
-## Sandbox sender
+## PostHog test sender
 
-Sends through the sandbox sender (the `email_sandbox` step) never feed a project's tier.
+Sends through the PostHog test sender (the `email_sandbox` step, named the sandbox sender in code) never feed a project's tier.
 They go through a separate SES tenant and configuration set and record none of `email_sent`, `email_bounced_hard` or `email_blocked`, so the sweep never sees them.
 They never draw from the team bucket either.
-The sandbox has its own controls: recipients limited to verified organization members, daily caps, suppression, the staff organization block in `/admin/workflows/sandboxsenderorganizationblock/`, and the SES tenant pause.
+The PostHog test sender has its own controls: recipients limited to verified organization members, daily caps, suppression, the staff organization block in `/admin/workflows/sandboxsenderorganizationblock/`, and the SES tenant pause.
+
+Every workflow the API returns carries a `warnings` list.
+While the workflow's live steps send through the PostHog test sender, the list holds one `test_sender_live` warning, whose message points to the sending domain setup.
+The MCP enable and publish tools add a note asking the agent to pass that message on to the user.
+The warning clears once the live steps move to a verified sender.
 
 ## Rollout order
 

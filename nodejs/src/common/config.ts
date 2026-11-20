@@ -149,6 +149,11 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_IDENTITY_TIMEOUT_MS: number
     /** Deadline for the identity merge saga call; must exceed the engine's lifecycle_execute_timeout_secs. */
     PERSONHOG_MERGE_TIMEOUT_MS: number
+    /** Fold concurrent person creates into one identity batch call. */
+    PERSONHOG_BATCH_CREATE_ENABLED: boolean
+    PERSONHOG_BATCH_CREATE_WINDOW_MS: number
+    PERSONHOG_BATCH_CREATE_MAX_SIZE: number
+    PERSONHOG_BATCH_CREATE_MAX_BYTES: number
     PERSONHOG_READ_MAX_BYTES: number
     PERSONHOG_WRITE_MAX_BYTES: number
     PERSONHOG_PING_INTERVAL_MS: number
@@ -231,6 +236,7 @@ export type CommonConfig = BaseServerConfig & {
     HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: number
     HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: number
+    HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: number
     // Despite the EXTERNAL_REQUEST_ prefix this one only reaches `internalFetch`, so it is the
     // budget for calls to our own services. Third-party hosts use the sibling below.
     EXTERNAL_REQUEST_TIMEOUT_MS: number
@@ -427,6 +433,10 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_TIMEOUT_MS: 3000,
         PERSONHOG_IDENTITY_TIMEOUT_MS: 3000,
         PERSONHOG_MERGE_TIMEOUT_MS: 35_000,
+        PERSONHOG_BATCH_CREATE_ENABLED: false,
+        PERSONHOG_BATCH_CREATE_WINDOW_MS: 5,
+        PERSONHOG_BATCH_CREATE_MAX_SIZE: 50,
+        PERSONHOG_BATCH_CREATE_MAX_BYTES: 2 * 1024 * 1024,
         PERSONHOG_READ_MAX_BYTES: 128 * 1024 * 1024,
         PERSONHOG_WRITE_MAX_BYTES: 4 * 1024 * 1024,
         PERSONHOG_PING_INTERVAL_MS: 30_000,
@@ -510,6 +520,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,
+        HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: 30_000,
         EXTERNAL_REQUEST_TIMEOUT_MS: 3000,
         EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS,
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000,

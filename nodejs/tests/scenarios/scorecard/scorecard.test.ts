@@ -58,6 +58,7 @@ const RESULT: RunResult = {
         {
             name: 'pickup_p99_under',
             unit: 's',
+            limit: 5,
             passed: false,
             breakingPoint: { scale: 10, at: '2026-01-05T10:01:00.000Z', offeredPerSecond: 40, key: 'email', value: 10 },
         },
@@ -115,6 +116,7 @@ describe('scorecard', () => {
                     card_hash: SMOKE.cardHash,
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,
+                    topology_hash: null,
                     head_sha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
                     head_dirty: true,
                     origin: 'local-agent',

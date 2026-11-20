@@ -1,13 +1,15 @@
+import threading
 from datetime import timedelta
 from typing import cast
 
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django import forms
 from django.contrib.admin.models import ADDITION, LogEntry
 from django.contrib.auth.models import Group
+from django.db import connection, transaction
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -25,6 +27,9 @@ from posthog.models.data_deletion_request import (
     RequestStatus,
     RequestType,
 )
+from posthog.models.user import User
+from posthog.tasks.data_deletion_stats import refresh_deletion_stats_task
+from posthog.test.waiting import wait_until
 
 PANELS = "posthog.admin.console.deletion_request_panels"
 CREATE_URL = "/admin/console/tools/new-deletion-request/create/"
@@ -75,10 +80,12 @@ class TestDeletionRequestConsole(BaseTest):
     def test_record_page_shows_the_request_and_django_admin_links_to_it(self) -> None:
         obj = self._request(status=RequestStatus.FAILED, attempt_count=2, last_dagster_run_id="run-1")
 
-        response = self.client.get(self._url(obj))
+        with override_settings(DAGSTER_DOMAIN="dagster.example.com"):
+            response = self.client.get(self._url(obj))
 
         assert response.status_code == 200
         content = response.content.decode()
+        assert 'href="https://dagster.example.com/runs/run-1"' in content
         for title in (
             "Overview",
             "ClickHouse stats",
@@ -320,6 +327,62 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.status == status
 
+    @parameterized.expand([("clickhouse_team", True), ("other_staff", False)])
+    def test_requests_list_links_pending_requests_to_approval_for_the_clickhouse_team(
+        self, _name: str, member: bool
+    ) -> None:
+        pending = self._request(status=RequestStatus.PENDING)
+        self._request(status=RequestStatus.DRAFT)
+        self._request(status=RequestStatus.PENDING, team_id=self.team.pk + 1000)
+        if not member:
+            self.user.groups.clear()
+
+        response = self.client.get(
+            "/admin/console/tools/deletion-requests/", {"status": "pending", "team_id": str(self.team.pk)}
+        )
+
+        assert response.status_code == 200
+        soup = BeautifulSoup(response.content, "html.parser")
+        request_links = {
+            a["href"] for a in soup.find_all("a", href=True) if "/admin/console/deletion-requests/" in a["href"]
+        }
+        approve_url = f"{self._url(pending)}workflow/approve/"
+        expected = {self._url(pending), approve_url} if member else {self._url(pending)}
+        assert request_links == expected
+
+    @parameterized.expand([("staff", {True}), ("not-staff", {False, None})])
+    def test_requests_list_filters_by_whether_staff_created_the_request(
+        self, created_by: str, expected: set[bool | None]
+    ) -> None:
+        requests = {
+            created_by_staff: self._request(created_by_staff=created_by_staff)
+            for created_by_staff in (True, False, None)
+        }
+
+        response = self.client.get("/admin/console/tools/deletion-requests/", {"created_by": created_by})
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        listed = {
+            a["href"]
+            for a in soup.find_all("a", href=True)
+            if a["href"].startswith("/admin/console/deletion-requests/")
+        }
+        assert listed == {self._url(requests[created_by_staff]) for created_by_staff in expected}
+
+    def test_requests_list_names_the_active_clickhouse_team_staff(self) -> None:
+        clickhouse_team = Group.objects.get(name="ClickHouse Team")
+        teammate = User.objects.create(email="teammate@example.com", first_name="Teammate", is_staff=True)
+        teammate.groups.add(clickhouse_team)
+        departed = User.objects.create(email="departed@example.com", is_staff=True, is_active=False)
+        departed.groups.add(clickhouse_team)
+        User.objects.create(email="support@example.com", is_staff=True)
+
+        response = self.client.get("/admin/console/tools/deletion-requests/")
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        emails = {cell.get_text(strip=True) for cell in soup.find_all("td") if "@" in cell.get_text()}
+        assert emails == {self.user.email, "teammate@example.com"}
+
     def test_retry_requeues_a_failed_request_with_its_original_approval(self) -> None:
         approved_at = timezone.now() - timedelta(hours=2)
         obj = self._request(
@@ -368,6 +431,50 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.status == expected
 
+    @parameterized.expand(
+        [
+            ("its_own_run", RequestType.PROPERTY_REMOVAL, True, "Retry it until it completes."),
+            ("another_removal", RequestType.PROPERTY_REMOVAL, False, "Verify again after it completes."),
+            ("an_event_removal", RequestType.EVENT_REMOVAL, False, "Verify again after it completes."),
+        ]
+    )
+    def test_verify_does_not_complete_while_a_property_removal_on_the_team_is_unfinished(
+        self, _name: str, request_type: RequestType, own_run: bool, message: str
+    ) -> None:
+        # The run may hold the team's rows only in its staged files, which the count does not read.
+        obj = self._request(
+            request_type=request_type,
+            properties=["secret"] if request_type == RequestType.PROPERTY_REMOVAL else [],
+            status=RequestStatus.FAILED,
+            property_removal_marker=timezone.now() if own_run else None,
+        )
+        if not own_run:
+            self._request(
+                request_type=RequestType.PROPERTY_REMOVAL,
+                properties=["email"],
+                status=RequestStatus.FAILED,
+                property_removal_marker=timezone.now(),
+            )
+
+        with patch(f"{PANELS}.count_remaining_for_request", return_value=0):
+            response = self.client.post(self._url(obj, "workflow", "verify"), follow=True)
+
+        assert message in response.content.decode()
+        obj.refresh_from_db()
+        assert obj.status == RequestStatus.FAILED
+
+    def test_django_admin_does_not_offer_to_delete_a_started_unfinished_property_removal(self) -> None:
+        obj = self._request(
+            request_type=RequestType.PROPERTY_REMOVAL,
+            properties=["secret"],
+            status=RequestStatus.FAILED,
+            property_removal_marker=timezone.now(),
+        )
+
+        response = self.client.get(f"/admin/posthog/datadeletionrequest/{obj.pk}/delete/")
+
+        assert response.status_code == 403
+
     def test_verify_does_not_complete_criteria_edited_while_it_counted(self) -> None:
         obj = self._request(status=RequestStatus.FAILED)
 
@@ -408,6 +515,31 @@ class TestDeletionRequestConsole(BaseTest):
         assert "Selector count: 2 person targets" in response.content.decode()
         obj.refresh_from_db()
         assert (obj.count, obj.stats_calculated_at is not None) == ((2, True) if saved else (None, False))
+
+    def test_fetch_stats_counts_in_the_background_and_shows_a_failure(self) -> None:
+        obj = self._request()
+
+        with patch("posthog.tasks.data_deletion_stats.refresh_deletion_stats_task.apply_async") as queued:
+            started = self.client.post(self._url(obj, "stats", "fetch"), follow=True)
+            again = self.client.post(self._url(obj, "stats", "fetch"))
+
+        queued.assert_called_once()
+        request_id, user_id, token = queued.call_args.kwargs["args"]
+        assert (request_id, user_id) == (str(obj.pk), self.user.pk)
+        assert "Counting since" in started.content.decode()
+        assert again.status_code == 404
+
+        refresh_deletion_stats_task(str(obj.pk), self.user.pk, "token-of-an-older-fetch")
+        assert "Counting since" in self.client.get(self._url(obj)).content.decode()
+
+        with patch(
+            "posthog.models.data_deletion_request.fetch_deletion_stats", side_effect=Exception("ClickHouse is down")
+        ):
+            refresh_deletion_stats_task(str(obj.pk), self.user.pk, token)
+
+        page = self.client.get(self._url(obj)).content.decode()
+        assert "Last fetch failed: ClickHouse is down" in page
+        assert self._url(obj, "stats", "fetch") in page
 
     def _create(self, **data):
         fields = {
@@ -536,6 +668,56 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.request_type == RequestType.EVENT_REMOVAL
 
+    @parameterized.expand([("its_own_run", True), ("another_removal", False)])
+    def test_verify_does_not_complete_when_a_property_removal_run_starts_during_the_count(
+        self, _name: str, own_run: bool
+    ) -> None:
+        obj = self._request(
+            request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"], status=RequestStatus.APPROVED
+        )
+        starting = (
+            obj
+            if own_run
+            else self._request(
+                request_type=RequestType.PROPERTY_REMOVAL, properties=["email"], status=RequestStatus.APPROVED
+            )
+        )
+
+        def count_while_the_run_starts(request: DataDeletionRequest) -> int:
+            DataDeletionRequest.objects.filter(pk=starting.pk).update(
+                status=RequestStatus.IN_PROGRESS, property_removal_marker=timezone.now()
+            )
+            return 0
+
+        with patch(f"{PANELS}.count_remaining_for_request", side_effect=count_while_the_run_starts):
+            self.client.post(self._url(obj, "workflow", "verify"))
+
+        obj.refresh_from_db()
+        assert obj.status == (RequestStatus.IN_PROGRESS if own_run else RequestStatus.APPROVED)
+
+    def test_criteria_of_a_property_removal_whose_run_started_stay_fixed(self) -> None:
+        # The edit would clear the marker, which lets another removal on the team start while this run may
+        # still restore its staged copy.
+        marker = timezone.now()
+        obj = self._request(
+            request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"], property_removal_marker=marker
+        )
+
+        response = self._edit(
+            obj,
+            {
+                "request_type": RequestType.PROPERTY_REMOVAL.value,
+                "start_time": "2026-10-30 12:00",
+                "end_time": "2026-11-06 11:59",
+                "events": "$pageview",
+                "properties": "email",
+            },
+        )
+
+        assert response.status_code == 409
+        obj.refresh_from_db()
+        assert (obj.properties, obj.property_removal_marker) == (["$ip"], marker)
+
     def test_an_edit_does_not_overwrite_a_change_made_after_the_form_opened(self) -> None:
         obj = self._request(status=RequestStatus.PENDING)
         opened_at = obj.updated_at.isoformat()
@@ -635,6 +817,73 @@ class TestDeletionRequestConsole(BaseTest):
             f"Copy of data deletion request {original.pk} (http://testserver{self._url(original)})."
         )
         assert copy.notes.endswith(notes or ").")
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+@time_machine.travel("2026-11-06T12:00:00Z", tick=False)
+class TestDeletionRequestVerifyLocking(NonAtomicBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        clickhouse_team, _ = Group.objects.get_or_create(name="ClickHouse Team")
+        self.user.groups.add(clickhouse_team)
+        self.client.force_login(self.user)
+
+    def test_verify_does_not_complete_a_property_removal_whose_run_starts_while_it_waits_for_the_row(self) -> None:
+        now = timezone.now()
+        obj = DataDeletionRequest.objects.create(
+            team_id=self.team.pk,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            properties=["$ip"],
+            start_time=now - timedelta(days=7),
+            end_time=now - timedelta(minutes=1),
+            status=RequestStatus.APPROVED,
+        )
+        run_started = threading.Event()
+        commit_run = threading.Event()
+
+        # The load step locks the row and sets the marker in one transaction, as load_property_removal_request does.
+        def start_run() -> None:
+            try:
+                with transaction.atomic():
+                    DataDeletionRequest.objects.select_for_update().filter(pk=obj.pk).update(
+                        status=RequestStatus.IN_PROGRESS, property_removal_marker=timezone.now()
+                    )
+                    run_started.set()
+                    commit_run.wait(timeout=10)
+            finally:
+                connection.close()
+
+        def verify() -> None:
+            try:
+                self.client.post(f"/admin/console/deletion-requests/{obj.pk}/workflow/verify/")
+            finally:
+                connection.close()
+
+        def verify_waits_for_the_row() -> bool:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE 'UPDATE%%'"
+                )
+                return cursor.fetchone()[0] > 0
+
+        loader = threading.Thread(target=start_run)
+        verifier = threading.Thread(target=verify)
+        with patch(f"{PANELS}.count_remaining_for_request", return_value=0):
+            loader.start()
+            assert run_started.wait(timeout=5)
+            verifier.start()
+            try:
+                wait_until(verify_waits_for_the_row, message="verify never waited for the locked row")
+            finally:
+                commit_run.set()
+                loader.join(timeout=10)
+                verifier.join(timeout=10)
+
+        obj.refresh_from_db()
+        assert obj.status == RequestStatus.IN_PROGRESS
 
 
 class TestDeletionRequestForm(SimpleTestCase):

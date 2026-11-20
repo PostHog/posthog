@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -97,10 +98,25 @@ def flatten_state_version(row: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def included_plans(body: dict[str, Any]) -> list[dict[str, Any]]:
-    if not isinstance(body.get("data"), list):
-        raise ValueError("Scalr returned a run list without a data array.")
-    return [flatten_resource(item) for item in body.get("included") or [] if item.get("type") == "plans"]
+def included_rows(relationship: str, resource_type: str) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    def rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+        runs = body.get("data")
+        if not isinstance(runs, list):
+            raise ValueError("Scalr returned a run list without a data array.")
+        # Included resources carry no back-reference, so the run ID comes from the run relationships.
+        run_ids: dict[str, str] = {}
+        for run in runs:
+            linked = ((run.get("relationships") or {}).get(relationship) or {}).get("data")
+            for ref in linked if isinstance(linked, list) else [linked]:
+                if isinstance(ref, dict) and ref.get("id"):
+                    run_ids[ref["id"]] = run.get("id")
+        return [
+            {**flatten_resource(item), "run_id": run_ids.get(item.get("id"))}
+            for item in body.get("included") or []
+            if item.get("type") == resource_type
+        ]
+
+    return rows
 
 
 def _list_params(endpoint: ScalrEndpoint, account_id: str) -> dict[str, Any]:
@@ -126,9 +142,9 @@ def _resource(
         "columns": {"created_at": {"data_type": "timestamp"}, "updated_at": {"data_type": "timestamp"}},
         "endpoint": endpoint_config,
     }
-    if endpoint.include:
+    if endpoint.include and endpoint.included_type:
         # The whole body goes to the map, because the rows sit in `included`, beside `data`.
-        resource["data_map"] = included_plans
+        resource["data_map"] = included_rows(endpoint.include, endpoint.included_type)
     else:
         endpoint_config.update(
             {"data_selector": "data", "data_selector_required": True, "data_selector_empty_ok": True}
