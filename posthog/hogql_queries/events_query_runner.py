@@ -189,8 +189,9 @@ QueryPropertyFilter = AnyPropertyFilterDiscriminated | PropertyGroupFilter | Pro
 
 
 # HogQL reads these properties from the properties JSON of every flag call in the date range. Each column holds the
-# same value. flag_key leads the table's sort key after team_id. The group columns are the stored keys. The events
-# list compares the same stored keys, so the group type mapping cutoff on the `$group_N` fields does not apply.
+# same value as its property. flag_key leads the table's sort key after team_id. The `_$group_N_raw` columns hold the
+# stored group keys, which the events list also compares. The public `$group_N` fields read empty for a call made
+# before its group type mapping existed, so a filter on them would drop calls that the Events tab shows.
 _FLAG_EVALUATIONS_PROPERTY_COLUMNS = {
     "$feature_flag": "flag_key",
     **{f"$group_{index}": f"_$group_{index}_raw" for index in range(GROUP_TYPES_LIMIT)},
@@ -205,8 +206,8 @@ def _flag_evaluations_column_match(prop: QueryPropertyFilter) -> tuple[str, list
     if column is None:
         return None
     values = prop.value if isinstance(prop.value, list) else [prop.value]
-    # The JSON read turns '' and 'null' into NULL, so a filter on either matches no call. The column stores '' for a
-    # call without the property and 'null' for a JSON null, so the same filter on the column would match those calls.
+    # The column stores '' for a call without the property and 'null' for a JSON null. The JSON read turns both of
+    # those into NULL, so a filter on '' or 'null' keeps the JSON read and does not match calls that lack a value.
     if not values or not all(isinstance(value, str) and value not in MAT_COL_NULL_SENTINELS for value in values):
         return None
     return column, [str(value) for value in values]
