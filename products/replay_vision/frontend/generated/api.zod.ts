@@ -1111,7 +1111,7 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
 export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 16
 
-export const visionScannersScoutsCreateBodyConfigOneReportActionsMax = 1
+export const visionScannersScoutsCreateBodyConfigOneReportActionsMax = 2
 
 export const visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMin = 0
 export const visionScannersScoutsCreateBodyConfigOneMaxReportActionsPerDayMax = 20
@@ -1214,7 +1214,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .max(visionScannersScoutsCreateBodyConfigOneReportActionsMax)
                     .optional()
                     .describe(
-                        "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                        "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
                     ),
                 max_report_actions_per_day: zod
                     .number()

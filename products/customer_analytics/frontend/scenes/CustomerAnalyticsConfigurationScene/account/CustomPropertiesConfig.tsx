@@ -14,6 +14,7 @@ import {
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -29,6 +30,7 @@ import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic
 import { CustomPropertyModal } from './CustomPropertyModal'
 import { CustomPropertySyncRuns } from './CustomPropertySyncRuns'
 import { labelForDisplayType, type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
+import { QuillCustomPropertiesConfig } from './QuillCustomPropertiesConfig'
 
 const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
     synced: 'success',
@@ -63,6 +65,7 @@ export function CustomPropertiesConfig(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const confirmDelete = (definition: CustomPropertyDefinitionApi): void => {
         LemonDialog.open({
             title: `Delete ${definition.name}?`,
@@ -79,6 +82,73 @@ export function CustomPropertiesConfig(): JSX.Element {
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    const hasSyncRuns = (definition: CustomPropertyDefinitionApi): boolean =>
+        definition.target_type === 'account' && !!definition.source?.saved_query
+
+    const renderSyncRuns = (definition: CustomPropertyDefinitionApi): JSX.Element | null =>
+        definition.source ? (
+            <CustomPropertySyncRuns
+                runs={runsBySourceId[definition.source.id] ?? []}
+                loading={runsLoadingBySourceId[definition.source.id] ?? false}
+                loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
+                targetType="account"
+                searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
+                entryCount={runsCountBySourceId[definition.source.id] ?? 0}
+                currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}
+                onSearch={(searchTerm) => {
+                    if (definition.source) {
+                        setRunsSearch({ sourceId: definition.source.id, searchTerm })
+                    }
+                }}
+                onForward={() => {
+                    if (definition.source) {
+                        loadRuns({
+                            sourceId: definition.source.id,
+                            offset: (runsOffsetBySourceId[definition.source.id] ?? 0) + 20,
+                        })
+                    }
+                }}
+                onBackward={() => {
+                    if (definition.source) {
+                        loadRuns({
+                            sourceId: definition.source.id,
+                            offset: Math.max((runsOffsetBySourceId[definition.source.id] ?? 0) - 20, 0),
+                        })
+                    }
+                }}
+                syncsUrl={
+                    definition.source.saved_query ? urls.sqlEditor({ view_id: definition.source.saved_query }) : null
+                }
+                onReload={() =>
+                    definition.source &&
+                    loadRuns({
+                        sourceId: definition.source.id,
+                        offset: runsOffsetBySourceId[definition.source.id] ?? 0,
+                    })
+                }
+            />
+        ) : null
+
+    if (todayRailNav) {
+        return (
+            <QuillCustomPropertiesConfig
+                definitions={filteredDefinitions}
+                loading={definitionsLoading}
+                searchTerm={searchTerm}
+                targetTypeFilter={targetTypeFilter}
+                restrictionReason={restrictionReason}
+                hasSyncRuns={hasSyncRuns}
+                renderSyncRuns={renderSyncRuns}
+                onExpand={(definition) => definition.source && loadRuns({ sourceId: definition.source.id })}
+                onCreate={() => openCreateModal()}
+                onEdit={openEditModal}
+                onDelete={confirmDelete}
+                onSearch={setSearchTerm}
+                onTargetTypeFilterChange={setTargetTypeFilter}
+            />
+        )
     }
 
     const columns: LemonTableColumns<CustomPropertyDefinitionApi> = [
@@ -254,55 +324,10 @@ export function CustomPropertiesConfig(): JSX.Element {
                 rowKey="id"
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
                 expandable={{
-                    rowExpandable: (definition) =>
-                        definition.target_type === 'account' && !!definition.source?.saved_query,
+                    rowExpandable: hasSyncRuns,
                     onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
                     noIndent: true,
-                    expandedRowRender: (definition) =>
-                        definition.source ? (
-                            <CustomPropertySyncRuns
-                                runs={runsBySourceId[definition.source.id] ?? []}
-                                loading={runsLoadingBySourceId[definition.source.id] ?? false}
-                                loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
-                                targetType="account"
-                                searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
-                                entryCount={runsCountBySourceId[definition.source.id] ?? 0}
-                                currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}
-                                onSearch={(searchTerm) => {
-                                    if (definition.source) {
-                                        setRunsSearch({ sourceId: definition.source.id, searchTerm })
-                                    }
-                                }}
-                                onForward={() => {
-                                    if (definition.source) {
-                                        loadRuns({
-                                            sourceId: definition.source.id,
-                                            offset: (runsOffsetBySourceId[definition.source.id] ?? 0) + 20,
-                                        })
-                                    }
-                                }}
-                                onBackward={() => {
-                                    if (definition.source) {
-                                        loadRuns({
-                                            sourceId: definition.source.id,
-                                            offset: Math.max((runsOffsetBySourceId[definition.source.id] ?? 0) - 20, 0),
-                                        })
-                                    }
-                                }}
-                                syncsUrl={
-                                    definition.source.saved_query
-                                        ? urls.sqlEditor({ view_id: definition.source.saved_query })
-                                        : null
-                                }
-                                onReload={() =>
-                                    definition.source &&
-                                    loadRuns({
-                                        sourceId: definition.source.id,
-                                        offset: runsOffsetBySourceId[definition.source.id] ?? 0,
-                                    })
-                                }
-                            />
-                        ) : null,
+                    expandedRowRender: renderSyncRuns,
                 }}
                 emptyState={
                     searchTerm || targetTypeFilter !== 'all'

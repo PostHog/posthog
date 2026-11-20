@@ -39,13 +39,15 @@ GROUP BY message_id
 
 
 # A keyed send's ID holds no time, so its own rows say when it was queued. email_status's sort key starts with the
-# team and the message, so this reads one message's rows in each partition the retention keeps.
+# team and the message, so this reads one message's rows in each partition the retention keeps. A refused send claims
+# no key, so a later retry under the same key is a newer attempt with the same ID, and the newest one is the send.
 _KEYED_CREATED_AT_QUERY = """
 SELECT created_at
 FROM {table}
 WHERE team_id = %(team_id)s
   AND message_id = %(message_id)s
   AND created_at >= %(start)s
+ORDER BY created_at DESC
 LIMIT 1
 """
 

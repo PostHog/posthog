@@ -3,22 +3,20 @@ import { type ReactNode, useState } from 'react'
 import { ActivityDisclosure } from './ActivityDisclosure'
 
 /**
- * Groups the agent's decisions under one disclosure. The collapsed line lists the current values,
- * so a wrong value shows without expanding.
+ * Groups the agent's decisions under one disclosure, collapsed by default. The collapsed line lists
+ * the current values, so a wrong value shows without expanding.
  */
 export function ReportAgentDecisions({
     values,
-    defaultExpanded,
     onToggleCollapsed,
     children,
 }: {
     /** Current values in row order. Empty values are left out of the collapsed line. */
     values: (string | null | undefined)[]
-    defaultExpanded: boolean
     onToggleCollapsed?: (collapsed: boolean) => void
     children: ReactNode
 }): JSX.Element {
-    const [expanded, setExpanded] = useState(defaultExpanded)
+    const [expanded, setExpanded] = useState(false)
     const summary = values.filter(Boolean).join(' · ')
 
     return (

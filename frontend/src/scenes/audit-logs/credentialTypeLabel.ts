@@ -4,10 +4,11 @@ import type { ActivityLogCredentialTypeEnumApi } from 'products/platform_feature
 
 const CREDENTIAL_TYPE_LABELS: Record<ActivityLogCredentialTypeEnumApi, string> = {
     session: 'Session',
+    // Retired (#63111); stored activity log rows still carry it.
+    team_secret_token: 'Legacy secret key',
     personal_api_key: 'Personal API key',
     oauth: 'OAuth app',
     project_secret_key: 'Project secret API key',
-    team_secret_token: 'Legacy secret key',
     id_jag: 'Cross-app access (XAA)',
     oidc_workload: 'Trusted workload',
     scim: 'SCIM',

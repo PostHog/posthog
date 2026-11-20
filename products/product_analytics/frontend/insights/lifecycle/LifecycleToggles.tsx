@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

@@ -1,9 +1,9 @@
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
 
 import { newBehavioralFilter } from 'lib/components/PropertyFilters/utils'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { BehavioralPropertyFilter } from '~/types'
 

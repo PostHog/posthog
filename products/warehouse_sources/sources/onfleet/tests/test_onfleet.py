@@ -50,6 +50,33 @@ class TestBasicAuth:
         assert base64.b64decode(token).decode() == "key:"
 
 
+class TestTaskTemplates:
+    @pytest.mark.parametrize(
+        "templates, expected_ids",
+        [
+            (
+                [
+                    {"id": None, "name": "Standard pickup (default)", "fields": ["a"]},
+                    {"name": "Template with no id key"},
+                    {"id": "tmpl1", "name": "Fragile items", "fields": ["a", "b"]},
+                    {"id": "", "name": "Template with empty id"},
+                ],
+                ["tmpl1", ""],
+            ),
+            ([{"id": None, "name": "Standard dropoff (default)"}], []),
+            ([], []),
+        ],
+    )
+    def test_drops_default_templates_without_an_id(
+        self, templates: list[dict[str, Any]], expected_ids: list[str]
+    ) -> None:
+        result = _driver().run("task_templates", [ScriptedResponse(json=templates)])
+
+        assert result.raised is None
+        assert result.paths == ["/api/v2/cfGroups/task"]
+        assert [row["id"] for row in result.rows] == expected_ids
+
+
 class TestGetRowsPaginated:
     def test_resumes_from_saved_cursor(self) -> None:
         result = _driver().run(

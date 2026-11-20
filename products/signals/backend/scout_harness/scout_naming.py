@@ -41,6 +41,50 @@ _MAX_COLLISION_SUFFIX = 10
 # one of them. The last attempt cannot lose, since the fallback slug is random.
 SLUG_ALLOCATION_ATTEMPTS = _MAX_COLLISION_SUFFIX + 1
 
+# Slugs are lowercase, so sentence-casing alone turns `apm` into "Apm". Keep in step with `WORD_CASING`
+# in packages/agent/packages/agent-contracts/src/scout-names.ts, which names scouts in the web and desktop apps.
+_WORD_CASING = {
+    "ab": "A/B",
+    "ai": "AI",
+    "api": "API",
+    "apm": "APM",
+    "aws": "AWS",
+    "b2b": "B2B",
+    "cdp": "CDP",
+    "ci": "CI",
+    "cpu": "CPU",
+    "csp": "CSP",
+    "csv": "CSV",
+    "cta": "CTA",
+    "dau": "DAU",
+    "github": "GitHub",
+    "gcp": "GCP",
+    "hogql": "HogQL",
+    "http": "HTTP",
+    "id": "ID",
+    "json": "JSON",
+    "kpi": "KPI",
+    "llm": "LLM",
+    "mau": "MAU",
+    "mcp": "MCP",
+    "mrr": "MRR",
+    "nps": "NPS",
+    "posthog": "PostHog",
+    "pr": "PR",
+    "qa": "QA",
+    "rag": "RAG",
+    "sdk": "SDK",
+    "seo": "SEO",
+    "sla": "SLA",
+    "sql": "SQL",
+    "ui": "UI",
+    "url": "URL",
+    "utm": "UTM",
+    "ux": "UX",
+}
+_SCOUT_PREFIX = re.compile(r"^signals-scout(?:-|$)")
+_WORD_SEPARATORS = re.compile(r"[-_\s]+")
+
 # Stem for the fallback slug, used when a display name survives slugification with nothing left
 # (all punctuation, or a script `slugify` transliterates away) or when the suffix search is
 # exhausted. The hex tail makes it unique on its own, so it needs no collision pass.
@@ -112,3 +156,17 @@ def _slug_candidates(base: str) -> list[str]:
 def _truncate_slug(slug: str, limit: int) -> str:
     """`slug` cut to `limit` characters, without leaving the trailing hyphen the cut can expose."""
     return slug[:limit].rstrip("-")
+
+
+def prettify_scout_skill_name(skill_name: str) -> str:
+    """The fallback name for a scout with no display name: `signals-scout-mcp-tool-calls` → "MCP tool calls"."""
+    words = [word.lower() for word in _WORD_SEPARATORS.split(_SCOUT_PREFIX.sub("", skill_name)) if word]
+    if not words:
+        return "Scout"
+    name = " ".join(_WORD_CASING.get(word, word) for word in words)
+    return name[:1].upper() + name[1:]
+
+
+def scout_display_name(*, skill_name: str, display_name: str | None) -> str:
+    """The name a person reads for a scout: the team's display name, else the prettified skill name."""
+    return (display_name or "").strip() or prettify_scout_skill_name(skill_name)
