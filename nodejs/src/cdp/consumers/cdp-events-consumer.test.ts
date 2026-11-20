@@ -578,11 +578,22 @@ describe('CdpEventsConsumer', () => {
                 })
             })
 
-            it('should filter out functions that error while filtering', async () => {
+            it.each([
+                [
+                    'broken bytecode',
+                    HOG_FILTERS_EXAMPLES.broken_filters.filters,
+                    'Invalid HogQL bytecode, stack is empty, can not pop',
+                ],
+                [
+                    'a null event filter',
+                    { ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, events: [null] },
+                    "Cannot read properties of null (reading 'type')",
+                ],
+            ])('should filter out functions that error while filtering, with %s', async (_, filters, error) => {
                 const erroringFunction = await insertHogFunction({
                     ...HOG_EXAMPLES.input_printer,
                     ...HOG_INPUTS_EXAMPLES.secret_inputs,
-                    ...HOG_FILTERS_EXAMPLES.broken_filters,
+                    filters: filters as any,
                 })
                 await processor.processBatch([globals])
                 expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
@@ -602,8 +613,7 @@ describe('CdpEventsConsumer', () => {
                     {
                         topic: 'log_entries_test',
                         value: {
-                            message:
-                                'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
+                            message: `Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: ${error}`,
                         },
                     },
                 ])

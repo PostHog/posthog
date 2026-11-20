@@ -13,7 +13,7 @@ import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.se
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionType, HogFunctionTypeType } from '../types'
 import { filteredMetric, rejectsEventName } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import {
@@ -38,6 +38,16 @@ const isEventObject = (value: unknown): value is RawClickHouseEvent =>
     typeof value === 'object' && value !== null && !Array.isArray(value)
 
 type TeamWithEventNameGate = { team: Team; gate: EventNameGate }
+
+// Runs outside the pipelines' per-event error handling, so a malformed stored filter admits the source here
+// and its filter run records the failure, as before.
+const rejectsEventNameSafely = (filters: HogFunctionType['filters'], eventName: string): boolean => {
+    try {
+        return rejectsEventName(filters, eventName)
+    } catch {
+        return false
+    }
+}
 
 export class CdpEventsConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
@@ -122,7 +132,7 @@ export class CdpEventsConsumer<
                 // Drops a function whose event filter names only other events, so its filter never runs.
                 // filterFunctionInstrumented records a `filtered` metric in that case, so this records the same metric.
                 invocationFilterFn: (fn, globals) => {
-                    if (!rejectsEventName(fn.filters, globals.event.event)) {
+                    if (!rejectsEventNameSafely(fn.filters, globals.event.event)) {
                         return true
                     }
                     this.hogFunctionMonitoringService.queueAppMetric(filteredMetric(fn), 'hog_function')
@@ -137,7 +147,7 @@ export class CdpEventsConsumer<
                     if (!triggersOnEvents(flow)) {
                         return false
                     }
-                    if (!rejectsEventName(flow.trigger.filters, globals.event.event)) {
+                    if (!rejectsEventNameSafely(flow.trigger.filters, globals.event.event)) {
                         return true
                     }
                     this.hogFunctionMonitoringService.queueAppMetric(filteredFlowMetric(flow), 'hog_flow')
