@@ -1628,29 +1628,8 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         with transactional_email_stage("feature_flag"):
             require_email_from_code(self.team)
         data = request.validated_data
-        key = data["template_key"]
-        with transactional_email_stage("workflow_access"):
-            require_code_email_access(
-                self.team_id,
-                key,
-                require_workflow_editor=self._require_workflow_editor,
-                require_workflow_create=self._require_workflow_create,
-            )
-        email = CodeEmail(
-            key=key,
-            subject=data["subject"],
-            html=data.get("html", ""),
-            text=data.get("text", ""),
-            sender=data.get("from"),
-            reply_to=tuple(data.get("reply_to", ())),
-            tracking=data["tracking"]
-            if "tracking" in data
-            else EmailTracking(engagement=data.get("capture_engagement", True)),
-            sensitive=data.get("sensitive"),
-            cc=tuple(data.get("cc") or ()),
-            bcc=tuple(data.get("bcc") or ()),
-            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
-        )
+        self._require_code_email_access(data["template_key"])
+        email = code_email(data)
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
@@ -1660,14 +1639,45 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 distinct_id=_distinct_id(data),
                 idempotency_key=idempotency_key,
             ),
-            usage_properties={
-                "addressed_by": "template_key",
-                "tracking_opens": email.tracking.opens,
-                "tracking_clicks": email.tracking.clicks,
-                "tracking_engagement": email.tracking.engagement,
-            },
+            usage_properties=code_email_usage_properties(email),
             unavailable=unconfirmed_email_send,
         )
+
+    def _require_code_email_access(self, key: str) -> None:
+        with transactional_email_stage("workflow_access"):
+            require_code_email_access(
+                self.team_id,
+                key,
+                require_workflow_editor=self._require_workflow_editor,
+                require_workflow_create=self._require_workflow_create,
+            )
+
+
+def code_email(data: Mapping[str, Any]) -> CodeEmail:
+    return CodeEmail(
+        key=data["template_key"],
+        subject=data["subject"],
+        html=data.get("html", ""),
+        text=data.get("text", ""),
+        sender=data.get("from"),
+        reply_to=tuple(data.get("reply_to", ())),
+        tracking=data["tracking"]
+        if "tracking" in data
+        else EmailTracking(engagement=data.get("capture_engagement", True)),
+        sensitive=data.get("sensitive"),
+        cc=tuple(data.get("cc") or ()),
+        bcc=tuple(data.get("bcc") or ()),
+        attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+    )
+
+
+def code_email_usage_properties(email: CodeEmail) -> dict[str, Any]:
+    return {
+        "addressed_by": "template_key",
+        "tracking_opens": email.tracking.opens,
+        "tracking_clicks": email.tracking.clicks,
+        "tracking_engagement": email.tracking.engagement,
+    }
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:

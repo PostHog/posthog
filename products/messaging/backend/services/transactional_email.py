@@ -469,6 +469,12 @@ class TransactionalTemplate(Protocol):
 
 
 def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
+    hog_flow_id = _sendable_workflow_id(team_id, template)
+    _require_active(team_id, hog_flow_id)
+    return hog_flow_id
+
+
+def _sendable_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
     # A category's type can change after the template was made transactional.
@@ -478,7 +484,6 @@ def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) ->
         content=template.content,
         message_category_id=template.message_category_id,
     )
-    _require_active(team_id, template.transactional_hog_flow_id)
     return template.transactional_hog_flow_id
 
 
@@ -494,15 +499,20 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
 def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
     template = _template_for_key(team_id, key)
     if template is not None:
-        if sensitive is False and template.sensitive:
-            raise SensitiveTemplate(
-                "This email's template is marked sensitive, so `sensitive` can't be false. "
-                "Leave `sensitive` out, or unmark the template."
-            )
-        return _transactional_workflow_id(team_id, template)
-    hog_flow_id = _key_workflow_id(team_id, key)
+        hog_flow_id = _template_workflow_id(team_id, template, sensitive)
+    else:
+        hog_flow_id = _key_workflow_id(team_id, key)
     _require_active(team_id, hog_flow_id)
     return hog_flow_id
+
+
+def _template_workflow_id(team_id: int, template: MessageTemplate, sensitive: bool | None) -> UUID:
+    if sensitive is False and template.sensitive:
+        raise SensitiveTemplate(
+            "This email's template is marked sensitive, so `sensitive` can't be false. "
+            "Leave `sensitive` out, or unmark the template."
+        )
+    return _sendable_workflow_id(team_id, template)
 
 
 def _template_for_key(team_id: int, key: str) -> MessageTemplate | None:
@@ -655,9 +665,7 @@ def _send_payload(
 def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWarning | None]:
     sender, sandbox_warning = _code_send_sender(team, email)
     accepted: dict[str, Any] = {
-        "content": _without_empty(
-            {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
-        ),
+        "content": _accepted_content(email),
         "from": _without_empty(sender),
         "tracking": _accepted_tracking(email.tracking),
     }
@@ -672,6 +680,12 @@ def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWa
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
     return accepted, sandbox_warning
+
+
+def _accepted_content(email: CodeEmail) -> dict[str, str]:
+    return _without_empty(
+        {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
+    )
 
 
 def _accepted_tracking(tracking: EmailTracking) -> dict[str, bool]:
