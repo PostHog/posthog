@@ -1536,6 +1536,38 @@ describe("SessionLogWriter flush caps", () => {
     }
   });
 
+  it("waits for retry backoff when entries pass the cap during a failing flush", async () => {
+    vi.useFakeTimers();
+    try {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      let failInFlight: (error: Error) => void = () => {};
+      mockAppendLog.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failInFlight = reject;
+          }),
+      );
+
+      appendTestLines(sessionId, 250);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockAppendLog).toHaveBeenCalledTimes(1);
+
+      for (let i = 0; i < 260; i++) {
+        appendTestLines(sessionId, 1);
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      failInFlight(new Error("network error"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockAppendLog).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(mockAppendLog.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     ["entries", 600, "", [250, 250, 100]],
     ["bytes", 3, "x".repeat(400_000), [2, 1]],

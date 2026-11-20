@@ -112,6 +112,7 @@ export class SessionLogWriter {
   private entryByteSizes: WeakMap<StoredNotification, number> = new WeakMap();
   private sessions: Map<string, SessionState> = new Map();
   private flushQueues: Map<string, Promise<void>> = new Map();
+  private flushesDeferredByInFlight: Set<string> = new Set();
   private sinks: SessionLogSink[];
   private warnedSinks: Set<SessionLogSink> = new Set();
 
@@ -433,6 +434,9 @@ export class SessionLogWriter {
     next.finally(() => {
       if (this.flushQueues.get(sessionId) === next) {
         this.flushQueues.delete(sessionId);
+        if (this.flushesDeferredByInFlight.delete(sessionId)) {
+          this.scheduleFlush(sessionId);
+        }
       }
     });
     return next;
@@ -847,6 +851,11 @@ export class SessionLogWriter {
   }
 
   private scheduleFlush(sessionId: string): void {
+    if (this.flushQueues.has(sessionId)) {
+      this.flushesDeferredByInFlight.add(sessionId);
+      return;
+    }
+
     const existing = this.flushTimeouts.get(sessionId);
     if (existing) clearTimeout(existing);
 
