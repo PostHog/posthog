@@ -44,6 +44,8 @@ from products.messaging.backend.models.email_status_sql import (
     EMAIL_ENGAGEMENT_STATUSES,
     EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_RETENTION_DAYS,
+    EMAIL_STATUS_SHOWN_REASON,
+    EMAIL_UNTRACKED_REASON,
 )
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
@@ -79,7 +81,7 @@ _MESSAGE_COLUMNS = f"""
     min(created_at) AS queued_at,
     argMaxIf(status, version, status NOT IN {_ENGAGEMENT}) AS delivery_status,
     argMaxIf(status_at, version, status NOT IN {_ENGAGEMENT}) AS delivery_status_at,
-    argMaxIf(reason, version, status NOT IN {_ENGAGEMENT}) AS delivery_reason,
+    argMaxIf({EMAIL_STATUS_SHOWN_REASON}, version, status NOT IN {_ENGAGEMENT}) AS delivery_reason,
     anyIf(recipient, recipient != '') AS message_recipient,
     anyIf(function_id, function_id != '') AS message_function_id,
     anyIf(sending_domain, sending_domain != '') AS message_sending_domain,
@@ -313,9 +315,9 @@ def get_transactional_email(
         team_id,
         # Kafka can deliver a status twice, and this table keeps every row. A repeat has the same status and time.
         f"""
-        SELECT status, status_at, reason FROM {EMAIL_STATUS_EVENTS_TABLE}
+        SELECT status, status_at, {EMAIL_STATUS_SHOWN_REASON} AS shown_reason FROM {EMAIL_STATUS_EVENTS_TABLE}
         WHERE {where}
-        GROUP BY status, status_at, reason
+        GROUP BY status, status_at, shown_reason
         ORDER BY status_at, max(version)
         """,
         params,
@@ -614,8 +616,13 @@ def transactional_email_impact(
     """How far one email's sends got, from sent to clicked, and how often the person behind a send did `event` within
     a week of clicking, against sends that were delivered and never clicked."""
     period = _window(date_from, date_to)
-    params: dict[str, Any] = {"start": period.start, "end": period.end, "workflow_id": workflow_id}
-    [(sent, delivered, opened, clicked, not_clicked)] = _execute(
+    params: dict[str, Any] = {
+        "start": period.start,
+        "end": period.end,
+        "workflow_id": workflow_id,
+        "untracked_reason": EMAIL_UNTRACKED_REASON,
+    }
+    [(sent, delivered, opened, clicked, not_clicked, untracked)] = _execute(
         team.id,
         f"""
         SELECT
@@ -623,9 +630,12 @@ def transactional_email_impact(
             countIf(delivery_status IN ('delivered', 'complained')),
             countIf(was_opened),
             countIf(was_clicked),
-            countIf(delivery_status IN ('delivered', 'complained') AND NOT was_clicked)
+            countIf(delivery_status IN ('delivered', 'complained') AND NOT was_clicked),
+            countIf(delivery_status IN ('sent', 'delivered', 'bounced', 'complained') AND was_untracked)
         FROM (
-            SELECT {_MESSAGE_COLUMNS}
+            SELECT
+                {_MESSAGE_COLUMNS},
+                countIf(status = 'sent' AND reason = %(untracked_reason)s) > 0 AS was_untracked
             FROM {EMAIL_STATUS_EVENTS_TABLE}
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
             GROUP BY created_at, message_id
@@ -635,7 +645,6 @@ def transactional_email_impact(
         params,
         _GROUP_AS_READ,
     )
-    untracked = _untracked_sends(team.id, workflow_id, period)
     if not event:
         return TransactionalEmailImpact(
             sent=sent,
@@ -661,20 +670,6 @@ def transactional_email_impact(
         after_click=_conversions_of([send for send in sends if send.clicked], converted),
         without_click=_conversions_of([send for send in sends if not send.clicked], converted),
     )
-
-
-def _untracked_sends(team_id: int, workflow_id: str, period: _Period) -> int:
-    [(untracked,)] = _execute(
-        team_id,
-        """
-        SELECT sum(count)
-        FROM app_metrics2
-        WHERE team_id = %(team_id)s AND app_source = 'hog_flow' AND app_source_id = %(workflow_id)s
-          AND metric_name = 'email_untracked' AND timestamp >= %(start)s AND timestamp < %(end)s
-        """,
-        {"workflow_id": workflow_id, "start": period.start, "end": period.end},
-    )
-    return untracked
 
 
 @frozen
