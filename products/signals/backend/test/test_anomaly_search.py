@@ -433,10 +433,37 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         ]
 
         assert [row["series_key"] for page in pages for row in page["series"]] == expected
-        assert [(page["order"], page["has_more"], page["message"]) for page in pages] == [
-            (order, True, None),
-            (order, False, None),
+        assert [(page["order"], page["has_more"], page["series_capped"], page["message"]) for page in pages] == [
+            (order, True, False, None),
+            (order, False, False, None),
         ]
+
+    @parameterized.expand(
+        [
+            ("flagged_only_reads_flagged_series_first", 1, {}, 1, False),
+            ("every_series_counts_against_the_cap", 1, {"only_flagged": False}, 1, True),
+            ("flagged_series_alone_pass_the_cap", 2, {}, 1, True),
+            ("insight_rollups_need_every_series", 1, {"group_by": "insight"}, 1, True),
+        ]
+    )
+    def test_search_reports_when_the_series_cap_drops_series_it_needs(
+        self, _name: str, flagged: int, params: dict[str, Any], expected_rows: int, expected_capped: bool
+    ) -> None:
+        for index in range(flagged):
+            self._score(_day(22), score=0.99, flag=1, series_key=f"flagged_{index}")
+        for index in range(30):
+            self._score(_day(22), score=0.10, flag=0, series_key=f"quiet_{index}")
+
+        with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES", 1):
+            body = self._get("search", date_from="2026-10-19", **params).json()
+
+        rows = body["series"] + [row for insight in body["insights"] for row in insight["top_series"]]
+        assert [row["series_key"].startswith("flagged_") for row in rows] == [True] * expected_rows
+        assert (body["has_more"], body["series_capped"], body["truncated"]) == (
+            False,
+            expected_capped,
+            expected_capped,
+        )
 
     def test_search_recent_order_mixes_intervals_on_the_first_page(self) -> None:
         for hours_ago in range(1, 25):
