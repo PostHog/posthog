@@ -7,7 +7,7 @@ from time import monotonic
 from typing import TYPE_CHECKING, TypeVar
 
 import structlog
-from trino.exceptions import Http502Error, Http503Error, Http504Error, HttpError, TrinoConnectionError
+from trino.exceptions import Http502Error, Http503Error, Http504Error, HttpError, TrinoConnectionError, TrinoQueryError
 
 from posthog.sync import database_sync_to_async_pool
 
@@ -153,21 +153,19 @@ async def run_trino_model(
 
 
 def is_trino_instance_replaced_error(error: BaseException) -> bool:
-    return getattr(
-        error, "error_name", None
-    ) == TRINO_INSTANCE_REPLACED_ERROR_NAME and TRINO_INSTANCE_REPLACED_MESSAGE_FRAGMENT in str(
-        getattr(error, "message", "")
+    return (
+        isinstance(error, TrinoQueryError)
+        and error.error_name == TRINO_INSTANCE_REPLACED_ERROR_NAME
+        and TRINO_INSTANCE_REPLACED_MESSAGE_FRAGMENT in error.message
     )
 
 
 def is_transient_trino_error(error: BaseException) -> bool:
     if isinstance(error, TrinoConnectionError | Http502Error | Http503Error | Http504Error):
         return True
-    if getattr(error, "error_name", None) in TRANSIENT_TRINO_ERROR_NAMES:
+    if getattr(error, "error_name", None) in TRANSIENT_TRINO_ERROR_NAMES or is_trino_instance_replaced_error(error):
         return True
-    return is_trino_instance_replaced_error(error) or (
-        isinstance(error, HttpError) and str(error).startswith(TRINO_POOL_NOT_ADMITTED_ERROR_PREFIX)
-    )
+    return isinstance(error, HttpError) and str(error).startswith(TRINO_POOL_NOT_ADMITTED_ERROR_PREFIX)
 
 
 async def run_trino_model_with_retries(
