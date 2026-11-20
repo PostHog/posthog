@@ -36,6 +36,10 @@ ORDER_PAID_EXCLUDING_TEST_PLANS = {
     **ORDER_PAID,
     "properties": [{"key": "plan", "value": ["test"], "operator": "is_not", "type": "event"}],
 }
+ORDER_PAID_IN_USD = {
+    **ORDER_PAID,
+    "properties": [{"key": "currency", "value": ["usd"], "operator": "exact", "type": "event"}],
+}
 ORDER_PAID_EXCLUDING_TEST_PLANS_BY_HOGQL = {
     **ORDER_PAID,
     "properties": [{"key": "properties.plan NOT ILIKE '%test%'", "type": "hogql"}],
@@ -202,18 +206,27 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
 
     @parameterized.expand(
         [
-            ("backend_event_has_the_property", "pro", [ORDER_PAID], True),
-            ("no_event_has_the_property", "free", [ORDER_PAID], False),
-            ("property_filter_without_an_event_filter", "pro", [], False),
-            ("all_events_filter_names_no_event", "pro", [ALL_EVENTS], False),
+            ("backend_event_has_the_property", "pro", [ORDER_PAID], False, True),
+            ("no_event_has_the_property", "free", [ORDER_PAID], False, False),
+            ("property_filter_without_an_event_filter", "pro", [], False, False),
+            ("all_events_filter_names_no_event", "pro", [ALL_EVENTS], False, False),
+            ("entity_property_only_on_the_sessioned_event", "pro", [ORDER_PAID_IN_USD], True, True),
         ]
     )
     def test_top_level_event_property_matches_event_without_session_id(
-        self, _name: str, plan: str, events: list[dict], expected_match: bool
+        self, _name: str, plan: str, events: list[dict], sessioned_event_in_usd: bool, expected_match: bool
     ) -> None:
         person = create_person(team=self.team, distinct_ids=["user-1"])
         self._produce_recording("recording-of-user-1", "user-1")
-        self._create_order_paid("user-1", person.uuid, INSIDE_WINDOW, properties={"plan": plan})
+        self._create_order_paid("user-1", person.uuid, INSIDE_WINDOW, properties={"plan": plan, "currency": "eur"})
+        if sessioned_event_in_usd:
+            self._create_order_paid(
+                "user-1",
+                person.uuid,
+                RECORDING_START + timedelta(minutes=1),
+                "recording-of-user-1",
+                properties={"currency": "usd"},
+            )
         flush_persons_and_events()
 
         self._assert_matches(

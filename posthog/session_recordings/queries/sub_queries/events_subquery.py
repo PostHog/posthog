@@ -608,21 +608,29 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _event_predicates(
         entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode], team: Team
     ) -> list[ast.Expr]:
-        event_exprs: list[ast.Expr] = []
+        return [predicate for _, predicate in ReplayFiltersEventsSubQuery._named_event_predicates(entities, team)]
+
+    @staticmethod
+    def _named_event_predicates(
+        entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode], team: Team
+    ) -> list[tuple[ast.Expr, ast.Expr]]:
+        """Each entity's event or action match, next to that match with the entity's own properties."""
+        pairs: list[tuple[ast.Expr, ast.Expr]] = []
 
         for entity in entities:
             if isinstance(entity, DataWarehouseNode):
                 continue
 
             # this is always _positive_ operations
-            entity_exprs = [_entity_to_expr(entity=entity, team=team)]
+            named_event = _entity_to_expr(entity=entity, team=team)
+            entity_exprs = [named_event]
 
             if entity.properties:
                 entity_exprs.append(property_to_expr(entity.properties, team=team, scope="replay_entity"))
 
-            event_exprs.append(ast.And(exprs=entity_exprs))
+            pairs.append((named_event, ast.And(exprs=entity_exprs)))
 
-        return event_exprs
+        return pairs
 
     def _select_from_events(
         self,
@@ -986,12 +994,19 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         `get_query_for_event_id_matching`).
 
         The third value pairs each filter that can also match events without a session id with the
-        predicate for those events. A top-level event property only matches such an event when the
-        event also matches one of the event or action filters, so that scan reads named events only.
+        predicate for those events. Under AND, a top-level event property only matches such an event
+        when the event is one of the filtered events or actions, so that scan reads named events only.
         """
         gathered_exprs: list[ast.Expr] = []
         unsessioned_filters: list[UnsessionedFilter] = []
-        event_where_exprs = self._event_predicates(self.entities, self._team)
+        named_event_predicates = self._named_event_predicates(self.entities, self._team)
+        event_where_exprs = [predicate for _, predicate in named_event_predicates]
+        # The entity's own properties are left out: under AND, the entity and the top-level property can
+        # match different events. Under OR, the entity's own scan already finds these events, except those
+        # that fail its own properties, which isn't worth one more scan per property.
+        named_event_exprs = (
+            [named_event for named_event, _ in named_event_predicates] if self.property_operand == "AND" else []
+        )
         if event_where_exprs:
             entity_exprs = (
                 [ast.Or(exprs=event_where_exprs)]
@@ -1003,8 +1018,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         def add_event_property_expr(expr: ast.Expr) -> None:
             gathered_exprs.append(expr)
-            if event_where_exprs:
-                named_events = ast.Or(exprs=[clone_expr(e) for e in event_where_exprs])
+            if named_event_exprs:
+                named_events = ast.Or(exprs=[clone_expr(e) for e in named_event_exprs])
                 unsessioned_filters.append(
                     UnsessionedFilter(gathered=expr, unsessioned=ast.And(exprs=[named_events, clone_expr(expr)]))
                 )
