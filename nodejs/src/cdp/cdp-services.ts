@@ -331,6 +331,8 @@ export function createCdpReaderRedisPool(
     return writerPool
 }
 
+const SHADOW_RECONNECTS_BEFORE_QUEUED_COMMANDS_FAIL = 5
+
 function failOpenOnAnyError(pool: RedisV2): RedisV2 {
     const failOpen = async <T>(options: RedisOptions, call: () => Promise<T | null>): Promise<T | null> => {
         try {
@@ -402,8 +404,7 @@ export function createCdpValkeyShadowPools(
                         port,
                         password: config.CDP_VALKEY_PASSWORD,
                         commandTimeout: shadowCommandTimeoutMs,
-                        enableOfflineQueue: false,
-                        autoResendUnfulfilledCommands: false,
+                        maxRetriesPerRequest: SHADOW_RECONNECTS_BEFORE_QUEUED_COMMANDS_FAIL,
                         tls,
                     },
                     name: poolName,

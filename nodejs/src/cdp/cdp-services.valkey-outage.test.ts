@@ -10,7 +10,7 @@ import { createCdpValkeyShadowPools } from './cdp-services'
 
 const LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS = 5_000
 const PORT_NOTHING_LISTENS_ON = 1
-const HALF_THE_SHADOW_COMMAND_TIMEOUT_MS = 500
+const RECONNECT_ATTEMPTS_THAT_FAIL_QUEUED_COMMANDS = 6
 const ONE_SHARED_CONNECTION = { REDIS_POOL_MIN_SIZE: 1, REDIS_POOL_MAX_SIZE: 1 }
 
 const NODEJS_ROOT = path.resolve(__dirname, '../..')
@@ -165,50 +165,51 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             return value
         }
 
-        it('does not replay a write issued while the connection is down', async () => {
-            const key = `test-valkey-outage-replay/${new UUIDT().toString()}`
+        const dropConnectionsAndWaitForTheClientToNotice = async (): Promise<RedisClient> => {
+            let sharedClient: RedisClient | undefined
+            const clientSawTheDrop = writer.useClient({ name: 'watch-drop' }, (client) => {
+                sharedClient = client
+                return new Promise((resolve) => client.once('close', resolve))
+            })
             await dropConnections()
+            await clientSawTheDrop
+            return sharedClient!
+        }
+
+        const reconnectAttempts = (client: RedisClient, attempts: number): Promise<void> =>
+            new Promise((resolve) => {
+                let seen = 0
+                const countAttempt = (): void => {
+                    seen++
+                    if (seen === attempts) {
+                        client.off('reconnecting', countAttempt)
+                        resolve()
+                    }
+                }
+                client.on('reconnecting', countAttempt)
+            })
+
+        it('answers a command issued while the connection is briefly down', async () => {
+            await dropConnectionsAndWaitForTheClientToNotice()
+
+            const answer = writer.useClient({ name: 'during-reconnect' }, (client) => client.ping())
+            await reopenProxy()
+
+            expect(await answer).toEqual('PONG')
+        }, 30_000)
+
+        it('does not send a write queued through a long outage after the restore', async () => {
+            const key = `test-valkey-outage-replay/${new UUIDT().toString()}`
+            const sharedClient = await dropConnectionsAndWaitForTheClientToNotice()
+            const queuedCommandsFailed = reconnectAttempts(sharedClient, RECONNECT_ATTEMPTS_THAT_FAIL_QUEUED_COMMANDS)
 
             await expect(
-                writer.useClient({ name: 'outage-write' }, (client) => client.set(key, 'written during the outage'))
+                writer.useClient({ name: 'outage-write' }, (client) => client.set(key, 'queued during the outage'))
             ).rejects.toThrow()
+            await queuedCommandsFailed
             await restoreValkey()
 
             expect(await readBack(key)).toBeNull()
-        }, 30_000)
-
-        it('fails a command on a dropped connection without waiting for the command timeout', async () => {
-            const clientSawTheDrop = writer.useClient(
-                { name: 'watch-drop' },
-                (client) => new Promise((resolve) => client.once('close', resolve))
-            )
-            await dropConnections()
-            await clientSawTheDrop
-
-            const startedAt = Date.now()
-            await expect(writer.useClient({ name: 'outage-ping' }, (client) => client.ping())).rejects.toThrow()
-
-            expect(Date.now() - startedAt).toBeLessThan(HALF_THE_SHADOW_COMMAND_TIMEOUT_MS)
-        }, 30_000)
-
-        it('does not resend a write that was in flight when the connection dropped', async () => {
-            const key = `test-valkey-outage-resend/${new UUIDT().toString()}`
-            stopAnsweringOpenConnections()
-
-            let clientWithTheWrite: RedisClient | undefined
-            await expect(
-                writer.useClient({ name: 'stalled-write' }, (client) => {
-                    clientWithTheWrite = client
-                    return client.set(key, 'in flight at the drop')
-                })
-            ).rejects.toThrow()
-            await dropConnections()
-            const reconnected = new Promise((resolve) => clientWithTheWrite!.once('ready', resolve))
-            await reopenProxy()
-            await reconnected
-            await clientWithTheWrite!.ping()
-
-            expect(await clientWithTheWrite!.get(key)).toBeNull()
         }, 30_000)
 
         it('answers through a new connection after a command stalls', async () => {

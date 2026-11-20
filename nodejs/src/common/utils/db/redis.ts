@@ -117,7 +117,7 @@ export async function createRedisClient(
 ): Promise<Redis.Redis> {
     const redis = new Redis(url, {
         ...options,
-        maxRetriesPerRequest: -1,
+        maxRetriesPerRequest: options?.maxRetriesPerRequest ?? -1,
     })
     let errorCounter = 0
     const redisHost = getRedisHost(url, options)
