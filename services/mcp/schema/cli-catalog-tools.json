@@ -39795,13 +39795,7 @@
             "list": false,
             "filter": {
                 "kind": "omit",
-                "fields": [
-                    "secret_api_token",
-                    "secret_api_token_backup",
-                    "live_events_token",
-                    "heatmaps_screenshot_secret",
-                    "default_modifiers"
-                ],
+                "fields": ["live_events_token", "heatmaps_screenshot_secret", "default_modifiers"],
                 "expandable": []
             },
             "stripNulls": false,
@@ -40125,14 +40119,7 @@
             "list": false,
             "filter": {
                 "kind": "omit",
-                "fields": [
-                    "api_token",
-                    "secret_api_token",
-                    "secret_api_token_backup",
-                    "live_events_token",
-                    "heatmaps_screenshot_secret",
-                    "default_modifiers"
-                ],
+                "fields": ["api_token", "live_events_token", "heatmaps_screenshot_secret", "default_modifiers"],
                 "expandable": []
             },
             "stripNulls": false,
@@ -44274,6 +44261,11 @@
                     "csv": false
                 },
                 {
+                    "param": "key_prefix",
+                    "key": "key_prefix",
+                    "csv": false
+                },
+                {
                     "param": "keys_only",
                     "key": "keys_only",
                     "csv": false
@@ -46285,6 +46277,11 @@
                 {
                     "param": "key",
                     "key": "key",
+                    "csv": false
+                },
+                {
+                    "param": "key_prefix",
+                    "key": "key_prefix",
                     "csv": false
                 },
                 {

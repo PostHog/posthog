@@ -1119,6 +1119,15 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
             "asked for past the limit."
         ),
     )
+    key_prefix = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Return only the entries whose key starts with this prefix, case-sensitive, with `%` and `_` "
+            "matched literally. Use it to read one family of keys, such as `followup:<skill-name>:`; unlike "
+            "`text`, it ignores what entry bodies say. Combines with every other filter."
+        ),
+    )
     skill_name = serializers.CharField(
         required=False,
         allow_blank=True,

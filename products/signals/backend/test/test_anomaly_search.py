@@ -276,7 +276,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("every_scored_bucket", 400, ["2026-10-01", "2026-10-19", "2026-10-22"]),
+            ("every_scored_bucket", 400, ["2026-10-10", "2026-10-19", "2026-10-22"]),
             ("capped_to_the_newest", 1, ["2026-10-22"]),
         ]
     )
@@ -284,9 +284,9 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, cap: int, expected_days: list[str]
     ) -> None:
         self._score_history()
-        # Before the range but inside the 30-day daily chart window, then before the chart window.
-        self._score(_day(1), score=0.20, flag=0)
-        self._score(datetime.datetime(2026, 9, 20, tzinfo=datetime.UTC), score=0.20, flag=0)
+        # Before the range but inside the 14-day daily chart window, then before the chart window.
+        self._score(_day(10), score=0.20, flag=0)
+        self._score(_day(9), score=0.20, flag=0)
 
         with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES_POINTS", cap):
             body = self._get("search", date_from="2026-10-19", include_points=True).json()
@@ -316,7 +316,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_insight = Insight.objects.create(team=other_team, name="Other", saved=True)
         self._score(_day(22), score=0.98, flag=1)
-        self._score(_day(1), score=0.20, flag=0)
+        self._score(_day(10), score=0.20, flag=0)
         self._score(NOW - datetime.timedelta(hours=1), score=0.97, flag=1, series_key="logins", interval="hour")
         # Inside the daily window that the scan covers, but before the 7-day hourly window.
         self._score(NOW - datetime.timedelta(days=10), score=0.10, flag=0, series_key="logins", interval="hour")
@@ -335,8 +335,8 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         ] == [
             (
                 "signups",
-                "2026-09-23T12:00:00+00:00",
-                [("2026-10-01T00:00:00+00:00", False), ("2026-10-22T00:00:00+00:00", True)],
+                "2026-10-09T12:00:00+00:00",
+                [("2026-10-10T00:00:00+00:00", False), ("2026-10-22T00:00:00+00:00", True)],
             ),
             ("logins", "2026-10-16T12:00:00+00:00", [("2026-10-23T11:00:00+00:00", True)]),
         ]
