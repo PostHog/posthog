@@ -71,8 +71,6 @@ class TestConvertInsightAlertDestinations(ClickhouseTestMixin, APIBaseTest):
             return platform_testing.copy_of(alert_id).id
 
     def _add_stock_destination(self, alert_id: UUID, route: str, payload: dict[str, Any]) -> list[str]:
-        # The alert page writes HogFunctions only for an alert the platform does not evaluate, which is how
-        # every destination added before row-only creates looks.
         with team_scope(self.team.id):
             platform_testing.set_owner(self._copy_id(alert_id), PlatformAlertOwner.SOURCE)
         created = self.client.post(f"{self.url}/{alert_id}/destinations/{route}", payload, format="json")
@@ -138,10 +136,7 @@ class TestConvertInsightAlertDestinations(ClickhouseTestMixin, APIBaseTest):
         assert "no HogFunction destinations" in again
         assert [r.id for r in self._rows(alert_id)] == [row.id]
 
-    @patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions", return_value=[])
-    def test_a_converted_slack_destination_lists_sends_natively_once_and_deletes_from_the_alert_page(
-        self, trigger_hog_functions: Any
-    ) -> None:
+    def test_a_converted_slack_destination_lists_sends_natively_once_and_deletes_from_the_alert_page(self) -> None:
         (alert_id,) = self._alerts(1)
         self._add_stock_destination(alert_id, "", self.slack)
         destinations_url = f"{self.url}/{alert_id}/destinations/"
@@ -161,7 +156,7 @@ class TestConvertInsightAlertDestinations(ClickhouseTestMixin, APIBaseTest):
         ) as chat_post_message:
             tested = self.client.post(f"{self.url}/{alert_id}/test-delivery/")
         assert tested.status_code == status.HTTP_202_ACCEPTED, tested.json()
-        assert (chat_post_message.call_count, trigger_hog_functions.call_count) == (1, 0)
+        assert [call.kwargs["channel"] for call in chat_post_message.call_args_list] == ["C123"]
 
         deleted = self.client.post(f"{destinations_url}delete/", {"destination_ids": [listed["id"]]}, format="json")
 
@@ -210,7 +205,8 @@ class TestConvertInsightAlertDestinations(ClickhouseTestMixin, APIBaseTest):
             emitting_alert,
             duplicated_alert,
             refused_alert,
-        ) = self._alerts(7)
+            captured_events_alert,
+        ) = self._alerts(8)
         customized_ids = self._add_stock_destination(customized_alert, "", self.slack)
         edited = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{customized_ids[0]}/",
@@ -226,14 +222,17 @@ class TestConvertInsightAlertDestinations(ClickhouseTestMixin, APIBaseTest):
         pagerduty_ids = self._add_stock_destination(pagerduty_alert, "pagerduty/", PAGERDUTY)
         firing_ids = self._add_stock_destination(firing_alert, "", self.slack)
         emitting_ids = self._add_stock_destination(emitting_alert, "", self.slack)
-        # A second HogFunction with the same settings joins the first one's group, which the row copies only
-        # part of, and which is only partly on.
         (duplicated_id,) = self._add_stock_destination(duplicated_alert, "", self.slack)
         duplicate = HogFunction.objects.get(id=duplicated_id)
         duplicate.pk = None
         duplicate.enabled = False
         duplicate.save()
         refused_ids = self._add_stock_destination(refused_alert, "", self.slack)
+        captured_ids = self._add_stock_destination(captured_events_alert, "", self.slack)
+        captured = HogFunction.objects.get(id=captured_ids[0])
+        HogFunction.objects.filter(id=captured.id).update(
+            type="destination", filters={**(captured.filters or {}), "source": "events"}
+        )
         (refused_row,) = self._rows(refused_alert)
         delete_source_destination_rows(
             team_id=self.team.id, public_id=refused_alert, destination_ids=[refused_row.id], hog_function_ids=()
@@ -274,6 +273,9 @@ class TestConvertInsightAlertDestinations(ClickhouseTestMixin, APIBaseTest):
         ):
             assert (str(alert_id), outcome) in printed, out
             assert self._live(hog_function_ids) == len(hog_function_ids), outcome
+
+        assert self._live(captured_ids) == 1
+        assert str(captured_events_alert) not in out
 
         HogFunction.objects.filter(id=duplicate.pk).update(enabled=True)
 

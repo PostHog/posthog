@@ -21,8 +21,7 @@ listed.
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from datetime import timedelta
 from enum import StrEnum
 from uuid import UUID
@@ -35,6 +34,7 @@ from posthog.dataclasses import frozen
 from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_EVENT_IDS
 from products.alerts.backend.facade.destinations import (
     choose_delivery_path,
+    classify_alert_destinations,
     configured_destination_template_ids,
     customized_alert_destination_ids,
     list_alert_destination_groups,
@@ -69,26 +69,20 @@ from products.alerts_platform.backend.facade.enums import DeliveryPath, Platform
 # retiring them sooner loses a message the platform already counted as delivered.
 LEGACY_EVENTS_QUIET_PERIOD = timedelta(minutes=15)
 
-# The kinds an insight destination row hears, as the insight alert page creates it for every type it converts.
 _ROW_EVENT_KINDS: tuple[AlertEventKind, ...] = (AlertEventKind.FIRING,)
 
 
 class GroupOutcome(StrEnum):
     CONVERTED = "converted"
     KEPT_ROW = "kept_row"
-    # Several rows copied the group, so one new row replaces them all and the old ids go.
     REPLACED_ROW = "replaced_row"
     CUSTOMIZED = "customized"
-    # A Terraform state reads one of the group's HogFunctions, so retiring it would delete a resource the
-    # customer manages. The group waits until the customer moves it to a destination resource.
     TERRAFORM_HELD = "terraform_held"
     PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
     LEGACY_WEBHOOK_BODY = "legacy_webhook_body"
     FIRING = "firing"
     RECENTLY_EMITTED = "recently_emitted"
-    # Some of the group's HogFunctions are switched off. A row is on or off for every kind it hears.
     PARTLY_ENABLED = "partly_enabled"
-    # A row copies only some of the group, so a second row would send to the same place twice.
     PARTLY_COPIED = "partly_copied"
     REFUSED = "refused"
     NO_SOURCE_DESTINATIONS = "no_source_destinations"
@@ -116,10 +110,6 @@ def convert_team(team_id: int, *, apply: bool) -> tuple[GroupConversion, ...]:
     return tuple(
         conversion for _, alert_id in sorted(keys) for conversion in _convert_alert(team_id, alert_id, apply=apply)
     )
-
-
-def outcome_counts(conversions: Collection[GroupConversion]) -> Counter[str]:
-    return Counter(str(conversion.outcome) for conversion in conversions)
 
 
 def _convert_alert(team_id: int, alert_id: UUID, *, apply: bool) -> list[GroupConversion]:
@@ -153,10 +143,8 @@ def _convert_alert(team_id: int, alert_id: UUID, *, apply: bool) -> list[GroupCo
                     )
                     for group, facts in candidates
                 ]
-            # On the HogFunction path the stock webhook template sends the legacy insight body, which a row
-            # cannot send, so a row would change the body its receiver gets. The path is HogFunctions for
-            # every alert of a team that keeps the legacy body, or whose flag cannot be read. Read before
-            # any group moves.
+            # On the HogFunction path a stock webhook sends the legacy insight body, which no row can send.
+            # Read before any group moves.
             webhook_sends_legacy_body = (
                 choose_delivery_path(
                     source=SourceKind.INSIGHT,
@@ -189,9 +177,21 @@ class _GroupFacts:
 
 def _stock_candidates(team_id: int, alert_id: UUID) -> list[tuple[AlertDestinationGroup, _GroupFacts]]:
     alert_key = str(alert_id)
-    groups = list_alert_destination_groups(
-        team_id=team_id, alert_id=alert_key, allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
-    )
+    receives_alert_events = {
+        eligibility.hog_function_id
+        for eligibility in classify_alert_destinations(
+            team_id=team_id, alert_id=alert_key, allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
+        )
+    }
+    # A function on the same event id that reads captured events is not the alert's destination, and the
+    # customized check never classifies it, so it would otherwise convert as stock.
+    groups = [
+        group
+        for group in list_alert_destination_groups(
+            team_id=team_id, alert_id=alert_key, allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
+        )
+        if receives_alert_events.issuperset(group.hog_function_ids)
+    ]
     if not groups:
         return []
     customized = customized_alert_destination_ids(
