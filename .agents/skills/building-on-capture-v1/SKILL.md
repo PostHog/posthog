@@ -65,6 +65,16 @@ Options are costly to add.
 Capture tracks known keys in an 8-bit set (`OptionKeys` in [`analytics/types.rs`](../../../rust/capture/src/v1/analytics/types.rs)), every consumer of the Kafka `options` keeps its own list of keys, and an option name is public API.
 Do not add one without agreement from the ingestion team and the SDK owners.
 
+## How an option reaches the stored event
+
+Every step is required. A consumer that skips its step loses the setting, and nothing fails.
+
+1. **The sender sets the option.** The v1 SDKs move the four legacy `$` properties into `options` before they send. Capture never copies a value from `properties` into an option.
+2. **Capture checks the type of each known option** (`RawOptions::validate`). It reads values leniently, and a value it cannot read drops that event with `invalid_options`. Capture does not publish a key it does not know.
+3. **Capture publishes the options** in the outer Kafka message, beside the event, on every v1 endpoint. `/i/v1/analytics/events` and `/i/v1/ai/events` share one handler, so the AI lane carries options the same way. The legacy endpoints and the OTel endpoint publish no `options`, so a consumer must accept a message without them.
+4. **Every consumer of capture's output checks `options` on every message.** For an option that replaces a legacy property, it writes that property: `session_id`, `window_id`, `cookieless_mode`, `disable_skew_correction` (as `$ignore_sent_at`), `product_tour_id` and `process_person_profile`. Node ingestion does this in the shared parse step, `CAPTURE_OPTION_OVERRIDES`, which the analytics and AI pipelines both run. Livestream does it in `applyCaptureOptions`.
+5. **A new option is either visible or internal.** When a product or a query must see it, ingestion writes it into `properties`. When only capture and ingestion use it, for routing or as a marker, the consumer reads it from `options` and never writes it into `properties`, so it does not reach ClickHouse.
+
 ## Add an option
 
 Change all of these in one PR, or in an ordered stack where consumers ship before capture sends the key:
@@ -86,6 +96,17 @@ This applies to the legacy handlers and to the v1 handlers.
 - The v1 endpoints (`/i/v1/*`) must not gain a new use of `event.properties`. A value capture must read, act on or change is an option: see [Choose an option or a property](#choose-an-option-or-a-property).
 - Only the ingestion processors that consume the events capture publishes read or change `event.properties`.
 - The uses that capture has today are being removed, such as the legacy handlers that read `$` option properties and the v1 legacy property splice. Do not copy them or add to them.
+
+## Rules for every capture change
+
+These apply to the legacy handlers and to the v1 handlers.
+
+- **No panic on a request path.** No `unwrap()`, `expect()` or unchecked index on request data: a panic loses the whole batch and the sender gets no result.
+- **No new store or external system.** Capture depends on Kafka and Redis, and on S3 for AI blobs. Anything more needs the ingestion team's agreement in `#team-ingestion` before the code merges.
+- **A new call on the request path has a timeout** and a stated choice between failing open and failing closed.
+- **An endpoint that builds events itself applies every limit the main pipelines apply:** quota, overflow, event restrictions and the AI byte limit.
+- **The AI lane is the `$ai_` event name prefix** (`is_ai_event`). The analytics endpoint sends those events to the AI topic, and the AI endpoint drops any other name as `misrouted_event`. A new route by event name changes both endpoints, the quota check, the README and the public docs together.
+- **Metric labels have a small, fixed set of values.** Never a token, a team id, a distinct id or an event name.
 
 ## Change capture v1 code
 
