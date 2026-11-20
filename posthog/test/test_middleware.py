@@ -506,6 +506,23 @@ class TestAccessMiddleware(APIBaseTest):
             response = self.client.get("/", REMOTE_ADDR="128.0.0.2")
             self.assertIn(b"PostHog is not available", response.content)
 
+    def test_blocked_api_request_returns_region_blocked_code_without_running_the_view(self):
+        self.client.force_login(self.user)
+        dashboards_before = Dashboard.objects.count()
+
+        with self.settings(ALLOWED_IP_BLOCKS=["192.168.0.0/31"]):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "Created from a blocked IP"},
+                content_type="application/json",
+                REMOTE_ADDR="10.0.0.1",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["code"] == "region_blocked"
+        assert "PostHog is not available" in response.json()["detail"]
+        assert Dashboard.objects.count() == dashboards_before
+
     def test_trusted_proxies(self):
         with self.settings(
             ALLOWED_IP_BLOCKS=["192.168.0.0/31", "127.0.0.0/25,128.0.0.1"],

@@ -131,6 +131,9 @@ export const PROJECT_ACCESS_DENIED_DETAIL = "You don't have access to the projec
 /** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */
 export const ACCESS_BLOCKED_ERROR_CODE = 'access_blocked'
 
+/** Code of the `AllowIPMiddleware` refusal (posthog/middleware.py). Keep in sync with the backend. */
+export const REGION_BLOCKED_ERROR_CODE = 'region_blocked'
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
@@ -218,6 +221,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  *   way, so one flaky connection opens an issue per endpoint it touched. `api.ts` captures each one
  *   as a `client_request_failure` with `failure_reason: 'response_body_read'`, so a persistent
  *   truncation regression is still visible in aggregate without an issue per endpoint.
+ * - 403 `region_blocked` — `AllowIPMiddleware` refuses every request from a blocked region or IP
+ *   range. That is policy, not a defect, and it fails every endpoint the same way, so each loader
+ *   would otherwise open an issue of its own.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
  * every non-OK response with its status and pathname, so failure rates stay queryable even where
@@ -251,6 +257,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (isAccessDeniedError(failure)) {
+        return false
+    }
+    if (status === 403 && failure.code === REGION_BLOCKED_ERROR_CODE) {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
