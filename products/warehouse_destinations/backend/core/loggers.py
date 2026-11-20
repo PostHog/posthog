@@ -4,9 +4,11 @@ import structlog
 
 
 def get_write_only_logger(name: str | None = None) -> structlog.typing.FilteringBoundLogger:
-    """A logger that writes to stdout and produces nowhere else.
+    """Return the Temporal write-only logger, which writes to stdout and produces nowhere else.
 
-    Matches `posthog.temporal.common.logger.get_write_only_logger`, which this module does not
-    import because that module loads Kafka and Django on import.
+    Call it when you log, not at import time: the logger module loads Kafka, Temporal and
+    psycopg, and the facade and `core` must stay light to import.
     """
-    return structlog.get_logger(name, True, False)
+    from posthog.temporal.common.logger import get_write_only_logger as get_temporal_write_only_logger  # noqa: PLC0415
+
+    return get_temporal_write_only_logger(name)

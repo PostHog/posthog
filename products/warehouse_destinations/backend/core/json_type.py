@@ -8,8 +8,6 @@ import pyarrow as pa
 
 from products.warehouse_destinations.backend.core.loggers import get_write_only_logger
 
-LOGGER = get_write_only_logger(__name__)
-
 # Callers build batches with their own extension class, so a JSON column is recognized by the
 # extension name, never by class. "arrow.json" is the Arrow canonical JSON extension.
 JSON_EXTENSION_NAMES = frozenset({"json", "arrow.json"})
@@ -20,57 +18,59 @@ def is_json_type(arrow_type: pa.DataType) -> bool:
     return isinstance(arrow_type, pa.BaseExtensionType) and arrow_type.extension_name in JSON_EXTENSION_NAMES
 
 
+def load_json(value: str | None) -> typing.Any:
+    """Decode a JSON string, after repairing the faults we see in practice.
+
+    The repairs cover:
+    * Unescaped whitespace characters (e.g. \n).
+    * Unescaped surrogates without a pair.
+    * Escaped surrogates without a pair.
+    * Not a JSON document (we assume it's a string and quote it).
+
+    An empty or missing value is None. A value that no repair makes valid raises
+    `orjson.JSONDecodeError`.
+    """
+    if not value:
+        return None
+
+    if re.search("([\t\n\r\f\v])", value):
+        value = value.encode("unicode-escape").decode("utf-8")
+
+    json_bytes = value.encode("utf-8", "replace")
+
+    try:
+        return orjson.loads(json_bytes)
+    except orjson.JSONDecodeError:
+        pass
+
+    json_bytes = json_bytes.decode("raw-unicode-escape").encode("utf-8", "replace")
+
+    try:
+        return orjson.loads(json_bytes)
+    except orjson.JSONDecodeError:
+        pass
+
+    if not value.startswith("{") and not value.endswith("}"):
+        # Handles non-valid JSON strings like `'"$set": "Something"'` by quoting them.
+        value = f'"{value}"'
+
+    json_bytes = value.encode("utf-8", "replace").decode("raw-unicode-escape").encode("utf-8", "replace")
+    try:
+        return orjson.loads(json_bytes)
+    except orjson.JSONDecodeError as err:
+        # The value can hold customer data, so the log names only the error.
+        get_write_only_logger(__name__).warning("Failed to decode a JSON value", error_type=type(err).__name__)
+        raise
+
+
 class JsonScalar(pa.ExtensionScalar):
     """Represents a JSON binary string."""
 
-    def as_py(self, *, maps_as_pydicts: typing.Literal["lossy", "strict"] | None = None) -> dict | None:
-        """Try to convert value to Python representation.
-
-        We attempt to decode the value returned by `as_py` as JSON. However, to do so safely we must
-        ensure the value is a valid UTF-8 string. We try to take care of the following scenarios:
-        * Unescaped whitespace characters (e.g. \n).
-        * Unescaped surrogates without a pair.
-        * Escaped surrogates without a pair.
-        * Not a JSON document (we assume it's a string and quote it).
-
-        If all else fails, we will log the offending value and re-raise the decoding error.
-        """
-        if self.value:
-            value = self.value.as_py()
-
-            if re.search("([\t\n\r\f\v])", value):
-                value = value.encode("unicode-escape").decode("utf-8")
-
-            if not value:
-                return None
-
-            json_bytes = value.encode("utf-8", "replace")
-
-            try:
-                return orjson.loads(json_bytes)
-            except orjson.JSONDecodeError:
-                pass
-
-            json_bytes = json_bytes.decode("raw-unicode-escape").encode("utf-8", "replace")
-
-            try:
-                return orjson.loads(json_bytes)
-            except orjson.JSONDecodeError:
-                pass
-
-            if isinstance(value, str) and len(value) > 0 and not value.startswith("{") and not value.endswith("}"):
-                # Handles non-valid JSON strings like `'"$set": "Something"'` by quoting them.
-                value = f'"{value}"'
-
-            json_bytes = value.encode("utf-8", "replace").decode("raw-unicode-escape").encode("utf-8", "replace")
-            try:
-                return orjson.loads(json_bytes)
-            except orjson.JSONDecodeError:
-                LOGGER.exception("Failed to decode with orjson: %s", value)
-                raise
-
-        else:
+    def as_py(self, *, maps_as_pydicts: typing.Literal["lossy", "strict"] | None = None) -> typing.Any:
+        """Decode the value as JSON with `load_json`."""
+        if not self.value:
             return None
+        return load_json(self.value.as_py())
 
 
 class JsonType(pa.ExtensionType):

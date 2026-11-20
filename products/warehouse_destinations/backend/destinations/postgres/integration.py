@@ -6,7 +6,12 @@ come from the config itself. `spec.py` declares the fields.
 """
 
 import typing
+import pathlib
+import functools
 from dataclasses import field
+
+import certifi
+import psycopg
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationNotFound
@@ -25,7 +30,10 @@ from products.warehouse_destinations.backend.facade.contracts import (
     DestinationConnection,
 )
 
+# An integration can still hold "prefer". Typed-in connection details cannot, because "prefer"
+# falls back to a connection without TLS and so can send the password in clear text.
 SSLMode = typing.Literal["prefer", "require", "verify-ca", "verify-full"]
+InlineSSLMode = typing.Literal["require", "verify-ca", "verify-full"]
 
 
 @frozen
@@ -66,7 +74,31 @@ class _InlineInputs:
         return Authority(self._auth.host, self._auth.port)
 
     def tls(self) -> TLS:
-        return TLS(ssl_mode=self._auth.ssl_mode)
+        return inline_tls(self._auth.ssl_mode)
+
+
+# libpq reads `sslrootcert=system` as "use the system trust store" from version 16 on.
+_SYSTEM_ROOT_CERT_MIN_LIBPQ_VERSION = 160000
+
+
+def inline_tls(ssl_mode: InlineSSLMode) -> TLS:
+    """The TLS settings for connection details typed into the config.
+
+    A verify mode checks the server certificate against the system trust store. `require`
+    keeps the default root certificate path, which does not exist, so libpq encrypts without a
+    check and never reads a root certificate that happens to sit in its default path.
+    """
+    if ssl_mode == "require":
+        return TLS(ssl_mode=ssl_mode)
+    if psycopg.pq.version() >= _SYSTEM_ROOT_CERT_MIN_LIBPQ_VERSION:
+        return TLS(ssl_mode=ssl_mode, ssl_root_cert="system")
+    # An older libpq takes a root certificate file. The client writes this text to one.
+    return TLS(ssl_mode=ssl_mode, ssl_root_cert=_certifi_bundle())
+
+
+@functools.cache
+def _certifi_bundle() -> str:
+    return pathlib.Path(certifi.where()).read_text()
 
 
 async def _get_postgresql_integration(team_id: int, integration_id: int | None) -> PostgreSQLIntegration:

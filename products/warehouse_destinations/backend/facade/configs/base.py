@@ -65,3 +65,15 @@ def require_fields(instance: object, names: Iterable[str]) -> None:
         value = getattr(instance, name)
         if value is None or (isinstance(value, str) and not value.strip()):
             raise config.ConfigValueError(f"Config field '{name}' is required")
+
+
+def check_nested(instance: object, names: Iterable[str]) -> None:
+    """Run `_check` of each nested config in `names` on `instance` that is not None.
+
+    The runtime builds a nested config also in an option that is not selected, so such a config
+    does not check itself. Its parent calls this only for the selected option or the enabled group.
+    """
+    for name in names:
+        value = getattr(instance, name)
+        if value is not None:
+            value._check()

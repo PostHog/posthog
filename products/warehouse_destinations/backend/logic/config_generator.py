@@ -6,8 +6,11 @@
   An integration becomes an `int` id.
 - A select with option fields becomes a nested class with a `selection` field plus the fields of
   every option. A switch group becomes a nested class with an `enabled` field. Their fields are
-  optional on the class, and a generated `__post_init__` requires the ones the selected option,
-  or the switched-on group, needs.
+  optional on the class. A generated `_check` requires the ones the selected option, or the
+  switched-on group, needs, and runs `_check` of the nested classes in it.
+- The runtime builds every nested class, also one in an option that is not selected. So only a
+  nested class on the top-level class checks itself, in `__post_init__`. A deeper one is checked
+  by its parent, and only when its option is selected or its group is on.
 - A secret field gets `repr=False`, so no repr shows it, whatever its name.
 - Fields keep the spec order, except that fields without a default come first, as dataclasses
   require, and bare annotations come before them. Nested classes come before the class that
@@ -76,7 +79,8 @@ class _ModuleRenderer:
         head: Sequence[str] = (),
         leading: Sequence[_FieldLine] = (),
         conditional: bool = False,
-        post_init: Sequence[str] = (),
+        check: Sequence[str] | None = None,
+        checks_itself: bool = False,
     ) -> None:
         """Render one class, after any nested class its fields need."""
         lines = list(leading)
@@ -92,21 +96,25 @@ class _ModuleRenderer:
         # A stable sort keeps the spec order within each group.
         ordered = sorted(lines, key=lambda line: (line.has_default, line.value is not None))
         body = [*head, *(line.render() for line in ordered)]
-        if post_init:
-            body += ["", "    def __post_init__(self) -> None:", *(f"        {line}" for line in post_init)]
+        if check is not None:
+            if checks_itself:
+                body += ["", "    def __post_init__(self) -> None:", "        self._check()"]
+            body += ["", "    def _check(self) -> None:", *(f"        {line}" for line in check or ["pass"])]
         self.classes.append(f"@config.config\nclass {class_name}({base}):\n" + "\n".join(body))
 
     def render_field(self, field: DestinationField, *, owner: str, conditional: bool) -> _FieldLine:
         """Render one field. A `conditional` field is optional on the class, whatever the spec says."""
+        # Only a field of the top-level class is never in an option that can be unselected.
+        checks_itself = not conditional
         if isinstance(field, DestinationFieldSwitchGroup):
-            return self._switch_group(field, owner=owner)
+            return self._switch_group(field, owner=owner, checks_itself=checks_itself)
         optional = conditional or not field.required
         if isinstance(field, DestinationFieldInput):
             return self._input(field, optional=optional)
         if isinstance(field, DestinationFieldIntegration):
             return self._number(field.name, optional=optional, default=None, secret=False)
         if field.has_option_fields:
-            return self._nested_select(field, owner=owner, optional=optional)
+            return self._nested_select(field, owner=owner, optional=optional, checks_itself=checks_itself)
         return self._literal_select(field, optional=optional)
 
     def _input(self, field: DestinationFieldInput, *, optional: bool) -> _FieldLine:
@@ -141,7 +149,9 @@ class _ModuleRenderer:
             return _config_value(field.name, f"{annotation} | None", parts)
         return _config_value(field.name, annotation, [f"converter=base.choice({options})"])
 
-    def _nested_select(self, field: DestinationFieldSelect, *, owner: str, optional: bool) -> _FieldLine:
+    def _nested_select(
+        self, field: DestinationFieldSelect, *, owner: str, optional: bool, checks_itself: bool
+    ) -> _FieldLine:
         class_name = _nested_class_name(owner, field.name)
         selection = self._literal_select(
             DestinationFieldSelect(
@@ -156,31 +166,44 @@ class _ModuleRenderer:
 
         option_fields: list[DestinationField] = []
         required_by_option: dict[str, list[str]] = {}
+        nested_by_option: dict[str, list[str]] = {}
         for option in field.options:
             for option_field in option.fields or []:
                 if option_field not in option_fields:
                     option_fields.append(option_field)
                 if _needs_check(option_field):
                     required_by_option.setdefault(option.value, []).append(option_field.name)
+                if _is_nested(option_field):
+                    nested_by_option.setdefault(option.value, []).append(option_field.name)
 
-        post_init = []
+        check = []
         if required_by_option:
-            mapping = ", ".join(f"{_literal(value)}: {_tuple(names)}" for value, names in required_by_option.items())
-            post_init.append(f"base.require_fields(self, {{{mapping}}}.get(self.selection, ()))")
-        self.render_class(class_name, option_fields, leading=[selection], conditional=True, post_init=post_init)
+            check.append(f"base.require_fields(self, {_by_selection(required_by_option)})")
+        if nested_by_option:
+            check.append(f"base.check_nested(self, {_by_selection(nested_by_option)})")
+        self.render_class(
+            class_name, option_fields, leading=[selection], conditional=True, check=check, checks_itself=checks_itself
+        )
 
         if optional:
             return _FieldLine(name=field.name, annotation=f"{class_name} | None", value="None", has_default=True)
         return _FieldLine(name=field.name, annotation=class_name, value=None, has_default=False)
 
-    def _switch_group(self, field: DestinationFieldSwitchGroup, *, owner: str) -> _FieldLine:
+    def _switch_group(self, field: DestinationFieldSwitchGroup, *, owner: str, checks_itself: bool) -> _FieldLine:
         class_name = _nested_class_name(owner, field.name)
         enabled = _config_value(ENABLED_FIELD, "bool", ["converter=config.str_to_bool", f"default={field.default}"])
         required = [sub_field.name for sub_field in field.fields if _needs_check(sub_field)]
-        post_init = []
+        nested = [sub_field.name for sub_field in field.fields if _is_nested(sub_field)]
+        check = []
+        if required or nested:
+            check.append(f"if self.{ENABLED_FIELD}:")
         if required:
-            post_init = [f"if self.{ENABLED_FIELD}:", f"    base.require_fields(self, {_tuple(required)})"]
-        self.render_class(class_name, field.fields, leading=[enabled], conditional=True, post_init=post_init)
+            check.append(f"    base.require_fields(self, {_tuple(required)})")
+        if nested:
+            check.append(f"    base.check_nested(self, {_tuple(nested)})")
+        self.render_class(
+            class_name, field.fields, leading=[enabled], conditional=True, check=check, checks_itself=checks_itself
+        )
         return _FieldLine(name=field.name, annotation=f"{class_name} | None", value="None", has_default=True)
 
     def _literal(self, values: Sequence[str]) -> str:
@@ -191,15 +214,28 @@ class _ModuleRenderer:
 def _needs_check(field: DestinationField) -> bool:
     """Whether a required field inside an option or a switch group can be absent from its class.
 
-    A nested select or switch group always builds, so only scalar fields need the check.
+    A switch group always builds. A nested select without a default does not build when its
+    `selection` is absent, so a required one needs the check.
     """
     if isinstance(field, DestinationFieldInput):
         return field.required and field.default is None
     if isinstance(field, DestinationFieldIntegration):
         return field.required
-    if isinstance(field, DestinationFieldSelect) and not field.has_option_fields:
-        return field.required and field.defaultValue is None
+    if isinstance(field, DestinationFieldSelect):
+        return field.required and (field.has_option_fields or field.defaultValue is None)
     return False
+
+
+def _is_nested(field: DestinationField) -> bool:
+    """Whether a field renders as a nested class, which its parent checks."""
+    if isinstance(field, DestinationFieldSwitchGroup):
+        return True
+    return isinstance(field, DestinationFieldSelect) and field.has_option_fields
+
+
+def _by_selection(names_by_option: dict[str, list[str]]) -> str:
+    mapping = ", ".join(f"{_literal(value)}: {_tuple(names)}" for value, names in names_by_option.items())
+    return f"{{{mapping}}}.get(self.selection, ())"
 
 
 def _config_value(name: str, annotation: str, parts: list[str], *, secret: bool = False) -> _FieldLine:

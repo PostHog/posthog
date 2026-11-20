@@ -90,9 +90,8 @@ POSTGRES_SPEC = DestinationSpec(
                             label="SSL mode",
                             required=True,
                             defaultValue=DEFAULT_SSL_MODE,
-                            caption="How the connection uses TLS. The verify modes need a trusted server certificate.",
+                            caption="How the connection uses TLS. The verify modes check the server certificate against public certificate authorities.",
                             options=[
-                                DestinationFieldSelectOption(value="prefer", label="Prefer"),
                                 DestinationFieldSelectOption(value="require", label="Require"),
                                 DestinationFieldSelectOption(value="verify-ca", label="Verify CA"),
                                 DestinationFieldSelectOption(value="verify-full", label="Verify full"),

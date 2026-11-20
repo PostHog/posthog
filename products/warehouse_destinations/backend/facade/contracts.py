@@ -284,9 +284,10 @@ class DestinationSession(Protocol):
         Every batch must have the schema of `prepared.target.schema`. Empty batches are skipped.
         `prepared` can come from another session of the same destination.
 
-        With a `batch_key`, the write first removes the rows an earlier write with the same key
-        left in the staging state, so a retried write does not duplicate rows. A mode outside
-        `capabilities.batch_key_modes` raises a CONFIGURATION-kind error for a `batch_key`.
+        A write commits each chunk on its own, so a failed write can leave some chunks of its
+        rows in the staging state. With a `batch_key`, the write first removes the rows that an
+        earlier write with the same key left there, so a retry does not duplicate rows. A mode
+        outside `capabilities.batch_key_modes` raises a CONFIGURATION-kind error for a `batch_key`.
 
         APPEND writes go to the final table and are not atomic: each chunk commits on its own,
         so a failed write can leave some rows behind. A retried APPEND without a batch key can

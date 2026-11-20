@@ -11,12 +11,13 @@ import collections.abc
 import multiprocessing as mp
 import concurrent.futures
 
+from django.conf import settings
+
 import brotli
 import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from products.warehouse_destinations.backend.core import defaults
 from products.warehouse_destinations.backend.core.json_type import is_json_type
 from products.warehouse_destinations.backend.core.loggers import get_write_only_logger
 from products.warehouse_destinations.backend.core.metrics import ExecutionTimeRecorderFactory, NoOpExecutionTimeRecorder
@@ -27,8 +28,6 @@ from products.warehouse_destinations.backend.core.table import (
     are_types_compatible,
 )
 from products.warehouse_destinations.backend.core.worker_init import init_worker
-
-logger = get_write_only_logger()
 
 
 def _without_columns(schema: pa.Schema, names: collections.abc.Collection[str]) -> pa.Schema:
@@ -71,7 +70,7 @@ def get_json_stream_transformer(
     exclude_columns: collections.abc.Collection[str] = (),
     compression: str | None = None,
     max_file_size_bytes: int = 0,
-    max_workers: int = defaults.TRANSFORMER_MAX_WORKERS,
+    max_workers: int | None = None,
 ) -> ChunkTransformerProtocol:
     if compression == "brotli":
         return JSONLBrotliStreamTransformer(
@@ -97,15 +96,17 @@ class JSONLStreamTransformer:
         compression: str | None = None,
         exclude_columns: collections.abc.Collection[str] = (),
         max_file_size_bytes: int = 0,
-        max_workers: int = defaults.TRANSFORMER_MAX_WORKERS,
+        max_workers: int | None = None,
     ) -> None:
         self.exclude_columns = tuple(exclude_columns)
         self.compression = compression
-        self.max_workers = max_workers
+        self.max_workers = (
+            max_workers if max_workers is not None else settings.WAREHOUSE_DESTINATIONS_TRANSFORMER_MAX_WORKERS
+        )
         self.max_file_size_bytes = max_file_size_bytes
 
         self._futures_pending: set[asyncio.Future[list[bytes]]] = set()
-        self._semaphore = asyncio.Semaphore(max_workers)
+        self._semaphore = asyncio.Semaphore(self.max_workers)
 
     async def iter(
         self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch]
@@ -168,14 +169,16 @@ class JSONLBrotliStreamTransformer:
         self,
         exclude_columns: collections.abc.Collection[str] = (),
         max_file_size_bytes: int = 0,
-        max_workers: int = defaults.TRANSFORMER_MAX_WORKERS,
+        max_workers: int | None = None,
     ) -> None:
         self.exclude_columns = tuple(exclude_columns)
         self.max_file_size_bytes = max_file_size_bytes
-        self.max_workers = max_workers
+        self.max_workers = (
+            max_workers if max_workers is not None else settings.WAREHOUSE_DESTINATIONS_TRANSFORMER_MAX_WORKERS
+        )
 
         self._futures_pending: set[asyncio.Future[list[bytes]]] = set()
-        self._semaphore = asyncio.Semaphore(max_workers)
+        self._semaphore = asyncio.Semaphore(self.max_workers)
         self._brotli_compressor = None
 
     async def iter(
@@ -335,10 +338,10 @@ def dump_dict(d: dict[str, typing.Any]) -> bytes:
         # awkwardly check error messages.
         if str(err) == "Recursion limit reached":
             # Orjson has a fixed recursion limit (256). The stdlib json is slower but goes deeper.
-            logger.exception("Orjson detected a deeply nested dict")
+            get_write_only_logger(__name__).exception("Orjson detected a deeply nested dict")
             dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
         elif str(err) == "Integer exceeds 64-bit range":
-            logger.warning("Failed to encode with orjson: Integer exceeds 64-bit range: %s", d)
+            get_write_only_logger(__name__).warning("Failed to encode with orjson: Integer exceeds 64-bit range")
             # Orjson doesn't support integers exceeding 64-bit range, so we fall back to json.dumps
             # see https://github.com/ijl/orjson/issues/301
             dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
@@ -346,7 +349,7 @@ def dump_dict(d: dict[str, typing.Any]) -> bytes:
             # Orjson is very strict about invalid unicode. This slow path protects us
             # against things we've observed in practice, like single surrogate codes, e.g.
             # "\ud83d"
-            logger.exception("Failed to encode with orjson: %s", d)
+            get_write_only_logger(__name__).exception("Failed to encode with orjson", error_type=type(err).__name__)
             cleaned_content = replace_broken_unicode(d)
             dumped = dump_dict(cleaned_content)
 
@@ -408,7 +411,7 @@ class ParquetStreamTransformer:
         self.execution_time_recorder = execution_time_recorder or NoOpExecutionTimeRecorder
 
         if max_buffered_arrow_bytes is None:
-            max_buffered_arrow_bytes = defaults.PARQUET_MAX_BUFFERED_ARROW_BYTES
+            max_buffered_arrow_bytes = settings.WAREHOUSE_DESTINATIONS_PARQUET_MAX_BUFFERED_ARROW_BYTES
         if max_file_size_bytes:
             max_buffered_arrow_bytes = min(max_buffered_arrow_bytes, max_file_size_bytes)
         self.max_buffered_arrow_bytes = max_buffered_arrow_bytes
@@ -772,7 +775,7 @@ class SchemaTransformer:
             try:
                 field = self.table[field_name]
             except KeyError:
-                logger.warning(
+                get_write_only_logger(__name__).warning(
                     "Field missing in target",
                     name=field_name,
                     table=self.table.fully_qualified_name,
@@ -780,7 +783,7 @@ class SchemaTransformer:
                 continue
 
             if field.name != field_name:
-                logger.warning(
+                get_write_only_logger(__name__).warning(
                     "Field aliased",
                     field=field.name,
                     alias=field.alias,
@@ -801,7 +804,7 @@ class SchemaTransformer:
                 if self.raise_on_incompatible:
                     raise IncompatibleTypesError(field, array.type)
 
-                logger.warning(
+                get_write_only_logger(__name__).warning(
                     "Detected incompatible types",
                     field=field.name,
                     source_type=array.type,

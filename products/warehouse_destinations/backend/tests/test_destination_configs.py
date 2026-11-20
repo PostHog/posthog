@@ -136,6 +136,8 @@ def test_parse_destination_config_builds_the_typed_config(data: dict[str, Any], 
         (_inline(port=PASSWORD), "port"),
         (_inline(port=None), "port"),
         (_inline(ssl_mode="disable"), "ssl_mode"),
+        # "prefer" falls back to a connection without TLS, which would send the password in clear text.
+        (_inline(ssl_mode="prefer"), "ssl_mode"),
         (_inline(ssl_mode=PASSWORD), "ssl_mode"),
         (_inline(selection="password"), "selection"),
         ({"database": "analytics", "auth_method": {"selection": "integration"}}, "integration_id"),

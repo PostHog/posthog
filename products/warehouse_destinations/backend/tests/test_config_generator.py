@@ -117,6 +117,9 @@ def test_a_select_with_option_fields_renders_a_nested_class_that_checks_the_sele
         "    role: str | None = config.value(converter=base.optional_text, default_factory=lambda: None)\n"
         "\n"
         "    def __post_init__(self) -> None:\n"
+        "        self._check()\n"
+        "\n"
+        "    def _check(self) -> None:\n"
         '        base.require_fields(self, {"token": ("token", "account"), "password": ("account", "password")}.get(self.selection, ()))\n'
     ) in source
     assert "\n    auth: SnowflakeAuthConfig\n" in source
@@ -171,6 +174,9 @@ def test_a_switch_group_renders_an_optional_nested_class_with_an_enabled_flag() 
         "    ca_name: str | None = config.value(converter=base.optional_text, default_factory=lambda: None)\n"
         "\n"
         "    def __post_init__(self) -> None:\n"
+        "        self._check()\n"
+        "\n"
+        "    def _check(self) -> None:\n"
         "        if self.enabled:\n"
         '            base.require_fields(self, ("ca_cert",))\n'
     ) in source
@@ -233,6 +239,31 @@ def test_nested_classes_are_declared_before_the_classes_that_use_them() -> None:
 
     assert config.outer.group.inner.x_value == "v"
     assert type(config.outer.group.inner).__name__ == "SnowflakeOuterGroupInnerConfig"
+
+
+@pytest.mark.parametrize(
+    "inner_default, outer, error",
+    [
+        # An inner select in an option that is not selected still builds, on its default option.
+        ("x", {"selection": "two"}, None),
+        ("x", {"selection": "one"}, "'x_value' is required"),
+        ("x", {"selection": "one", "inner": {"selection": "y"}}, None),
+        (None, {"selection": "two"}, None),
+        (None, {"selection": "one"}, "'inner' is required"),
+        (None, {"selection": "one", "inner": {"selection": "x", "x_value": "v"}}, None),
+    ],
+)
+def test_a_nested_select_in_an_option_is_checked_only_when_its_option_is_selected(
+    inner_default: str | None, outer: dict[str, Any], error: str | None
+) -> None:
+    inner = _select("inner", _option("x", _input("x_value")), _option("y"), default=inner_default)
+    module = _load(_select("outer", _option("one", inner), _option("two"), default="one"))
+
+    if error is not None:
+        with pytest.raises(ConfigValueError, match=error):
+            module.SnowflakeDestinationConfig.from_dict({"outer": outer})
+        return
+    assert module.SnowflakeDestinationConfig.from_dict({"outer": outer}).outer.selection == outer["selection"]
 
 
 def test_the_module_header_names_the_spec_and_the_command() -> None:

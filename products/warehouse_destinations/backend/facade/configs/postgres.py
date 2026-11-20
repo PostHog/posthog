@@ -19,11 +19,14 @@ class PostgresAuthMethodConfig(config.Config):
     port: int = config.value(converter=config.str_to_int, default=5432)
     user: str | None = config.value(converter=base.optional_text, default_factory=lambda: None)
     password: str | None = config.value(converter=base.optional_text, default_factory=lambda: None, repr=False)
-    ssl_mode: Literal["prefer", "require", "verify-ca", "verify-full"] = config.value(
-        converter=base.choice("prefer", "require", "verify-ca", "verify-full"), default="require"
+    ssl_mode: Literal["require", "verify-ca", "verify-full"] = config.value(
+        converter=base.choice("require", "verify-ca", "verify-full"), default="require"
     )
 
     def __post_init__(self) -> None:
+        self._check()
+
+    def _check(self) -> None:
         base.require_fields(
             self,
             {"integration": ("integration_id",), "credentials": ("host", "user", "password")}.get(self.selection, ()),

@@ -14,13 +14,16 @@ from psycopg import sql
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Integration
+from posthog.models.integration import TLS
 
 from products.warehouse_destinations.backend.core.json_type import JsonType
 from products.warehouse_destinations.backend.core.table_marker import TableMarker, parse
+from products.warehouse_destinations.backend.destinations.postgres import integration
 from products.warehouse_destinations.backend.destinations.postgres.destination import (
     BATCH_KEY_COLUMN,
     PostgresDestination,
     PostgresSession,
+    batch_key_index_name,
     scoped_identifier,
     staging_table_name,
 )
@@ -58,6 +61,12 @@ from products.warehouse_destinations.backend.facade.testing import fake_config
 from products.warehouse_destinations.backend.tests.destinations.postgres.conftest import ROLE_PASSWORD
 
 
+@pytest.fixture(autouse=True)
+def _test_server_without_tls(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The test server has no TLS, and typed-in connection details cannot ask for "prefer".
+    monkeypatch.setattr(integration, "inline_tls", lambda ssl_mode: TLS(ssl_mode="prefer"))
+
+
 def _schema(*fields: tuple[str, pa.DataType]) -> pa.Schema:
     return pa.schema(list(fields))
 
@@ -93,7 +102,7 @@ def _settings(postgres_config: dict, *, database: str | None = None, **auth: Any
     inline = {key: postgres_config[key] for key in ("host", "port", "user", "password")}
     return {
         "database": database or postgres_config["database"],
-        "auth_method": {"selection": "credentials", **inline, "ssl_mode": "prefer", **auth},
+        "auth_method": {"selection": "credentials", **inline, **auth},
     }
 
 
@@ -345,9 +354,15 @@ async def test_column_types_win_over_the_type_policy(postgres_config, pg, schema
             PostgreSQLInvalidTargetError,
             "reserved",
         ),
+        # Postgres would truncate the name, and later writes would drop the column.
+        (
+            {"arrow_schema": _schema(("id", pa.int64()), ("c" * 64, pa.string()))},
+            PostgreSQLIncompatibleSchemaError,
+            "longer than 63 bytes",
+        ),
     ],
 )
-async def test_invalid_target_is_a_configuration_error_before_any_change(
+async def test_invalid_target_is_refused_before_any_change(
     postgres_config, pg, schema, target_kwargs: dict, error: type[Exception], match: str
 ) -> None:
     table = target_kwargs.pop("table_name", "t")
@@ -358,7 +373,7 @@ async def test_invalid_target_is_a_configuration_error_before_any_change(
             await session.prepare(target)
 
     assert isinstance(exc_info.value, DestinationError)
-    assert exc_info.value.kind == ErrorKind.CONFIGURATION
+    assert not exc_info.value.retryable
     assert pg.execute("SELECT 1 FROM pg_namespace WHERE nspname = %s", (schema,)).fetchone() is None
 
 
@@ -394,17 +409,30 @@ async def test_version_key_merge_updates_only_newer_rows(
 
 @pytest.mark.parametrize("version_keys", [(), ("version",)])
 @pytest.mark.parametrize("ensure_unique_key", [True, False])
+@pytest.mark.parametrize(
+    "index, usable",
+    [
+        (None, False),
+        # ON CONFLICT (id) cannot use a partial index or one with an expression.
+        ("(id) WHERE id > 0", False),
+        ("(id, lower(name))", False),
+        # INCLUDE columns are not key columns, so this index is a unique key on id alone.
+        ("(id) INCLUDE (name)", True),
+    ],
+)
 async def test_ensure_unique_key_decides_for_a_table_without_one(
-    postgres_config, pg, schema, ensure_unique_key: bool, version_keys: tuple
+    postgres_config, pg, schema, ensure_unique_key: bool, version_keys: tuple, index: str | None, usable: bool
 ) -> None:
     _create_table(pg, schema, "t", "id BIGINT, version BIGINT, name TEXT")
+    if index is not None:
+        pg.execute(sql.SQL("CREATE UNIQUE INDEX ON {} {}").format(sql.Identifier(schema, "t"), sql.SQL(index)))
     pg.execute(sql.SQL("INSERT INTO {} VALUES (1, 1, 'a')").format(sql.Identifier(schema, "t")))
     arrow_schema = _schema(("id", pa.int64()), ("version", pa.int64()), ("name", pa.string()))
     batch = pa.RecordBatch.from_pylist([{"id": 1, "version": 2, "name": "b"}], schema=arrow_schema)
     merge = MergeSpec(primary_keys=("id",), version_keys=version_keys, ensure_unique_key=ensure_unique_key)
     target = _target(schema, "t", WriteMode.MERGE, arrow_schema=arrow_schema, merge=merge)
 
-    if ensure_unique_key:
+    if ensure_unique_key or usable:
         await _run(_destination(postgres_config), target, batch)
         await _run(_destination(postgres_config), target, batch)
         assert _select(pg, schema, "t", "id, version, name") == [(1, 2, "b")]
@@ -511,14 +539,72 @@ async def test_prepare_again_resumes_the_staging_table(postgres_config, pg, sche
     assert not _exists(pg, schema, _staging())
 
 
-async def test_resumed_merge_staging_gains_columns_added_to_the_final_table(postgres_config, pg, schema) -> None:
+@pytest.mark.parametrize(
+    "added_to_final, value, expected",
+    [
+        # The second prepare adds the column to the final table from the data's type.
+        (None, "x", "x"),
+        # Someone else added it with another type. The staging copy must take that type, or the
+        # merge reads text into a BIGINT column.
+        ("BIGINT", "7", 7),
+    ],
+)
+async def test_resumed_merge_staging_gains_columns_added_to_the_final_table(
+    postgres_config, pg, schema, added_to_final: str | None, value: str, expected: Any
+) -> None:
     await _run(_destination(postgres_config), _target(schema, "t", WriteMode.MERGE), _rows((1, "a")), commit=False)
+    if added_to_final is not None:
+        pg.execute(
+            sql.SQL("ALTER TABLE {} ADD COLUMN extra {}").format(sql.Identifier(schema, "t"), sql.SQL(added_to_final))
+        )
     wider = pa.schema([*ROWS_SCHEMA, ("extra", pa.string())])
-    batch = pa.RecordBatch.from_pylist([{"id": 2, "name": "b", "extra": "x"}], schema=wider)
+    batch = pa.RecordBatch.from_pylist([{"id": 2, "name": "b", "extra": value}], schema=wider)
 
     await _run(_destination(postgres_config), _target(schema, "t", WriteMode.MERGE, arrow_schema=wider), batch)
 
-    assert _select(pg, schema, "t", "id, name, extra") == [(1, "a", None), (2, "b", "x")]
+    assert _select(pg, schema, "t", "id, name, extra") == [(1, "a", None), (2, "b", expected)]
+
+
+@pytest.mark.parametrize("write_mode", [WriteMode.MERGE, WriteMode.REPLACE])
+async def test_staging_tables_index_the_batch_key_also_when_resumed(
+    postgres_config, pg, schema, write_mode: WriteMode
+) -> None:
+    index = batch_key_index_name(_staging())
+    index_query = "SELECT indexdef FROM pg_indexes WHERE schemaname = %s AND indexname = %s"
+
+    for _ in range(2):
+        async with _destination(postgres_config).connect() as session:
+            await session.prepare(_target(schema, "t", write_mode))
+
+        row = pg.execute(index_query, (schema, index)).fetchone()
+        assert row is not None and f"({BATCH_KEY_COLUMN})" in row[0]
+        # The next prepare resumes a staging table without the index, as an older one would be.
+        pg.execute(sql.SQL("DROP INDEX {}").format(sql.Identifier(schema, index)))
+
+
+async def test_a_serialization_failure_after_the_copy_read_its_data_still_writes_every_row(
+    postgres_config, pg, schema
+) -> None:
+    _create_table(pg, schema, "t", "id BIGINT, name TEXT")
+    attempts = sql.Identifier(schema, "attempts")
+    pg.execute(sql.SQL("CREATE SEQUENCE {}").format(attempts))
+    # The sequence is not transactional, so only the first COPY fails, and only on its first row.
+    pg.execute(
+        sql.SQL(
+            "CREATE FUNCTION {}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+            "IF nextval({}) = 1 THEN RAISE EXCEPTION 'conflict' USING ERRCODE = 'serialization_failure'; END IF; "
+            "RETURN NEW; END $$"
+        ).format(sql.Identifier(schema, "fail_once"), sql.Literal(attempts.as_string()))
+    )
+    pg.execute(
+        sql.SQL("CREATE TRIGGER fail_once BEFORE INSERT ON {} FOR EACH ROW EXECUTE FUNCTION {}()").format(
+            sql.Identifier(schema, "t"), sql.Identifier(schema, "fail_once")
+        )
+    )
+
+    await _run(_destination(postgres_config), _target(schema, "t", WriteMode.APPEND), _rows((1, "a"), (2, "b")))
+
+    assert _select(pg, schema, "t") == [(1, "a"), (2, "b")]
 
 
 @pytest.mark.parametrize("write_mode", [WriteMode.APPEND, WriteMode.MERGE, WriteMode.REPLACE])
@@ -577,6 +663,35 @@ async def test_replace_commit_that_is_not_final_changes_nothing(postgres_config,
         await session.commit(target.ref)
 
     assert _select(pg, schema, "t") == [(2, "new")]
+
+
+async def test_a_swap_that_waits_too_long_for_a_reader_is_a_transient_error(postgres_config, pg, schema) -> None:
+    await _run(_destination(postgres_config), _target(schema, "t", WriteMode.REPLACE), _rows((1, "a")))
+    target = _target(schema, "t", WriteMode.REPLACE, staging_key="run2")
+    destination = PostgresDestination(_connection(postgres_config), swap_lock_timeout_seconds=0.2)
+    await _run(destination, target, _rows((2, "b")), commit=False)
+
+    with psycopg.connect(
+        user=postgres_config["user"],
+        password=postgres_config["password"],
+        host=postgres_config["host"],
+        port=postgres_config["port"],
+        dbname=postgres_config["database"],
+    ) as reader:
+        # The open transaction keeps its lock on the final table until the rollback.
+        reader.execute(sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, "t")))
+        with pytest.raises(DestinationError) as exc_info:
+            async with destination.connect() as session:
+                await session.commit(target.ref)
+        reader.rollback()
+
+    assert exc_info.value.kind == ErrorKind.TRANSIENT
+    assert isinstance(exc_info.value.__cause__, psycopg.errors.LockNotAvailable)
+    assert _select(pg, schema, "t") == [(1, "a")]
+
+    async with destination.connect() as session:
+        await session.commit(target.ref)
+    assert _select(pg, schema, "t") == [(2, "b")]
 
 
 async def test_replayed_replace_finds_its_commit_and_leaves_the_table_intact(postgres_config, pg, schema) -> None:
@@ -749,6 +864,25 @@ def test_scoped_identifier_fits_postgres_identifiers(base: str, suffix: str) -> 
     assert name == scoped_identifier(base, suffix)
 
 
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        # The separator can sit in either part, so the readable form alone reads the same.
+        (("a", "b__ph_stage_c"), ("a__ph_stage_b", "c")),
+        (("t" * 63, "run1"), ("t" * 63, "run2")),
+        (("é" * 40, "run1"), ("é" * 40, "run1x")),
+    ],
+)
+def test_distinct_tables_and_staging_keys_get_distinct_staging_names(
+    first: tuple[str, str], second: tuple[str, str]
+) -> None:
+    names = [staging_table_name(*first), staging_table_name(*second)]
+
+    assert names[0] != names[1]
+    assert all(len(name.encode()) <= 63 for name in names)
+    assert names == [staging_table_name(*first), staging_table_name(*second)]
+
+
 async def test_a_table_name_at_the_identifier_limit_merges_through_a_distinct_staging_table(
     postgres_config, pg, schema
 ) -> None:
@@ -775,14 +909,17 @@ async def test_json_and_text_values_round_trip(postgres_config, pg, schema, json
         ("text", pa.string()),
     )
     properties = {"nested": {"a": [1, 2]}, "quote": 'say "hi"', "tab": "a\tb", "null": "\u0000"}
+    # Postgres refuses an empty text and a raw newline inside a JSON string as JSON input.
+    unescaped_newline = '{"line": "a\nb"}'
     batch = pa.RecordBatch.from_arrays(
         [
-            pa.array([1, 2]),
+            pa.array([1, 2, 3, 4]),
             pa.ExtensionArray.from_storage(
-                typing.cast(pa.BaseExtensionType, json_type), pa.array([json.dumps(properties), None])
+                typing.cast(pa.BaseExtensionType, json_type),
+                pa.array([json.dumps(properties), None, "", unescaped_newline]),
             ),
-            pa.array([["a", "{b}"], []], type=pa.list_(pa.string())),
-            pa.array(['line\nbreak\t"quoted"', ""]),
+            pa.array([["a", "{b}"], [], None, None], type=pa.list_(pa.string())),
+            pa.array(['line\nbreak\t"quoted"', "", None, None]),
         ],
         schema=arrow_schema,
     )
@@ -793,6 +930,8 @@ async def test_json_and_text_values_round_trip(postgres_config, pg, schema, json
     assert _select(pg, schema, "t", "id, properties, tags, text") == [
         (1, {**properties, "null": ""}, ["a", "{b}"], 'line\nbreak\t"quoted"'),
         (2, None, [], ""),
+        (3, None, None, None),
+        (4, {"line": "a\nb"}, None, None),
     ]
 
 
@@ -894,6 +1033,10 @@ async def test_values_the_table_refuses_are_data_errors(postgres_config, pg, sch
     assert exc_info.value.kind == ErrorKind.DATA
     assert not exc_info.value.retryable
     assert isinstance(exc_info.value.__cause__, psycopg.Error)
+    # Postgres quotes a refused value in its message, and the detail reaches the customer.
+    assert exc_info.value.detail
+    for value in batch.column("name").to_pylist():
+        assert value is None or value not in exc_info.value.detail
 
 
 async def test_a_statement_timeout_is_a_timeout_error(postgres_config, pg, schema, test_roles) -> None:

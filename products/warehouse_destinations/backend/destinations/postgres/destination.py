@@ -10,10 +10,11 @@ The connection's `PostgresDestinationConfig` picks the database, and the namespa
 - REPLACE copies rows into a staging table. The final commit swaps it into the final name in one
   transaction, so readers see the old table right up to the moment the new one is complete.
 
-A staging table carries a batch-key column, so a retried write deletes the rows of its earlier
-attempt first. A MERGE staging table also carries a row id, so `dedupe_source` keeps the last
-written row of each key. Each staging table carries a `TableMarker` in its comment with the
-settings a commit needs, so a commit needs only the `TargetRef`. A final table that a REPLACE
+A write commits each chunk on its own, so a failed write can leave some chunks of its rows in the
+staging table. A staging table carries a batch-key column, so a retry with the same batch key
+removes those rows first. A MERGE staging table also carries a row id, so `dedupe_source` keeps
+the last written row of each key. Each staging table carries a `TableMarker` in its comment with
+the settings a commit needs, so a commit needs only the `TargetRef`. A final table that a REPLACE
 committed carries the staging key in its marker, so a replay finds that it already committed.
 
 Every driver error that leaves a session method becomes a `DestinationError` (see `errors.py`).
@@ -23,6 +24,7 @@ import io
 import csv
 import json
 import typing
+import asyncio
 import hashlib
 import datetime as dt
 import functools
@@ -30,6 +32,10 @@ import contextlib
 import collections.abc
 from types import MappingProxyType
 
+from django.conf import settings
+
+import orjson
+import psycopg
 import pyarrow as pa
 from psycopg import sql
 from psycopg.adapt import Transformer
@@ -37,8 +43,8 @@ from psycopg.types.array import ListDumper
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_destinations.backend.core import defaults, table_marker
-from products.warehouse_destinations.backend.core.json_type import is_json_type
+from products.warehouse_destinations.backend.core import table_marker
+from products.warehouse_destinations.backend.core.json_type import is_json_type, load_json
 from products.warehouse_destinations.backend.core.loggers import get_write_only_logger
 from products.warehouse_destinations.backend.core.table_marker import TableMarker
 from products.warehouse_destinations.backend.core.transformer import CSVStreamTransformer
@@ -56,6 +62,7 @@ from products.warehouse_destinations.backend.destinations.postgres.errors import
     PostgreSQLConnectionError,
     PostgreSQLIncompatibleSchemaError,
     PostgreSQLInvalidTargetError,
+    PostgreSQLLockTimeoutError,
     PostgreSQLUnrelatedTableError,
     translate_error,
 )
@@ -95,6 +102,7 @@ HIDDEN_COLUMNS = frozenset({BATCH_KEY_COLUMN, ROW_ID_COLUMN})
 # the final table or the staging table of another key.
 MAX_IDENTIFIER_BYTES = 63
 _HASH_LENGTH = 8
+_STAGING_HASH_LENGTH = 16
 
 
 def scoped_identifier(base: str, suffix: str) -> str:
@@ -114,7 +122,20 @@ def scoped_identifier(base: str, suffix: str) -> str:
 
 
 def staging_table_name(table_name: str, staging_key: str) -> str:
-    return scoped_identifier(table_name, f"__ph_stage_{staging_key}")
+    """Return the staging table of `staging_key`, a deterministic name of at most 63 bytes.
+
+    Both parts can contain the separator, so the readable prefix alone is ambiguous:
+    `("a", "b__ph_stage_c")` and `("a__ph_stage_b", "c")` read the same. The hash covers a JSON
+    encoding of the pair, which keeps the parts apart, so two pairs get distinct names.
+    """
+    digest = hashlib.sha256(json.dumps([table_name, staging_key]).encode()).hexdigest()[:_STAGING_HASH_LENGTH]
+    readable = f"{table_name}__ph_stage_{staging_key}".encode()
+    prefix = readable[: MAX_IDENTIFIER_BYTES - _STAGING_HASH_LENGTH - 1].decode(errors="ignore")
+    return f"{prefix}_{digest}"
+
+
+def batch_key_index_name(staging: str) -> str:
+    return scoped_identifier(staging, "__ph_bk")
 
 
 def _lock_key(schema: str, table: str) -> str:
@@ -138,6 +159,17 @@ def _to_json_text(value: typing.Any, *, from_map: bool) -> str | None:
     return json.dumps(value, default=str)
 
 
+def _normalize_json_text(value: str | None) -> str | None:
+    """Repair a JSON text with `load_json`, then encode it again, so that Postgres accepts it."""
+    if value is None:
+        return None
+    decoded = load_json(value)
+    if decoded is None:
+        # An empty text has no JSON value. The text "null" is the JSON null.
+        return "null" if value else None
+    return json.dumps(decoded, default=str)
+
+
 def _encode_column(array: pa.Array, column_type: str, *, as_json: bool) -> pa.Array:
     """Make a column readable for the CSV transformer and for Postgres.
 
@@ -148,7 +180,8 @@ def _encode_column(array: pa.Array, column_type: str, *, as_json: bool) -> pa.Ar
         array = typing.cast(pa.DictionaryArray, array).dictionary_decode()
 
     if is_json_type(array.type):
-        return typing.cast(pa.ExtensionArray, array).storage
+        storage = typing.cast(pa.ExtensionArray, array).storage
+        return pa.array([_normalize_json_text(value) for value in storage.to_pylist()], type=pa.string())
 
     arrow_type = array.type
     if is_nested_type(arrow_type):
@@ -185,10 +218,13 @@ class _PreparedState:
     columns: collections.abc.Mapping[str, str]
 
 
-def _translated(
+def _translate_errors(
     method: typing.Callable[_P, collections.abc.Awaitable[_R]],
 ) -> typing.Callable[_P, collections.abc.Coroutine[typing.Any, typing.Any, _R]]:
-    """Turn every exception that leaves `method` into a `DestinationError` caused by it."""
+    """Let a `DestinationError` from `method` pass unchanged, and translate any other exception.
+
+    The translated error is a `DestinationError` raised from the original exception.
+    """
 
     @functools.wraps(method)
     async def inner(*args: _P.args, **kwargs: _P.kwargs) -> _R:
@@ -213,11 +249,13 @@ class PostgresSession:
         capabilities: DestinationCapabilities,
         logger: DestinationLogger,
         upload_chunk_size_bytes: int,
+        swap_lock_timeout_seconds: float,
     ) -> None:
         self._pg: PostgreSQLClient | None = client
         self._capabilities = capabilities
         self._logger = logger
         self._upload_chunk_size_bytes = upload_chunk_size_bytes
+        self._swap_lock_timeout_seconds = swap_lock_timeout_seconds
 
     def close(self) -> None:
         self._pg = None
@@ -227,7 +265,7 @@ class PostgresSession:
             raise DestinationConfigurationError("The session is closed; open a new one with connect()")
         return self._pg
 
-    @_translated
+    @_translate_errors
     async def prepare(self, target: TableTarget) -> PreparedTarget:
         client = self._client()
         ref = target.ref
@@ -292,6 +330,12 @@ class PostgresSession:
         reserved = HIDDEN_COLUMNS.intersection(target.schema.names)
         if reserved:
             raise PostgreSQLInvalidTargetError(f"Column names are reserved: {sorted(reserved)}")
+        # Postgres would truncate the name, and later writes would not find the column.
+        too_long = [name for name in target.schema.names if len(name.encode()) > MAX_IDENTIFIER_BYTES]
+        if too_long:
+            raise PostgreSQLIncompatibleSchemaError(
+                f"column names are longer than {MAX_IDENTIFIER_BYTES} bytes: {sorted(too_long)}"
+            )
         return schema
 
     async def _apply_new_columns(
@@ -315,6 +359,8 @@ class PostgresSession:
     async def _add_missing_columns(
         self, client: PostgreSQLClient, schema: str, table: str, columns: collections.abc.Sequence[PostgresColumn]
     ) -> None:
+        # A type comes from the fixed mappings in `types.py`, or from `format_type` in the
+        # destination's catalog, which quotes any name in it. Never from caller text.
         for column in columns:
             async with client.write_cursor() as cursor:
                 await cursor.execute(
@@ -380,16 +426,22 @@ class PostgresSession:
                 )
                 if stored != marker:
                     await client.set_comment(cursor, schema, staging, marker.encode())
+                await _create_batch_key_index(cursor, schema, staging)
 
             # A resumed attempt finds the staging table of an earlier attempt, which lacks columns
-            # added to the final table since then.
+            # added to the final table since then. Each gets the final table's type, as `LIKE`
+            # would have given it, so that the merge reads the same type it writes.
             final_columns = await client.aget_table_columns(schema, ref.table_name) or {}
             staging_columns = await client.aget_table_columns(schema, staging) or {}
             await self._add_missing_columns(
                 client,
                 schema,
                 staging,
-                [c for c in columns if c.name in final_columns and c.name not in staging_columns],
+                [
+                    PostgresColumn(name=c.name, type=final_columns[c.name])
+                    for c in columns
+                    if c.name in final_columns and c.name not in staging_columns
+                ],
             )
             return
 
@@ -402,19 +454,22 @@ class PostgresSession:
                 comment=marker.encode(),
                 lock_key=_lock_key(schema, staging),
             )
-            return
+        else:
+            await self._add_missing_columns(
+                client,
+                schema,
+                staging,
+                [c for c in (*columns, batch_key_column) if c.name not in existing],
+            )
+            if stored != marker:
+                async with client.write_cursor() as cursor:
+                    await client.set_comment(cursor, schema, staging, marker.encode())
 
-        await self._add_missing_columns(
-            client,
-            schema,
-            staging,
-            [c for c in (*columns, batch_key_column) if c.name not in existing],
-        )
-        if stored != marker:
-            async with client.write_cursor() as cursor:
-                await client.set_comment(cursor, schema, staging, marker.encode())
+        async with client.write_cursor() as cursor:
+            await client.advisory_lock(cursor, _lock_key(schema, staging))
+            await _create_batch_key_index(cursor, schema, staging)
 
-    @_translated
+    @_translate_errors
     async def write(
         self,
         prepared: PreparedTarget,
@@ -472,10 +527,15 @@ class PostgresSession:
                 index = batch.schema.get_field_index(name)
                 if index < 0:
                     arrays.append(pa.nulls(batch.num_rows, pa.string()))
-                else:
+                    continue
+                try:
                     arrays.append(
                         _encode_column(batch.column(index), state.columns[name], as_json=name in json_columns)
                     )
+                except orjson.JSONDecodeError as err:
+                    raise PostgreSQLIncompatibleSchemaError(
+                        f"a value in the JSON column '{name}' is not valid JSON"
+                    ) from err
             names = list(data_columns)
             if batch_key is not None:
                 arrays.append(pa.array([batch_key] * batch.num_rows, type=pa.string()))
@@ -488,7 +548,8 @@ class PostgresSession:
                 if batch.num_rows == 0:
                     continue
                 rows_written += batch.num_rows
-                yield copy_batch(batch)
+                # Encoding walks every value in Python, so it runs off the event loop.
+                yield await asyncio.to_thread(copy_batch, batch)
 
         bytes_written = 0
         buffer = io.BytesIO()
@@ -501,7 +562,7 @@ class PostgresSession:
 
         return WriteOutcome(rows_written=rows_written, bytes_written=bytes_written)
 
-    @_translated
+    @_translate_errors
     async def commit(self, ref: TargetRef, *, final: bool = True) -> None:
         client = self._client()
         check_ref(self._capabilities, ref)
@@ -580,24 +641,35 @@ class PostgresSession:
         table = ref.table_name
         committed = TableMarker(owner_tag=ref.owner_tag, committed_staging_key=ref.staging_key)
 
-        async with client.write_cursor() as cursor:
-            await client.advisory_lock(cursor, _lock_key(schema, staging))
-            # Another commit of the same key can have swapped while this one waited for the lock.
-            if await client.aget_table_columns(schema, staging) is None:
-                return
-            if marker.require_owned and await client.aget_table_columns(schema, table) is not None:
-                _check_owned(schema, table, await client.aget_table_comment(schema, table), ref.owner_tag)
+        try:
+            async with client.write_cursor() as cursor:
+                await client.advisory_lock(cursor, _lock_key(schema, staging))
+                # Another commit of the same key can have swapped while this one waited for the lock.
+                if await client.aget_table_columns(schema, staging) is None:
+                    return
+                if marker.require_owned and await client.aget_table_columns(schema, table) is not None:
+                    _check_owned(schema, table, await client.aget_table_comment(schema, table), ref.owner_tag)
 
-            await cursor.execute(
-                sql.SQL("ALTER TABLE {} DROP COLUMN IF EXISTS {}").format(
-                    sql.Identifier(schema, staging), sql.Identifier(BATCH_KEY_COLUMN)
+                # The DROP waits for every reader of the final table, and new readers queue behind
+                # it. The limit stops one long reader from stalling the commit and those readers.
+                await client.set_local_lock_timeout(cursor, self._swap_lock_timeout_seconds)
+                await cursor.execute(
+                    sql.SQL("ALTER TABLE {} DROP COLUMN IF EXISTS {}").format(
+                        sql.Identifier(schema, staging), sql.Identifier(BATCH_KEY_COLUMN)
+                    )
                 )
-            )
-            await cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(schema, table)))
-            await cursor.execute(
-                sql.SQL("ALTER TABLE {} RENAME TO {}").format(sql.Identifier(schema, staging), sql.Identifier(table))
-            )
-            await client.set_comment(cursor, schema, table, committed.encode())
+                await cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(schema, table)))
+                await cursor.execute(
+                    sql.SQL("ALTER TABLE {} RENAME TO {}").format(
+                        sql.Identifier(schema, staging), sql.Identifier(table)
+                    )
+                )
+                await client.set_comment(cursor, schema, table, committed.encode())
+        except psycopg.errors.LockNotAvailable as err:
+            raise PostgreSQLLockTimeoutError(
+                f"The swap into '{schema}.{table}' waited more than {self._swap_lock_timeout_seconds} seconds "
+                "for a lock that another session holds"
+            ) from err
 
     async def abort(self, ref: TargetRef) -> None:
         try:
@@ -619,6 +691,23 @@ class PostgresSession:
             await client.adelete_table(schema, staging, not_found_ok=True)
         except Exception:
             self._logger.warning("Failed to drop the staging table", exc_info=True)
+
+
+async def _create_batch_key_index(cursor: psycopg.AsyncCursor, schema: str, staging: str) -> None:
+    """Index the batch-key column, so that the delete a retried write runs reads only its rows.
+
+    The caller holds the staging table's advisory lock, so concurrent creates do not race.
+    """
+    index = batch_key_index_name(staging)
+    await cursor.execute("SELECT to_regclass(%s)", (sql.Identifier(schema, index).as_string(),))
+    row = await cursor.fetchone()
+    if row is not None and row[0] is not None:
+        return
+    await cursor.execute(
+        sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} ({})").format(
+            sql.Identifier(index), sql.Identifier(schema, staging), sql.Identifier(BATCH_KEY_COLUMN)
+        )
+    )
 
 
 def _check_owned(schema: str, table: str, comment: str | None, owner_tag: str | None) -> None:
@@ -650,13 +739,19 @@ class PostgresDestination:
         *,
         logger: DestinationLogger | None = None,
         upload_chunk_size_bytes: int | None = None,
+        swap_lock_timeout_seconds: float | None = None,
     ) -> None:
         self._connection = connection
         self._logger: DestinationLogger = logger or get_write_only_logger(__name__)
         self._upload_chunk_size_bytes = (
             upload_chunk_size_bytes
             if upload_chunk_size_bytes is not None
-            else defaults.POSTGRES_UPLOAD_CHUNK_SIZE_BYTES
+            else settings.WAREHOUSE_DESTINATIONS_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES
+        )
+        self._swap_lock_timeout_seconds = (
+            swap_lock_timeout_seconds
+            if swap_lock_timeout_seconds is not None
+            else settings.WAREHOUSE_DESTINATIONS_POSTGRES_SWAP_LOCK_TIMEOUT_SECONDS
         )
 
     @contextlib.asynccontextmanager
@@ -677,6 +772,7 @@ class PostgresDestination:
                 capabilities=self.capabilities,
                 logger=self._logger,
                 upload_chunk_size_bytes=self._upload_chunk_size_bytes,
+                swap_lock_timeout_seconds=self._swap_lock_timeout_seconds,
             )
             try:
                 yield session

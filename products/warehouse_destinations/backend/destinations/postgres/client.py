@@ -436,6 +436,20 @@ class PostgreSQLClient:
         """Take a transaction-level advisory lock on `key`."""
         await cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (key,))
 
+    async def set_local_lock_timeout(self, cursor: psycopg.AsyncCursor, seconds: float) -> None:
+        """Limit every lock wait for the rest of the current transaction to `seconds`.
+
+        The nested transaction is a savepoint. When the server rejects the SET, only the
+        savepoint rolls back and the transaction runs without a lock limit.
+        """
+        try:
+            async with self.connection.transaction():
+                await cursor.execute(
+                    sql.SQL("SET LOCAL lock_timeout = {}").format(sql.Literal(f"{int(seconds * 1000)}ms"))
+                )
+        except psycopg.Error:
+            self.logger.warning("Failed to set lock_timeout", exc_info=True)
+
     @staticmethod
     async def set_comment(cursor: psycopg.AsyncCursor, schema: str, table_name: str, comment: str) -> None:
         # COMMENT ON takes only a string literal, not a bind parameter. `sql.Literal` quotes it.
@@ -492,7 +506,11 @@ class PostgreSQLClient:
             return row[0] if row else None
 
     async def ahas_unique_index_on(self, schema: str, table_name: str, columns: collections.abc.Sequence[str]) -> bool:
-        """Whether a unique index covers exactly these columns, in any order."""
+        """Whether `ON CONFLICT` on exactly these columns, in any order, can use a unique index.
+
+        Only a valid, immediate unique index without a predicate or an expression qualifies, and
+        only its key columns count, not its `INCLUDE` columns.
+        """
         async with self.read_cursor() as cursor:
             await cursor.execute(
                 """
@@ -500,8 +518,15 @@ class PostgreSQLClient:
                 FROM pg_index i
                 JOIN pg_class c ON c.oid = i.indrelid
                 JOIN pg_namespace n ON n.oid = c.relnamespace
-                JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
-                WHERE i.indisunique AND c.relname = %(table)s AND n.nspname = %(schema)s
+                JOIN pg_attribute a
+                    ON a.attrelid = c.oid AND a.attnum = ANY ((i.indkey::int2[])[0:i.indnkeyatts - 1])
+                WHERE i.indisunique
+                    AND i.indisvalid
+                    AND i.indimmediate
+                    AND i.indpred IS NULL
+                    AND i.indexprs IS NULL
+                    AND c.relname = %(table)s
+                    AND n.nspname = %(schema)s
                 GROUP BY i.indexrelid
                 """,
                 {"table": table_name, "schema": schema},
@@ -566,16 +591,7 @@ class PostgreSQLClient:
         lock_timeout: float,
     ) -> bool:
         async with self.write_cursor() as cursor:
-            # The nested transaction is a savepoint. When the server rejects the SET, only the
-            # savepoint rolls back and the merge runs without a lock limit.
-            try:
-                async with self.connection.transaction():
-                    await cursor.execute(
-                        sql.SQL("SET LOCAL lock_timeout = {}").format(sql.Literal(f"{int(lock_timeout * 1000)}ms"))
-                    )
-            except psycopg.Error:
-                self.logger.warning("Failed to set lock_timeout for merge", exc_info=True)
-
+            await self.set_local_lock_timeout(cursor, lock_timeout)
             if lock_key is not None:
                 await self.advisory_lock(cursor, lock_key)
             # Another commit can have dropped the stage table while this one waited for the lock.
@@ -678,9 +694,10 @@ class PostgreSQLClient:
         schema_columns: collections.abc.Sequence[str],
     ) -> None:
         """COPY the TSV contents of `tsv_file` into a table."""
-        tsv_file.seek(0)
 
         async def _copy_tsv_in_transaction() -> None:
+            # A retry after a serialization failure must read the file from the start again.
+            tsv_file.seek(0)
             async with self.connection.cursor() as cursor:
                 await cursor.execute("SET TRANSACTION READ WRITE")
 

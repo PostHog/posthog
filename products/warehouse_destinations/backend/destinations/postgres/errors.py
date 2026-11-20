@@ -21,6 +21,19 @@ DISK_FULL_DETAIL = "The database server is out of disk space."
 ROUTINE_DETAIL = "A function or trigger on the destination database raised an error."
 TIMEOUT_DETAIL = "The database canceled a statement that ran longer than its time limit."
 TRANSIENT_DETAIL = "The connection to the database failed. PostHog will try again."
+UNSUPPORTED_DETAIL = "The database does not support an operation this destination needs."
+AUTHENTICATION_DETAIL = "The database refused the user name or password."
+UNKNOWN_DATABASE_DETAIL = "The database does not exist on this server."
+LOCK_DETAIL = "A statement waited too long for a lock that another session holds."
+CONFLICT_DETAIL = "A concurrent transaction conflicted with this write. PostHog will try again."
+DEADLOCK_DETAIL = "The database found a deadlock with another session. PostHog will try again."
+UNDEFINED_COLUMN_DETAIL = "A column does not exist in the destination table."
+DATATYPE_MISMATCH_DETAIL = "A column of the destination table has a type that does not match the data."
+SIZE_LIMIT_DETAIL = "A value or a row is larger than a limit of the database."
+DUPLICATE_KEY_DETAIL = "The data has more than one row with the same merge key."
+INVALID_VALUE_DETAIL = "A value does not fit the type or the limits of its column (SQLSTATE {sqlstate})."
+CONSTRAINT_DETAIL = "A row breaks a constraint of the destination table (SQLSTATE {sqlstate})."
+DATABASE_ERROR_DETAIL = "The database refused a statement (SQLSTATE {sqlstate})."
 
 
 class PostgreSQLConnectionError(DestinationError):
@@ -117,33 +130,46 @@ class PostgreSQLMergeTimeoutError(DestinationError):
         super().__init__(message, detail=message)
 
 
+class PostgreSQLLockTimeoutError(DestinationError):
+    """A commit waited too long for a lock on the final table. A later attempt can get it."""
+
+    default_kind = ErrorKind.TRANSIENT
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, detail=LOCK_DETAIL)
+
+
 class PostgreSQLOperationError(DestinationError):
     """A driver error from a statement, translated into a kind. The driver error is the cause."""
 
 
 # Checked in order, so a subclass must come before its base class. QueryCanceled and the
 # classes 53 to 55 subclass OperationalError, which is TRANSIENT otherwise.
+#
+# The server's own text can quote row values (for example "invalid input syntax for type integer:
+# "<value>""), so the customer-facing detail is a fixed text per class. The server text stays in
+# the exception message, for logs only.
 _KINDS: tuple[tuple[type[BaseException], ErrorKind, str | None], ...] = (
     (psycopg.errors.InsufficientPrivilege, ErrorKind.CONFIGURATION, PERMISSIONS_DETAIL),
     (psycopg.errors.InvalidSchemaName, ErrorKind.CONFIGURATION, MISSING_SCHEMA_DETAIL),
     (psycopg.errors.UndefinedTable, ErrorKind.CONFIGURATION, MISSING_TABLE_DETAIL),
     (psycopg.errors.ReadOnlySqlTransaction, ErrorKind.CONFIGURATION, READ_ONLY_DETAIL),
-    (psycopg.errors.FeatureNotSupported, ErrorKind.CONFIGURATION, None),
+    (psycopg.errors.FeatureNotSupported, ErrorKind.CONFIGURATION, UNSUPPORTED_DETAIL),
     (psycopg.errors.DiskFull, ErrorKind.CONFIGURATION, DISK_FULL_DETAIL),
     (psycopg.errors.SqlRoutineException, ErrorKind.CONFIGURATION, ROUTINE_DETAIL),
-    (psycopg.errors.InvalidPassword, ErrorKind.CONFIGURATION, None),
-    (psycopg.errors.InvalidAuthorizationSpecification, ErrorKind.CONFIGURATION, None),
-    (psycopg.errors.InvalidCatalogName, ErrorKind.CONFIGURATION, None),
+    (psycopg.errors.InvalidPassword, ErrorKind.CONFIGURATION, AUTHENTICATION_DETAIL),
+    (psycopg.errors.InvalidAuthorizationSpecification, ErrorKind.CONFIGURATION, AUTHENTICATION_DETAIL),
+    (psycopg.errors.InvalidCatalogName, ErrorKind.CONFIGURATION, UNKNOWN_DATABASE_DETAIL),
     (psycopg.errors.QueryCanceled, ErrorKind.TIMEOUT, TIMEOUT_DETAIL),
-    (psycopg.errors.LockNotAvailable, ErrorKind.TIMEOUT, None),
-    (psycopg.errors.SerializationFailure, ErrorKind.TRANSIENT, None),
-    (psycopg.errors.DeadlockDetected, ErrorKind.TRANSIENT, None),
-    (psycopg.errors.UndefinedColumn, ErrorKind.DATA, None),
-    (psycopg.errors.DatatypeMismatch, ErrorKind.DATA, None),
-    (psycopg.errors.ProgramLimitExceeded, ErrorKind.DATA, None),
-    (psycopg.errors.CardinalityViolation, ErrorKind.DATA, None),
-    (psycopg.DataError, ErrorKind.DATA, None),
-    (psycopg.IntegrityError, ErrorKind.DATA, None),
+    (psycopg.errors.LockNotAvailable, ErrorKind.TIMEOUT, LOCK_DETAIL),
+    (psycopg.errors.SerializationFailure, ErrorKind.TRANSIENT, CONFLICT_DETAIL),
+    (psycopg.errors.DeadlockDetected, ErrorKind.TRANSIENT, DEADLOCK_DETAIL),
+    (psycopg.errors.UndefinedColumn, ErrorKind.DATA, UNDEFINED_COLUMN_DETAIL),
+    (psycopg.errors.DatatypeMismatch, ErrorKind.DATA, DATATYPE_MISMATCH_DETAIL),
+    (psycopg.errors.ProgramLimitExceeded, ErrorKind.DATA, SIZE_LIMIT_DETAIL),
+    (psycopg.errors.CardinalityViolation, ErrorKind.DATA, DUPLICATE_KEY_DETAIL),
+    (psycopg.DataError, ErrorKind.DATA, INVALID_VALUE_DETAIL),
+    (psycopg.IntegrityError, ErrorKind.DATA, CONSTRAINT_DETAIL),
     (psycopg.OperationalError, ErrorKind.TRANSIENT, TRANSIENT_DETAIL),
     (psycopg.InterfaceError, ErrorKind.TRANSIENT, TRANSIENT_DETAIL),
     (TimeoutError, ErrorKind.TIMEOUT, None),
@@ -160,17 +186,15 @@ def translate_error(err: Exception) -> DestinationError:
     if isinstance(err, DestinationError):
         return err
 
+    message = f"{type(err).__name__}: {err}"
     for error_class, kind, detail in _KINDS:
         if isinstance(err, error_class):
-            return PostgreSQLOperationError(
-                f"{type(err).__name__}: {err}", kind=kind, detail=detail or _server_message(err)
-            )
-    return PostgreSQLOperationError(f"{type(err).__name__}: {err}", kind=ErrorKind.TRANSIENT)
+            return PostgreSQLOperationError(message, kind=kind, detail=_detail(err, detail))
+    return PostgreSQLOperationError(message, kind=ErrorKind.TRANSIENT, detail=_detail(err, None))
 
 
-def _server_message(err: Exception) -> str | None:
-    # The primary message names objects and constraints but not values or secrets. The rest of
-    # the diagnostics (detail, context) can quote row values, so they stay out.
-    if isinstance(err, psycopg.Error) and err.sqlstate is not None:
-        return err.diag.message_primary
-    return None
+def _detail(err: Exception, template: str | None) -> str | None:
+    sqlstate = err.sqlstate if isinstance(err, psycopg.Error) else None
+    if template is None:
+        return DATABASE_ERROR_DETAIL.format(sqlstate=sqlstate) if sqlstate is not None else None
+    return template.format(sqlstate=sqlstate or "unknown")
