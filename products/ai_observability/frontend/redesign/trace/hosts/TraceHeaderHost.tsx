@@ -33,6 +33,7 @@ export function TraceHeaderHost({
     if (!overview) {
         return null
     }
+    const disabledReason = trace ? undefined : 'Loading trace'
     const queue = reviewStatus?.queue ?? null
     // No queue id goes to the review button: saving a review then clears whichever queue holds the trace, so a stale
     // status can never point the save at the wrong queue.
@@ -63,9 +64,9 @@ export function TraceHeaderHost({
             name={overview.name}
             hasError={overview.hasError}
             backLink={backLink}
-            search={trace ? { ...searchBox, onQueryChange: setQuery, onStep: stepMatch } : null}
-            copyAction={trace ? { loading: traceCopying, onCopy: copyTrace } : undefined}
-            exportAction={trace ? { loading: traceExportLoading, onExport: exportTrace } : undefined}
+            search={{ ...searchBox, onQueryChange: setQuery, onStep: stepMatch }}
+            copyAction={{ loading: traceCopying, onCopy: copyTrace, disabledReason }}
+            exportAction={{ loading: traceExportLoading, onExport: exportTrace, disabledReason }}
             actions={reviewActions}
         />
     )

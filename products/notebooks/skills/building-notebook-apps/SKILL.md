@@ -29,6 +29,23 @@ Inputs change shared notebook variables. They do not automatically rerun downstr
 
 Each input must also be used by the source calculation: a SQL variable placeholder such as `{region}`, or the corresponding Python variable. Verify a different input value changes the intended output after a run, then restore the chosen defaults. A control that only saves a variable is not a working filter.
 
+## Connect generated widgets to controls
+
+Generated widgets read named dataframe snapshots with `await ph.readFrame("frame_name")`. They do not receive notebook variables directly and cannot change notebook variables or run queries. Keep shared controls in app input blocks.
+
+To give a widget both results and control values:
+
+1. Define variables such as `region`, `weeks`, and `target` with the variable tool.
+2. Add a SQL cell named `app_parameters` with `SELECT {region} AS region, {weeks} AS weeks, {target} AS target`. Add analytical SQL or Python cells that use those same variables. Use the cell catalog's dataframe property to name each output.
+3. Run the source cells before generating the widget. The generator needs their column schemas. Check the parameter frame contains the selected values and the analytical frames contain the expected rows.
+4. Add a Widget component with a stable node ID. Describe its dataframe names, columns, loading/error/empty states, and intended interactions in the generation prompt. Ask it to read `app_parameters` for labels, thresholds, and targets and the analytical frames for results. Do not hardcode the current control values or copy sample results into the generated UI.
+5. Generate and poll until ready, or report the concrete failure. Do not end the turn with a promise to poll later. If a wait command returns a background job, wait for that job and resume polling in the same turn. While generation runs, finish the other cells and verify the controls. Generation readiness does not grant permission to execute the generated code: the user still reviews and approves the preview where required.
+6. Include the Widget cell in the app alongside inputs, standard charts, and calculated metric cells. Change a control, run the notebook, and verify both the standard outputs and widget reflect the new data. The widget refreshes its dataframe snapshot after a successful run; changing a variable alone leaves the previous result stale.
+
+For a reusable widget, inspect its input contract and bind its logical frame names to the notebook's source frames with `posthog:notebooks-widget-attach`. Keep column names and types compatible. Do not regenerate a useful widget just to connect a differently named dataframe.
+
+Use `posthog:notebooks-run` for a whole-notebook run and `posthog:notebooks-run-status` to follow a pending run. Wait for completion and inspect cell failures before saying the app works. Read tool schemas for the exact arguments; notebook cell tools and app/widget tools use different notebook-ID parameter names.
+
 ## Compose and save
 
 Compose `app_draft` using the tool's schema. Include a useful title, optional description, at least one tab, and ordered blocks. Use stable unique IDs for tabs and blocks; every block must name an existing `tab_id`.

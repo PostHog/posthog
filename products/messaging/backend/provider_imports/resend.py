@@ -684,7 +684,7 @@ def _resolve_sender(raw_from: Any, senders: Mapping[str, IntegrationRecord]) -> 
     configured_name = str(record.config.get("name") or "") if record is not None else ""
     return _Sender(
         address=literal_liquid(address),
-        name=literal_liquid(display_name) or configured_name,
+        name=literal_liquid(display_name or configured_name),
         raw_address=address,
         record=record,
     )
