@@ -594,18 +594,19 @@ class TestDispatchCommentCommand(BaseTest):
         mention = self._slack_mention("recreate", (str(self.organization.id),), integration_id=slack.id)
         budget = BucketDecision(allowed=True, remaining=0, limit=5, retry_after=60, reset=600)
         recreations: list[dict[str, Any]] = []
+        answers: list[str] = []
 
         with (
             patch(RUN_SLACK_COMMAND, side_effect=lambda **kwargs: run_slack_command(**kwargs)),
             patch(SLACK_INSTALLATION_GITHUB, return_value=FakeGitHub(pull_request=_pull_request(is_fork=True))),
-            patch(SLACK_POST) as post,
+            patch(SLACK_POST, side_effect=lambda *args, **kwargs: answers.append(args[3])),
             patch(CONSUME_BUDGET, return_value=budget),
             patch(OWNING_TEAM_ID, return_value=self.team.id),
             patch(RECREATE_FORK_PR, side_effect=lambda **request: recreations.append(request)),
         ):
             accept_slack_mention(mention)
 
-        assert post.call_args.args[3].startswith("`recreate` only runs from a pull request comment.")
+        assert [answer.split("\n")[0] for answer in answers] == ["`recreate` only runs from a pull request comment."]
         assert recreations == []
 
     @parameterized.expand(
