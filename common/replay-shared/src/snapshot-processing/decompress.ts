@@ -46,6 +46,27 @@ const readLittleEndian = (bytes: Uint8Array, offset: number, length: number): nu
     return value
 }
 
+// Where the first zstd frame ends: past its header, its blocks and its optional checksum.
+function zstdFirstFrameEnd(raw: Uint8Array): number {
+    const descriptor = raw[4]
+    const singleSegment = (descriptor >> 5) & 1
+    const sizeBytes = [singleSegment ? 1 : 0, 2, 4, 8][descriptor >> 6]
+    let offset = 5 + (singleSegment ? 0 : 1) + [0, 1, 2, 4][descriptor & 3] + sizeBytes
+    for (;;) {
+        if (offset + 3 > raw.byteLength) {
+            return Infinity
+        }
+        const blockHeader = readLittleEndian(raw, offset, 3)
+        const blockType = (blockHeader >> 1) & 3
+        // An RLE block stores one byte, whatever size it expands to.
+        offset += 3 + (blockType === 1 ? 1 : blockHeader >> 3)
+        if (blockHeader & 1) {
+            break
+        }
+    }
+    return offset + ((descriptor >> 2) & 1 ? 4 : 0)
+}
+
 // The content size and window size a zstd frame header declares. fzstd allocates the larger before decoding.
 function zstdDeclaredSizes(raw: Uint8Array): { contentSize: number; windowSize: number } {
     const descriptor = raw[4]
@@ -63,6 +84,10 @@ function zstdDeclaredSizes(raw: Uint8Array): { contentSize: number; windowSize: 
 }
 
 function zstdDecompressWithLimit(raw: Uint8Array, limit: number, overLimit: () => Error): Uint8Array {
+    // fzstd allocates a window for every frame it meets, so only a single frame's header can be checked up front.
+    if (zstdFirstFrameEnd(raw) !== raw.byteLength) {
+        throw new Error('zstd payload is not a single frame')
+    }
     const { contentSize, windowSize } = zstdDeclaredSizes(raw)
     // fzstd allocates the window before it decodes, so a crafted window must stay under the per-field cap.
     if (windowSize > MAX_EXPANDED_FIELD_BYTES) {

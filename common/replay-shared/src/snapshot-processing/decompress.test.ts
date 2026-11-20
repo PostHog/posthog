@@ -69,13 +69,22 @@ describe('decompressEvent', () => {
         bytes.set([0xff, 0xff, 0xff, 0xff], bytes.byteLength - 4)
         return toWire(bytes)
     }
-    // A single-segment frame header declaring 2^40 bytes, with no blocks after it.
-    const oversizedZstd = (): string => toWire(new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 0xe0, 0, 0, 0, 0, 0, 1, 0, 0]))
+    // A single-segment frame declaring 2^40 bytes, with one empty final block.
+    const oversizedZstd = (): string =>
+        toWire(new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 0xe0, 0, 0, 0, 0, 0, 1, 0, 0, 0x01, 0, 0]))
 
     it.each([
         ['neither gzip nor zstd', (): string => 'not a compressed frame', 'neither gzip nor zstd'],
         ['gzip declaring more than the size limit', oversizedGzip, 'expanded size limit'],
         ['zstd declaring more than the size limit', oversizedZstd, 'expanded size limit'],
+        [
+            'more than one zstd frame',
+            (): string => {
+                const frame = zstdCompressSync(strToU8(JSON.stringify(FULL_SNAPSHOT_DATA)))
+                return toWire(new Uint8Array([...frame, ...frame]))
+            },
+            'not a single frame',
+        ],
         [
             'zstd that declares no size and expands past the limit',
             (): string => zstdWireWithoutSize('a'.repeat(MAX_EXPANDED_FIELD_BYTES)),
