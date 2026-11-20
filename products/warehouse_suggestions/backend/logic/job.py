@@ -18,7 +18,7 @@ from .candidates.base import CandidateContext, CandidateResult, MeasurementReque
 from .candidates.registry import evaluate_candidates
 from .inventory import load_inventory
 from .lifecycle import FLIP_KINDS, LifecycleResult, apply_run, pick_waiting, surface_on_demand, waiting_count
-from .reads import ReadWindow, RollupDays, TeamReads, read_rollup_days, read_team_reads
+from .reads import ReadWindow, TeamReads, read_rollup_days, read_team_reads
 from .rules import RULES, EligibilityRules, Rules
 
 MAINTAINED_STATUSES = (WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED)
@@ -43,8 +43,7 @@ def run_team(
     team_id: int,
     *,
     run_id: str,
-    today: date,
-    rollup_days: RollupDays,
+    reads: TeamReads,
     now: datetime | None = None,
     rules: Rules = RULES,
 ) -> TeamRunResult:
@@ -52,7 +51,6 @@ def run_team(
     team = Team.objects.get(id=team_id)
     if not get_or_create_team_extension(team, WarehouseSuggestionTeamConfig).enabled:
         return TeamRunResult(team_id=team_id, status=TeamRunStatus.DISABLED)
-    reads = read_team_reads(team_id, ReadWindow.ending(today, rules), rules, rollup_days)
     eligible = is_eligible(reads, rules.eligibility)
     status = TeamRunStatus.PROCESSED if eligible else TeamRunStatus.NOT_ELIGIBLE
     if not eligible and not _has_suggestions_to_maintain(team_id):

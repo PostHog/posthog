@@ -13,7 +13,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionStatus,
 )
 from products.warehouse_suggestions.backend.logic.job import TeamRunStatus, build_context, run_team
-from products.warehouse_suggestions.backend.logic.reads import RollupDays
+from products.warehouse_suggestions.backend.logic.reads import ReadWindow, RollupDays, TeamReads, read_team_reads
 from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from products.warehouse_suggestions.backend.tests.factories import team_reads
@@ -33,6 +33,9 @@ FULL_ROLLUP = RollupDays(days_with_data=RULES.window_days, recent_days_with_data
 
 
 class TestRunTeam(ClickhouseTestMixin, BaseTest):
+    def _reads(self) -> TeamReads:
+        return read_team_reads(self.team.pk, ReadWindow.ending(TODAY, RULES), RULES, FULL_ROLLUP)
+
     def _view(
         self, name: str, dag: DAG, *, materialized: bool = False, created_at: datetime = BEFORE_THE_WINDOW
     ) -> tuple[DataWarehouseSavedQuery, Node]:
@@ -82,7 +85,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
+        result = run_team(self.team.pk, run_id="run-1", reads=self._reads(), now=NOW)
 
         assert result.status == TeamRunStatus.PROCESSED
         assert sorted(
@@ -141,7 +144,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             status=status, asset_outcome=asset_outcome
         )
 
-        result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
+        result = run_team(self.team.pk, run_id="run-1", reads=self._reads(), now=NOW)
 
         config = WarehouseSuggestionTeamConfig.objects.get(team_id=self.team.pk)
         about_a_deleted_view.refresh_from_db()

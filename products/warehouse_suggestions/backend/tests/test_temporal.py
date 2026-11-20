@@ -108,6 +108,10 @@ async def test_a_worker_measures_the_most_recomputed_views_across_teams_first() 
         patch(f"{WORKFLOWS_MODULE}.RULES", one_measurement_per_run),
         patch(f"{ACTIVITIES}.read_rollup_days", return_value=RollupDays(days_with_data=30, recent_days_with_data=7)),
         patch(
+            f"{ACTIVITIES}.read_teams_reads",
+            side_effect=lambda team_ids, *_: {team_id: team_reads({}) for team_id in team_ids},
+        ),
+        patch(
             f"{ACTIVITIES}.run_team",
             side_effect=lambda team_id, **_: TeamRunResult(
                 team_id=team_id,

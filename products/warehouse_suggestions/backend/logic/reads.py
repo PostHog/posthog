@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from math import isfinite
 from typing import Any
@@ -18,11 +18,12 @@ FIRST_QUANTILE = 1
 SECOND_QUANTILE = 2
 MEASUREMENT_FEATURE = Feature.WAREHOUSE_SUGGESTIONS
 UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+NO_TEAM_TOTALS = (0, 0, 0)
 
 DAYS_FILTER = """day >= %(window_start)s
         AND day < %(window_end)s"""
 
-WINDOW_FILTER = f"""team_id = %(team_id)s
+WINDOW_FILTER = f"""team_id IN %(team_ids)s
         AND {DAYS_FILTER}"""
 
 
@@ -133,14 +134,17 @@ def read_rollup_days(window: ReadWindow) -> RollupDays:
 
 
 def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days: RollupDays) -> TeamReads:
+    return read_teams_reads([team_id], window, rules, rollup_days)[team_id]
+
+
+def read_teams_reads(
+    team_ids: Sequence[int], window: ReadWindow, rules: Rules, rollup_days: RollupDays
+) -> dict[int, TeamReads]:
     tag_queries(
-        product=Product.DATA_MODELING,
-        feature=Feature.WAREHOUSE_SUGGESTIONS,
-        team_id=team_id,
-        name="warehouse_suggestions_reads",
+        product=Product.DATA_MODELING, feature=Feature.WAREHOUSE_SUGGESTIONS, name="warehouse_suggestions_reads"
     )
     params: dict[str, Any] = {
-        "team_id": team_id,
+        "team_ids": tuple(team_ids),
         "window_start": window.start,
         "window_end": window.end,
         "recent_start": window.recent_start,
@@ -153,19 +157,29 @@ def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days:
     surface_sql, surface_params = surface_expression(rules.surfaces)
     params.update(human_params)
     params.update(surface_params)
-    readers, view_readers, view_reads = _execute(TEAM_SQL.format(human=human_sql), params, team_id)[0]
-    surface_counts = _surface_counts(SURFACES_SQL.format(human=human_sql, surface=surface_sql), params, team_id)
-    return TeamReads(
-        window=window,
-        days_with_data=rollup_days.days_with_data,
-        recent_days_with_data=rollup_days.recent_days_with_data,
-        readers=readers,
-        view_readers=view_readers,
-        view_reads=view_reads,
-        subjects=_subject_reads(SUBJECTS_SQL.format(human=human_sql), params, team_id, surface_counts),
-        refreshes=_refreshes(params, team_id),
-        refresh_runs=_refresh_runs(params, team_id),
-    )
+    totals = {
+        team_id: (readers, view_readers, view_reads)
+        for team_id, readers, view_readers, view_reads in _execute(TEAM_SQL.format(human=human_sql), params)
+    }
+    surface_counts = _surface_counts(SURFACES_SQL.format(human=human_sql, surface=surface_sql), params)
+    subjects = _subject_reads(SUBJECTS_SQL.format(human=human_sql), params, surface_counts)
+    refreshes = _refreshes(params)
+    refresh_runs = _refresh_runs(params)
+    reads: dict[int, TeamReads] = {}
+    for team_id in team_ids:
+        readers, view_readers, view_reads = totals.get(team_id, NO_TEAM_TOTALS)
+        reads[team_id] = TeamReads(
+            window=window,
+            days_with_data=rollup_days.days_with_data,
+            recent_days_with_data=rollup_days.recent_days_with_data,
+            readers=readers,
+            view_readers=view_readers,
+            view_reads=view_reads,
+            subjects=subjects.get(team_id, {}),
+            refreshes=refreshes.get(team_id, {}),
+            refresh_runs=refresh_runs.get(team_id, {}),
+        )
+    return reads
 
 
 def human_condition(traffic: TrafficRules) -> tuple[str, dict[str, Any]]:
@@ -211,6 +225,7 @@ WHERE {DAYS_FILTER}
 
 TEAM_SQL = f"""
 SELECT
+    team_id,
     uniqMergeIf(users, is_human_read),
     uniqMergeIf(users, is_human_read AND subject_kind = %(saved_query)s),
     uniqMergeIf(requests, is_human_read AND subject_kind = %(saved_query)s)
@@ -219,10 +234,12 @@ FROM (
     FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
     WHERE {WINDOW_FILTER}
 )
+GROUP BY team_id
 """
 
 SUBJECTS_SQL = f"""
 SELECT
+    team_id,
     subject_kind,
     subject_id,
     uniqMergeIf(requests, is_human),
@@ -254,44 +271,44 @@ FROM (
     WHERE {WINDOW_FILTER}
         AND read_kind = %(read)s
 )
-GROUP BY subject_kind, subject_id
+GROUP BY team_id, subject_kind, subject_id
 """
 
 SURFACES_SQL = f"""
-SELECT subject_kind, subject_id, {{surface}} AS surface, uniqMerge(requests)
+SELECT team_id, subject_kind, subject_id, {{surface}} AS surface, uniqMerge(requests)
 FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
 WHERE {WINDOW_FILTER}
     AND read_kind = %(read)s
     AND {{human}}
-GROUP BY subject_kind, subject_id, surface
+GROUP BY team_id, subject_kind, subject_id, surface
 """
 
 REFRESHES_SQL = f"""
-SELECT subject_id, uniq(workflow_id), sum(duration_ms_sum), sum(read_bytes_sum)
+SELECT team_id, subject_id, uniq(workflow_id), sum(duration_ms_sum), sum(read_bytes_sum)
 FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
 WHERE {WINDOW_FILTER}
     AND read_kind = %(refresh)s
-GROUP BY subject_id
+GROUP BY team_id, subject_id
 """
 
 REFRESH_RUNS_SQL = f"""
-SELECT subject_id, workflow_id, sum(duration_ms_sum), sum(read_bytes_sum)
+SELECT team_id, subject_id, workflow_id, sum(duration_ms_sum), sum(read_bytes_sum)
 FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
 WHERE {WINDOW_FILTER}
     AND read_kind = %(refresh)s
-    AND subject_id IN (
-        SELECT subject_id
+    AND (team_id, subject_id) IN (
+        SELECT team_id, subject_id
         FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
         WHERE {WINDOW_FILTER}
             AND read_kind = %(read)s
             AND subject_kind = %(saved_query)s
     )
-GROUP BY subject_id, workflow_id
+GROUP BY team_id, subject_id, workflow_id
 """
 
 
-def _execute(sql: str, params: Mapping[str, Any], team_id: int) -> list[tuple[Any, ...]]:
-    return sync_execute(sql, params, settings=READS_QUERY_SETTINGS, team_id=team_id)
+def _execute(sql: str, params: Mapping[str, Any]) -> list[tuple[Any, ...]]:
+    return sync_execute(sql, params, settings=READS_QUERY_SETTINGS)
 
 
 def _subject(subject_kind: str, subject_id: str) -> Subject | None:
@@ -301,24 +318,24 @@ def _subject(subject_kind: str, subject_id: str) -> Subject | None:
         return None
 
 
-def _surface_counts(sql: str, params: Mapping[str, Any], team_id: int) -> dict[Subject, dict[Surface, int]]:
-    counts: defaultdict[Subject, dict[Surface, int]] = defaultdict(dict)
-    for subject_kind, subject_id, surface, requests in _execute(sql, params, team_id):
+def _surface_counts(sql: str, params: Mapping[str, Any]) -> dict[tuple[int, Subject], dict[Surface, int]]:
+    counts: defaultdict[tuple[int, Subject], dict[Surface, int]] = defaultdict(dict)
+    for team_id, subject_kind, subject_id, surface, requests in _execute(sql, params):
         subject = _subject(subject_kind, subject_id)
         if subject is not None:
-            counts[subject][Surface(surface)] = requests
+            counts[team_id, subject][Surface(surface)] = requests
     return counts
 
 
 def _subject_reads(
-    sql: str, params: Mapping[str, Any], team_id: int, surface_counts: Mapping[Subject, dict[Surface, int]]
-) -> dict[Subject, SubjectReads]:
-    reads: dict[Subject, SubjectReads] = {}
-    for row in _execute(sql, params, team_id):
+    sql: str, params: Mapping[str, Any], surface_counts: Mapping[tuple[int, Subject], dict[Surface, int]]
+) -> dict[int, dict[Subject, SubjectReads]]:
+    reads: defaultdict[int, dict[Subject, SubjectReads]] = defaultdict(dict)
+    for team_id, *row in _execute(sql, params):
         subject = _subject(row[0], row[1])
         if subject is None:
             continue
-        reads[subject] = SubjectReads(
+        reads[team_id][subject] = SubjectReads(
             human_requests=row[2],
             human_users=row[3],
             human_days=row[4],
@@ -335,7 +352,7 @@ def _subject_reads(
             alone_duration_ms_p90=float(row[15]),
             alone_read_bytes_p90=float(row[16]),
             last_read_at=row[17],
-            requests_by_surface=surface_counts.get(subject, {}),
+            requests_by_surface=surface_counts.get((team_id, subject), {}),
             measured_reads=row[18],
             measured_duration_ms=_finite(row[19]),
             measured_read_bytes=_finite(row[20]),
@@ -348,19 +365,24 @@ def _finite(value: float) -> float:
     return float(value) if isfinite(value) else 0.0
 
 
-def _refreshes(params: Mapping[str, Any], team_id: int) -> dict[UUID, SubjectRefreshes]:
-    refreshes: dict[UUID, SubjectRefreshes] = {}
-    for subject_id, runs, duration_ms, read_bytes in _execute(REFRESHES_SQL, params, team_id):
+def _refreshes(params: Mapping[str, Any]) -> dict[int, dict[UUID, SubjectRefreshes]]:
+    refreshes: defaultdict[int, dict[UUID, SubjectRefreshes]] = defaultdict(dict)
+    for team_id, subject_id, runs, duration_ms, read_bytes in _execute(REFRESHES_SQL, params):
         subject = _subject(WarehouseSuggestionSubjectKind.SAVED_QUERY, subject_id)
         if subject is not None:
-            refreshes[subject.id] = SubjectRefreshes(runs=runs, duration_ms=duration_ms, read_bytes=read_bytes)
+            refreshes[team_id][subject.id] = SubjectRefreshes(runs=runs, duration_ms=duration_ms, read_bytes=read_bytes)
     return refreshes
 
 
-def _refresh_runs(params: Mapping[str, Any], team_id: int) -> dict[UUID, tuple[RefreshRun, ...]]:
-    runs: defaultdict[UUID, list[RefreshRun]] = defaultdict(list)
-    for subject_id, workflow_id, duration_ms, read_bytes in _execute(REFRESH_RUNS_SQL, params, team_id):
+def _refresh_runs(params: Mapping[str, Any]) -> dict[int, dict[UUID, tuple[RefreshRun, ...]]]:
+    runs: defaultdict[int, defaultdict[UUID, list[RefreshRun]]] = defaultdict(lambda: defaultdict(list))
+    for team_id, subject_id, workflow_id, duration_ms, read_bytes in _execute(REFRESH_RUNS_SQL, params):
         subject = _subject(WarehouseSuggestionSubjectKind.SAVED_QUERY, subject_id)
         if subject is not None:
-            runs[subject.id].append(RefreshRun(workflow_id=workflow_id, duration_ms=duration_ms, read_bytes=read_bytes))
-    return {subject_id: tuple(subject_runs) for subject_id, subject_runs in runs.items()}
+            runs[team_id][subject.id].append(
+                RefreshRun(workflow_id=workflow_id, duration_ms=duration_ms, read_bytes=read_bytes)
+            )
+    return {
+        team_id: {subject_id: tuple(subject_runs) for subject_id, subject_runs in team_runs.items()}
+        for team_id, team_runs in runs.items()
+    }
