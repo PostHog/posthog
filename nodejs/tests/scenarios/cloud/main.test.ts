@@ -1141,22 +1141,17 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'reader above its 2.5 ACU idle limit before T0 ({-2})',
+            'no reader average before T0 to show the reader under its 2.5 ACU idle limit ({-2})',
         ],
+
         [
             'a minute before T0 under the idle limit whose maximum CloudWatch left out',
             {
-                readerAcu: [
-                    ...minutes(-5, -3, 1, 1),
-                    { minute: -2, avg: 2 },
-                    ...minutes(-1, -1, 1, 1),
-                    ...minutes(0, 0, 2.5, 1.4),
-                    ...minutes(1, 2, 8, 6),
-                ],
+                readerAcu: IDLE_THEN_PROMOTED.map((minute) => (minute.minute === -3 ? { minute: -3, avg: 2 } : minute)),
             },
             () => undefined,
-            'invalid',
-            'no reader maximum before T0 to show the reader under its 2.5 ACU idle limit ({-2})',
+            'passed',
+            '',
         ],
         [
             'a minute before T0 below the reader minimum whose maximum CloudWatch left out',
@@ -1171,7 +1166,7 @@ describe('cloud controller', () => {
             },
             () => undefined,
             'invalid',
-            'no reader maximum before T0 to show the reader under its 2.5 ACU idle limit ({-2})',
+            'reader capacity under its 1 ACU minimum before T0 ({-2})',
         ],
         [
             'a minute before T0 above the idle limit whose maximum CloudWatch left out',
@@ -1289,19 +1284,19 @@ describe('cloud controller', () => {
             'reader average above its maximum before T0 ({-3})',
         ],
         [
-            'a reader above the idle limit while the failover waits for its offset',
+            'a reader above the idle limit in the oldest of the five minutes before T0',
             {
                 readerAcu: [
-                    ...minutes(-12, -11, 1, 1),
-                    { minute: -10, max: 3, avg: 2 },
-                    ...minutes(-9, -1, 1, 1),
+                    ...minutes(-12, -6, 1, 1),
+                    { minute: -5, max: 3, avg: 2.8 },
+                    ...minutes(-4, -1, 1, 1),
                     ...minutes(0, 0, 2.5, 1.4),
                     ...minutes(1, 2, 8, 6),
                 ],
             },
             () => undefined,
             'invalid',
-            'reader above its 2.5 ACU idle limit before T0 ({-10})',
+            'reader above its 2.5 ACU idle limit before T0 ({-5})',
         ],
         [
             'a failover entry without the instant of its request',
@@ -1363,6 +1358,32 @@ describe('cloud controller', () => {
             expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
             expect(out).toContain(`The reader sat at 1.5 ACU in the minute before T0 (${published().t0_at}).`)
         }
+    })
+
+    it('passes a reader idle on average in the five minutes before T0, and lists every minute above its idle limit', async () => {
+        const { controller } = prepare({
+            cloud: {
+                readerAcu: [
+                    ...minutes(-12, -7, 1, 1),
+                    { minute: -6, max: 3, avg: 2.8 },
+                    ...minutes(-5, -4, 1, 1),
+                    { minute: -3, max: 5, avg: 1.6 },
+                    ...minutes(-2, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            env: api.credentials,
+        })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+        const t0Minute = Date.parse(String(published().t0_at)) - (Date.parse(String(published().t0_at)) % 60_000)
+        expect(published()).toMatchObject({
+            status: 'passed',
+            acu_pre_t0_max: 5,
+            acu_pre_t0_above_idle: [-6, -3].map((minute) => new Date(t0Minute + minute * 60_000).toISOString()),
+        })
     })
 
     const RUNNER_REASON_CARDS: [string, Partial<FakeCloudOptions>, string][] = [

@@ -214,3 +214,28 @@ export const DetailedResult: Story = {
         }),
     ],
 }
+
+export const UpdatedItem: Story = {
+    parameters: DetailedResult.parameters,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/ai_observability/offline_experiments/:id/': {
+                    ...detailExperiment,
+                    updated_at: '2026-09-27T14:34:00Z',
+                },
+                '/api/projects/:team/ai_observability/offline_experiments/:id/items/:itemId/': {
+                    ...detailItems[0],
+                    content_updated_at: '2026-09-27T14:34:00Z',
+                },
+                '/api/projects/:team/ai_observability/offline_experiments/:id/items/:itemId/results/': ({ params }) => {
+                    const results = offlineDetailItemResults(String(params.itemId)).map((result) => ({
+                        ...result,
+                        is_stale: true,
+                    }))
+                    return { count: results.length, next_cursor: null, results }
+                },
+            },
+        }),
+    ],
+}

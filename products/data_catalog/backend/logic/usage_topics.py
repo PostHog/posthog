@@ -192,9 +192,9 @@ SELECT
     a.span_name,
     a.event,
     a.is_error,
-    substring(ifNull(a.input_state, ''), 1, {max_input_chars}) AS input,
-    substring(ifNull(a.output_state, ''), 1, {max_output_chars}) AS output,
-    substring(JSONExtractString(ifNull(a.output_choices, ''), 1, 'content'), 1, {max_sql_chars}) AS sql
+    substringUTF8(ifNull(a.input_state, ''), 1, {max_input_chars}) AS input,
+    substringUTF8(ifNull(a.output_state, ''), 1, {max_output_chars}) AS output,
+    substringUTF8(JSONExtractString(ifNull(a.output_choices, ''), 1, 'content'), 1, {max_sql_chars}) AS sql
 FROM posthog.ai_events AS a
 WHERE a.event IN ('$ai_span', '$ai_generation')
     AND a.span_name IN {tools}

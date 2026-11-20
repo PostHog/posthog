@@ -4,6 +4,7 @@ import uuid
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -629,19 +630,34 @@ class TestRemember(BaseTest):
 
         assert SignalScratchpad.objects.get(team_id=self.team.id, key="k").expires_at is None
 
-    def test_upsert_reclaims_an_expired_entry(self) -> None:
+    @parameterized.expand([("expired_by_another_scout", "signals-scout-apm"), ("expired_without_a_revision", None)])
+    def test_upsert_reclaims_an_expired_entry_and_reports_the_expiry(self, _name: str, expired_by: str | None) -> None:
         # Expiry hides a row from search but never deletes it, so the key stays taken. The upsert
-        # must find it and update in place rather than trip the `(team, key)` unique constraint.
-        remember(team_id=self.team.id, key="k", content="v1")
-        SignalScratchpad.objects.filter(team_id=self.team.id, key="k").update(
-            expires_at=timezone.now() - timedelta(days=1)
-        )
+        # must find it and update in place rather than trip the `(team, key)` unique constraint, and
+        # tell the writer it overruled an expiry that someone may have set on purpose.
+        created = remember(team_id=self.team.id, key="k", content="v1")
+        expired_at = timezone.now() - timedelta(days=1)
+        if expired_by is not None:
+            expirer = _create_run(self.team, skill_name=expired_by)
+            remember(
+                team_id=self.team.id, key="k", content="v1", expires_at=expired_at, changed_by_run_id=str(expirer.id)
+            )
+        else:
+            SignalScratchpad.objects.filter(team_id=self.team.id, key="k").update(expires_at=expired_at)
 
-        remember(team_id=self.team.id, key="k", content="v2")
+        revived = remember(team_id=self.team.id, key="k", content="v2")
 
         rows = SignalScratchpad.objects.filter(team_id=self.team.id, key="k")
         assert rows.count() == 1
         assert search_scratchpad(team_id=self.team.id, key="k")[0].content == "v2"
+        assert created.revived_expiry is None
+        assert revived.revived_expiry is not None
+        assert (
+            revived.revived_expiry.expires_at,
+            revived.revived_expiry.set_by_skill,
+            revived.revived_expiry.set_at is not None,
+        ) == (expired_at.isoformat(), expired_by, expired_by is not None)
+        assert remember(team_id=self.team.id, key="k", content="v3").revived_expiry is None
 
     @parameterized.expand(
         [
@@ -786,6 +802,15 @@ class TestSearchScratchpad(BaseTest):
                 "naming",
                 lambda team_id: search_scratchpad_naming(team_id=team_id, key_prefix="person:", terms=["shared"]),
             ),
+            # Change hints apply to exact-key reads only, so a wide search stays one query with no marker.
+            (
+                "text_with_hints",
+                lambda team_id: search_scratchpad(team_id=team_id, text="shared", include_change_hints=True),
+            ),
+            (
+                "prefix_with_hints",
+                lambda team_id: search_scratchpad(team_id=team_id, key_prefix="person:", include_change_hints=True),
+            ),
         ]
     )
     def test_resolves_attribution_in_one_query_without_heavy_joined_columns(self, _name: str, search) -> None:
@@ -793,6 +818,12 @@ class TestSearchScratchpad(BaseTest):
             remember(
                 team_id=self.team.id, key=f"person:{i}", content="shared login", run_id=str(_create_run(self.team).id)
             )
+        remember(
+            team_id=self.team.id,
+            key="person:lapsed",
+            content="shared login",
+            expires_at=timezone.now() - timedelta(days=1),
+        )
 
         with CaptureQueriesContext(connection) as queries:
             entries = search(self.team.id)
@@ -823,6 +854,54 @@ class TestSearchScratchpad(BaseTest):
         keys = {e.key for e in results}
         # Matches on both content ('CHECKOUT' in k1) and key ('checkout-key').
         assert keys == {"k1", "checkout-key"}
+
+    @parameterized.expand(
+        [
+            ("body_quotes_the_prefix", "report:", ["report:checkout"]),
+            ("percent_is_literal", "rate%:", ["rate%:checkout"]),
+            ("underscore_is_literal", "ai_:", ["ai_:checkout"]),
+        ]
+    )
+    def test_key_prefix_matches_only_keys_that_start_with_it(
+        self, _name: str, key_prefix: str, expected: list[str]
+    ) -> None:
+        remember(team_id=self.team.id, key="report:checkout", content="v")
+        remember(team_id=self.team.id, key="dedupe:checkout", content="filed as report:checkout")
+        remember(team_id=self.team.id, key="rate%:checkout", content="v")
+        remember(team_id=self.team.id, key="rate-limit:checkout", content="v")
+        remember(team_id=self.team.id, key="ai_:checkout", content="v")
+        remember(team_id=self.team.id, key="aix:checkout", content="v")
+
+        results = search_scratchpad(team_id=self.team.id, key_prefix=key_prefix)
+
+        assert [e.key for e in results] == expected
+
+    def test_key_prefix_pages_one_scouts_family_with_the_other_filters(self) -> None:
+        errors_run = str(_create_run(self.team).id)
+        flags_run = str(_create_run(self.team, skill_name="signals-scout-flags").id)
+        for key in ("followup:errors:old", "followup:errors:new", "watch:errors:new"):
+            remember(team_id=self.team.id, key=key, content="pending", run_id=errors_run)
+        remember(team_id=self.team.id, key="followup:errors:sibling", content="pending", run_id=flags_run)
+        SignalScratchpad.objects.filter(team=self.team, key="followup:errors:old").update(
+            updated_at=timezone.now() - timedelta(days=2)
+        )
+        search = partial(
+            search_scratchpad,
+            team_id=self.team.id,
+            key_prefix="followup:errors:",
+            skill_name="signals-scout-errors",
+            keys_only=True,
+            limit=1,
+        )
+
+        first = search()
+        assert first[0].updated_at is not None
+        second = search(date_to=datetime.fromisoformat(first[0].updated_at))
+
+        assert [(e.key, e.content) for e in first + second] == [
+            ("followup:errors:new", ""),
+            ("followup:errors:old", ""),
+        ]
 
     @parameterized.expand(
         [
@@ -977,6 +1056,73 @@ class TestSearchScratchpad(BaseTest):
         results = search_scratchpad(team_id=self.team.id, include_expired=include_expired)
 
         assert {e.key for e in results} == expected_keys
+
+    @parameterized.expand(
+        [
+            ("created_with_the_expiry", [("v1", True, None)], None),
+            ("expired_by_another_scout", [("v1", False, None), ("v1", True, "signals-scout-apm")], "signals-scout-apm"),
+            # The newest change kept the expiry, so it did not set it, and an older change is not attributed.
+            (
+                "rewritten_after_the_expiry",
+                [("v1", False, None), ("v1", True, "signals-scout-apm"), ("v2", True, "signals-scout-flags")],
+                None,
+            ),
+        ]
+    )
+    def test_exact_key_read_with_hints_marks_an_entry_its_expiry_hid(
+        self, _name: str, writes: list[tuple[str, bool, str | None]], expected_skill: str | None
+    ) -> None:
+        creator = str(_create_run(self.team).id)
+        expired_at = timezone.now() - timedelta(days=1)
+        for content, expires, changed_by in writes:
+            remember(
+                team_id=self.team.id,
+                key="cooldown",
+                content=content,
+                run_id=creator,
+                expires_at=expired_at if expires else None,
+                changed_by_run_id=str(_create_run(self.team, skill_name=changed_by).id) if changed_by else None,
+            )
+        hinted = partial(search_scratchpad, team_id=self.team.id, include_change_hints=True)
+
+        [marker] = hinted(key="cooldown", content_max_chars=5)
+
+        assert (marker.content, marker.expired, marker.expires_at, marker.created_by_skill) == (
+            "",
+            True,
+            expired_at.isoformat(),
+            "signals-scout-errors",
+        )
+        assert (marker.last_changed_by_skill, marker.last_changed_at is not None) == (
+            expected_skill,
+            expected_skill is not None,
+        )
+        [audited] = hinted(key="cooldown", include_expired=True)
+        assert (audited.content, audited.expired) == (writes[-1][0], False)
+        assert hinted(key="never-written") == []
+        assert hinted(key="cooldown", date_from=timezone.now() + timedelta(days=1)) == []
+
+    def test_exact_key_read_with_hints_names_the_last_writer_of_this_entry(self) -> None:
+        creator = str(_create_run(self.team).id)
+        rewriter = str(_create_run(self.team, skill_name="signals-scout-apm").id)
+        hinted = partial(search_scratchpad, team_id=self.team.id, key="k", include_change_hints=True)
+        remember(team_id=self.team.id, key="k", content="v1", run_id=creator)
+        [unchanged] = hinted()
+        assert (unchanged.last_changed_by_skill, unchanged.last_changed_at) == (None, None)
+
+        remember(team_id=self.team.id, key="k", content="v2", run_id=creator, changed_by_run_id=rewriter)
+
+        [rewritten] = hinted()
+        assert (rewritten.created_by_skill, rewritten.last_changed_by_skill) == (
+            "signals-scout-errors",
+            "signals-scout-apm",
+        )
+        assert rewritten.last_changed_at is not None
+        # A `forget` and the overwrites before it describe the deleted entry, not the one written after it.
+        forget(team_id=self.team.id, key="k", changed_by_run_id=rewriter)
+        remember(team_id=self.team.id, key="k", content="v3", run_id=creator)
+        [recreated] = hinted()
+        assert (recreated.content, recreated.last_changed_by_skill, recreated.last_changed_at) == ("v3", None, None)
 
     def test_exact_key_lookup_hides_an_expired_entry(self) -> None:
         # `key=` is a separate ORM branch from the unfiltered listing, and it's the lookup a scout

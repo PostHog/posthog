@@ -1,5 +1,7 @@
 import dataclasses
+from collections.abc import Iterable, Iterator
 from concurrent.futures import CancelledError, Future
+from contextlib import contextmanager
 from dataclasses import field, replace
 from threading import Event, Lock
 from uuid import uuid4
@@ -8,7 +10,7 @@ from prometheus_client import Counter
 
 from posthog.schema import HogQLQueryResponse
 
-from posthog.hogql import ast
+from posthog.hogql import ast, query_stats
 from posthog.hogql.batch import BatchQueryResult
 from posthog.hogql.constants import LimitContext, get_max_limit_for_context
 from posthog.hogql.multi_query import ExecutionGroup, MultiQueryPlanner, SharingQuery
@@ -45,6 +47,26 @@ class _WaitingQuery:
     result: Future[HogQLQueryResponse | None]
     tile_id: int | None = None
     shared_failed: Event = field(default_factory=Event)
+    stats: query_stats.QueryStats | None = field(default_factory=query_stats.get_active)
+
+
+@contextmanager
+def _forward_query_starts(members: Iterable[_WaitingQuery]) -> Iterator[None]:
+    running = query_stats.get_active()
+    member_scopes = [member.stats for member in members if member.stats is not None and member.stats is not running]
+    if running is None or not member_scopes:
+        yield
+        return
+
+    def forward() -> None:
+        for scope in member_scopes:
+            scope.notify_query_started()
+
+    running.query_start_listeners.append(forward)
+    try:
+        yield
+    finally:
+        running.query_start_listeners.remove(forward)
 
 
 class DashboardQuerySharing:
@@ -181,7 +203,8 @@ class DashboardQuerySharing:
             try:
                 if self.cancelled.is_set():
                     raise CancelledError()
-                results = self._execute_group(executor, group)
+                with _forward_query_starts(members.values()):
+                    results = self._execute_group(executor, group)
                 if results.keys() != members.keys():
                     raise ValueError("Missing shared query consumer result")
                 SHARING_EXECUTIONS.labels(outcome="shared").inc()

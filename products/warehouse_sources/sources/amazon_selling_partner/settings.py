@@ -15,8 +15,21 @@ INVENTORY_SUMMARIES_PATH = "/fba/inventory/v1/summaries"
 MARKETPLACE_PARTICIPATIONS_PATH = "/sellers/v1/marketplaceParticipations"
 REPORTS_PATH = "/reports/2021-06-30/reports"
 REPORT_DOCUMENTS_PATH = "/reports/2021-06-30/documents"
+PAYOUTS_PATH = "/finances/transfers/2024-06-01/payouts"
+VENDOR_PURCHASE_ORDERS_PATH = "/vendor/orders/v1/purchaseOrders"
+INBOUND_PLANS_PATH = "/inbound/fba/2024-03-20/inboundPlans"
+FULFILLMENT_ORDERS_PATH = "/fulfillment/outbound/2026-07-04/orders"
 
 ORDERS_PAGE_SIZE = 100
+INBOUND_PLANS_PAGE_SIZE = 30
+VENDOR_PURCHASE_ORDERS_PAGE_SIZE = 100
+# getPurchaseOrders rejects a creation range over 7 days and keeps purchase orders for 6 months.
+VENDOR_PURCHASE_ORDERS_WINDOW_DAYS = 7
+VENDOR_PURCHASE_ORDERS_HISTORY_DAYS = 180
+# A purchase order moves from New to Acknowledged to Closed in the weeks after Amazon places it.
+VENDOR_PURCHASE_ORDERS_LOOKBACK_SECONDS = 60 * 24 * 60 * 60
+# A payout moves from STARTED to PAID or FAILED in the days after Amazon creates it.
+PAYOUTS_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
 # BUYER and RECIPIENT are left out: they carry PII and need restricted roles on the app.
 ORDERS_INCLUDED_DATA = "FULFILLMENT,PROCEEDS,EXPENSE,PROMOTION,CANCELLATION,PACKAGES,TAX,PAYMENT"
 # listTransactions answers with an empty page when postedAfter and postedBefore are over 180 days apart.
@@ -45,6 +58,10 @@ VENDOR_INVENTORY = "vendor_inventory"
 VENDOR_NET_PURE_PRODUCT_MARGIN = "vendor_net_pure_product_margin"
 VENDOR_FORECASTS = "vendor_forecasts"
 VENDOR_REAL_TIME_SALES = "vendor_real_time_sales"
+PAYOUTS = "payouts"
+INBOUND_PLANS = "inbound_plans"
+FULFILLMENT_ORDERS = "fulfillment_orders"
+VENDOR_PURCHASE_ORDERS = "vendor_purchase_orders"
 
 
 @frozen
@@ -138,8 +155,16 @@ MARKETPLACE_CURRENCIES: dict[str, str] = {
     "A1VC38T7YXB528": "JPY",
 }
 
-SELLER_ENDPOINTS = (ORDERS, ORDER_ITEMS, TRANSACTIONS, INVENTORY_SUMMARIES)
-ENDPOINTS = (*SELLER_ENDPOINTS, *VENDOR_REPORTS)
+SELLER_ENDPOINTS = (
+    ORDERS,
+    ORDER_ITEMS,
+    TRANSACTIONS,
+    INVENTORY_SUMMARIES,
+    PAYOUTS,
+    INBOUND_PLANS,
+    FULFILLMENT_ORDERS,
+)
+ENDPOINTS = (*SELLER_ENDPOINTS, *VENDOR_REPORTS, VENDOR_PURCHASE_ORDERS)
 
 PRIMARY_KEYS: dict[str, list[str]] = {
     ORDERS: ["orderId"],
@@ -151,6 +176,10 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     VENDOR_NET_PURE_PRODUCT_MARGIN: ["marketplaceId", "asin", "startDate"],
     VENDOR_FORECASTS: ["marketplaceId", "asin", "startDate"],
     VENDOR_REAL_TIME_SALES: ["marketplaceId", "asin", "startTime"],
+    PAYOUTS: ["id"],
+    INBOUND_PLANS: ["inboundPlanId"],
+    FULFILLMENT_ORDERS: ["orderId"],
+    VENDOR_PURCHASE_ORDERS: ["purchaseOrderNumber"],
 }
 
 PARTITION_KEYS: dict[str, str] = {
@@ -161,6 +190,10 @@ PARTITION_KEYS: dict[str, str] = {
     VENDOR_INVENTORY: "startDate",
     VENDOR_NET_PURE_PRODUCT_MARGIN: "startDate",
     VENDOR_REAL_TIME_SALES: "startTime",
+    PAYOUTS: "creationDate",
+    INBOUND_PLANS: "createdAt",
+    FULFILLMENT_ORDERS: "receiveTime",
+    VENDOR_PURCHASE_ORDERS: "purchaseOrderDate",
 }
 
 
@@ -172,6 +205,13 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     VENDOR_INVENTORY: [incremental_field("startDate", IncrementalFieldType.Date)],
     VENDOR_NET_PURE_PRODUCT_MARGIN: [incremental_field("startDate", IncrementalFieldType.Date)],
     VENDOR_REAL_TIME_SALES: [incremental_field("startTime")],
+    PAYOUTS: [incremental_field("creationDate")],
+    FULFILLMENT_ORDERS: [incremental_field("statusUpdateTime")],
+    VENDOR_PURCHASE_ORDERS: [incremental_field("purchaseOrderDate")],
 }
 
-DEFAULT_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {TRANSACTIONS: TRANSACTIONS_LOOKBACK_SECONDS}
+DEFAULT_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {
+    TRANSACTIONS: TRANSACTIONS_LOOKBACK_SECONDS,
+    PAYOUTS: PAYOUTS_LOOKBACK_SECONDS,
+    VENDOR_PURCHASE_ORDERS: VENDOR_PURCHASE_ORDERS_LOOKBACK_SECONDS,
+}
