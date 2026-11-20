@@ -193,18 +193,6 @@ class TestAnomalyRanking(SimpleTestCase):
 
         assert [summary.series_key for summary in ranked] == expected
 
-    @parameterized.expand(
-        [("unusual", False, ["three_of_ten", "one_of_one"]), ("rate", True, ["one_of_one", "three_of_ten"])]
-    )
-    def test_ranks_by_the_plain_rate_only_when_rate_first(
-        self, _name: str, rate_first: bool, expected: list[str]
-    ) -> None:
-        series = [_summary("three_of_ten", scored=10, flagged=3), _summary("one_of_one", scored=1, flagged=1)]
-
-        ranked = rank_series(series, chart_shares={}, importance={}, rate_first=rate_first)
-
-        assert [summary.series_key for summary in ranked] == expected
-
     def test_rollup_sums_buckets_instead_of_averaging_rates(self) -> None:
         insight = rollup(
             [_summary("a", scored=1, flagged=1), _summary("b", scored=9, flagged=1), _summary("c", scored=5, flagged=0)]
@@ -387,14 +375,37 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             ("logins", "2026-10-16T12:00:00+00:00", [("2026-10-23T11:00:00+00:00", True)]),
         ]
 
-    def test_search_links_the_insight_with_context_before_the_flags(self) -> None:
+    @parameterized.expand(
+        [
+            ("series_row", "search", {}, lambda body: body["series"][0]),
+            ("insight_row", "search", {"group_by": "insight"}, lambda body: body["insights"][0]),
+            ("insight_history", "insight", {}, lambda body: body),
+        ]
+    )
+    def test_links_the_insight_with_context_before_the_flags(
+        self, _name: str, endpoint: str, params: dict[str, Any], row: Any
+    ) -> None:
+        self.insight.query = {
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"event": "signup"}], "dateRange": {"date_from": "-7d"}},
+        }
+        self.insight.save()
         for day in (20, 22):
             self._score(_day(day), score=0.99, flag=1, series_key="signups")
 
-        row = self._get("search", date_from="2026-10-15").json()["series"][0]
+        body = self._get(endpoint, insight_id=self.insight.id, date_from="2026-10-15", **params).json()
 
-        override = json.loads(parse_qs(urlparse(row["insight_url"]).query)["filters_override"][0])
-        assert override == {"date_from": "2026-09-26T00:00:00+00:00", "date_to": "2026-10-26T00:00:00+00:00"}
+        url = urlparse(row(body)["insight_url"])
+        query = json.loads(parse_qs(url.fragment)["q"][0])
+        assert (url.path, url.query) == (f"/project/{self.team.project_id}/insights/{self.insight.short_id}", "")
+        assert query == {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"event": "signup"}],
+                "dateRange": {"date_from": "2026-09-26T00:00:00+00:00", "date_to": "2026-10-26T00:00:00+00:00"},
+            },
+        }
 
     def test_search_names_the_live_dashboards_of_each_insight(self) -> None:
         other = Insight.objects.create(team=self.team, name="Checkout", saved=True)
@@ -416,7 +427,6 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         [
             ("unusual", "unusual", ["blip", "steady", "burst"]),
             ("recent", "recent", ["blip", "steady", "burst"]),
-            ("rate", "rate", ["burst", "steady", "blip"]),
         ]
     )
     def test_search_pages_through_rows_in_the_requested_order(
@@ -483,6 +493,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             [("hourly", "hour"), ("daily", "day")],
             [("weekly", "week"), ("older", "day")],
         ]
+        assert [page["scored_through"] for page in pages] == ["2026-10-23T11:00:00+00:00"] * 2
 
     @parameterized.expand(
         [

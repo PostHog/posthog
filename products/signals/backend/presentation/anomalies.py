@@ -95,8 +95,7 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
             "with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the "
             "series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this "
             "morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as "
-            "`unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With "
-            "`group_by: insight`, each insight sorts by its first series."
+            "`unusual`. With `group_by: insight`, each insight sorts by its first series."
         ),
     )
     search = serializers.CharField(
@@ -383,6 +382,13 @@ class AnomalySearchResponseSerializer(serializers.Serializer):
         )
     )
     message = serializers.CharField(allow_null=True, help_text="Says why the result is empty. Null when it is not.")
+    scored_through = ProjectDateTimeField(
+        allow_null=True,
+        help_text=(
+            "The newest scored bucket of any series that matches the filters, in the project timezone. It does not "
+            "depend on `order`, `only_flagged` or the page. Null when no bucket in the range was scored."
+        ),
+    )
 
 
 class AnomalyBucketSerializer(serializers.Serializer):
@@ -584,6 +590,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "truncated": result.truncated,
                     "series_capped": result.series_capped,
                     "message": result.message,
+                    "scored_through": result.scored_through,
                 }
             ).data
         )

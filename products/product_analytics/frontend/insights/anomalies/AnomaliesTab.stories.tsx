@@ -95,6 +95,7 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
         truncated: false,
         series_capped: false,
         message: null,
+        scored_through: iso(NOW),
         ...overrides,
     }
 }

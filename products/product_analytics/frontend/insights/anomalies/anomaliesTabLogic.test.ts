@@ -61,6 +61,7 @@ function searchPage(offset: number, limit: number): AnomalySearchResponseApi {
         truncated: false,
         series_capped: false,
         message: null,
+        scored_through: '2026-11-16T00:00:00+00:00',
     }
 }
 

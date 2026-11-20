@@ -251,8 +251,6 @@ class _RankKey:
 
     # 0 for every series unless the newest flag sorts first.
     negative_flag_end: float
-    # 0 for every series unless the anomaly rate sorts first.
-    negative_rate: float
     unflagged: bool
     # A series without a share of its own sorts after every series with one.
     no_chart_share: bool
@@ -630,7 +628,6 @@ def rank_series(
     chart_shares: Mapping[tuple[int, str], ChartShare],
     importance: Mapping[int, SeriesImportance],
     recent_first: bool = False,
-    rate_first: bool = False,
 ) -> list[SeriesSummary]:
     """Most anomalous first, using only measures that compare across series and intervals.
 
@@ -641,7 +638,6 @@ def rank_series(
     With ``recent_first``, the newest flagged bucket that ended last sorts first, and a series without a flag sorts
     last. It compares bucket ends, not starts, so a day that ended at midnight is newer than an hour that ended
     before it.
-    With ``rate_first``, the anomaly rate in the range sorts first, as a person reads it off a row.
     """
     unknown = SeriesImportance(on_dashboard=False, viewers=0)
 
@@ -654,7 +650,6 @@ def rank_series(
         share = chart_share.share if chart_share else None
         return _RankKey(
             negative_flag_end=negative_flag_end if recent_first else 0.0,
-            negative_rate=-(summary.anomaly_rate or 0.0) if rate_first else 0.0,
             unflagged=not summary.flagged_buckets,
             no_chart_share=share is None,
             chart_share=share or 0.0,
