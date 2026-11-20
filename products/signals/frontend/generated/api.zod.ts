@@ -10,6 +10,36 @@
 import * as zod from 'zod'
 
 /**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the chart points of anomaly series
+ */
+export const signalsAnomaliesPointsCreateBodySeriesItemSeriesKeyMax = 64
+
+export const signalsAnomaliesPointsCreateBodySeriesMax = 100
+
+export const SignalsAnomaliesPointsCreateBody = /* @__PURE__ */ zod.object({
+    series: zod
+        .array(
+            zod.object({
+                insight_id: zod.number().describe('The numeric id of the insight, from an anomaly search row.'),
+                series_key: zod
+                    .string()
+                    .max(signalsAnomaliesPointsCreateBodySeriesItemSeriesKeyMax)
+                    .describe('The `series_key` of an anomaly search row.'),
+                interval: zod
+                    .enum(['hour', 'day', 'week', 'month'])
+                    .describe('\* `hour` - Hour\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month')
+                    .describe(
+                        'The `interval` of the anomaly search row. It sets the length of the chart window.\n\n\* `hour` - Hour\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+                    ),
+            })
+        )
+        .min(1)
+        .max(signalsAnomaliesPointsCreateBodySeriesMax)
+        .describe('The series to read points for, usually one page of anomaly search rows. At most 100.'),
+})
+
+/**
  * Partial update of the per-project singleton. Omitted fields keep their value.
  * @summary Update the project's signals config
  */
@@ -2189,7 +2219,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
 export const signalsScoutCreateBodyConfigOneWriteScopesMax = 16
 
-export const signalsScoutCreateBodyConfigOneReportActionsMax = 1
+export const signalsScoutCreateBodyConfigOneReportActionsMax = 2
 
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMin = 0
 export const signalsScoutCreateBodyConfigOneMaxReportActionsPerDayMax = 20
@@ -2311,7 +2341,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .max(signalsScoutCreateBodyConfigOneReportActionsMax)
                     .optional()
                     .describe(
-                        "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                        "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
                     ),
                 max_report_actions_per_day: zod
                     .number()
@@ -2522,7 +2552,7 @@ export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigCreateBodyWriteScopesMax = 16
 
-export const signalsScoutConfigCreateBodyReportActionsMax = 1
+export const signalsScoutConfigCreateBodyReportActionsMax = 2
 
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigCreateBodyMaxReportActionsPerDayMax = 20
@@ -2602,7 +2632,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyReportActionsMax)
             .optional()
             .describe(
-                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
             ),
         max_report_actions_per_day: zod
             .number()
@@ -2789,7 +2819,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigUpdateBodyWriteScopesMax = 16
 
-export const signalsScoutConfigUpdateBodyReportActionsMax = 1
+export const signalsScoutConfigUpdateBodyReportActionsMax = 2
 
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMin = 0
 export const signalsScoutConfigUpdateBodyMaxReportActionsPerDayMax = 20
@@ -2967,7 +2997,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigUpdateBodyReportActionsMax)
             .optional()
             .describe(
-                "Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
+                "Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run."
             ),
         max_report_actions_per_day: zod
             .number()
@@ -4675,7 +4705,7 @@ export const SignalsScoutRunsEmissionReportsBatchBody = /* @__PURE__ */ zod
     )
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read.
  * @summary Remember a scratchpad entry
  */
 export const signalsScoutScratchpadRememberBodyKeyMax = 300
@@ -4707,6 +4737,12 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier. Best-effort — a value that can't be parsed or is already in the past is dropped (the memory stays durable), not rejected, so the memory write is never lost."
+            ),
+        if_updated_at: zod
+            .string()
+            .optional()
+            .describe(
+                "Optional precondition: the `updated_at` you read for this key from `scout-scratchpad-search`, sent back unchanged. The write happens only when the stored entry still has this `updated_at`. When the entry changed since you read it, or no entry has this key, nothing is written and the call returns 409 with the entry's current `updated_at`. Read the entry again and decide. Omit it to overwrite unconditionally. A value that can't be parsed is rejected, not dropped."
             ),
     })
     .describe('Request body for `remember`.')

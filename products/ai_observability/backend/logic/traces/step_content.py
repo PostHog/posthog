@@ -66,7 +66,7 @@ def read_step(
     team_id: int,
 ) -> StepReading:
     # Building the team's normalizer reads and compiles its recipes, so one node read builds it at most once.
-    normalizer = _built_once(build_normalizer)
+    normalizer = built_once(build_normalizer)
     input_prefix, output_prefix = f"{node_id}-in", f"{node_id}-out"
     with time_limit(NODE_READ_TIME_LIMIT_SECONDS):
         # Both sides share one deadline, so a side that is already a conversation renders before any team-recipe check
@@ -102,9 +102,9 @@ class _NormalizerUnavailableError(RecipeRuntimeError):
     pass
 
 
-def _built_once(build: Callable[[], RecipeNormalizer]) -> Callable[[], RecipeNormalizer]:
-    # A build that fails would fail again for the other side, so the failure is kept. The first side raises it and
-    # reports it, and a later side raises a bounded error so the same failure reaches error tracking once.
+def built_once(build: Callable[[], RecipeNormalizer]) -> Callable[[], RecipeNormalizer]:
+    # A build that fails would fail again for the next side or step, so the failure is kept. The first call raises it
+    # and reports it, and a later call raises a bounded error so the same failure reaches error tracking once.
     built: list[RecipeNormalizer | Exception] = []
 
     def normalizer() -> RecipeNormalizer:

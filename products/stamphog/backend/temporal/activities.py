@@ -70,7 +70,6 @@ from products.stamphog.backend.facade.review_evidence import (
     get_review_evidence_providers,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
-from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import (
     DECISION_FINGERPRINT_OUTPUT_KEY,
@@ -114,6 +113,7 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
+from products.stamphog.backend.logic.workflow_proofs import proven_check_runs
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     queue_routing_after_verdict,
@@ -526,7 +526,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
         # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
-        check_runs_future = submit("check_runs", get_check_runs_with_pins, client, repo, run.head_sha)
+        check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
         policy_futures = {
@@ -577,6 +577,15 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 content = client.get_default_branch_blob_text(repo, path)
                 if content is not None:
                     policy_files[path] = content
+        with timer.step("check_run_proofs"):
+            check_runs = proven_check_runs(
+                client,
+                repo,
+                pr_number=number,
+                head_sha=run.head_sha,
+                check_runs=check_runs_future.result(),
+                policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+            )
         history: ReviewHistory = history_future.result()
 
         context = {
@@ -585,7 +594,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
             "reviews": reviews_future.result(),
             "discussion": discussion_future.result(),
             "review_threads": review_threads_future.result(),
-            "check_runs": check_runs_future.result(),
+            "check_runs": check_runs,
             "pr_reactions": reactions_future.result(),
             "policy_files": policy_files,
             "author_pr_numbers": author_pr_numbers_future.result() if author_pr_numbers_future else [],
@@ -1010,7 +1019,14 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
         # the check runs are read again. A failed read lifts nothing, which refuses only the
         # approvals that need a lift.
         try:
-            context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
+            context["check_runs"] = proven_check_runs(
+                client,
+                repo,
+                pr_number=run.pull_request.pr_number,
+                head_sha=run.head_sha,
+                check_runs=client.get_check_runs(repo, run.head_sha),
+                policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+            )
         except Exception:
             activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
             context["check_runs"] = []
