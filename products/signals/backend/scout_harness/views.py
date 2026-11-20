@@ -273,6 +273,7 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     NOT_IN_USE_KEY_PREFIX,
     InvalidScratchpadError,
     ScratchpadConflictError,
+    discard,
     forget,
     record_not_in_use_write,
     remember,
@@ -2275,14 +2276,17 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self,
             "Deleting scout memories requires editor access to skills, since the scratchpad steers the scout agents.",
         )
-        return self._forget_key(request, request.validated_data["key"])
+        return self._forget_key(request, request.validated_data["key"], discard_history=True)
 
-    def _forget_key(self, request: Request, key: str) -> Response:
+    def _forget_key(self, request: Request, key: str, *, discard_history: bool = False) -> Response:
         team_id = _canonical_team_id(self)
         private = trial_store_for_request(request, team_id)
         if private is not None:
             with trial_state_errors():
                 removed = private.forget(key=key)
+            return Response(ForgetResponseSerializer({"deleted": removed}).data)
+        if discard_history:
+            removed = discard(team_id=team_id, key=key)
             return Response(ForgetResponseSerializer({"deleted": removed}).data)
         task_id = _sandbox_bound_task_id(request)
         removed = forget(

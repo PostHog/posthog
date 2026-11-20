@@ -11,11 +11,11 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
+from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.models import SignalScratchpad, SignalScratchpadRevision
 from products.signals.backend.tasks import (
     SCRATCHPAD_EXPIRY_GRACE_DAYS,
     SCRATCHPAD_REVISION_RETENTION_DAYS,
-    SCRATCHPAD_REVISIONS_PER_KEY,
     prune_expired_scratchpad_entries,
     prune_expired_scratchpad_entries_task,
     prune_scratchpad_revisions,

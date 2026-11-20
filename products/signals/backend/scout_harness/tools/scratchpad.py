@@ -17,13 +17,14 @@ import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime
-from typing import Any
+from typing import Any, TypeVar
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Q, QuerySet, TextField, Value
 from django.db.models.functions import Left
 from django.utils import timezone
 
+from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.models import SignalScoutRun, SignalScratchpad, SignalScratchpadRevision
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_PREFIX
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
@@ -211,7 +212,7 @@ def search_scratchpad(
     entries = [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in qs]
     if not (include_revisions and key):
         return entries
-    revisions = _revisions_for_key(team_id=team_id, key=key)
+    revisions = _revisions_for_key(team_id=team_id, key=key, keys_only=keys_only, content_max_chars=content_max_chars)
     if entries:
         return [replace(entries[0], revisions=revisions)]
     # Filtered rows (an expired entry, a window miss) still exist, so only a deleted key gets the blank.
@@ -355,6 +356,7 @@ def _upsert_entry(
     changed_by_run_id: str | None,
 ) -> SignalScratchpad:
     with transaction.atomic():
+        _lock_scratchpad_key(team_id=team_id, key=key)
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
         # The row lock makes the comparison and the write atomic: no other writer can change the
         # entry between this check and the save below.
@@ -396,6 +398,7 @@ def forget(
     janitor removes it.
     """
     with transaction.atomic():
+        _lock_scratchpad_key(team_id=team_id, key=key)
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
         if existing is None:
             return False
@@ -407,6 +410,21 @@ def forget(
         )
         existing.delete()
     return True
+
+
+def discard(*, team_id: int, key: str) -> bool:
+    """Remove a memory and its entire history without saving a final revision."""
+    with transaction.atomic():
+        _lock_scratchpad_key(team_id=team_id, key=key)
+        deleted_entry, _ = SignalScratchpad.objects.filter(team_id=team_id, key=key).delete()
+        deleted_revisions, _ = SignalScratchpadRevision.objects.filter(team_id=team_id, key=key).delete()
+        return bool(deleted_entry or deleted_revisions)
+
+
+def _lock_scratchpad_key(*, team_id: int, key: str) -> None:
+    # A discarded key can have revisions but no live row to lock.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-scratchpad:{team_id}:{key}"])
 
 
 def _store_revision(
@@ -427,13 +445,16 @@ def _store_revision(
     )
 
 
-def _revisions_for_key(*, team_id: int, key: str) -> list[ScratchpadRevision]:
+def _revisions_for_key(
+    *, team_id: int, key: str, keys_only: bool, content_max_chars: int | None
+) -> list[ScratchpadRevision]:
     rows = (
         SignalScratchpadRevision.objects.filter(team_id=team_id, key=key)
         .select_related("changed_by_run", "changed_by_run__task_run")
         .only(*_REVISION_FIELDS)
-        .order_by("-changed_at", "-id")
     )
+    rows = _project_content_in_sql(rows, keys_only=keys_only, content_max_chars=content_max_chars)
+    rows = rows.order_by("-changed_at", "-id")[:SCRATCHPAD_REVISIONS_PER_KEY]
     revisions = []
     for row in rows:
         run_pk = getattr(row, "changed_by_run_id", None)
@@ -441,7 +462,7 @@ def _revisions_for_key(*, team_id: int, key: str) -> list[ScratchpadRevision]:
         task_run = getattr(run, "task_run", None) if run is not None else None
         revisions.append(
             ScratchpadRevision(
-                content=row.content,
+                content=_resolve_content(row, keys_only=keys_only, content_max_chars=content_max_chars),
                 expires_at=row.expires_at.isoformat() if row.expires_at else None,
                 change=row.change,
                 changed_at=row.changed_at.isoformat(),
@@ -530,9 +551,12 @@ def _to_entry(
     )
 
 
+_ScratchpadRow = TypeVar("_ScratchpadRow", SignalScratchpad, SignalScratchpadRevision)
+
+
 def _project_content_in_sql(
-    qs: QuerySet[SignalScratchpad], *, keys_only: bool, content_max_chars: int | None
-) -> QuerySet[SignalScratchpad]:
+    qs: QuerySet[_ScratchpadRow], *, keys_only: bool, content_max_chars: int | None
+) -> QuerySet[_ScratchpadRow]:
     """Push the body projection into the query so Postgres never ships prose we drop.
 
     `content` is unbounded (50k chars by the write clamp), so a 1000-row scan that trims
@@ -551,7 +575,9 @@ def _project_content_in_sql(
     )
 
 
-def _resolve_content(row: SignalScratchpad, *, keys_only: bool, content_max_chars: int | None) -> str:
+def _resolve_content(
+    row: SignalScratchpad | SignalScratchpadRevision, *, keys_only: bool, content_max_chars: int | None
+) -> str:
     # Present only on the search path, where the projection was pushed into SQL above.
     # The write path returns whole rows and falls through to the in-memory projection.
     projected = getattr(row, "projected_content", None)

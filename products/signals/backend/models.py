@@ -4040,7 +4040,7 @@ class SignalScratchpadRevision(TeamScopedRootMixin, UUIDModel):
     change = models.CharField(max_length=16, choices=Change.choices)
     changed_at = models.DateTimeField(auto_now_add=True)
     # Who made the change: the scout run its sandbox token is bound to, or the `pipeline:*`
-    # identity of a report-pipeline stage. Both null when a person deleted the entry.
+    # identity of a report-pipeline stage. Editor discard does not create a revision.
     changed_by_run = models.ForeignKey(
         SignalScoutRun,
         on_delete=models.SET_NULL,

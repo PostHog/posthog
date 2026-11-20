@@ -37,6 +37,7 @@ from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.claim_takeover_notification import (
     send_claim_takeover_notification as send_claim_takeover_notification,
 )
+from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification as dispatch_first_report_notification,
     sweep_first_report_notifications as sweep_first_report_notifications,
@@ -1417,7 +1418,6 @@ def pause_inactive_signal_scouts() -> None:
 SCRATCHPAD_EXPIRY_GRACE_DAYS = 14
 # Some keys are rewritten on every run, so revisions are capped per key as well as by age.
 SCRATCHPAD_REVISION_RETENTION_DAYS = 14
-SCRATCHPAD_REVISIONS_PER_KEY = 10
 
 
 def prune_expired_scratchpad_entries(grace_days: int = SCRATCHPAD_EXPIRY_GRACE_DAYS) -> int:

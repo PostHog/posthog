@@ -59,6 +59,7 @@ from products.signals.backend.models import (
     SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
+    SignalScratchpadRevision,
     SignalSpend,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
@@ -2927,6 +2928,25 @@ class TestScoutHarnessScratchpadDiscardAPI(APIBaseTest):
 
         assert response.status_code == expected, response.content
         assert SignalScratchpad.objects.filter(team=self.team, key="dedupe:stale").exists() == entry_survives
+
+    @parameterized.expand([("live_entry", True), ("history_only", False)])
+    def test_editor_discard_removes_the_entry_and_its_history(self, _name: str, live: bool) -> None:
+        key = "dedupe:stale"
+        if live:
+            SignalScratchpad.objects.create(team=self.team, key=key, content="current")
+        for history_key in (key, "dedupe:keep"):
+            SignalScratchpadRevision.objects.create(
+                team=self.team, key=history_key, content="previous", change=SignalScratchpadRevision.Change.OVERWRITE
+            )
+
+        response = self.client.post(self._discard_url(), data={"key": key}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"deleted": True}
+        assert not SignalScratchpad.objects.filter(team=self.team, key=key).exists()
+        assert list(SignalScratchpadRevision.objects.filter(team=self.team).values_list("key", flat=True)) == [
+            "dedupe:keep"
+        ]
 
     def test_session_discard_requires_skill_editor_rbac(self) -> None:
         from products.access_control.backend.facade.user_access_control import UserAccessControl

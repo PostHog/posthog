@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -30,6 +30,7 @@ from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.artefact_schemas import ReportLink
+from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
@@ -752,6 +753,32 @@ class TestForget(BaseTest):
 
 
 class TestSearchScratchpad(BaseTest):
+    @parameterized.expand([("full", False, None), ("keys", True, None), ("preview", False, 2)])
+    def test_revisions_return_a_bounded_newest_first_history(
+        self, _name: str, keys_only: bool, content_max_chars: int | None
+    ) -> None:
+        from products.signals.backend.scout_harness.tools.scratchpad import remember, search_scratchpad
+
+        versions = [f"v{i}: content" for i in range(SCRATCHPAD_REVISIONS_PER_KEY + 3)]
+        for i, content in enumerate(versions):
+            with time_machine.travel(datetime(2026, 6, 1, tzinfo=UTC) + timedelta(minutes=i), tick=False):
+                remember(team_id=self.team.id, key="k", content=content)
+
+        [entry] = search_scratchpad(
+            team_id=self.team.id,
+            key="k",
+            include_revisions=True,
+            keys_only=keys_only,
+            content_max_chars=content_max_chars,
+        )
+
+        def project(content: str) -> str:
+            return "" if keys_only else content[:content_max_chars]
+
+        assert [revision.content for revision in entry.revisions or []] == [
+            project(content) for content in reversed(versions[:-1][-SCRATCHPAD_REVISIONS_PER_KEY:])
+        ]
+
     @parameterized.expand(
         [
             ("search", lambda team_id: search_scratchpad(team_id=team_id, text="shared")),
