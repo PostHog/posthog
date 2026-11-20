@@ -1,5 +1,6 @@
 """Applies a run's replace scope before the run's first batch loads (see `ReplaceScope`)."""
 
+import time
 from collections.abc import Callable
 
 import structlog
@@ -52,24 +53,29 @@ def apply_replace_scope(
     ReplaceScopeRun.record(schema, export_signal.run_uuid)
 
     writer = DeltaWriter(delta_table_ref)
-    present = async_to_sync(writer.distinct_values)(ref.column)
+    scan_started = time.monotonic()
+    locations = async_to_sync(writer.value_locations)(ref.column)
+    scan_seconds = time.monotonic() - scan_started
     log = logger.bind(
         team_id=export_signal.team_id,
         external_data_schema_id=export_signal.schema_id,
         run_uuid=export_signal.run_uuid,
         column=ref.column,
     )
-    if present is None:
+    if locations is None:
         # Nothing in the table names a value to compare with: the table is new, or an earlier mode
         # wrote it without the column. The source must reset such a table, so this run only appends.
         log.warning("replace_scope_skipped_column_missing")
         return
 
     scope = scope_from_manifest(ref.column, read_parquet(ref.manifest_path))
+    present = locations.values
     to_delete = (present - scope.retained) | (present & scope.replaced)
+    delete_started = time.monotonic()
     rows_deleted = async_to_sync(writer.delete_where)(
         ref.column,
         to_delete,
+        locations=locations,
         commit_metadata={"replace_scope_run": export_signal.run_uuid},
         before_commit=verify_ownership,
     )
@@ -79,4 +85,7 @@ def apply_replace_scope(
         values_replaced=len(present & scope.replaced),
         values_removed=len(present - scope.retained),
         rows_deleted=rows_deleted,
+        files_scanned=locations.files_read,
+        scan_seconds=round(scan_seconds, 3),
+        delete_seconds=round(time.monotonic() - delete_started, 3),
     )

@@ -1,13 +1,13 @@
 import re
 import time
 from contextlib import suppress
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import OperationalError, connections
-from django.db.models import F, Q, Window
+from django.db import OperationalError, connections, transaction
+from django.db.models import F, Q, QuerySet, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
 
@@ -41,7 +41,7 @@ from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.claim_takeover_notification import (
     send_claim_takeover_notification as send_claim_takeover_notification,
 )
-from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
+from products.signals.backend.constants import REPORT_POINTER_SWEEP_IDENTITY, SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification as dispatch_first_report_notification,
     sweep_first_report_notifications as sweep_first_report_notifications,
@@ -1565,6 +1565,8 @@ def expire_dangling_report_pointers(
     `updated_at` stay as they are. Search orders by `updated_at`, and a bump would move the retired
     entries to the top. The expired entry then follows the normal path: hidden from search, readable
     with `include_expired`, and deleted by `prune_expired_scratchpad_entries` after the grace.
+    Each expiry stores a revision under `REPORT_POINTER_SWEEP_IDENTITY`, as a `remember` would, so a
+    scout that reads the expired key sees that the sweep retired it rather than the last scout to write it.
     """
     now = timezone.now()
     cutoff = now - timedelta(days=REPORT_POINTER_MIN_AGE_DAYS)
@@ -1591,7 +1593,7 @@ def expire_dangling_report_pointers(
         matched += len(dangling)
         if write and dangling:
             # Re-applies the eligibility filter, so an entry a scout rewrote since the read keeps its pointer.
-            expired += eligible.filter(id__in=dangling).update(expires_at=now)
+            expired += _expire_report_pointers(eligible.filter(id__in=dangling), now=now)
 
         if len(rows) < batch_size:
             cache.delete(REPORT_POINTER_SWEEP_CURSOR_KEY)
@@ -1599,6 +1601,30 @@ def expire_dangling_report_pointers(
         after = str(rows[-1][0])
         cache.set(REPORT_POINTER_SWEEP_CURSOR_KEY, after, timeout=_REPORT_POINTER_SWEEP_CURSOR_TTL_SECONDS)
     return ReportPointerSweep(scanned=scanned, matched=matched, expired=expired)
+
+
+def _expire_report_pointers(entries: QuerySet[SignalScratchpad], *, now: datetime) -> int:
+    with transaction.atomic():
+        # The row lock re-checks the filter against a concurrent `remember`, and keeps the revision and the
+        # expiry in step: a write that lands first takes the entry out of the filter, and one that lands
+        # after waits and then stores a revision of the expired state.
+        locked = list(entries.select_for_update().only("id", "team_id", "key", "content", "expires_at").order_by("id"))
+        if not locked:
+            return 0
+        # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+        SignalScratchpadRevision.objects.unscoped().bulk_create(
+            SignalScratchpadRevision(
+                team_id=entry.team_id,
+                key=entry.key,
+                content=entry.content,
+                expires_at=entry.expires_at,
+                change=SignalScratchpadRevision.Change.OVERWRITE,
+                changed_by_identity=REPORT_POINTER_SWEEP_IDENTITY,
+            )
+            for entry in locked
+        )
+        # nosemgrep: idor-lookup-without-team (system Celery janitor, no user input; unscoped is the sanctioned cross-team access)
+        return SignalScratchpad.objects.unscoped().filter(id__in=[entry.id for entry in locked]).update(expires_at=now)
 
 
 @shared_task(

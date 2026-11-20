@@ -240,30 +240,30 @@ export interface pageReportDetailLogicActions {
     }
     loadSiteTotalsSuccess: (
         siteTotals: {
-            aiCrawlerNames?: string[] | null | undefined
-            aiCrawlers?: number | null | undefined
-            aiCrawls?: WebPageDirectoryValue | undefined
-            aiReferrals?: WebPageDirectoryValue | undefined
+            aiCrawlerNames?: string[] | null
+            aiCrawlers?: null | import('~/queries/schema/type-utils').integer
+            aiCrawls?: WebPageDirectoryValue
+            aiReferrals?: WebPageDirectoryValue
             bounceRate: number | null | undefined
-            conversions?: WebPageDirectoryValue | undefined
-            googleSearch?: WebPageDirectoryValue | undefined
-            serverLogs: number
+            conversions?: WebPageDirectoryValue
+            googleSearch?: WebPageDirectoryValue
+            serverLogs: import('~/queries/schema/type-utils').integer
             timeOnPageP90: number | null | undefined
-            visitors?: WebPageDirectoryValue | undefined
+            visitors?: WebPageDirectoryValue
         } | null,
         payload?: any
     ) => {
         siteTotals: {
-            aiCrawlerNames?: string[] | null | undefined
-            aiCrawlers?: number | null | undefined
-            aiCrawls?: WebPageDirectoryValue | undefined
-            aiReferrals?: WebPageDirectoryValue | undefined
+            aiCrawlerNames?: string[] | null
+            aiCrawlers?: null | import('~/queries/schema/type-utils').integer
+            aiCrawls?: WebPageDirectoryValue
+            aiReferrals?: WebPageDirectoryValue
             bounceRate: number | null | undefined
-            conversions?: WebPageDirectoryValue | undefined
-            googleSearch?: WebPageDirectoryValue | undefined
-            serverLogs: number
+            conversions?: WebPageDirectoryValue
+            googleSearch?: WebPageDirectoryValue
+            serverLogs: import('~/queries/schema/type-utils').integer
             timeOnPageP90: number | null | undefined
-            visitors?: WebPageDirectoryValue | undefined
+            visitors?: WebPageDirectoryValue
         } | null
         payload?: any
     }

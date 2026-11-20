@@ -37,6 +37,10 @@ import {
 export const ANOMALIES_PAGE_SIZE = 50
 // Matches `scored_history_ready` in the anomaly search, which needs 14 scored days.
 export const SCORED_HISTORY_READY_DAYS = 14
+// Matches the default `max_anomaly_rate` of the anomaly search, so the tab hides the same series as the API.
+export const DEFAULT_MAX_ANOMALY_RATE = 0.1
+// A series has no rate above 1, so this limit turns the noise filter off.
+export const ANOMALY_RATE_FILTER_OFF = 1
 
 export interface AnomaliesFilters {
     dateFrom: string
@@ -87,19 +91,21 @@ function errorKind(error: unknown): AnomaliesLoadError {
 }
 
 // Leaves out the search text, which can hold insight names.
-function filterProperties(filters: AnomaliesFilters): Record<string, unknown> {
+function filterProperties(filters: AnomaliesFilters, maxAnomalyRate: number): Record<string, unknown> {
     return {
         date_from: filters.dateFrom,
         interval: filters.interval,
         order: filters.order,
         has_dashboard: filters.dashboardId != null,
         has_search: !!filters.search.trim(),
+        max_anomaly_rate: maxAnomalyRate,
     }
 }
 
 async function searchAnomalies(
     projectId: number,
     filters: AnomaliesFilters,
+    maxAnomalyRate: number,
     offset: number
 ): Promise<AnomalySearchResponseApi> {
     return await signalsAnomaliesSearchRetrieve(String(projectId), {
@@ -108,6 +114,7 @@ async function searchAnomalies(
         group_by: 'series',
         only_flagged: true,
         include_points: false,
+        max_anomaly_rate: maxAnomalyRate,
         limit: ANOMALIES_PAGE_SIZE,
         offset,
         ...(filters.interval != null && { interval: filters.interval }),
@@ -126,7 +133,6 @@ function seriesProperties(series: AnomalySeriesApi): Record<string, unknown> {
         flagged_buckets: series.flagged_buckets,
         scored_buckets: series.scored_buckets,
         anomaly_rate: series.anomaly_rate,
-        baseline_rate: series.baseline_rate,
     }
 }
 
@@ -143,6 +149,7 @@ export interface anomaliesTabLogicValues {
     insightGroups: InsightSeriesGroup[]
     loadError: AnomaliesLoadError | null
     loadingMore: boolean
+    maxAnomalyRate: number
     series: AnomalySeriesApi[]
     seriesRatings: Record<string, AnomalyRowRating>
 }
@@ -233,6 +240,9 @@ export interface anomaliesTabLogicActions {
     setLoadError: (loadError: AnomaliesLoadError) => {
         loadError: AnomaliesLoadError
     }
+    setMaxAnomalyRate: (maxAnomalyRate: number) => {
+        maxAnomalyRate: number
+    }
     toggleInsightExpanded: (
         insightId: number,
         position: number
@@ -278,6 +288,7 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
     actions({
         setFilters: (filters: Partial<AnomaliesFilters>) => ({ filters }),
         resetFilters: true,
+        setMaxAnomalyRate: (maxAnomalyRate: number) => ({ maxAnomalyRate }),
         reportInsightOpened: (series: AnomalySeriesApi, position: number) => ({ series, position }),
         rateSeries: (series: AnomalySeriesApi, rating: AnomalyRowRating, position: number) => ({
             series,
@@ -299,6 +310,14 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
                 resetFilters: () => DEFAULT_ANOMALIES_FILTERS,
             },
         ],
+        // Kept apart from the other filters, so it is remembered for the person and a reset leaves it alone.
+        maxAnomalyRate: [
+            DEFAULT_MAX_ANOMALY_RATE as number,
+            { persist: true },
+            {
+                setMaxAnomalyRate: (_, { maxAnomalyRate }) => maxAnomalyRate,
+            },
+        ],
     }),
     loaders(({ actions, values }) => ({
         anomalies: [
@@ -312,7 +331,12 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
                         return null
                     }
                     try {
-                        const response = await searchAnomalies(values.currentProjectId, values.filters, 0)
+                        const response = await searchAnomalies(
+                            values.currentProjectId,
+                            values.filters,
+                            values.maxAnomalyRate,
+                            0
+                        )
                         breakpoint()
                         return response
                     } catch (error) {
@@ -333,15 +357,25 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
                         return current
                     }
                     const filters = values.filters
+                    const maxAnomalyRate = values.maxAnomalyRate
                     let response: AnomalySearchResponseApi
                     try {
-                        response = await searchAnomalies(values.currentProjectId, filters, current.series.length)
+                        response = await searchAnomalies(
+                            values.currentProjectId,
+                            filters,
+                            maxAnomalyRate,
+                            current.series.length
+                        )
                     } catch {
                         lemonToast.error("Couldn't load more anomalies. Try again.")
                         return current
                     }
                     // A filter change while this page loaded starts a new list, so this page belongs to the old one.
-                    if (!objectsEqual(filters, values.filters) || values.anomalies !== current) {
+                    if (
+                        !objectsEqual(filters, values.filters) ||
+                        maxAnomalyRate !== values.maxAnomalyRate ||
+                        values.anomalies !== current
+                    ) {
                         return values.anomalies
                     }
                     return { ...response, series: [...current.series, ...response.series] }
@@ -471,8 +505,18 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
         },
         setFilters: ({ filters }) => {
             const changed = Object.keys(filters)
-            posthog.capture('anomalies tab filter changed', { changed, ...filterProperties(values.filters) })
+            posthog.capture('anomalies tab filter changed', {
+                changed,
+                ...filterProperties(values.filters, values.maxAnomalyRate),
+            })
             actions.loadAnomalies({ debounce: changed.includes('search') })
+        },
+        setMaxAnomalyRate: () => {
+            posthog.capture('anomalies tab filter changed', {
+                changed: ['max_anomaly_rate'],
+                ...filterProperties(values.filters, values.maxAnomalyRate),
+            })
+            actions.loadAnomalies()
         },
         resetFilters: () => {
             actions.loadAnomalies()
@@ -521,7 +565,7 @@ export const anomaliesTabLogic = kea<anomaliesTabLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        posthog.capture('anomalies tab viewed', filterProperties(values.filters))
+        posthog.capture('anomalies tab viewed', filterProperties(values.filters, values.maxAnomalyRate))
         actions.loadAnomalies()
         // The dashboard filter lists these, and nothing else on the tab loads them.
         actions.loadDashboardsIfNeeded()

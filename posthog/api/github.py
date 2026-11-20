@@ -279,9 +279,13 @@ class SecretAlert(APIView):
                         team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                         local_found = True
                         key_kind = CANONICAL_TEAM_SECRET_TOKEN
-                        signing_secret_replaced = retire_leaked_team_secret_token(team.id, token)
+                        retirement = retire_leaked_team_secret_token(team.id, token)
                         send_feature_flags_secure_api_key_exposed(
-                            team.id, mask_key_value(token), more_info, signing_secret_replaced
+                            team.id,
+                            mask_key_value(token),
+                            more_info,
+                            signing_secret_replaced=retirement.replaced,
+                            grace_window_ended=retirement.grace_window_ended,
                         )
 
                     except Team.DoesNotExist:

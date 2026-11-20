@@ -4,14 +4,16 @@ import { combineUrl } from 'kea-router'
 import { LemonButton, LemonCard, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
+import { QuillNotificationsSection } from '../../components/QuillNotificationsSection/QuillNotificationsSection'
 import { BrowserNotificationsSection } from './BrowserNotificationsSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
-interface WorkflowTemplate {
+export interface WorkflowTemplate {
     title: string
     description: string
     trigger: string
@@ -65,6 +67,17 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
 export function NotificationsSection(): JSX.Element {
     const { setNotificationRecipients } = useActions(supportSettingsLogic)
     const { notificationRecipients } = useValues(supportSettingsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillNotificationsSection
+                workflowTemplates={WORKFLOW_TEMPLATES}
+                notificationRecipients={notificationRecipients}
+                onNotificationRecipientsChange={setNotificationRecipients}
+            />
+        )
+    }
 
     return (
         <>

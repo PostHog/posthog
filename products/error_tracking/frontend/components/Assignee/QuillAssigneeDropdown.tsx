@@ -20,6 +20,7 @@ import {
     InputGroupAddon,
     Text,
 } from 'lib/ui/quill'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -27,6 +28,8 @@ import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
 import { Assignee, assigneeSelectLogic, RoleAssignee, UserAssignee } from './assigneeSelectLogic'
+import { QuillAssigneeIconDisplay } from './QuillAssigneeIconDisplay'
+import { QuillAssigneeLabelDisplay } from './QuillAssigneeLabelDisplay'
 
 const CREATE_ROLE_VALUE = '__create-role__'
 const LOADING_ROLES_VALUE = '__loading-roles__'
@@ -72,6 +75,8 @@ export function QuillAssigneeDropdown({
         useValues(assigneeSelectLogic)
     const { setSearch } = useActions(assigneeSelectLogic)
     const triggerRef = useRef<HTMLButtonElement>(null)
+    const quillSurface = useQuillSurface()
+    const IconDisplay = quillSurface ? QuillAssigneeIconDisplay : AssigneeIconDisplay
 
     const { groups, optionByValue } = useMemo(() => {
         const roles: RoleAssignee[] = filteredRoles.map((role) => ({
@@ -216,8 +221,12 @@ export function QuillAssigneeDropdown({
 
                                     return (
                                         <ComboboxItem key={value} value={value} className={OPTION_CLASS_NAME}>
-                                            <AssigneeIconDisplay assignee={option} size="xsmall" />
-                                            <AssigneeLabelDisplay assignee={option} size="small" />
+                                            <IconDisplay assignee={option} size="xsmall" />
+                                            {quillSurface ? (
+                                                <QuillAssigneeLabelDisplay assignee={option} />
+                                            ) : (
+                                                <AssigneeLabelDisplay assignee={option} size="small" />
+                                            )}
                                         </ComboboxItem>
                                     )
                                 }}
@@ -236,7 +245,7 @@ export function QuillAssigneeDropdown({
                                     className="w-full gap-1.5 text-sm font-medium text-foreground"
                                     onClick={() => onChange({ type: 'user', id: me.user.id })}
                                 >
-                                    <AssigneeIconDisplay
+                                    <IconDisplay
                                         assignee={{ type: 'user', id: me.user.id, user: me.user }}
                                         size="xsmall"
                                     />

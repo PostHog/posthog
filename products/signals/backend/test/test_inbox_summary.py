@@ -495,6 +495,23 @@ class TestInboxSummary(APIBaseTest):
         assert pr.participant_logins == ["user-10", "user-20"]
         assert pr.participants_synced_at == NOW
 
+    def test_sync_finds_the_pr_by_identity_before_checking_provenance(self) -> None:
+        pr = self.make_pr(merged_at=None)
+        other = self.make_pr(2, merged_at=None)
+        with CaptureQueriesContext(connection) as queries:
+            self.sync(self.github())
+        pull_request_reads = [
+            query["sql"]
+            for query in queries
+            if query["sql"].startswith("SELECT") and 'FROM "signals_signalreportpullrequest"' in query["sql"]
+        ]
+        identity_query, provenance_query = pull_request_reads[:2]
+        assert '"posthog_task_run"' not in identity_query
+        assert pr.id.hex in provenance_query
+        assert other.id.hex not in provenance_query
+        pr.refresh_from_db()
+        assert pr.participants_synced_at == NOW
+
     @parameterized.expand([("manual", False, "implementation"), ("research", True, "research")])
     def test_sync_skips_unattributed_prs(self, _name: str, verified: bool, relationship: str) -> None:
         self.make_pr(verified=verified, relationship=relationship)
@@ -518,6 +535,7 @@ class TestInboxSummary(APIBaseTest):
         self.make_pr(3, merged_at=NOW - timedelta(days=30))
         existing = self.make_pr(4, participant_ids=[10])
         SignalReportPullRequest.objects.for_team(self.team.id).filter(id=existing.id).update(participant_logins=None)
+        self.make_pr(5, verified=False)
         output = StringIO()
         with patch("products.signals.backend.tasks.refresh_pull_request_participants.delay") as enqueue:
             call_command("backfill_inbox_summary", team_id=self.team.id, limit=1, dry_run=True, stdout=output)

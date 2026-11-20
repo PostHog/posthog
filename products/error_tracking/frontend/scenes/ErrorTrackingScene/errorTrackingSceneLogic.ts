@@ -11,6 +11,7 @@ import { Params } from 'scenes/sceneTypes'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import type { ErrorTrackingIssueAssignee, ErrorTrackingOrderBy } from '~/queries/schema/schema-general'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, UniversalFiltersGroup } from '~/types'
 
@@ -136,10 +137,10 @@ export interface errorTrackingSceneLogicMeta {
             featureFlags: FeatureFlagsSet
         ) => ErrorTrackingIssueTagFilter | null
         query: (
-            orderBy: import('~/queries/schema').ErrorTrackingOrderBy,
-            status: import('~/queries/schema').ErrorTrackingQueryStatus | undefined,
+            orderBy: ErrorTrackingOrderBy,
+            status: ErrorTrackingQueryStatus | undefined,
             dateRange: DateRange,
-            assignee: null | import('~/queries/schema').ErrorTrackingIssueAssignee | undefined,
+            assignee: ErrorTrackingIssueAssignee | null | undefined,
             filterTestAccounts: boolean,
             mergedFilterGroup: UniversalFiltersGroup,
             searchQuery: string,

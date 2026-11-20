@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { memo } from 'react'
 
 import { IconHide, IconUndo } from '@posthog/icons'
@@ -8,11 +9,12 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { derivePrState, prCiGlyphStatus } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
-import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
+import { scoutNameFromSlug } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { useReportCiStatus } from '../../logics/prCiStatusLogic'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalFeedback, heldBackLabel, isResolveReason } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
@@ -68,6 +70,7 @@ export function InboxCardSourceMeta({
     /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" label. */
     scoutSkillName?: string | null
 }): JSX.Element | null {
+    const { scoutNamesBySkill } = useValues(scoutFleetLogic)
     const entries = knownSourceProductEntries(sourceProducts)
     const [primary, ...overflow] = entries
     if (!primary) {
@@ -75,7 +78,7 @@ export function InboxCardSourceMeta({
     }
     // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
     // and link the name straight to the scout's detail page.
-    const scoutName = scoutDisplayName(scoutSkillName)
+    const scoutName = scoutSkillName ? (scoutNamesBySkill[scoutSkillName] ?? scoutNameFromSlug(scoutSkillName)) : null
     const showScout = primary.key === SignalSourceProduct.SignalsScout && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
@@ -86,7 +89,7 @@ export function InboxCardSourceMeta({
                     {showScout && scoutSkillName ? (
                         <>
                             {' · '}
-                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                            <ScoutLink skillName={scoutSkillName} name={scoutName} className="text-tertiary" />
                         </>
                     ) : null}
                     {overflow.length > 0 ? ` + ${overflow.length}` : null}

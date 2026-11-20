@@ -194,6 +194,7 @@ export const FEATURE_FLAGS = {
     PERSON_PROPERTY_INCIDENT_ANNOTATION_JAN_2026: 'person-property-incident-annotation-jan-2026', // owner: #team-platform-features, shows system annotation for Jan 6-7 2026 person property incident
     REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU: 'replay-exclude-from-hide-recordings-menu', // owner: #team-replay, used to exclude what other people are seeing in Replay
     SHOW_UPGRADE_TO_MANAGED_ACCOUNT: 'show-upgrade-to-managed-account', // owner: #team-billing, used to give free accounts a way to force upgrade to managed account
+    SIGN_IN_WITH_CHATGPT: 'sign-in-with-chatgpt', // owner: @k11kirky, shows the ChatGPT option on login, signup and SSO enforcement
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion, used to disable webhooks for certain companies
 
     // Legacy flags, TBD if they need to be removed
@@ -657,6 +658,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_EMAIL_FROM_CODE: 'workflows-email-from-code', // owner: #team-workflows, lets code send emails it rendered itself under a template key
     WORKFLOWS_EMAIL_HEADER: 'workflows-email-header', // owner: @mayteio #team-workflows, one-line sender summary in workflow and broadcast email steps
     WORKFLOWS_EMAIL_IMPACT: 'workflows-email-impact', // owner: @silthus #team-workflows, the Impact tab on transactional email pages: how far each email's sends got and what they led to
+    WORKFLOWS_EMAIL_PERSON_PREVIEW: 'workflows-email-person-preview', // owner: @mayteio #team-workflows, renders email previews as a real or custom person instead of raw Liquid
     WORKFLOWS_EMAIL_SEND_LINKS: 'workflows-email-send-links', // owner: @silthus #team-workflows, links transactional emails and their sends: Open email for sends from code, Sends lists and metric clicks on email pages
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_GOAL_EVENT_ENTRIES: 'workflows-goal-event-entries', // owner: @silthus #team-workflows, shows and keeps every stored event entry in goal and wait step editors
@@ -725,6 +727,7 @@ export const SSO_PROVIDER_NAMES: Record<SSOProvider, string> = {
     'google-oauth2': 'Google',
     github: 'GitHub',
     gitlab: 'GitLab',
+    chatgpt: 'ChatGPT',
     saml: 'Single sign-on (SAML)',
     oidc: 'Single sign-on (OIDC)',
 }

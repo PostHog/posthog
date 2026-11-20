@@ -28,6 +28,11 @@ import type {
     ReviewRepositoryPersonKindEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import { CodeReviewRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
+import type {
+    PatchedReviewProjectSettingsApi,
+    PatchedReviewUserSettingsApi,
+    ReviewUserSettingsApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
 import type { ReviewProjectSettingsApi } from '../generated/api.schemas'
@@ -103,22 +108,18 @@ export interface reviewHogRepositoriesLogicActions {
     } // reviewHogProjectSettingsLogic
     updateProjectSettingsSuccess: (
         projectSettings: ReviewProjectSettingsApi,
-        payload?:
-            | import('products/review_hog/frontend/generated/api.schemas').PatchedReviewProjectSettingsApi
-            | undefined
+        payload?: PatchedReviewProjectSettingsApi | undefined
     ) => {
-        payload?: import('products/review_hog/frontend/generated/api.schemas').PatchedReviewProjectSettingsApi
+        payload?: PatchedReviewProjectSettingsApi
         projectSettings: ReviewProjectSettingsApi
     } // reviewHogProjectSettingsLogic
-    updateSettings: (
-        patch: import('products/review_hog/frontend/generated/api.schemas').PatchedReviewUserSettingsApi
-    ) => import('products/review_hog/frontend/generated/api.schemas').PatchedReviewUserSettingsApi // reviewHogSettingsLogic
+    updateSettings: (patch: PatchedReviewUserSettingsApi) => PatchedReviewUserSettingsApi // reviewHogSettingsLogic
     updateSettingsSuccess: (
-        settings: import('products/review_hog/frontend/generated/api.schemas').ReviewUserSettingsApi,
-        payload?: import('products/review_hog/frontend/generated/api.schemas').PatchedReviewUserSettingsApi | undefined
+        settings: ReviewUserSettingsApi,
+        payload?: PatchedReviewUserSettingsApi | undefined
     ) => {
-        payload?: import('products/review_hog/frontend/generated/api.schemas').PatchedReviewUserSettingsApi
-        settings: import('products/review_hog/frontend/generated/api.schemas').ReviewUserSettingsApi
+        payload?: PatchedReviewUserSettingsApi
+        settings: ReviewUserSettingsApi
     } // reviewHogSettingsLogic
     addException: (entry: ReviewRepositoryOverviewEntryApi) => {
         entry: ReviewRepositoryOverviewEntryApi

@@ -27,6 +27,7 @@ import { TraceListRow, uniqueTraces } from './traceListRows'
 import { tracePreloadLogic } from './tracePreloadLogic'
 import { traceViewHostLogic } from './traceViewHostLogic'
 import { traceViewTracking } from './traceViewTracking'
+import type { NodeDetailTab, TraceMode, TraceOpeningMode } from './types'
 
 export interface TraceDrawerLogicProps {
     listId: TraceDrawerListId
@@ -128,14 +129,14 @@ export interface traceDrawerLogicActions {
         stepId: string | null
         traceId: string | null
     } // traceViewHostLogic
-    setDetailTab: (tab: import('./types').NodeDetailTab) => {
-        tab: import('./types').NodeDetailTab
+    setDetailTab: (tab: NodeDetailTab) => {
+        tab: NodeDetailTab
     } // traceViewHostLogic
-    setMode: (mode: import('./types').TraceMode) => {
-        mode: import('./types').TraceMode
+    setMode: (mode: TraceMode) => {
+        mode: TraceMode
     } // traceViewHostLogic
-    setOpeningMode: (mode: import('./types').TraceOpeningMode) => {
-        mode: import('./types').TraceOpeningMode
+    setOpeningMode: (mode: TraceOpeningMode) => {
+        mode: TraceOpeningMode
     } // traceViewHostLogic
     close: () => {
         value: true

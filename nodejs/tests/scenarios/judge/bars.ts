@@ -18,11 +18,13 @@ export type BarEvidence = {
     samples: readonly MetricSample[]
     drive: DriveWindow
     steps: readonly (Step & { offeredUnits?: number })[]
-    writerCpu: CpuPoint[] | { unread: string }
+    writerCpu: WriterCpu
     host: readonly HostSample[]
     hostCpuCeiling?: number
     settled?: ReadonlyMap<number, readonly BarResult[]>
 }
+
+export type WriterCpu = CpuPoint[] | { unread: string } | { unsourced: string }
 
 export type StepPoint = { scale: number; at: string; offeredPerSecond: number }
 
@@ -40,9 +42,12 @@ export type BarResult = {
     breakingPoint?: BreakingPoint
 }
 
-type Window = { from: number; to: number; last: boolean }
+type Window = { from: number; to: number; last: boolean; idle?: boolean }
 
-type Reading = { key?: string; value: number; passed: boolean; part: string } | { unread: string }
+type Reading =
+    | { key?: string; value: number; passed: boolean; part: string }
+    | { unread: string }
+    | { unsourced: string }
 
 type BarDefinition = Definition & {
     limit(params: unknown): number
@@ -74,7 +79,7 @@ const writerCpuUnder: BarDefinition = {
     limit: (params) => WriterCpuParams.parse(params).percent,
     unit: '%',
     read: ({ writerCpu }, { from, to }, params) => {
-        if ('unread' in writerCpu) {
+        if (!Array.isArray(writerCpu)) {
             return writerCpu
         }
         const { percent } = WriterCpuParams.parse(params)
@@ -85,7 +90,9 @@ const writerCpuUnder: BarDefinition = {
         if (minutes.length === 0) {
             return { unread: 'no whole writer CPU minute' }
         }
-        const readings = minutes.map((minute) => writerCpu.find(({ at }) => at === minute))
+        const readings = minutes.map((minute) =>
+            writerCpu.find(({ at, percent }) => at === minute && Number.isFinite(percent))
+        )
         const missing = readings.findIndex((reading) => reading === undefined)
         if (missing >= 0) {
             return { unread: `no writer CPU reading for the minute at ${iso(minutes[missing])}` }
@@ -158,7 +165,7 @@ const pickupP99Under: BarDefinition = {
     params: PickupParams,
     limit: (params) => PickupParams.parse(params).seconds,
     unit: 's',
-    read: ({ samples }, { from, to, last }, params) => {
+    read: ({ samples }, { from, to, last, idle }, params) => {
         const { seconds, queues } = PickupParams.parse(params)
         const until = last ? Math.max(to, ...samples.map(({ at }) => at)) : to
         const pickups = pickupsBetween(
@@ -173,7 +180,9 @@ const pickupP99Under: BarDefinition = {
             .map((queue) => {
                 const buckets = pickups.picked[queue] ?? {}
                 const { value, beyond } =
-                    (buckets['+Inf'] ?? 0) > 0 ? p99Of(buckets) : { value: (until - from) / 1000, beyond: false }
+                    (buckets['+Inf'] ?? 0) > 0
+                        ? p99Of(buckets)
+                        : { value: idle ? 0 : (until - from) / 1000, beyond: false }
                 return {
                     key: queue,
                     value,
@@ -242,8 +251,13 @@ function judgeStepOf(
     i: number,
     last: boolean
 ): StepVerdict {
-    const { scale } = evidence.steps[i]
+    const { scale, offeredUnits } = evidence.steps[i]
     const window = { ...windowOf(evidence, i), last }
+    const idle =
+        offeredUnits !== undefined &&
+        !evidence.journal.some(
+            ({ answer, offeredAt }) => answer.accepted && offeredAt >= window.from && offeredAt < window.to
+        )
     const point = (): StepPoint => ({ scale, at: iso(window.from), offeredPerSecond: offeredRateOf(evidence, i) })
     if (window.to <= window.from) {
         return { unjudged: `the drive ended before the ${scale}x step` }
@@ -252,7 +266,10 @@ function judgeStepOf(
     if (overloaded !== undefined) {
         return { unjudged: overloaded, harnessLimit: { scale, by: 'run_host' } }
     }
-    const reading = definition.read(evidence, window, params)
+    const reading = definition.read(evidence, { ...window, idle }, params)
+    if ('unsourced' in reading) {
+        return { unjudged: reading.unsourced }
+    }
     if ('unread' in reading) {
         return { unjudged: `${reading.unread} in the ${scale}x step`, harnessLimit: { scale, by: 'run_host' } }
     }
@@ -282,6 +299,9 @@ function verdictOf(
 }
 
 const definitionOf = (name: string): BarDefinition => BARS.find((bar) => bar.name === name)!
+
+export const unsourced = ({ unjudged, harnessLimit }: BarResult): boolean =>
+    unjudged !== undefined && harnessLimit === undefined
 
 export function judgeStep(bars: Named[], evidence: BarEvidence, i: number): BarResult[] {
     return bars.map(({ name, params }) => {
