@@ -1,6 +1,9 @@
 import { useValues } from 'kea'
 import { useContext } from 'react'
 
+import { IconPencil } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { withInertLinks } from '../emailPreviewHtml'
 import { countUnresolved, renderEmailPreviewMarked, splitUnresolved, withUnresolvedChips } from './emailPreview'
 import { EmailPreviewPersonBar } from './EmailPreviewPersonBar'
@@ -11,9 +14,11 @@ import { EmailPreviewScopeContext } from './EmailPreviewScopeContext'
 export function EmailPersonPreview({
     html,
     text,
+    onEdit,
 }: {
     html: string | undefined
     text: string | undefined
+    onEdit: () => void
 }): JSX.Element {
     const scope = useContext(EmailPreviewScopeContext)
     const { previewPerson } = useValues(emailPreviewPersonLogic({ scope }))
@@ -21,7 +26,21 @@ export function EmailPersonPreview({
 
     return (
         <div className="flex flex-col flex-1">
-            <EmailPreviewPersonBar templates={[html ?? '', text ?? '']} unresolvedCount={countUnresolved(rendered)} />
+            <EmailPreviewPersonBar
+                templates={[html ?? '', text ?? '']}
+                unresolvedCount={countUnresolved(rendered)}
+                actions={
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconPencil />}
+                        onClick={onEdit}
+                        data-attr="email-preview-edit-template"
+                    >
+                        Edit template
+                    </LemonButton>
+                }
+            />
             {html ? (
                 <iframe
                     srcDoc={withInertLinks(withUnresolvedChips(rendered))}

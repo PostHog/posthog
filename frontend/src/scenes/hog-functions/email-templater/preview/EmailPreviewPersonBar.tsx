@@ -13,9 +13,12 @@ import { PersonSearch } from './PersonSearch'
 export function EmailPreviewPersonBar({
     templates,
     unresolvedCount,
+    actions,
 }: {
     templates: string[]
     unresolvedCount: number
+    /** Sits at the far end of the bar, such as a way into the editor. */
+    actions?: React.ReactNode
 }): JSX.Element {
     const scope = useContext(EmailPreviewScopeContext)
     const { previewPerson, personsLoading, personsFailed } = useValues(emailPreviewPersonLogic({ scope }))
@@ -67,6 +70,7 @@ export function EmailPreviewPersonBar({
                     {unresolvedCount === 1 ? '1 field' : `${unresolvedCount} fields`} empty for this person
                 </LemonTag>
             )}
+            {actions && <div className="ml-auto">{actions}</div>}
         </div>
     )
 }
