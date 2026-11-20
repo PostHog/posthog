@@ -2319,6 +2319,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
+            # The worker loads the user by id, which restores stored staff rights this request withholds.
+            staff_rights_withheld=isinstance(principal, User) and principal.staff_rights_withheld,
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
