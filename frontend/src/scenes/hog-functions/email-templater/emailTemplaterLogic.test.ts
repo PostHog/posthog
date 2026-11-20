@@ -939,6 +939,61 @@ describe('emailTemplaterLogic', () => {
             toast.mockRestore()
         })
 
+        it('lets a save through when the canvas cannot be read but nothing was edited', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: () => {
+                        throw new Error('export failed')
+                    },
+                },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            await saveWithLatestEmailEdit(save)
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(toast).not.toHaveBeenCalled()
+            toast.mockRestore()
+        })
+
+        it('lets a save through when the canvas stops answering and nothing was edited', async () => {
+            logic.actions.setEmailEditorRef({
+                editor: { ...fakeEditorRef().editor, exportPlainText: () => {} },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            const saved = saveWithLatestEmailEdit(save)
+            await jest.advanceTimersByTimeAsync(5000)
+            await saved
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
+        })
+
+        it('lets a plain-text save through when the hidden canvas cannot be read', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: () => {
+                        throw new Error('export failed')
+                    },
+                },
+            } as unknown as EditorRef)
+            logic.actions.setActiveContentTab('plaintext')
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            await saveWithLatestEmailEdit(save)
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(toast).not.toHaveBeenCalled()
+            toast.mockRestore()
+        })
+
         it('keeps the editor open and says so when an edit fails to save on close', async () => {
             const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
             logic.actions.setEmailEditorRef({

@@ -26,6 +26,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { withTimeout } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -132,6 +133,8 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
 export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
+
+const EDITOR_READ_TIMEOUT_MS = 5000
 
 function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONTemplate }> {
     return new Promise((resolve) =>
@@ -1078,6 +1081,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } catch (error) {
                 // The edit stays pending, so the next edit or a flush tries again.
                 posthog.captureException(error)
+                if (values.activeContentTab === 'plaintext') {
+                    return
+                }
                 if (!values.latestEditUnsaved) {
                     showEmailSaveFailed()
                 }
@@ -1223,6 +1229,12 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!commitsLive || !values.isEmailEditorReady) {
                 return
             }
+            // Plain text replaces the canvas when saved, so the canvas holds nothing to hand over.
+            if (values.activeContentTab === 'plaintext') {
+                cache.pendingDesignEdit = false
+                actions.setLatestEditUnsaved(false)
+                return
+            }
             // The old editor reports a typed edit up to a second late, so read the canvas even when nothing is pending.
             let readCanvas = true
             while (readCanvas || cache.pendingDesignEdit) {
@@ -1231,12 +1243,17 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 let htmlData: { html: string; design: JSONTemplate }
                 let textData: { text: string }
                 try {
-                    ;[htmlData, textData] = await Promise.all([
-                        exportEditorHtml(editor),
-                        new Promise<any>((res) => editor.exportPlainText(res)),
-                    ])
+                    // An editor that stops answering would otherwise hold the save forever.
+                    ;[htmlData, textData] = await withTimeout(
+                        Promise.all([exportEditorHtml(editor), new Promise<any>((res) => editor.exportPlainText(res))]),
+                        EDITOR_READ_TIMEOUT_MS
+                    )
                 } catch (error) {
                     posthog.captureException(error)
+                    // With no edit reported, a canvas that can't be read counts as unchanged, so it never traps the email.
+                    if (!cache.pendingDesignEdit && !values.latestEditUnsaved) {
+                        return
+                    }
                     cache.flushFailed = true
                     actions.setLatestEditUnsaved(true)
                     return
