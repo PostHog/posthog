@@ -1,8 +1,11 @@
 import pytest
 
-from products.batch_exports.backend.temporal.destinations.utils import get_key_prefix, get_manifest_key, get_object_key
-
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+from products.batch_exports.backend.temporal.destinations.utils import (
+    InvalidKeyError,
+    get_key_prefix,
+    get_manifest_key,
+    get_object_key,
+)
 
 
 @pytest.mark.parametrize(
@@ -61,14 +64,13 @@ def test_get_key_prefix_substitutes_template_variables():
     assert prefix == "2024/01/15/"
 
 
-def test_get_key_prefix_returns_unchanged_on_invalid_template():
-    prefix = get_key_prefix(
-        prefix="{invalid_var}/data/",
-        data_interval_start="2024-01-15T00:00:00",
-        data_interval_end="2024-01-15T01:00:00",
-        batch_export_model=None,
-    )
-    assert prefix == "{invalid_var}/data/"
+@pytest.mark.parametrize(
+    "prefix",
+    ["{unknown}", "{}", "{0}", "{table:8}", "{table:{day}}", "{year!s}", "{table[0]}", "{table.name}", "data/{day"],
+)
+def test_get_key_prefix_rejects_invalid_template(prefix: str) -> None:
+    with pytest.raises(InvalidKeyError, match="Invalid key prefix"):
+        get_key_prefix(prefix, "2024-01-15T00:00:00", "2024-01-15T01:00:00", None)
 
 
 def test_get_manifest_key_generates_correct_path():
