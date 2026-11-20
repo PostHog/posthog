@@ -24,6 +24,7 @@ rules:
       owners: team-workflows
     - match:
           - '/entitlements/'
+          - '/temporal/entitlement_reactions/'
           - '/models/organization_entitlement_applied_state.py'
       owners: team-billing
     - match: '/heatmaps/'
