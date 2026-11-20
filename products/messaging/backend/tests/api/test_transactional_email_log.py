@@ -32,6 +32,7 @@ from products.workflows.backend.facade.writes import destroy_workflow
 
 # `run_failed` is the failure the whole run writes, which ranks below the email step's own failure.
 RANK = {
+    "scheduled": 0,
     "queued": 0,
     "run_failed": 1,
     "failed": 2,
@@ -82,14 +83,16 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         domain: str = "mail.example.com",
         keyed: bool = False,
         status_consumer_behind: bool = False,
+        first: str = "queued",
+        message_id: str | None = None,
     ) -> str:
         queued_at = NOW - timedelta(minutes=minutes_ago)
-        message_id = (
+        message_id = message_id or (
             str(uuid5(NAMESPACE_URL, f"{recipient}/{minutes_ago}"))
             if keyed
             else str(UUIDT(unix_time_ms=int(queued_at.timestamp() * 1000)))
         )
-        rows = [("queued", 0, ""), *statuses]
+        rows = [(first, 0, ""), *statuses]
         if keyed and not status_consumer_behind:
             # Both tables read the same topic, and a keyed id is found through email_status's sort key.
             sync_execute(
@@ -129,8 +132,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                     "created_at": queued_at,
                     "status_at": queued_at + timedelta(seconds=seconds),
                     "reason": reason,
-                    "recipient": recipient if row_status == "queued" else "",
-                    "function_id": (workflow_id or self.workflow_id) if row_status == "queued" else "",
+                    "recipient": recipient if row_status == first else "",
+                    "function_id": (workflow_id or self.workflow_id) if row_status == first else "",
                     "sending_domain": domain if row_status == "sent" else "",
                     "_timestamp": queued_at,
                     "_offset": 0,
@@ -281,6 +284,17 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("failed", "provider_error"),
         ]
 
+    def test_shows_the_latest_attempt_of_a_key_refused_the_day_before(self, _flag):
+        message_id = self._send(60 * 24, "jane@example.com", [("failed", 1, "recipient_suppressed")], keyed=True)
+        self._send(10, "jane@example.com", [], keyed=True, first="scheduled", message_id=message_id)
+
+        response = self.client.get(self._url(f"{message_id}/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert (body["status"], body["reason"]) == ("queued", None)
+        assert [event["kind"] for event in body["timeline"]] == ["queued"]
+
     def test_shows_a_send_with_tracking_off_as_sent_without_a_reason(self, _flag):
         message_id = self._send(10, "jane@example.com", [("sent", 1, "untracked"), ("delivered", 2, "")])
         sent_id = self._send(5, "bob@example.com", [("sent", 1, "untracked")])
@@ -313,6 +327,23 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             relayed_id
         ]
 
+    def test_counts_a_scheduled_send_that_went_out_with_tracking_off(self, _flag):
+        sent_id = self._send(60, "jane@example.com", [("sent", 3600, "untracked")], first="scheduled")
+        self._send(30, "bob@example.com", [], first="scheduled")
+
+        listed = self.client.get(self._url()).json()["results"]
+        detail = self.client.get(self._url(f"{sent_id}/")).json()
+        by_template = self.client.get(self._url("stats/")).json()["results"]
+        impact = self._impact()
+
+        assert [(row["recipient"], row["status"], row["reason"]) for row in listed] == [
+            ("bob@example.com", "queued", None),
+            ("jane@example.com", "sent", None),
+        ]
+        assert [(event["kind"], event["reason"]) for event in detail["timeline"]] == [("queued", None), ("sent", None)]
+        assert [(r["sent"], r["failed"]) for r in by_template] == [(1, 0)]
+        assert (impact["sent"], impact["untracked"]) == (1, 1)
+
     def test_looks_past_email_status_only_for_a_recent_keyed_send(self, _flag):
         # Missing from email_status hours after it was queued, a send is gone, not waiting on a lagging consumer.
         message_id = self._send(180, "jane@example.com", [("sent", 1, "")], keyed=True, status_consumer_behind=True)
@@ -330,9 +361,51 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert [event["kind"] for event in body["timeline"]] == ["queued", "sent", "clicked", "clicked"]
 
-    def test_a_queued_row_delivered_twice_takes_one_place_on_a_page(self, _flag):
-        self._send(20, "older@example.com", [("queued", 0, "")])
-        self._send(10, "newer@example.com", [("queued", 0, "")])
+    @parameterized.expand(
+        [
+            (f"{case}_{name}", statuses, name, shown_as, timeline)
+            for case, statuses, shown_as, timeline in (
+                ("waiting", [], "queued", ["queued"]),
+                ("sent", [("sent", 3600, "")], "sent", ["queued", "sent"]),
+                ("rescheduled", [("scheduled", 60, ""), ("scheduled", 120, "")], "queued", ["queued"]),
+            )
+            for name in ("default_list", "recipient_search", "workflow_filter", "status_filter")
+        ]
+    )
+    def test_lists_a_scheduled_send_as_waiting_until_it_goes_out(
+        self, _flag, _name, statuses, listed_by, shown_as, timeline
+    ):
+        message_id = self._send(10, "jane@example.com", statuses, first="scheduled")
+        params = {
+            "default_list": {},
+            "recipient_search": {"search": "jane"},
+            "workflow_filter": {"workflow_id": str(self.workflow_id)},
+            "status_filter": {"status": shown_as},
+        }[listed_by]
+
+        listed = self.client.get(self._url(), params).json()["results"]
+        detail = self.client.get(self._url(f"{message_id}/")).json()
+
+        assert [(r["message_id"], r["status"], r["recipient"]) for r in listed] == [
+            (message_id, shown_as, "jane@example.com")
+        ]
+        assert [event["kind"] for event in detail["timeline"]] == timeline
+        assert datetime.fromisoformat(detail["timeline"][0]["at"]) == NOW - timedelta(minutes=10)
+        assert listed[0]["status_at"] == detail["timeline"][-1]["at"]
+
+    @parameterized.expand(
+        [
+            ("a_queued_row_delivered_twice", "queued", [("queued", 0, "")]),
+            (
+                "a_send_rescheduled_three_times",
+                "scheduled",
+                [("scheduled", 60, ""), ("scheduled", 120, ""), ("scheduled", 180, "")],
+            ),
+        ]
+    )
+    def test_a_send_with_a_repeated_first_row_takes_one_place_on_a_page(self, _flag, _name, first, repeats):
+        self._send(20, "older@example.com", repeats, first=first)
+        self._send(10, "newer@example.com", repeats, first=first)
 
         first_page = self.client.get(self._url(), {"limit": 1}).json()
         second_page = self.client.get(self._url(), {"limit": 1, "offset": 1}).json()
