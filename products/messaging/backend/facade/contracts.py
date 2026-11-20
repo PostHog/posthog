@@ -263,6 +263,11 @@ class SendWarning:
     agent_action: str
 
 
+class QueuedEmailStatus(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    SCHEDULED = "scheduled", "Scheduled"
+
+
 @frozen
 class QueuedEmail:
     message_id: str
@@ -271,6 +276,9 @@ class QueuedEmail:
     warnings: tuple[SendWarning, ...] = ()
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
+    status: QueuedEmailStatus = QueuedEmailStatus.QUEUED
+    # The CDP service's answer as it sent it, so a replay returns the first request's time unchanged.
+    scheduled_at: str | None = None
     sent_from_sandbox: bool = False
 
 

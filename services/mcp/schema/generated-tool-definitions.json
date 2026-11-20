@@ -18826,6 +18826,21 @@
         },
         "feature_flag": "workflows-email-activity"
     },
+    "workflows-enable": {
+        "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Enable workflow",
+        "title": "Enable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/hog_flows/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
         "description": "Get a specific workflow by ID, where id is the workflow's UUID. When you have a workflow's name instead, resolve it first with workflows-list (search=<name>) and use the id from that result. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active workflow or one disabled while active, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's running.",
         "category": "Workflows",

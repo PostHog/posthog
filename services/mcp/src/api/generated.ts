@@ -59751,6 +59751,25 @@ export namespace Schemas {
     }
 
     /**
+     * * `test_sender_live` - Test sender live
+     */
+    export type HogFlowWarningCodeEnum = typeof HogFlowWarningCodeEnum[keyof typeof HogFlowWarningCodeEnum];
+
+
+    export const HogFlowWarningCodeEnum = {
+      TestSenderLive: 'test_sender_live',
+    } as const;
+
+    export interface HogFlowWarning {
+      /** test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.
+       *
+       * * `test_sender_live` - Test sender live */
+      readonly code: HogFlowWarningCodeEnum;
+      /** What to tell the user, with the link that fixes it. */
+      readonly message: string;
+    }
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface HogFlow {
@@ -59854,6 +59873,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings: readonly HogFlowWarning[];
     }
 
     /**
@@ -60013,9 +60034,125 @@ export namespace Schemas {
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
+    export type HogFlowTestConfigurationVariablesItem = {[key: string]: string};
+
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    export type HogFlowTestConfigurationActionRedirects = {[key: string]: string} | null;
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface HogFlowTestConfiguration {
+      readonly id: string;
+      /**
+         * Workflow name.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional description. */
+      description?: string;
+      /**
+         * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      readonly version: number;
+      /** draft (no execution), active (live), archived (disabled).
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      status?: HogFlowStateEnum;
+      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.
+       *
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
+      origin_product?: HogFlowOriginProductEnum | null;
+      /**
+         * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
+         * @maxLength 255
+         * @nullable
+         * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
+         */
+      source_record?: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+      readonly trigger: unknown;
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
+      trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
+       *
+       * * `exit_on_conversion` - Conversion
+       * * `exit_on_trigger_not_matched` - Trigger Not Matched
+       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+       * * `exit_only_at_end` - Only At End */
+      exit_condition?: ExitConditionEnum;
+      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
+      actions: HogFlowAction[];
+      /** @nullable */
+      readonly abort_action: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
+      variables?: HogFlowTestConfigurationVariablesItem[];
+      readonly billable_action_types: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+      /**
+         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+         * @nullable
+         */
+      readonly action_redirects: HogFlowTestConfigurationActionRedirects;
+      /**
+         * When PostHog paused this workflow's email automatically because its spam complaint or hard bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it.
+         * @nullable
+         */
+      readonly email_sending_paused_at: string | null;
+      /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
+      readonly email_sending_paused_reason: string;
+      /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+      readonly email_sending_paused_by: string;
+      /** True when only PostHog staff can lift the current pause: staff placed it, or it landed shortly after a resume, so another self-serve resume is not offered. False when not paused or when the resume endpoint would accept the caller. */
+      readonly email_sending_pause_requires_support: boolean;
+      /**
+         * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
+         * @nullable
+         */
+      readonly email_sending_resumed_at: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
+    }
+
     export interface HogFlowInvocation {
       /** Optional override; omit to use saved definition. */
-      configuration?: HogFlow;
+      configuration?: HogFlowTestConfiguration;
       /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
       globals?: HogFlowInvocationGlobals;
       /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
@@ -60072,6 +60209,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly suggestions_enabled: boolean | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings: readonly HogFlowWarning[];
     }
 
     /**
@@ -60476,6 +60615,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings: readonly HogFlowWarning[];
     }
 
     /**
@@ -93316,6 +93457,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at?: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run?: HogFlowLastRun | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings?: readonly HogFlowWarning[];
     }
 
     /**
@@ -109178,6 +109321,18 @@ export namespace Schemas {
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | PropertyValuesQuery;
     }
 
+    /**
+     * * `queued` - Queued
+     * * `scheduled` - Scheduled
+     */
+    export type QueuedEmailStatusEnum = typeof QueuedEmailStatusEnum[keyof typeof QueuedEmailStatusEnum];
+
+
+    export const QueuedEmailStatusEnum = {
+      Queued: 'queued',
+      Scheduled: 'scheduled',
+    } as const;
+
     export interface QuotaResourceLimit {
       /** True when the team is currently over its quota for this resource and limits are in effect. A deactivated organization additionally reads as limited on the two credit buckets `ai_credits` and `posthog_code_credits`, regardless of usage. */
       limited: boolean;
@@ -117486,6 +117641,11 @@ export namespace Schemas {
       capture_engagement?: boolean;
       /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
       tracking?: SendEmailTracking;
+      /**
+         * When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out or send null to send now. Send it once: a JSON body that repeats it keeps the last value, and a form body that repeats it gets a 400. Scheduling is on only in some projects so far, and a project without it refuses a time with a 400.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
       sensitive?: boolean;
       /**
@@ -117546,7 +117706,7 @@ export namespace Schemas {
     } as const;
 
     export interface SendWarning {
-      /** What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
+      /** What the warning is about. `sandbox_sender`: the email goes out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
        *
        * * `sandbox_sender` - Sent from the PostHog test sender */
       code: SendWarningCodeEnum;
@@ -117565,6 +117725,16 @@ export namespace Schemas {
       replayed: boolean;
       /** Things the caller should act on although the email was queued. Left out when there are none. */
       warnings?: SendWarning[];
+      /** Only in the answer to a request with `scheduled_at`. `scheduled`: the email waits for `scheduled_at`. `queued`: the time had passed, so the email goes out now.
+       *
+       * * `queued` - Queued
+       * * `scheduled` - Scheduled */
+      status?: QueuedEmailStatusEnum;
+      /**
+         * Only in the answer to a request with `scheduled_at`. The time the email waits for, to the millisecond, or null when the time had passed and the email goes out now. A retry with the same `Idempotency-Key` answers the first request's time.
+         * @nullable
+         */
+      scheduled_at?: string | null;
     }
 
     export interface SendTransactionalPushResponse {
