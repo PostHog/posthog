@@ -6937,6 +6937,7 @@ class TestExternalDataSource(APIBaseTest):
                     {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
                 ],
                 "detected_primary_keys": ["id"],
+                "declares_primary_keys": False,
                 "primary_key_detection_supported": True,
                 "permission_error": None,
                 "rls_warning": None,

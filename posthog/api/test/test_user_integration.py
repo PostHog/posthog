@@ -2080,6 +2080,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             ("poll_503",),
             ("poll_429",),
             ("cancel_during_exchange",),
+            ("access_unavailable",),
         ]
     )
     def test_device_login_lifecycle(self, outcome):
@@ -2137,11 +2138,18 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             complete_codex_login(self.user.id, login_id)
             assert len(requests_seen) == 1
             clock.return_value = now + 5
+            if outcome == "access_unavailable":
+                self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
+                self.desktop_access_decision.side_effect = DesktopAccessResolutionError("Unavailable")
             with self.captureOnCommitCallbacks(execute=True):
                 complete_codex_login(self.user.id, login_id)
             if outcome != "failed":
                 assert get_login(self.user.id, login_id)["status"] == "pending"
                 assert schedule.call_count == 2
+            if outcome == "access_unavailable":
+                self.desktop_access_decision.side_effect = None
+                self.desktop_access_decision.return_value = DesktopAccessDecision.ALLOWED
+                assert schedule.call_args.kwargs["countdown"] == 10
             approved = True
             if outcome.startswith("poll_"):
                 assert schedule.call_args.kwargs["countdown"] == (10 if outcome == "poll_timeout" else 30)
@@ -2164,7 +2172,14 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                     assert response.status_code == 204
             complete_codex_login(self.user.id, login_id)
 
-        connected = outcome in ("success", "cancel_old_connection", "poll_timeout", "poll_503", "poll_429")
+        connected = outcome in (
+            "success",
+            "cancel_old_connection",
+            "poll_timeout",
+            "poll_503",
+            "poll_429",
+            "access_unavailable",
+        )
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is connected
         result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
         assert result["user_code"] is None
@@ -2183,6 +2198,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 "poll_503": "connected",
                 "poll_429": "connected",
                 "cancel_during_exchange": "canceled",
+                "access_unavailable": "connected",
             }[outcome]
         )
         assert "private-" not in json.dumps(result)

@@ -68,6 +68,7 @@ describe('personalCodexIntegrationLogic', () => {
     })
 
     afterEach(() => {
+        jest.useRealTimers()
         logic.unmount()
         Object.defineProperty(document, 'hidden', { configurable: true, value: false })
     })
@@ -171,11 +172,24 @@ describe('personalCodexIntegrationLogic', () => {
         expect(logic.values.connectError).toBeNull()
     })
 
-    it('cancels a login that starts after the dialog closes', async () => {
+    it.each([false, true])('cancels a delayed start and can retry a stalled request: %s', async (stall) => {
+        jest.useFakeTimers()
         pendingStart = deferred<void>()
         logic.actions.openConnectModal('settings')
         logic.actions.closeConnectModal()
+        if (stall) {
+            await jest.advanceTimersByTimeAsync(10000)
+            expect(logic.values.cancelError).toContain('Could not cancel')
+            expect(logic.values.canceling).toBe(false)
+            expect(logic.values.connectModalOpener).toBe('settings')
+        }
         pendingStart.resolve()
+        jest.useRealTimers()
+        if (stall) {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.connectModalOpener).toBe('settings')
+            logic.actions.closeConnectModal()
+        }
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.login).toBeNull()
         expect(logic.values.connectModalOpener).toBeNull()

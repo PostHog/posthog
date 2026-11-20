@@ -152,22 +152,37 @@ def poll_approval(user_id: int, login: DeviceLogin) -> requests.Response | None:
             retry_after = Retry().parse_retry_after(response.headers.get("Retry-After", "0"))
         except (InvalidHeader, OverflowError):
             pass
+    retry_login(user_id, login, retry_after)
+    return None
+
+
+def retry_login(user_id: int, login: DeviceLogin, retry_after: float = 0) -> None:
+    login.setdefault("interval", 5)
     login["retry_delay"] = min(60, login.get("retry_delay", 5) * 2)
     schedule_poll(user_id, login, max(login["retry_delay"], retry_after))
-    return None
+
+
+def check_login_access(user: User, login: DeviceLogin) -> bool:
+    from posthog.api.user_integration_codex import DesktopAccessUnavailable, ensure_codex_connect_enabled
+
+    try:
+        ensure_codex_connect_enabled(user)
+        return True
+    except DesktopAccessUnavailable:
+        retry_login(user.id, login)
+        return False
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, soft_time_limit=55, time_limit=60)
 @skip_team_scope_audit
 def complete_codex_login(user_id: int, login_id: str) -> None:
-    from posthog.api.user_integration_codex import ensure_codex_connect_enabled
-
     try:
         login = claim_login(user_id, login_id)
         if login is None:
             return
         user = User.objects.get(id=user_id, is_active=True)
-        ensure_codex_connect_enabled(user)
+        if not check_login_access(user, login):
+            return
         if login["status"] == "starting":
             response = openai_auth_request(
                 "POST",
@@ -195,6 +210,9 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
         approval = poll_approval(user_id, login)
         if approval is None:
             return
+        user = User.objects.get(id=user_id, is_active=True)
+        if not check_login_access(user, login):
+            return
         grant = approval.json()
         response = openai_auth_request(
             "POST",
@@ -218,7 +236,6 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
             if get_login(user_id, login_id)["status"] != "pending":
                 return
             user = User.objects.get(id=user_id, is_active=True)
-            ensure_codex_connect_enabled(user)
             CodexUserIntegration.connect(user_id, tokens, source="device_login", device_login_id=login_id)
             if time.time() >= login["expires_at"]:
                 raise TimeoutError("Device login expired")

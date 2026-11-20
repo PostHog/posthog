@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid'
 
 import { ApiError, NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { retryWithBackoff } from 'lib/utils/async'
+import { retryWithBackoff, withTimeout } from 'lib/utils/async'
 
 import {
     usersIntegrationsCodexDestroy,
@@ -213,10 +213,10 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                 cache.startLoginRequest = usersIntegrationsCodexLoginCreate('@me', { login_id: loginId })
                 const login = await cache.startLoginRequest
                 if (cache.disposables.isDisposed || values.login?.login_id !== loginId) {
-                    await usersIntegrationsCodexLoginDestroy('@me', loginId)
+                    await withTimeout((signal) => usersIntegrationsCodexLoginDestroy('@me', loginId, { signal }), 10000)
                     return
                 }
-                if (cache.cancelingLoginId === loginId) {
+                if (cache.cancelingLoginId === loginId || values.cancelError) {
                     return
                 }
                 actions.setLogin(login)
@@ -307,9 +307,9 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
             cache.cancelingLoginId = loginId
             cache.disposables.dispose('codexLogin')
             try {
-                await cache.startLoginRequest?.catch(() => undefined)
+                await withTimeout(cache.startLoginRequest?.catch(() => undefined) ?? Promise.resolve(), 10000)
                 if (loginId) {
-                    await usersIntegrationsCodexLoginDestroy('@me', loginId)
+                    await withTimeout((signal) => usersIntegrationsCodexLoginDestroy('@me', loginId, { signal }), 10000)
                 }
                 actions.connectModalClosed()
                 actions.loadCodexIntegration()
