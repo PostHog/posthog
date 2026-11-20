@@ -51,10 +51,8 @@ export interface businessKnowledgeSetupCardLogicActions {
         name: import('node_modules/kea-forms/lib').FieldName
         value: any
     } // businessKnowledgeLogic
-    setUrlSourceValues: (
-        values: import('node_modules/kea-forms/lib').DeepPartial<import('../../sourceFormUtils').UrlSourceFormValues>
-    ) => {
-        values: import('node_modules/kea-forms/lib').DeepPartial<import('../../sourceFormUtils').UrlSourceFormValues>
+    setUrlSourceValues: (values: import('node_modules/kea-forms/lib').DeepPartial<UrlSourceFormValues>) => {
+        values: import('node_modules/kea-forms/lib').DeepPartial<UrlSourceFormValues>
     } // businessKnowledgeLogic
     submitUrlSource: () => {
         value: boolean
