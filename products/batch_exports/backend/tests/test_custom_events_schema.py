@@ -221,6 +221,10 @@ class TestSerializeEventsQuerySchema(BaseTest):
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_native_recompile_rejects_a_restricted_properties_object_saved_for_the_legacy_tables(self):
+        """A restricted user can save `SELECT properties` for the legacy tables, which mask the restricted keys, but
+        the native table cannot select a restricted properties object. The run must then fail with a non-retryable
+        error instead of retrying the recompile.
+        """
         with patch(
             "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
             return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
