@@ -12577,7 +12577,7 @@ export namespace Schemas {
          */
         rollout: FeatureFlagRolloutSummary;
     };
-    export type FlagEvaluationsModeEnum = 0 | 1 | 2;
+    export type FlagEvaluationsModeEnum = 0 | 1 | 2 | 3;
     export type GitLabProject = {
         /**
          * GitLab numeric project ID.
@@ -17842,7 +17842,7 @@ export namespace Schemas {
          */
         available_error_tracking_ai_features: Array<ErrorTrackingAIFeatureEnum>;
         /**
-         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
+         * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1, 2 and 3 read the flag_evaluations table.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
         /**
