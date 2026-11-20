@@ -12,7 +12,6 @@ export function SupportSetupTestTicket({ preview }: { preview: boolean }): JSX.E
     const { testMessage, testTicketLoading, pendingReason } = useValues(supportSetupCardLogic)
     const { setTestMessage, sendTestTicket } = useActions(supportSetupCardLogic)
 
-    // The button and the Enter key share one reason, so neither can send what the other blocks.
     const blockedReason = preview
         ? 'This project already has tickets, so this preview does not send one.'
         : (getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? pendingReason)

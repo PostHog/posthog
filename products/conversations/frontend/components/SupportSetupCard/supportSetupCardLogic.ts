@@ -243,7 +243,6 @@ export const supportSetupCardLogic = kea<supportSetupCardLogicType>([
                 return
             }
             if (channel === 'widget') {
-                // The widget has no required configuration, so one request turns on Support and the widget together.
                 actions.updateCurrentTeam({
                     ...(supportEnabled ? {} : { conversations_enabled: true }),
                     conversations_settings: { ...team?.conversations_settings, widget_enabled: true },

@@ -107,7 +107,6 @@ export const supportSetupLogic = kea<supportSetupLogicType>([
             // Tickets outrank the toggle. Turning support off keeps the tickets, and the
             // settings copy says so, but this list is the only place to read them.
             if (values.ticketCount && values.ticketCount > 0) {
-                // The status was "no tickets" a moment ago, so this check saw the project's first ticket arrive.
                 if (values.setupStatus === 'needs-setup' || values.setupStatus === 'waiting-for-data') {
                     // pinned: analytics event name. Renaming it breaks insights built on it.
                     posthog.capture('support setup first ticket detected', {
