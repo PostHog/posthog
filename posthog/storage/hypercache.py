@@ -227,6 +227,15 @@ class HyperCache:
         else:
             self.cache_client = cache
             self.redis_url = settings.REDIS_URL
+        alias_options = settings.CACHES.get(cache_alias, {}).get("OPTIONS", {}) if cache_alias else {}
+        self._redis_timeouts: dict[str, float] = {
+            name: alias_options[option]
+            for name, option in (
+                ("socket_timeout", "SOCKET_TIMEOUT"),
+                ("socket_connect_timeout", "SOCKET_CONNECT_TIMEOUT"),
+            )
+            if option in alias_options
+        }
 
         # Optional secondary cache; writes and deletes are mirrored on a best-effort basis.
         self.secondary_cache_client = (
@@ -821,7 +830,7 @@ class HyperCache:
             else:
                 return
 
-            redis_client = get_client(self.redis_url)
+            redis_client = get_client(self.redis_url, **self._redis_timeouts)
             if if_score is None:
                 redis_client.zrem(self.expiry_sorted_set_key, identifier)
             else:
@@ -859,7 +868,7 @@ class HyperCache:
             # a rewrite from that marker.
             expiry_timestamp = int(time.time()) + ttl_seconds
 
-            redis_client = get_client(self.redis_url)
+            redis_client = get_client(self.redis_url, **self._redis_timeouts)
             redis_client.zadd(self.expiry_sorted_set_key, {str(identifier): expiry_timestamp})
         except Exception as e:
             # Don't fail cache writes if expiry tracking fails

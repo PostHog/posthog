@@ -1,5 +1,8 @@
+import time
 import contextlib
 from datetime import timedelta
+from types import SimpleNamespace
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -10,6 +13,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.storage.team_llm_gateway_quota_cache import (
     LLM_GATEWAY_QUOTA_CACHE_EXPIRY_SORTED_SET,
@@ -118,6 +122,33 @@ class TestLLMGatewayQuotaTasks(BaseTest):
         blob = get_team_quota_blob(self.team)
         assert blob is not None
         self.assertTrue(blob["org_deactivated"])
+
+    @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
+    def test_deactivating_an_org_stops_projecting_once_its_time_budget_is_spent(self, mock_settings: MagicMock) -> None:
+        mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
+        for index in range(4):
+            Team.objects.create(organization=self.organization, name=f"team {index}")
+        clock = [0.0]
+        fake_time = SimpleNamespace(monotonic=lambda: clock[0], time=time.time)
+        real_write = hypercache.set_cache_value_redis_only
+        written: list[int] = []
+
+        def slow_write(team: Team, *args: Any, **kwargs: Any) -> Any:
+            written.append(team.id)
+            clock[0] += 3.0
+            return real_write(team, *args, **kwargs)
+
+        with (
+            self.settings(AI_GATEWAY_REDIS_URL=_GATEWAY_REDIS_URL),
+            patch("posthog.tasks.team_llm_gateway_quota.time", fake_time),
+            patch("posthog.storage.team_llm_gateway_quota_cache.time", fake_time),
+            patch.object(hypercache, "set_cache_value_redis_only", side_effect=slow_write),
+            patch("posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.organization.is_active = False
+            self.organization.save()
+        self.assertEqual(len(written), 2)
 
     @parameterized.expand(
         [
