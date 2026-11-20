@@ -112,7 +112,7 @@ export function scorecardOf(
         janitor_resets: result.janitorResets ?? null,
         ...invariantProperties(result),
         ...measurementProperties(result),
-        ...rampProperties(result),
+        ...(card.drive.stopOnBreak === true ? rampProperties(result) : {}),
         admissions: result.admissions,
         bars: result.bars,
         valve_timeline: result.timeline,

@@ -597,12 +597,7 @@ export function createRunner(
                 await live.stop()
                 const down = await stopHealth()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
-                const invariants = await judge.check(
-                    card.invariants,
-                    card.gates,
-                    { janitorResets },
-                    { pullTruth: watch === undefined }
-                )
+                const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,

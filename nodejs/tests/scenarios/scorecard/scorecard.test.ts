@@ -15,6 +15,7 @@ const NEVER_ABORTED = new AbortController().signal
 const RUN_ID = '6f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f'
 
 const SMOKE: LoadedCard = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
+const BREAKING_POINT: LoadedCard = load(path.join(__dirname, '..', 'cards', 'cyclotron-breaking-point.yaml'))
 
 const PROVENANCE: Provenance = {
     headSha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
@@ -123,16 +124,6 @@ describe('scorecard', () => {
                     card_hash: SMOKE.cardHash,
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,
-                    ramp_steps: null,
-                    ramp_end: null,
-                    ramp_sustained_scale: null,
-                    ramp_broke_scale: null,
-                    ramp_broke_offered_per_s: null,
-                    ramp_broke_by: null,
-                    ramp_broke_kind: null,
-                    ramp_broke_at: null,
-                    ramp_broke_part: null,
-                    ramp_end_reason: null,
                     topology_hash: null,
                     head_sha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
                     head_dirty: true,
@@ -307,7 +298,7 @@ describe('scorecard', () => {
             ],
         }
 
-        expect(scorecardOf({ ...RESULT, ramp, units }, SMOKE, PROVENANCE)).toMatchObject(expected)
+        expect(scorecardOf({ ...RESULT, ramp, units }, BREAKING_POINT, PROVENANCE)).toMatchObject(expected)
     })
 
     it('gives up when the readback never returns the event', async () => {

@@ -661,24 +661,6 @@ describe('judge', () => {
         }
     )
 
-    it.each<[string, boolean, object]>([
-        ['counts a delivery that lands after the convergence deadline on a fresh read', true, { passed: true }],
-        [
-            'keeps a delivery that missed the convergence deadline missing when judged on the records the deadline saw',
-            false,
-            { passed: false, unitIds: [UNIT] },
-        ],
-    ])('%s', async (_story, pullTruth, expected) => {
-        unfinishedJobs = 0
-        judge.record(offered())
-        await judge.converge(50, NEVER_ABORTED)
-        await deliver(UNIT)
-
-        const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS, { pullTruth })
-
-        expect(result).toMatchObject(expected)
-    })
-
     it.each<[string, () => Judge]>([
         ['reopened', () => judge],
         ['opened fresh', judgeOf],

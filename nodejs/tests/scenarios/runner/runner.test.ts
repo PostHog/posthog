@@ -1591,6 +1591,72 @@ describe('runner through seed, drive and judge', () => {
         30_000
     )
 
+    it('closes the writer CPU read of a step still being judged before a ramp that did not converge returns, and reads no more after it', async () => {
+        const runId = randomUUID()
+        const manifestFile = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifestFile,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            })
+        )
+        const startedAt = Date.now()
+        let open = 0
+        let reads = 0
+        let onRead = (): void => undefined
+        const onHost: Environment = {
+            ...environmentOf('all, leaving one job running'),
+            writerCpu: async () => {
+                reads += 1
+                open += 1
+                onRead()
+                await new Promise((resolve) => setTimeout(resolve, 1500))
+                open -= 1
+                return []
+            },
+        }
+        const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
+            ({ name }) => name === 'writer_cpu_under'
+        )
+
+        const result = await createRunner(
+            onHost,
+            { ...env, SCENARIO_RUN_MANIFEST: manifestFile },
+            { topologyWithinMs: 1000, topologyEveryMs: 10 }
+        ).run(
+            shortSmoke([], undefined, {
+                ramp: [
+                    { scale: 1, for: '1s' },
+                    { scale: 2, for: '1s' },
+                ],
+                stopOnBreak: true,
+                bars: writerCpu,
+                driveFor: '2s',
+            }),
+            NEVER_ABORTED
+        )
+        results.push(result)
+        const atReturn = { open, reads }
+        const later = await Promise.race([
+            new Promise<string>((resolve) => {
+                onRead = () => resolve('a writer CPU read after the run returned')
+            }),
+            new Promise<string>((resolve) =>
+                setTimeout(() => resolve('none'), Math.max(0, startedAt + 25_000 - Date.now()))
+            ),
+        ])
+
+        expect({ convergence: result.convergence?.converged, atReturn, later }).toEqual({
+            convergence: false,
+            atReturn: { open: 0, reads: 2 },
+            later: 'none',
+        })
+    }, 60_000)
+
     it('ends a ramp that held every step but left a job unfinished with no sustained scale', async () => {
         const ramp = [
             { scale: 1, for: '1s' },

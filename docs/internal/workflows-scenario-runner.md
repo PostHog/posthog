@@ -54,7 +54,7 @@ Before the drive, the runner reads the topology again until every part a valve t
 
 ### Run a card in the cloud
 
-`cyclotron-failover-under-load`, `cyclotron-scale` and `cyclotron-breaking-point` run only on a run host: a per-run cloud stack with its own Aurora cluster, a pooler, and one host that runs the card.
+`cyclotron-failover-under-load`, `cyclotron-scale` and `cyclotron-breaking-point` get a full verdict only on a run host: a per-run cloud stack with its own Aurora cluster, a pooler, and one host that runs the card. A local run of one of them leaves part of the card unjudged, as the **Locally** line below says.
 A controller on a person's machine starts the run and ends it:
 
 ```bash
@@ -219,7 +219,7 @@ Each card is drawn from a failure class on the delivery path.
 | `cyclotron-breaking-point`      | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x, 5x, 10x, 20x, 30x and 40x for 5 minutes each and stop at the first break, with the same bars as `cyclotron-scale` | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0), `resident_backlog_intact` | The load at which Cyclotron first breaks     |
 
 A `cyclotron-breaking-point` run that holds every step through 40x ends as a ceiling at 40x, which is a valid result and not a failure of the card.
-On `cyclotron-breaking-point`, a break at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged, and the run places the break at step N.
+On `cyclotron-breaking-point`, a broken bar or a refusal over the `refused_at_intake` gate at step N halts the drive by the end of step N+1, step N+2 never starts before step N is judged, and the run places the break at step N. The other invariants are judged after convergence: they place a break at its step but do not stop the drive.
 
 ## Call paths
 
@@ -445,7 +445,7 @@ A breaking point from an earlier step still stands.
 
 - The generator offers no unit of a step after the step's end. A unit it could not offer in time still counts as due, so a stalled generator shows as a shortfall rather than as load in the next step. A card without `stopOnBreak` keeps one schedule: a unit that fell due during a stall is offered late, up to the drive's end.
 - The generator moves to the next step at the planned boundary while the verdict of the step before is in. When it is not, the generator keeps driving the current step at its own rate until that verdict is in, so a break at step N halts the drive by the end of step N+1, and step N+2 never starts before step N is judged. The stretched step keeps its real start and end, and `ramp_steps` says it waited. Later steps start that much later and keep their planned length.
-- After each step but the last, once 15 seconds of scrapes past its end are in, the runner judges the step's bars over the step, while the generator drives the next step. A broken bar stops the drive when the judge returns, so the drive stops no later than the end of the step after the one that broke, and the break is placed at the step that broke. The first step's admission is checked first, over the window the first step actually ran, so a ramp that fails its admission stops no later than the second step. The final judge checks the admission over the same window. A live judge that fails stops the drive as a `run_host` harness limit. A stop does not cancel the judgment of a step that already ended: the run converges from the drive's end, the runner then waits for that judgment, and the invariants are judged on the delivery records the convergence deadline saw, so a delivery that missed the deadline stays missing. The lowest step that broke or could not be read is where the drive stopped.
+- After each step but the last, once 15 seconds of scrapes past its end are in, the runner judges the step's bars over the step, while the generator drives the next step. A broken bar stops the drive when the judge returns, so the drive stops no later than the end of the step after the one that broke, and the break is placed at the step that broke. The first step's admission is checked first, over the window the first step actually ran, so a ramp that fails its admission stops no later than the second step. The final judge checks the admission over the same window. A live judge that fails stops the drive as a `run_host` harness limit. A stop does not cancel the judgment of a step that already ended: the run converges from the drive's end, the runner then waits for that judgment, and then judges the invariants on the delivery records it pulls. A delivery that missed the convergence deadline but arrived before that pull counts as delivered: the run still fails convergence, but no step is named for that delivery. The lowest step that broke or could not be read is where the drive stopped.
 - The final judge keeps each live break, and keeps a live pass for a step unless its own read breaks it, so a final read that fails after the drive does not undo a verdict the live judge already reached.
 - A refusal at intake over the card's `refused_at_intake` gate stops the drive inside its step, without waiting for the step to end.
 - An event counts as offered in its step once Kafka acknowledged it by the step's end, or by the stop when the drive stopped early, however late the generator's last timer ran. The live judge counts a transactional unit once it was sent, and the final count once cdp-api answered. A broken bar and the ramp report the step's rate from the same count, whether the live or the final judge read the break.
@@ -872,7 +872,7 @@ Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and t
 | `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                                                                                                       |
 | `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                                                                                                                                |
 
-**Ramp**, on every scorecard. Each property is `null` on a card without `drive.stopOnBreak`, and when it has no value:
+**Ramp**, only on the scorecard of a card with `drive.stopOnBreak`. A card without it stores none of these properties. Each property is `null` when it has no value:
 
 | Property                   | Type           | Meaning                                                                                                                                          |
 | -------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
