@@ -25,6 +25,8 @@ jobs:
             github.event.comment.user.id == github.actor_id && github.actor == github.triggering_actor
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        permissions:
+            pull-requests: read
         outputs:
             revision: ${{ steps.request.outputs.revision }}
         steps:
@@ -40,6 +42,24 @@ jobs:
                       exit 1
                   fi
 
+            - name: Verify the PR source and requested commit
+              id: source
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR: ${{ github.event.issue.number }}
+                  REVISION: ${{ steps.request.outputs.revision }}
+              shell: bash
+              run: |
+                  pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")
+                  if ! author=$(jq -er --arg repo "$GITHUB_REPOSITORY_ID" --arg sha "$REVISION" '
+                      select(.state == "open" and (.head.repo.id | tostring) == $repo and .head.sha == $sha)
+                      | select(.user.type == "User") | .user.login | strings | select(length > 0)
+                  ' <<< "$pr"); then
+                      echo "::error::Use the current commit of an open, member-authored PR from a branch in $GITHUB_REPOSITORY."
+                      exit 1
+                  fi
+                  echo "author=$author" >> "$GITHUB_OUTPUT"
+
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: members
               with:
@@ -47,14 +67,17 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
                   permission-members: read
 
-            - name: Verify the requester is an active PostHog organization member
+            - name: Verify the requester and PR author are active PostHog organization members
               id: membership
               env:
                   GH_TOKEN: ${{ steps.members.outputs.token }}
                   REQUESTER: ${{ github.actor }}
+                  AUTHOR: ${{ steps.source.outputs.author }}
               run: |
-                  state=$(gh api "orgs/PostHog/memberships/$REQUESTER" --jq .state)
-                  [[ "$state" == active ]]
+                  for login in "$REQUESTER" "$AUTHOR"; do
+                      state=$(gh api "orgs/PostHog/memberships/$login" --jq .state)
+                      [[ "$state" == active ]] || { echo "::error::Both accounts must be active PostHog members."; exit 1; }
+                  done
 
     simulator:
         needs: authorize

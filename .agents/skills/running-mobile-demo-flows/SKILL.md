@@ -34,7 +34,7 @@ DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fun
 
 ## Run the bundled flows
 
-For an external PR, request a [fresh hosted build of its exact commit](../../../products/mobile/docs/CI.md#test-a-mobile-pr-on-ios) for every run or retry.
+For a member-authored PR from a branch in `PostHog/posthog`, request a [hosted build of its exact commit](../../../products/mobile/docs/CI.md#test-a-mobile-pr-on-ios). For a fork PR, ask the contributor for demo results from their own environment at the reviewed commit.
 
 For your own changes, from `products/mobile`:
 

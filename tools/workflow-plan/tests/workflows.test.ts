@@ -1100,6 +1100,68 @@ describe('CI workflow run plans', () => {
         expect(plan.jobs.simulator?.outcome).toBe(runs ? 'success' : 'skipped')
     })
 
+    it.each([
+        ['current repository branch', { id: 42 }, 'open', 'a', true],
+        ['fork', { id: 21 }, 'open', 'a', false],
+        ['deleted source repository', null, 'open', 'a', false],
+        ['closed PR', { id: 42 }, 'closed', 'a', false],
+        ['changed head', { id: 42 }, 'open', 'b', false],
+    ] as const)('checks the simulator PR source for %s', (_name, repo, state, revision, allowed) => {
+        const script = workflow('mobile-pr-simulator.yml').jobs.authorize?.steps?.find(
+            (step) => step.id === 'source'
+        )?.run
+        const harness = `
+            gh() { echo "$PR_JSON"; }
+            GITHUB_OUTPUT=$(mktemp)
+            trap 'rm -f "$GITHUB_OUTPUT"' EXIT
+            ${script}
+            cat "$GITHUB_OUTPUT"
+        `
+        const gate = spawnSync('bash', ['-eu', '-c', harness], {
+            encoding: 'utf8',
+            env: {
+                PATH: process.env.PATH,
+                GITHUB_REPOSITORY: 'PostHog/posthog',
+                GITHUB_REPOSITORY_ID: '42',
+                PR: '1',
+                REVISION: 'a'.repeat(40),
+                PR_JSON: JSON.stringify({
+                    head: { repo, sha: revision.repeat(40) },
+                    state,
+                    user: { type: 'User', login: 'author' },
+                }),
+            },
+        })
+        expect(gate.status, gate.stderr).toBe(allowed ? 0 : 1)
+        expect(gate.stdout.includes('author=author')).toBe(allowed)
+    })
+
+    it.each([
+        ['active', 'active', 0],
+        ['pending', 'active', 1],
+        ['active', 'pending', 1],
+        ['active', 'missing', 1],
+    ] as const)('checks simulator memberships for requester %s and author %s', (requester, author, status) => {
+        const script = workflow('mobile-pr-simulator.yml').jobs.authorize?.steps?.find(
+            (step) => step.id === 'membership'
+        )?.run
+        const harness = `
+            gh() {
+                case "$2" in
+                    orgs/PostHog/memberships/operator) echo "$REQUESTER_STATE" ;;
+                    orgs/PostHog/memberships/contributor) [[ "$AUTHOR_STATE" != missing ]] && echo "$AUTHOR_STATE" ;;
+                    *) return 1 ;;
+                esac
+            }
+            ${script}
+        `
+        const gate = spawnSync('bash', ['-eu', '-c', harness], {
+            encoding: 'utf8',
+            env: { REQUESTER: 'operator', AUTHOR: 'contributor', REQUESTER_STATE: requester, AUTHOR_STATE: author },
+        })
+        expect(gate.status, gate.stderr).toBe(status)
+    })
+
     it('groups mobile simulator requests by requester and keeps ordinary comments out of the queue', () => {
         const concurrency = workflow('mobile-pr-simulator.yml').concurrency
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
