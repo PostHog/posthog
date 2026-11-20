@@ -6717,7 +6717,6 @@ export namespace Schemas {
      * * `personal_api_key` - personal_api_key
      * * `oauth` - oauth
      * * `project_secret_key` - project_secret_key
-     * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
      * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
@@ -6735,6 +6734,7 @@ export namespace Schemas {
      * * `webhook` - webhook
      * * `cross_region_signature` - cross_region_signature
      * * `unattributed` - unattributed
+     * * `team_secret_token` - team_secret_token
      */
     export type ActivityLogCredentialTypeEnum = typeof ActivityLogCredentialTypeEnum[keyof typeof ActivityLogCredentialTypeEnum];
 
@@ -6744,7 +6744,6 @@ export namespace Schemas {
       PersonalApiKey: 'personal_api_key',
       Oauth: 'oauth',
       ProjectSecretKey: 'project_secret_key',
-      TeamSecretToken: 'team_secret_token',
       IdJag: 'id_jag',
       OidcWorkload: 'oidc_workload',
       InternalJwt: 'internal_jwt',
@@ -6762,6 +6761,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       CrossRegionSignature: 'cross_region_signature',
       Unattributed: 'unattributed',
+      TeamSecretToken: 'team_secret_token',
     } as const;
 
     export interface ActivityLog {
@@ -6794,7 +6794,6 @@ export namespace Schemas {
        * * `personal_api_key` - personal_api_key
        * * `oauth` - oauth
        * * `project_secret_key` - project_secret_key
-       * * `team_secret_token` - team_secret_token
        * * `id_jag` - id_jag
        * * `oidc_workload` - oidc_workload
        * * `internal_jwt` - internal_jwt
@@ -6811,7 +6810,8 @@ export namespace Schemas {
        * * `export_renderer` - export_renderer
        * * `webhook` - webhook
        * * `cross_region_signature` - cross_region_signature
-       * * `unattributed` - unattributed */
+       * * `unattributed` - unattributed
+       * * `team_secret_token` - team_secret_token */
       readonly credential_type: ActivityLogCredentialTypeEnum | null;
       /**
          * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
@@ -96521,10 +96521,6 @@ export namespace Schemas {
          * @nullable
          */
       flags_persistence_default?: boolean | null;
-      /** @nullable */
-      readonly secret_api_token?: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup?: string | null;
       /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          * @nullable
@@ -102974,10 +102970,6 @@ export namespace Schemas {
          * @nullable
          */
       flags_persistence_default?: boolean | null;
-      /** @nullable */
-      readonly secret_api_token: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup: string | null;
       /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          * @nullable

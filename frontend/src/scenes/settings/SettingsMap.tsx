@@ -129,7 +129,6 @@ import {
     EvaluationContextSuggestions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
-    FlagsSecureApiKeys,
     RequireEvaluationContexts,
     RequireFeatureFlagTags,
 } from './environment/FeatureFlagSettings'
@@ -1209,15 +1208,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'FLAG_EVALUATION_TAGS',
                 component: <EvaluationContextSuggestions />,
                 keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
-            },
-            {
-                id: 'feature-flag-secure-api-key',
-                title: 'Feature flags secure API key',
-                description:
-                    'Deprecated. This key is still usable for local evaluation of feature flags or remote config settings, but new integrations should use a project secret API key with the feature_flag:read scope instead.',
-                docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
-                component: <FlagsSecureApiKeys />,
-                keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
             },
         ],
     },
