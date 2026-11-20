@@ -731,7 +731,12 @@ def remember_organization_field_changes(sender, instance: Organization, **kwargs
         if not tracked_fields:
             return
 
-    previous = sender.objects.filter(pk=instance.pk).values("is_active", "has_active_subscription").first()
+    previous = (
+        sender.objects.using(kwargs.get("using") or "default")
+        .filter(pk=instance.pk)
+        .values("is_active", "has_active_subscription")
+        .first()
+    )
     if previous is None:
         return
     if "is_active" in tracked_fields:
