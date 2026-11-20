@@ -15,6 +15,7 @@ from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, NoRunNeededInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import (
+    ActorType,
     BaselineApprovalState,
     BaselineMode,
     NoRunNeededOutcome,
@@ -943,6 +944,22 @@ def _approve_removal(repo: Repo) -> None:
     approve(repo, 1, "Button", "")
 
 
+def _approve_a_new_story(repo: Repo) -> None:
+    approve(repo, 1, "Badge", "Badge-new")
+
+
+def _quarantine_the_dropped_story(repo: Repo) -> None:
+    quarantine.quarantine_identifier(
+        repo_id=repo.id,
+        identifier="Button",
+        run_type=RunType.STORYBOOK,
+        reason="flaky",
+        user_id=None,
+        team_id=repo.team_id,
+        source=ActorType.AUTO,
+    )
+
+
 def _approve_in_another_pull_request(repo: Repo) -> None:
     approve(repo, 2, "Button", "Button-new")
 
@@ -1347,6 +1364,8 @@ class TestLedgerRecheck:
         [
             pytest.param(False, _nothing, _recheck(unsure=1), id="full_run_without_a_story_the_ledger_has"),
             pytest.param(False, _approve_removal, _recheck(), id="the_removal_is_approved"),
+            pytest.param(False, _quarantine_the_dropped_story, _recheck(), id="the_dropped_story_is_quarantined"),
+            pytest.param(False, _approve_a_new_story, _recheck(unsure=2), id="an_approved_new_story_is_missing_too"),
             pytest.param(True, _nothing, _recheck(), id="partial_run"),
         ],
     )

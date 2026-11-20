@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from ..db import WRITER_DB
 from ..facade.enums import BaselineApprovalState, BaselineMode, SnapshotResult
 from ..models import BaselineApproval, Run, RunSnapshot
-from . import baseline_approvals, baseline_record, baseline_resolution, ledger, toleration
+from . import baseline_approvals, baseline_record, baseline_resolution, ledger, quarantine, toleration
 
 
 @frozen
@@ -35,7 +35,9 @@ class LedgerRecheck:
         return not self.has_record or self.unsure > 0
 
 
-def _candidates(run: Run, record: baseline_record.BaselineRecord, identifiers: set[str]) -> list[BaselineApproval]:
+def _candidates(
+    run: Run, record: baseline_record.BaselineRecord, identifiers: set[str] | None
+) -> list[BaselineApproval]:
     """The approvals the run's record applied and the approvals of the run's own pull request, outside the ledger it reads.
 
     An approval that landed after the record's position is promoted, but the ledger at that position
@@ -47,15 +49,12 @@ def _candidates(run: Run, record: baseline_record.BaselineRecord, identifiers: s
     outside_ledger = Q(state=BaselineApprovalState.OPEN) | Q(
         state=BaselineApprovalState.PROMOTED, landed_position__gt=record.position
     )
-    return list(
-        BaselineApproval.objects.using(WRITER_DB).filter(
-            applied_or_own,
-            outside_ledger,
-            repo_id=run.repo_id,
-            run_type=run.run_type,
-            identifier__in=identifiers,
-        )
+    approvals = BaselineApproval.objects.using(WRITER_DB).filter(
+        applied_or_own, outside_ledger, repo_id=run.repo_id, run_type=run.run_type
     )
+    if identifiers is not None:
+        approvals = approvals.filter(identifier__in=identifiers)
+    return list(approvals)
 
 
 def recheck_run(run: Run) -> LedgerRecheck | None:
@@ -65,8 +64,8 @@ def recheck_run(run: Run) -> LedgerRecheck | None:
     and its stored render is neither the ledger hash nor the overlay hash, nor tolerated against one
     of them. Only a pixel diff could decide it, and that needs a new run.
 
-    A full run also counts each identifier that the ledger holds and the run has no snapshot of,
-    unless an open approval removes it. The YAML file dropped it as well, so the run stored no
+    A full run also counts each identifier that the ledger or an approval holds and the run has no
+    snapshot of, unless an approval removes it or a quarantine covers it. The YAML file dropped it as well, so the run stored no
     removal, but a run in `ledger` mode reports it as removed.
     """
     record = baseline_record.record_for_run(run)
@@ -84,12 +83,22 @@ def recheck_run(run: Run) -> LedgerRecheck | None:
     )
     rendered = {snapshot.identifier for snapshot in snapshots}
     ledger_only: set[str] = set()
+    # A partial run proves nothing about the stories outside its subset, so only a full run reads
+    # every approval: one can add a story that the ledger does not hold yet.
+    candidates = _candidates(run, record, None if not run.is_partial else rendered)
     if not run.is_partial:
         stored = set(RunSnapshot.objects.using(WRITER_DB).filter(run_id=run.id).values_list("identifier", flat=True))
-        ledger_only = set(ledger.ledger_at(run.repo_id, run.run_type, record.position)) - stored
+        quarantined = set(
+            quarantine.active_quarantined_identifiers(run.repo_id, run.team_id, run.run_type, using=WRITER_DB)
+        )
+        expected = set(ledger.ledger_at(run.repo_id, run.run_type, record.position))
+        expected |= {approval.identifier for approval in candidates if approval.content_hash}
+        ledger_only = expected - stored - quarantined
     identifiers = rendered | ledger_only
     ledger_hashes = ledger.hashes_at(run.repo_id, run.run_type, identifiers, record.position)
-    overlay = baseline_approvals.reduce_overlay(_candidates(run, record, identifiers), ledger_hashes)
+    overlay = baseline_approvals.reduce_overlay(
+        [approval for approval in candidates if approval.identifier in identifiers], ledger_hashes
+    )
     overlay_hashes = {identifier: entry.content_hash for identifier, entry in overlay.entries.items()}
     tolerated_lookup = toleration.build_tolerated_lookup(
         run.repo_id,
