@@ -37,7 +37,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
             )}
             <SceneSection
                 title="All transactional emails"
-                description="Delivered means the recipient's mail server accepted the email, even if it then put it in spam. Mail providers don't tell senders which emails they put in spam, so spam complaints count only people who reported an email. To see where your emails land, send a test to an inbox at each provider."
+                description="Delivered means the recipient's mail server accepted the email, even if it then put it in spam. Mail providers don't tell senders which emails they put in spam, so spam complaints count only emails that recipients reported as spam. To see where your emails land, send a test to an inbox at each provider."
                 actions={<TransactionalEmailMetricsDateRange />}
             >
                 <TransactionalEmailMetricTiles />
