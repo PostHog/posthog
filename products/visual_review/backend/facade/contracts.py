@@ -683,6 +683,9 @@ class BaselineLedgerRepair:
     # Planned entries whose hash differs from the file read at their own commit. Any of them means
     # GitHub's list of the file's changes missed one, and an apply refuses to write.
     mismatches: tuple[str, ...] = ()
+    # Ranges of positions where the file changed without a commit GitHub listed. Any of them means
+    # the ledger may differ from the file inside the range, and an apply refuses to write.
+    gaps: tuple[str, ...] = ()
 
 
 # How far back the page reads. Sets the width of the per-day activity strip and

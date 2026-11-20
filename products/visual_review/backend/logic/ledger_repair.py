@@ -54,6 +54,14 @@ class _LedgerChange:
     content_hash: str
 
 
+@frozen
+class _UnchangedRange:
+    """Positions between two listed changes of the file, where the file must stay as it was at `start`."""
+
+    start: int
+    end: int
+
+
 def _drift(ledger_hashes: dict[str, str], file_hashes: dict[str, str]) -> tuple[str, ...]:
     """The identifiers on which the two disagree. An empty hash and an absent identifier are the same."""
     return tuple(
@@ -245,6 +253,47 @@ def _mismatches(repo: Repo, run_type: str, plan: BaselineLedgerRepair) -> tuple[
     return tuple(mismatches)
 
 
+def _unchanged_ranges(changed_positions: Iterable[int]) -> list[_UnchangedRange]:
+    """From the seed or a listed change up to the position before the next listed change.
+
+    The range after the last listed change ends at the cursor, which the drift check covers.
+    """
+    ranges: list[_UnchangedRange] = []
+    start = 0
+    for position in sorted(changed_positions):
+        if position - 1 > start:
+            ranges.append(_UnchangedRange(start=start, end=position - 1))
+        start = position
+    return ranges
+
+
+def _gaps(repo: Repo, run_type: str, history: _BaselineFileHistory) -> tuple[str, ...]:
+    """The ranges in which the file changed although GitHub listed no change there.
+
+    The walk trusts the list. A missed change that a later listed change undoes leaves no drift at
+    the cursor and plans no entry, so neither of the other checks sees it. Equal blob SHAs at both
+    ends of a range prove that no such change happened in it.
+    """
+    ranges = _unchanged_ranges(history.changes)
+    commits = _commits_at(repo, {position for unchanged in ranges for position in (unchanged.start, unchanged.end)})
+    path = baselines.baseline_file_path(repo, run_type)
+    # One commit can end one range and start the next, so each blob is read once.
+    blob_shas: dict[str, str] = {}
+    gaps: list[str] = []
+    for unchanged in ranges:
+        start_sha = commits[unchanged.start].commit_sha
+        end_sha = commits[unchanged.end].commit_sha
+        for commit_sha in (start_sha, end_sha):
+            if commit_sha not in blob_shas:
+                blob_shas[commit_sha] = github_api.file_blob_sha(repo, path, commit_sha, Priority.BATCH)
+        if blob_shas[start_sha] == blob_shas[end_sha]:
+            continue
+        gaps.append(
+            f"positions {unchanged.start + 1} to {unchanged.end}: the file differs between {start_sha} and {end_sha}"
+        )
+    return tuple(gaps)
+
+
 @frozen
 class _CheckedPlan:
     history: _BaselineFileHistory
@@ -256,7 +305,8 @@ def _read_and_plan(repo: Repo, run_type: str) -> _CheckedPlan:
     try:
         history = _read_baseline_file_history(repo, run_type)
         plan = _plan(repo, run_type, history)
-        return _CheckedPlan(history=history, plan=replace(plan, mismatches=_mismatches(repo, run_type, plan)))
+        checked = replace(plan, mismatches=_mismatches(repo, run_type, plan), gaps=_gaps(repo, run_type, history))
+        return _CheckedPlan(history=history, plan=checked)
     except github_api.GITHUB_READ_REFUSED as e:
         raise errors.BaselineRepairError(
             "GitHub or the egress budget refused a read of the baseline file history. Try again later."
@@ -271,6 +321,11 @@ def plan_repair(repo: Repo, run_type: str) -> BaselineLedgerRepair:
 
 def _refuse_unsafe(plan: BaselineLedgerRepair) -> None:
     """Refuse a plan that rests on an incomplete list of the file's changes."""
+    if plan.gaps:
+        raise errors.BaselineRepairError(
+            f"The baseline file changed without a listed commit in {len(plan.gaps)} ranges ({'; '.join(plan.gaps)}), "
+            "so GitHub's list of the file's changes is incomplete. Nothing was written."
+        )
     if plan.mismatches:
         raise errors.BaselineRepairError(
             f"{len(plan.mismatches)} planned entries differ from the baseline file at their own commit, so "

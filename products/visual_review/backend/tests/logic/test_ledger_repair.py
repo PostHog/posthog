@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 
@@ -47,6 +48,7 @@ class _FakeBaselineFile:
         mocker.patch.object(github_api, "get_github_integration_for_repo", side_effect=self._integration)
         mocker.patch.object(github_api, "commit_date", side_effect=self._commit_date)
         mocker.patch.object(github_api, "commits_touching_path", side_effect=self._commits_touching_path)
+        mocker.patch.object(github_api, "file_blob_sha", side_effect=self._file_blob_sha)
         mocker.patch.object(
             github_api,
             "_fetch_baseline_file",
@@ -62,6 +64,10 @@ class _FakeBaselineFile:
     def _file_at(self, sha: str) -> dict:
         reachable = self.history[: self.history.index(sha) + 1]
         return next(self.files[changed] for changed in reversed(reachable) if changed in self.files)
+
+    def _file_blob_sha(self, repo: Repo, path: str, ref: str, priority: Priority = Priority.CRITICAL) -> str:
+        self.priorities.add(priority)
+        return hashlib.sha1(yaml.safe_dump(self._file_at(ref)).encode()).hexdigest()
 
     def _integration(self, repo: Repo, priority: Priority = Priority.CRITICAL) -> MagicMock:
         self.priorities.add(priority)
@@ -114,7 +120,8 @@ def _export(repo: Repo) -> dict:
 
 # Per position: the commit, its pull request, the merge entries the ledger recorded, and the
 # baseline file when the commit changed it.
-_HISTORY: list[tuple[str, int | None, dict[str, str], dict[str, str] | None]] = [
+_History = list[tuple[str, int | None, dict[str, str], dict[str, str] | None]]
+_HISTORY: _History = [
     ("s1", 11, {}, {"Button": B1, "Card": C0, "Gone": G0}),
     ("s2", 12, {"Card": C1}, {"Button": B1, "Card": C2, "Gone": G0}),
     ("s3", 13, {}, {"Button": B1, "Card": C2}),
@@ -138,17 +145,16 @@ class TestLedgerRepair:
         repo = repos.create_repo(team_id=team.id, repo_external_id=88888, repo_full_name="org/repair")
         return _FakeBaselineFile(mocker, repo)
 
-    @pytest.fixture
-    def repo(self, baseline_file) -> Repo:
+    def _record(self, baseline_file: _FakeBaselineFile, seed: dict[str, str], history: _History) -> Repo:
         repo = baseline_file.repo
-        ledger.seed(repo, "s0", {RunType.STORYBOOK: _FILE_AT[0]})
+        ledger.seed(repo, "s0", {RunType.STORYBOOK: seed})
         set_baseline_mode(repo, BaselineMode.SHADOW)
         # Older than the seed, but inside the margin of the listing.
         baseline_file.commit("before-seed", {"Button": B2}, committed_at=SEED_DATE - timedelta(hours=2))
-        baseline_file.commit("s0", _FILE_AT[0], committed_at=SEED_DATE)
+        baseline_file.commit("s0", seed, committed_at=SEED_DATE)
         with transaction.atomic(using=WRITER_DB):
             ledger.lock_ledger(repo.id)
-            for position, (sha, pr_number, merged, file_hashes) in enumerate(_HISTORY, start=1):
+            for position, (sha, pr_number, merged, file_hashes) in enumerate(history, start=1):
                 ledger.append_commit(repo, position=position, commit_sha=sha, pr_number=pr_number)
                 for identifier, content_hash in merged.items():
                     ledger.append_entry(
@@ -166,6 +172,10 @@ class TestLedgerRepair:
                 committed_at = SEED_DATE - timedelta(hours=1) if position == 1 else None
                 baseline_file.commit(sha, file_hashes, committed_at=committed_at)
         return repo
+
+    @pytest.fixture
+    def repo(self, baseline_file) -> Repo:
+        return self._record(baseline_file, _FILE_AT[0], _HISTORY)
 
     def test_a_dry_run_prints_the_plan_and_writes_nothing(self, repo, baseline_file) -> None:
         entries_before = BaselineEntry.objects.filter(repo=repo).count()
@@ -216,6 +226,27 @@ class TestLedgerRepair:
 
         assert reported in output
         assert BaselineEntry.objects.filter(repo=repo).count() == entries_before
+
+    def test_an_unlisted_change_a_listed_one_undoes_blocks_the_apply(self, baseline_file) -> None:
+        repo = self._record(
+            baseline_file,
+            {"Button": B0},
+            [
+                ("t1", 21, {}, {"Button": B1}),
+                ("t2", 22, {}, None),
+                ("t3", 23, {}, {"Button": B0}),
+                ("t4", None, {}, None),
+            ],
+        )
+        baseline_file.unlisted.add("t1")
+
+        output = _repair(repo)
+        with pytest.raises(CommandError, match="changed without a listed commit in 1 ranges"):
+            _repair(repo, "--apply")
+
+        assert "0 entries at 0 positions" in output
+        assert "Unlisted change of the baseline file: positions 1 to 2: the file differs between s0 and t2" in output
+        assert BaselineEntry.objects.filter(repo=repo, source=BaselineEntrySource.REPAIR).count() == 0
 
     def test_a_second_apply_plans_nothing(self, repo) -> None:
         _repair(repo, "--apply")

@@ -503,6 +503,21 @@ def commit_date(repo: Repo, sha: str, priority: Priority = Priority.CRITICAL) ->
     return parse_datetime(date) if date else None
 
 
+def file_blob_sha(repo: Repo, path: str, ref: str, priority: Priority = Priority.CRITICAL) -> str:
+    """The blob SHA of the file at `ref`, or an empty string when the file does not exist there.
+
+    Two commits with the same blob SHA hold the same bytes, so a caller can compare versions
+    without reading them. Raises `GitHubCommitError` when GitHub cannot say.
+    """
+    try:
+        entry = get_github_integration_for_repo(repo, priority).get_file_entry(repo.repo_full_name, path, ref=ref)
+    except GitHubRateLimitError:
+        raise
+    except GitHubIntegrationError as e:
+        raise errors.GitHubCommitError(f"Failed to read the blob of {path} at {ref}: {e}") from e
+    return "" if entry is None else entry["sha"]
+
+
 # Ten pages of the commit list. A baseline file changes far less often than the branch moves, so
 # a longer history means the ledger is too old to repair and needs a new seed.
 MAX_PATH_COMMITS = 1000
