@@ -1,7 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import type { MouseEvent } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { withWidth } from '../storyFixtures'
 import { TraceHeader } from './TraceHeader'
@@ -24,6 +27,10 @@ type Story = StoryObj<typeof TraceHeader>
 
 const exportAction = { loading: false, onExport: () => {} }
 const copyAction = { loading: false, onCopy: () => {} }
+const distributedTraceAction = {
+    traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+    onOpen: (event: MouseEvent) => event.preventDefault(),
+}
 
 export const Default: Story = {}
 export const Errored: Story = { args: { hasError: true } }
@@ -56,12 +63,28 @@ const reviewActions = (
     </>
 )
 const fullHeader = { search, copyAction, exportAction, actions: reviewActions }
+const linkedHeader = { ...fullHeader, distributedTraceAction }
 
 export const OneRow: Story = { args: fullHeader }
 export const ToolbarBelowTitle: Story = { args: fullHeader, decorators: [withWidth(673)] }
 export const ButtonsBelowSearch: Story = {
     args: { ...fullHeader, name: 'support-agent.handle-inbound-ticket.classify-and-route', hasError: true },
     decorators: [withWidth(448)],
+}
+// The link needs Tracing access, and the default story context grants none.
+const withTracingAccess = (): (() => void) => {
+    const context = window.POSTHOG_APP_CONTEXT!
+    const previous = context.resource_access_control
+    context.resource_access_control = { ...previous, [AccessControlResourceType.Tracing]: AccessControlLevel.Viewer }
+    return () => {
+        context.resource_access_control = previous
+    }
+}
+export const WithDistributedTrace: Story = { args: linkedHeader, beforeEach: withTracingAccess }
+export const WithDistributedTraceNarrow: Story = {
+    args: linkedHeader,
+    decorators: [withWidth(448)],
+    beforeEach: withTracingAccess,
 }
 export const WithSearch: Story = { args: { search } }
 export const Narrow: Story = {

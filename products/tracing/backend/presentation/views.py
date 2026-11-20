@@ -77,7 +77,7 @@ from ..facade.api import (
     summarize_trace,
 )
 from ..facade.enums import ServiceHealthStatus
-from ..has_spans_query_runner import team_has_spans
+from ..has_spans_query_runner import find_stored_trace_id, team_has_spans
 from ..logic import (
     _ROW_LIMIT,
     DEFAULT_AGGREGATION_ROW_LIMIT,
@@ -1155,6 +1155,22 @@ class _HasSpansResponseSerializer(serializers.Serializer):
     )
 
 
+class _StoredTraceQuerySerializer(serializers.Serializer):
+    trace_id = serializers.CharField(
+        max_length=255,
+        trim_whitespace=False,
+        help_text="A trace id from another product, such as an `$ai_trace_id`. Any string is accepted.",
+    )
+
+
+class _StoredTraceResponseSerializer(serializers.Serializer):
+    traceId = serializers.CharField(
+        allow_null=True,
+        help_text="The id as lowercase hex when the team stores a span of this trace, in any time range. Null when "
+        "the id is not an OpenTelemetry trace id, as 32 hex characters or a hyphenated UUID, or no span is stored.",
+    )
+
+
 class _TracingCountBodySerializer(serializers.Serializer):
     dateRange = _TracingDateRangeSerializer(
         required=False,
@@ -1493,6 +1509,17 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         )
 
         return Response({"hasSpans": has_spans}, status=status.HTTP_200_OK)
+
+    @extend_schema(parameters=[_StoredTraceQuerySerializer], responses={200: _StoredTraceResponseSerializer})
+    @action(detail=False, methods=["GET"], url_path="stored_trace", required_scopes=["tracing:read"])
+    def stored_trace(self, request: Request, *args, **kwargs) -> Response:
+        """Resolve a trace id from another product to a trace that Tracing stores spans for, so a
+        link to the trace can stay hidden when it would open nothing."""
+        query = _StoredTraceQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        trace_id = find_stored_trace_id(self.team, query.validated_data["trace_id"])
+        return Response(_StoredTraceResponseSerializer({"traceId": trace_id}).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         request=_TracingQueryRequestSerializer,

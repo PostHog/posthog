@@ -18,6 +18,8 @@ export interface ViewTraceButtonProps extends Pick<
     /** Bounds the cold-load lookup — OTel trace ids embed no timestamp. */
     timestamp?: string | null
     iconOnly?: boolean
+    /** Replaces "View trace" where that reads as the page the user is already on. */
+    label?: string
 }
 
 /**
@@ -29,6 +31,7 @@ export function ViewTraceButton({
     spanId,
     timestamp,
     iconOnly,
+    label = 'View trace',
     ...buttonProps
 }: ViewTraceButtonProps): JSX.Element | null {
     // Most rows have no trace. Rendering a link to nothing is worse than rendering nothing.
@@ -44,7 +47,7 @@ export function ViewTraceButton({
             tooltip={iconOnly ? 'View the trace this came from' : undefined}
             {...buttonProps}
         >
-            {iconOnly ? undefined : 'View trace'}
+            {iconOnly ? undefined : label}
         </LemonButton>
     )
 }

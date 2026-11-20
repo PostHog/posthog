@@ -133280,6 +133280,14 @@ export namespace Schemas {
       calls_per_parent_invocation: number | null;
     }
 
+    export interface _StoredTraceResponse {
+      /**
+         * The id as lowercase hex when the team stores a span of this trace, in any time range. Null when the id is not an OpenTelemetry trace id, as 32 hex characters or a hyphenated UUID, or no span is stored.
+         * @nullable
+         */
+      traceId: string | null;
+    }
+
     export interface _SymbolSetDownloadResponse {
       /** Presigned URL to download the source map file. Use immediately; expires after one hour. */
       url: string;
@@ -150922,6 +150930,15 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type TracingSpansStoredTraceRetrieveParams = {
+    /**
+     * A trace id from another product, such as an `$ai_trace_id`. Any string is accepted.
+     * @minLength 1
+     * @maxLength 255
+     */
+    trace_id: string;
     };
 
     export type TracingSpansValuesRetrieveParams = {

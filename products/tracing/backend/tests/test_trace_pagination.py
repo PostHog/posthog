@@ -1,4 +1,5 @@
 import datetime as dt
+from uuid import UUID
 
 from parameterized import parameterized
 
@@ -11,6 +12,7 @@ from products.tracing.backend.presentation.views import TRACE_SPANS_PAGE_SIZE
 from products.tracing.backend.tests.test_keyset_pagination import _b64, _TraceSpansTestBase
 
 BASE = dt.datetime(2026, 6, 2, 8, 0, 0)
+STORED_HEX = (1).to_bytes(16, "big").hex()
 SPAN_COUNT = TRACE_SPANS_PAGE_SIZE + 3  # spills past one page so paging actually kicks in
 # BASE is older than any default window, so the undated lookup can find the trace only by its id.
 LOOKUPS = [
@@ -106,3 +108,19 @@ class TestTracePagination(_TraceSpansTestBase):
         rows = self._execute(query)
         self.assertTrue(rows)
         self.assertEqual({row[1] for row in rows}, {(1).to_bytes(16, "big").hex().upper()})
+
+    # BASE is older than any default window, so a found trace also proves the lookup has no date bound.
+    @parameterized.expand(
+        [
+            ("hex", STORED_HEX, STORED_HEX),
+            ("uppercase_hex", STORED_HEX.upper(), STORED_HEX),
+            ("gateway_uuid", str(UUID(STORED_HEX)), STORED_HEX),
+            ("hex_with_no_spans", (2).to_bytes(16, "big").hex(), None),
+            ("all_zero", "0" * 32, None),
+            ("span_sized_hex", "00f067aa0ba902b7", None),
+            ("application_id", "trace-1", None),
+        ]
+    )
+    def test_stored_trace_resolves_an_id_only_when_spans_exist(self, _name: str, trace_id: str, expected: str | None):
+        response = self.client.get(f"/api/projects/{self.team.id}/tracing/spans/stored_trace/", {"trace_id": trace_id})
+        self.assertEqual((response.status_code, response.json()), (200, {"traceId": expected}))
