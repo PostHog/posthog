@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import json
 import logging
 from collections import Counter
@@ -45,6 +44,7 @@ from products.signals.backend.report_generation.team_membership import (
     MemberTeam,
     resolve_membership_roster,
 )
+from products.signals.backend.scout_harness.scout_naming import prettify_scout_skill_name
 
 from ..models import SignalActorKind, SignalReportArtefact, SignalScoutConfig
 
@@ -192,11 +192,6 @@ def enrich_reviewer_dicts_with_org_members(
     return enriched
 
 
-def _prettify_scout_name(skill_name: str) -> str:
-    cleaned = re.sub(r"^signals-scout-?", "", skill_name).replace("_", " ").replace("-", " ").strip()
-    return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
-
-
 def bounded_reviewer_reason(reason: object) -> str | None:
     return reason if isinstance(reason, str) and len(reason) <= MAX_REVIEWER_REASON_LENGTH else None
 
@@ -316,7 +311,7 @@ def _with_reviewer_presentation(
         explanation = _commit_explanation(safe_commits)
     elif isinstance(source_skill, str) and source_skill:
         source_label = (
-            scout_display_names.get(source_skill, "").strip() or f"{_prettify_scout_name(source_skill)} scout"
+            scout_display_names.get(source_skill, "").strip() or f"{prettify_scout_skill_name(source_skill)} scout"
         )
         explanation = safe_reason
     elif isinstance(safe_reason, str) and safe_reason.startswith("Added as a reviewer by "):

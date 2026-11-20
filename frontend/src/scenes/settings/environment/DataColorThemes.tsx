@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTable, Link } f
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,6 +14,7 @@ import { AvailableFeature } from '~/types'
 
 import { DataColorThemeModal } from './DataColorThemeModal'
 import { dataColorThemesLogic } from './dataColorThemesLogic'
+import { QuillDataColorThemes } from './QuillDataColorThemes'
 
 export function DataColorThemes(): JSX.Element {
     const { themes: _themes, themesLoading, defaultTheme } = useValues(dataColorThemesLogic)
@@ -25,8 +27,38 @@ export function DataColorThemes(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const themes = _themes || []
+
+    const handleDefaultThemeChange = (value: number | null): void => {
+        const theme = themes.find((theme) => theme.id === value)
+        LemonDialog.open({
+            title: `Change the default data theme to "${theme!.name}"?`,
+            description: 'This changes the default colors used when visualizing data in insights.',
+            primaryButton: {
+                children: 'Change default theme',
+                onClick: () => updateCurrentTeam({ default_data_theme: value! }),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillDataColorThemes
+                themes={themes}
+                themesLoading={themesLoading}
+                defaultThemeId={defaultTheme?.id || null}
+                defaultThemeLoading={themesLoading || currentTeamLoading}
+                restrictedReason={restrictedReason}
+                onSelectTheme={selectTheme}
+                onDefaultThemeChange={handleDefaultThemeChange}
+            />
+        )
+    }
 
     return (
         <PayGateMini feature={AvailableFeature.DATA_COLOR_THEMES} featureDetail="data-color-themes-settings">
@@ -69,20 +101,7 @@ export function DataColorThemes(): JSX.Element {
                 <LemonLabel id="default_theme">Default theme</LemonLabel>
                 <LemonSelect
                     value={defaultTheme?.id || null}
-                    onChange={(value) => {
-                        const theme = themes.find((theme) => theme.id === value)
-                        LemonDialog.open({
-                            title: `Change the default data theme to "${theme!.name}"?`,
-                            description: 'This changes the default colors used when visualizing data in insights.',
-                            primaryButton: {
-                                children: 'Change default theme',
-                                onClick: () => updateCurrentTeam({ default_data_theme: value! }),
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                            },
-                        })
-                    }}
+                    onChange={handleDefaultThemeChange}
                     loading={themesLoading || currentTeamLoading}
                     options={themes.map((theme) => ({ value: theme.id, label: theme.name }))}
                     disabledReason={restrictedReason}

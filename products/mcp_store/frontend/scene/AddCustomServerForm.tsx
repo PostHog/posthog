@@ -5,11 +5,13 @@ import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonSelect, LemonT
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { McpInstallationScope } from '../mcpStoreLogic'
 import { mcpStoreLogic } from '../mcpStoreLogic'
 import { OAuthRedirectUri } from '../OAuthRedirectUri'
+import { QuillAddCustomServerForm } from './QuillAddCustomServerForm'
 
 const AUTH_TYPE_OPTIONS = [
     { value: 'api_key', label: 'API key' },
@@ -37,11 +39,24 @@ export function AddCustomServerForm(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
     const canAddShared = !sharedRestrictionReason
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const title = customServerFormPrefilled ? `Connect ${customServerForm.name}` : 'Add MCP server'
     const subtitle = customServerFormPrefilled
         ? 'This server is pre-configured by PostHog. Just paste your credentials below.'
         : 'Connect any MCP server. PostHog will register a client via Dynamic Client Registration when needed.'
+
+    if (todayRailNav) {
+        return (
+            <QuillAddCustomServerForm
+                title={title}
+                subtitle={subtitle}
+                sharedRestrictionReason={sharedRestrictionReason}
+                authTypeOptions={AUTH_TYPE_OPTIONS}
+                scopeOptions={SCOPE_OPTIONS}
+            />
+        )
+    }
 
     return (
         <LemonModal
