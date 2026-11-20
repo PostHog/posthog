@@ -2,6 +2,7 @@ from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import F, Q, QuerySet
 
 from posthog.helpers.full_text_search import build_rank
@@ -310,6 +311,24 @@ def get_workflow_summaries(*, team_id: int, workflow_ids: Iterable[str]) -> list
     ]
 
 
+def get_workflow_batch_job_ids(*, team_id: int, workflow_id: str) -> list[str]:
+    """The ids, as strings, of every batch job (broadcast send) of one workflow."""
+    return [
+        str(pk)
+        for pk in HogFlowBatchJob.objects.filter(team_id=team_id, hog_flow_id=workflow_id).values_list("id", flat=True)
+    ]
+
+
+def get_batch_job_workflow_ids(*, team_id: int, batch_job_ids: Iterable[str]) -> dict[str, str]:
+    """The workflow id of each of the team's batch jobs, both as strings. Unknown ids are left out."""
+    return {
+        str(pk): str(hog_flow_id)
+        for pk, hog_flow_id in HogFlowBatchJob.objects.filter(team_id=team_id, id__in=list(batch_job_ids)).values_list(
+            "id", "hog_flow_id"
+        )
+    }
+
+
 def get_recent_batch_jobs(
     *, team_id: int, workflow_ids: Iterable[str], limit: int
 ) -> dict[str, list[SendCalendarBatchJob]]:
@@ -472,6 +491,7 @@ def create_ses_email_domain(
     keep_existing_mail_from: bool = False,
 ) -> None:
     from products.workflows.backend import providers  # noqa: PLC0415
+    from products.workflows.backend.tasks.ses_tenant_state import sync_ses_tenant_state_task  # noqa: PLC0415
 
     providers.SESProvider().create_email_domain(
         domain,
@@ -481,6 +501,8 @@ def create_ses_email_domain(
         unverified_claimant_team_ids=unverified_claimant_team_ids,
         keep_existing_mail_from=keep_existing_mail_from,
     )
+    # AWS sends no event for a new tenant, and a trusted account's floor waits on the first sync.
+    transaction.on_commit(lambda: sync_ses_tenant_state_task.delay(team_id), robust=True)
 
 
 def get_ses_mail_from_subdomain(domain: str) -> str | None:

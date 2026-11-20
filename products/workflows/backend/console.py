@@ -169,6 +169,7 @@ TIER_CHANGE_REASONS = {
     "ses_reputation_high": "AWS flagged the sender reputation",
     "ses_tenant_paused": "AWS paused sending for this team",
     "inactive": "No email sent for a long time",
+    "trusted_account": "Raised to the floor for a trusted paying account",
 }
 
 JOB_NAMES = {

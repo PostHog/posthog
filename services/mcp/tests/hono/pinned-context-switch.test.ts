@@ -116,14 +116,15 @@ type CallOptions = {
     query?: string
     sessionId?: string
     conversationId?: string
+    mode?: 'tools' | 'cli'
 }
 
-function requestHeaders({ token = 'phx_default', sessionId }: CallOptions): Record<string, string> {
+function requestHeaders({ token = 'phx_default', sessionId, mode = 'tools' }: CallOptions): Record<string, string> {
     return {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
         Accept: 'application/json, text/event-stream',
-        'x-posthog-mcp-mode': 'tools',
+        'x-posthog-mcp-mode': mode,
         'x-posthog-flag-overrides': JSON.stringify({ 'organization-billing-api': true }),
         ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
     }
@@ -332,6 +333,56 @@ describe('pinned project with switch-project (Hono)', () => {
         expect(await targets(second)).toEqual({ project: PINNED_PROJECT, org: PINNED_ORG })
         expect(await tokenCache(token).get('projectId')).toBeUndefined()
     })
+
+    it.each([
+        { mode: 'tools', query: '', switchTo: OTHER_PROJECT },
+        { mode: 'cli', query: '', switchTo: OTHER_PROJECT },
+        { mode: 'tools', query: `?organization_id=${PINNED_ORG}`, switchTo: '3' },
+    ] as const)(
+        'warns when a $mode call with "$query" falls back after switching projects',
+        async ({ mode, query, switchTo }) => {
+            const options = { token: `phx_project_fallback_${mode}_${switchTo}`, query, mode }
+            const name = mode === 'cli' ? 'exec' : 'execute-sql'
+            const args = mode === 'cli' ? { command: 'call execute-sql {"query":"SELECT 1"}' } : { query: 'SELECT 1' }
+            const conversationId = mintedConversationId(await postToolCall(name, args, options))
+            expect(conversationId).toBeTruthy()
+
+            const switchName = mode === 'cli' ? 'exec' : 'switch-project'
+            const switchArgs =
+                mode === 'cli'
+                    ? { command: `call switch-project {"projectId":${switchTo}}` }
+                    : { projectId: Number(switchTo) }
+            const switched = await callTool(switchName, switchArgs, { ...options, conversationId })
+            expect(switched.isError).toBeFalsy()
+
+            apiPaths.length = 0
+            const withHandle = await postToolCall(name, args, { ...options, conversationId })
+            const fallback = await postToolCall(name, args, options)
+            const unknown = await postToolCall(name, args, { ...options, conversationId: CONVERSATION_B })
+            const pinned = await postToolCall(name, args, { ...options, query: `?project_id=${PINNED_PROJECT}` })
+            const [defaultPath] = pathsFor(PINNED_PROJECT, PINNED_ORG)
+            expect(apiPaths).toEqual([
+                `/api/environments/${switchTo}/mcp_tools/execute_sql/`,
+                defaultPath,
+                defaultPath,
+                defaultPath,
+            ])
+            expect(fallback.result?.isError).toBeFalsy()
+            expect(fallback.result?.content?.[0]).toEqual(pinned.result?.content?.[0])
+            expect(mintedConversationId(fallback)).toBeTruthy()
+            expect(mintedConversationId(fallback)).not.toBe(conversationId)
+
+            const warning = expect.stringContaining(
+                `Tools that rely on the active project use the default project (ID ${PINNED_PROJECT}).`
+            )
+            expect(withHandle.result?.content?.map(({ text }) => text)).not.toContainEqual(warning)
+            expect(pinned.result?.content?.map(({ text }) => text)).not.toContainEqual(warning)
+            expect(fallback.result?.content?.map(({ text }) => text)).toContainEqual(warning)
+            expect(unknown.result?.content?.map(({ text }) => text)).toContainEqual(
+                expect.stringContaining('No saved project selection was found for this `conversation_id`.')
+            )
+        }
+    )
 
     it.each(
         [
@@ -628,6 +679,32 @@ describe('pinned project with switch-project (Hono)', () => {
         })
         expect(await targets(conversation)).toEqual({ project: OTHER_PROJECT, org: OTHER_ORG })
     })
+
+    it.each([undefined, CONVERSATION_A])(
+        'warns when an unknown transport session uses the default project with conversation ID %s',
+        async (conversationId) => {
+            const options = { token: `phx_transport_fallback_${conversationId}`, query: '' }
+            const conversation = { ...options, conversationId: CONVERSATION_A }
+            const switched = await callTool('switch-project', { projectId: Number(OTHER_PROJECT) }, conversation)
+            expect(switched.isError).toBeFalsy()
+
+            apiPaths.length = 0
+            const args = { query: 'SELECT 1' }
+            const fallback = await postToolCall('execute-sql', args, {
+                ...options,
+                sessionId: CONVERSATION_B,
+                conversationId,
+            })
+            const restored = await postToolCall('execute-sql', args, conversation)
+            expect(apiPaths).toEqual([pathsFor(PINNED_PROJECT, PINNED_ORG)[0], pathsFor(OTHER_PROJECT, OTHER_ORG)[0]])
+            const warning = expect.stringContaining(`default project (ID ${PINNED_PROJECT})`)
+            expect(restored.result?.content?.map(({ text }) => text)).not.toContainEqual(warning)
+            expect(fallback.result?.content?.map(({ text }) => text)).toContainEqual(warning)
+            expect(fallback.result?.content?.map(({ text }) => text)).toContainEqual(
+                expect.stringContaining('No saved project selection was found for this `Mcp-Session-Id`.')
+            )
+        }
+    )
 
     it.each(['conv-1', CONVERSATION_A.toUpperCase()])(
         'uses the SDK-normalized conversation identity for %s',

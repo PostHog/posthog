@@ -241,6 +241,18 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def _get(self, endpoint: str, **params: Any) -> Any:
         return self.client.get(f"/api/projects/{self.team.id}/signals/anomalies/{endpoint}/", params)
 
+    def _points(self, *series: tuple[Insight, str, str]) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/signals/anomalies/points/",
+            {
+                "series": [
+                    {"insight_id": insight.id, "series_key": series_key, "interval": interval}
+                    for insight, series_key, interval in series
+                ]
+            },
+            format="json",
+        )
+
     def test_search_counts_the_latest_result_of_each_scored_bucket(self) -> None:
         self._score_history()
 
@@ -264,7 +276,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("every_scored_bucket", 400, ["2026-10-19", "2026-10-22"]),
+            ("every_scored_bucket", 400, ["2026-10-10", "2026-10-19", "2026-10-22"]),
             ("capped_to_the_newest", 1, ["2026-10-22"]),
         ]
     )
@@ -272,29 +284,62 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, cap: int, expected_days: list[str]
     ) -> None:
         self._score_history()
+        # Before the range but inside the 14-day daily chart window, then before the chart window.
+        self._score(_day(10), score=0.20, flag=0)
+        self._score(_day(9), score=0.20, flag=0)
 
         with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES_POINTS", cap):
             body = self._get("search", date_from="2026-10-19", include_points=True).json()
 
         [row] = body["series"]
+        assert (row["scored_buckets"], row["flagged_buckets"]) == (2, 1)
         # The warm-up bucket on Oct 20 and the unscored Oct 21 have no point. The rescore of Oct 19 wins.
         assert [(point["bucket_start"][:10], point["flag"]) for point in row["points"]] == [
             (day, day == "2026-10-22") for day in expected_days
         ]
 
-    def test_search_returns_the_points_of_every_series_on_a_page_with_many_points(self) -> None:
-        hours = [NOW - datetime.timedelta(hours=hour) for hour in range(1, 61)]
+    def test_search_returns_the_hourly_chart_window_of_every_series_on_the_page(self) -> None:
+        hours = [NOW - datetime.timedelta(hours=hour) for hour in range(1, 201)]
         for series_key in ("signups", "logins", "upgrades"):
             for hour in hours:
                 self._score(hour, score=0.99, flag=1, series_key=series_key, interval="hour")
 
         body = self._get("search", date_from="-3d", interval="hour", include_points=True).json()
 
-        assert {row["series_key"]: len(row["points"]) for row in body["series"]} == {
-            "signups": 60,
-            "logins": 60,
-            "upgrades": 60,
+        assert {row["series_key"]: (row["scored_buckets"], len(row["points"])) for row in body["series"]} == {
+            "signups": (72, 7 * 24),
+            "logins": (72, 7 * 24),
+            "upgrades": (72, 7 * 24),
         }
+
+    def test_points_reads_the_chart_window_of_each_requested_series_the_user_can_read(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_insight = Insight.objects.create(team=other_team, name="Other", saved=True)
+        self._score(_day(22), score=0.98, flag=1)
+        self._score(_day(10), score=0.20, flag=0)
+        self._score(NOW - datetime.timedelta(hours=1), score=0.97, flag=1, series_key="logins", interval="hour")
+        # Inside the daily window that the scan covers, but before the 7-day hourly window.
+        self._score(NOW - datetime.timedelta(days=10), score=0.10, flag=0, series_key="logins", interval="hour")
+        self._score(_day(22), score=0.98, flag=1, insight=other_insight, team=other_team)
+
+        response = self._points(
+            (self.insight, "signups", "day"), (self.insight, "logins", "hour"), (other_insight, "signups", "day")
+        )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["date_to"] == "2026-10-23T12:00:00+00:00"
+        assert [
+            (row["series_key"], row["date_from"], [(point["bucket_start"], point["flag"]) for point in row["points"]])
+            for row in body["series"]
+        ] == [
+            (
+                "signups",
+                "2026-10-09T12:00:00+00:00",
+                [("2026-10-10T00:00:00+00:00", False), ("2026-10-22T00:00:00+00:00", True)],
+            ),
+            ("logins", "2026-10-16T12:00:00+00:00", [("2026-10-23T11:00:00+00:00", True)]),
+        ]
 
     def test_search_links_the_insight_with_context_before_the_flags(self) -> None:
         for day in (20, 22):
@@ -533,8 +578,13 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         assert self._get("insight", insight_id=other_insight.id).status_code == 404
         assert self._get("search", date_from="2026-10-19").json()["series"] == []
 
-    @parameterized.expand([("search",), ("insight",)])
+    @parameterized.expand([("search",), ("insight",), ("points",)])
     def test_returns_404_when_the_flag_is_off(self, endpoint: str) -> None:
         self.flag.return_value = False
 
-        assert self._get(endpoint, insight_id=self.insight.id).status_code == 404
+        response = (
+            self._points((self.insight, "signups", "day"))
+            if endpoint == "points"
+            else self._get(endpoint, insight_id=self.insight.id)
+        )
+        assert response.status_code == 404

@@ -88,6 +88,30 @@ SELECT JSONCleanPostHogEvent('{"$set":{"score":7},"$feature/demo":"control","pla
 -- ('{"custom":"kept","$feature_flags":{"demo":"control"}}','{"$set":"{\\"score\\":7}"}','{}',['plan'],[],['email'])
 ```
 
+### `JSONCleanPostHogEventForExport(properties, person_properties)`
+
+It takes the same arguments as `JSONCleanPostHogEvent` and returns the same named tuple.
+Each document is the JSON value that a read of the native JSON events table returns for that input.
+A table filled from this function therefore holds the documents a batch export of the events table sends, and its view needs no cast into the JSON type and no document builder.
+The null-key arrays are the ones `JSONCleanPostHogEvent` returns.
+
+The function applies the rules of that cast and of the builder in `posthog/hogql/printer/events_json_document.py`:
+
+- A top-level object or array is JSON, not a string. A string that holds a valid JSON object or array is written as that object or array too, because the stored column cannot tell the two apart. "Valid" means what ClickHouse's `isValidJSON` accepts.
+- `properties` also holds the members of `temporary_properties`, after its own.
+- Under a path the events table declares as a string, a number or boolean is a string, and an empty string is left out. A number with a fraction or an exponent is written the way ClickHouse prints a `Float64`, so `1.50` becomes `"1.5"` and `1e3` becomes `"1000"`.
+- Every value of the `$feature_flags` map is a string. An object or array flag value is the JSON text ClickHouse prints for it. An empty map is left out.
+- `%2E` in a key reads back as a dot. When two keys read back as one path, the first one stays.
+- A number with a fraction or an exponent that ClickHouse prints as an integer outside the `Int64` and `UInt64` ranges is a string, such as `2e19`. Every other number keeps the text it was sent with, so the document can spell a number differently from a read of the events table while the value is the same.
+- A top-level number outside the `Float64` range, or one anywhere in the flags map, fails the cast in the events view. The document is then `{"$unparseable_properties": ...}` with the raw input, and for temporary properties it is `{}`.
+
+A change to the declared paths, the JSON column types, or the builder needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
+
+```sql
+SELECT JSONCleanPostHogEventForExport('{"$set":{"score":7},"$browser_version":120,"plan":null,"tags":["a"]}', '{"email":null}');
+-- ('{"$browser_version":"120","tags":["a"],"$set":{"score":7}}','{"$set":{"score":7}}','{}',['plan'],[],['email'])
+```
+
 ### `JSONCleanPostHogTemporaryProperties(json)`
 
 Accepts a JSON object and retains only the following top-level properties. A dotted key is one flat key, so `$set.foo` is not retained; a key that starts with `$sdk_debug_` is, except `$sdk_debug_current_session_duration`. It uses the event cleaner's null-field removal, duplicate handling, integer protection, and string storage for objects and arrays. Non-object input fails.

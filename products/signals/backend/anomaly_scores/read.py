@@ -38,6 +38,14 @@ MAX_SERIES = 10_000
 MAX_BUCKETS = 2_000
 # Enough for an hourly series over 14 days, or a daily series over a year.
 MAX_SERIES_POINTS = 400
+# The buckets a chart shows before the end of its window, by interval. It does not follow the requested range,
+# so a short range still charts enough history to judge a flag. Each stays within MAX_SERIES_POINTS.
+CHART_BUCKETS: Mapping[IntervalType, int] = {
+    IntervalType.HOUR: 7 * 24,
+    IntervalType.DAY: 14,
+    IntervalType.WEEK: 26,
+    IntervalType.MONTH: 24,
+}
 # Each rate shrinks toward its baseline by this many buckets, so 1 flagged of 1 scored does not top a ranking.
 PRIOR_BUCKETS = 10
 # The prior when no series of the project has a scored baseline: about what a 0.95 threshold flags on noise.
@@ -471,19 +479,25 @@ def latest_buckets(
     return ScoredBuckets(buckets=buckets, truncated=len(rows) > limit)
 
 
+def chart_from(interval: IntervalType, date_to: datetime.datetime) -> datetime.datetime:
+    """The start of the chart window of a series with this interval that ends at ``date_to``."""
+    return date_to - interval_spec(interval).period * CHART_BUCKETS[interval]
+
+
 def series_points(
     team: Team,
     *,
-    date_from: datetime.datetime,
     date_to: datetime.datetime,
-    series: Collection[tuple[int, str]],
+    series: Mapping[tuple[int, str], IntervalType],
 ) -> dict[tuple[int, str], list[SeriesPoint]]:
-    """The newest ``MAX_SERIES_POINTS`` scored buckets of each ``(insight_id, series_key)`` in the range, oldest first.
+    """The scored buckets of each ``(insight_id, series_key)`` in the chart window of its interval, oldest first.
 
     Warm-up rows are left out. A bucket that was not scored has no point, so a gap stays a gap.
+    Each series keeps at most its newest ``MAX_SERIES_POINTS`` buckets.
     """
     if not series:
         return {}
+    starts = {key: chart_from(interval, date_to) for key, interval in series.items()}
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     response = execute_hogql_query(
         _POINTS_QUERY,
@@ -491,7 +505,7 @@ def series_points(
         query_type="AnomalyScoresSeriesPoints",
         placeholders={
             **_placeholders(
-                since=date_from,
+                since=min(starts.values()),
                 until=date_to,
                 insight_ids={insight_id for insight_id, _ in series},
                 series_key=None,
@@ -507,10 +521,12 @@ def series_points(
     timezone = team.timezone_info
     points: dict[tuple[int, str], list[SeriesPoint]] = {key: [] for key in series}
     for insight_id, key, start, value, flag in reversed(rows):
+        bucket_start = _local(start, timezone)
         # The scope matches insights and keys apart, so a key of another insight on the page can match too.
-        if (insight_id, key) in points:
+        # One scan covers the longest window on the page, so each series drops the buckets before its own window.
+        if (insight_id, key) in points and bucket_start >= starts[(insight_id, key)]:
             points[(insight_id, key)].append(
-                SeriesPoint(bucket_start=_local(start, timezone), value=_float(value), flag=bool(flag))
+                SeriesPoint(bucket_start=bucket_start, value=_float(value), flag=bool(flag))
             )
     return points
 

@@ -37,6 +37,7 @@ Django (`posthog/settings/web.py`):
 - `WORKFLOWS_EMAIL_TIER_DAILY_CAPS`, `WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS`: comma-separated tables indexed by tier. The shorter table decides the tier count.
 - `WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER`: per-tier dwell before promotion, comma-separated, clamped to the last entry.
 - Promotion and demotion knobs: `WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS` (promotion window), `WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS`, `WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS` (keep at least as long as the demotion window), `WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS` (0 disables decay), `WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS`, `WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO`, `WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE`, `WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE`, `WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS`, `WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP`, `WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS`.
+- Trusted floor: `WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER` (0 disables the floor), `WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE`.
 - `WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE` (default `0.5`) and `WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS` (default `7`): which sending rates raise the batch cap, and by how much. Django only, because the worker applies the rate limit and the daily bucket, not the audience cap.
 - `HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS`: the pre-tier allowlist. It overrides the tier entirely, so a saved tier does nothing for a listed team.
 
@@ -112,11 +113,11 @@ How far and how often:
 - After one of those moves, the project cannot move down for those reasons again for 7 days.
   By then the week that caused the move has left the window, so a second move needs new bad sends.
 - A staff suspension, or an AWS-paused tenant, drops the project straight to tier 0.
-- A project above tier 0 that sends nothing for 30 days moves down one tier, then one more for every further 30 days.
+- A project above tier 0 that sends nothing for 30 days moves down one tier, then one more for every further 30 days. Inactivity stops at the trusted floor, so a dormant trusted project keeps tier 3.
 - Pinned projects never move automatically.
 
 While the tier is enforced, a move for bad rates, AWS impact or an auto-pause sends an in-app notification and an email to project admins.
-Inactivity moves, suspension drops, admin recomputes and the backfill send nothing.
+Trusted floor raises, inactivity moves, suspension drops, admin recomputes and the backfill send nothing.
 
 ## Moving up a tier
 
@@ -129,6 +130,21 @@ A project moves up one tier per run when all of these hold:
 - AWS reports no reputation impact for the tenant. A `LOW` impact does not move a project down, but it stops it moving up.
 
 A promotion sends an in-app notification only.
+
+## Trusted floor
+
+A trusted account skips the dwell and the use bar and moves straight to the floor, tier 3.
+It qualifies when all of these hold:
+
+- Its organization has an active subscription and a Billing trust score of at least 7 on any product, which means it paid an invoice in the last 90 days or is on an annual plan.
+  Billing counts a free trial as an active subscription with the same score as most paid plans (3), so the score bar keeps trials out.
+  An unsynced subscription (`NULL`) or a missing score does not qualify.
+- The project's rates inside the 30-day window are clean. For the floor, the rates count on any number of sends, because the floor skips the volume bar that otherwise backs up a small sample.
+- AWS has synced the project's tenant as enabled with no reputation impact.
+- The project was never demoted, suspended by staff, or paused by AWS.
+
+A qualifying project does not need to have sent anything.
+It gets the floor as soon as AWS reports its tenant as enabled with no reputation impact, without waiting for the daily sweep, so its first sends are not held to the tier 0 cap.
 
 ## Transactional email
 
@@ -160,6 +176,11 @@ Sends through the PostHog test sender (the `email_sandbox` step, named the sandb
 They go through a separate SES tenant and configuration set and record none of `email_sent`, `email_bounced_hard` or `email_blocked`, so the sweep never sees them.
 They never draw from the team bucket either.
 The PostHog test sender has its own controls: recipients limited to verified organization members, daily caps, suppression, the staff organization block in `/admin/workflows/sandboxsenderorganizationblock/`, and the SES tenant pause.
+
+Every workflow the API returns carries a `warnings` list.
+While the workflow's live steps send through the PostHog test sender, the list holds one `test_sender_live` warning, whose message points to the sending domain setup.
+The MCP enable and publish tools add a note asking the agent to pass that message on to the user.
+The warning clears once the live steps move to a verified sender.
 
 ## Rollout order
 
