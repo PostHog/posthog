@@ -17,7 +17,7 @@ class TestTraceSpansLatencyPercentiles(_TraceSpansTestBase):
 
         rows: list[str] = []
 
-        def add(service: str, kind: int, duration_ms: int, parent: str = "") -> str:
+        def add(service: str, kind: int, duration_ms: int, parent: str = "", env: str = "") -> str:
             index = len(rows)
             span_id = _b64((5000 + index).to_bytes(8, "big"))
             start = dt.datetime(2026, 6, 2, 8, 0, 0)
@@ -25,7 +25,8 @@ class TestTraceSpansLatencyPercentiles(_TraceSpansTestBase):
             rows.append(
                 f"('019e8758-0000-0000-0000-{index:012d}', {cls.team.id}, '{_b64(index.to_bytes(16, 'big'))}', "
                 f"'{span_id}', '{parent}', 'op', {kind}, '{start:%Y-%m-%d %H:%M:%S.%f}', "
-                f"'{end:%Y-%m-%d %H:%M:%S.%f}', '{start:%Y-%m-%d %H:%M:%S.%f}', 0, '{service}')"
+                f"'{end:%Y-%m-%d %H:%M:%S.%f}', '{start:%Y-%m-%d %H:%M:%S.%f}', 0, '{service}', "
+                f"map('deployment.environment', '{env}'))"
             )
             return span_id
 
@@ -36,15 +37,19 @@ class TestTraceSpansLatencyPercentiles(_TraceSpansTestBase):
         # job: no server or consumer spans, so its root spans are its requests.
         for duration in (200, 400):
             add("job", INTERNAL, duration)
+        # mixed: server spans in prod, only root spans in staging. Each environment picks its own population.
+        add("mixed", SERVER, 100, env="prod")
+        add("mixed", INTERNAL, 300, env="staging")
 
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
-            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
+            "timestamp, end_time, observed_timestamp, status_code, service_name, resource_attributes) VALUES "
+            + ",".join(rows)
         )
 
     def _percentiles(self, service: str) -> list[dict]:
         response = self.client.post(
-            f"/api/projects/{self.team.id}/tracing/spans/latency-percentiles/",
+            f"/api/projects/{self.team.id}/tracing/spans/latency_percentiles/",
             {"query": {"dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO}, "serviceNames": [service]}},
             format="json",
         )
@@ -68,3 +73,8 @@ class TestTraceSpansLatencyPercentiles(_TraceSpansTestBase):
         bucket = next(row for row in self._percentiles("job") if row["time"] == T0800)
         self.assertEqual(bucket["count"], 2)
         self.assertAlmostEqual(bucket["p50_ns"] / MS, 300, delta=1)
+
+    def test_fallback_is_chosen_per_environment(self):
+        bucket = next(row for row in self._percentiles("mixed") if row["time"] == T0800)
+        self.assertEqual(bucket["count"], 2)
+        self.assertGreater(bucket["p99_ns"] / MS, 250)

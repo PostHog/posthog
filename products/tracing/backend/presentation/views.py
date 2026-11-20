@@ -387,7 +387,7 @@ class _TracingLatencyHeatmapResponseSerializer(serializers.Serializer):
 
 
 class _TracingLatencyPercentilesRequestSerializer(serializers.Serializer):
-    query = _TracingTimeseriesQueryBodySerializer(help_text="The latency-percentiles query to execute.")
+    query = _TracingTimeseriesQueryBodySerializer(help_text="The latency percentiles query to execute.")
 
 
 class _TracingLatencyPercentilesRowSerializer(serializers.Serializer):
@@ -1897,7 +1897,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         request=_TracingLatencyPercentilesRequestSerializer,
         responses={200: _TracingLatencyPercentilesResponseSerializer},
     )
-    @action(detail=False, methods=["POST"], url_path="latency-percentiles", required_scopes=["tracing:read"])
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def latency_percentiles(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = self._query_body(request.data)
@@ -1916,6 +1916,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             team=self.team,
             date_range=date_range,
             service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
             filter_group=filter_group,
         )
 

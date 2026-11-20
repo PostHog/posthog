@@ -235,11 +235,16 @@ def run_latency_percentiles_query(
     team: "Team",
     date_range: DateRange,
     service_names: list[str] | None = None,
+    status_codes: list[int] | None = None,
     filter_group: PropertyGroupFilter | None = None,
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
     """Run p50/p95/p99 span duration per time bucket over a service's entry spans, root spans as the fallback."""
     return _run_latency_percentiles_query(
-        team=team, date_range=date_range, service_names=service_names, filter_group=filter_group
+        team=team,
+        date_range=date_range,
+        service_names=service_names,
+        status_codes=status_codes,
+        filter_group=filter_group,
     )
 
 

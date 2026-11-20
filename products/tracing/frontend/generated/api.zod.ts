@@ -1005,7 +1005,7 @@ export const TracingSpansLatencyPercentilesCreateBody = /* @__PURE__ */ zod.obje
                 .default(tracingSpansLatencyPercentilesCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters for the query.'),
         })
-        .describe('The latency-percentiles query to execute.'),
+        .describe('The latency percentiles query to execute.'),
 })
 
 export const tracingSpansQueryCreateBodyQueryOneFilterGroupDefault = []

@@ -497,7 +497,7 @@ export const tracingSpansLatencyHeatmapCreate = async (
 }
 
 export const getTracingSpansLatencyPercentilesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/latency-percentiles/`
+    return `/api/projects/${projectId}/tracing/spans/latency_percentiles/`
 }
 
 export const tracingSpansLatencyPercentilesCreate = async (

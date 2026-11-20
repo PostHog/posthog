@@ -10,7 +10,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -22,12 +22,20 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 
+# The environment key the APM services API groups by, so the fallback below splits spans the same way.
+_ENVIRONMENT = (
+    "coalesce(nullIf(resource_attributes['deployment.environment.name'], ''), "
+    "nullIf(resource_attributes['deployment.environment'], ''), nullIf(resource_attributes['env'], ''), '')"
+)
+
+
 class TraceSpansLatencyPercentilesQueryRunner(TraceSpansQueryRunner):
     """p50, p95 and p99 span duration per time bucket, on the sparkline's time axis.
 
     The spans are a service's requests as the APM services API counts them: server and consumer
-    spans, or root spans when the matching spans hold neither. The quantiles use the same
-    ClickHouse function as that API's p95, so a bucket's line agrees with the summary over it.
+    spans, or root spans for a service and environment that has neither in the window. The
+    quantiles use the same ClickHouse function as that API's p95, so a bucket's line agrees with
+    the summary over it.
     """
 
     def _calculate(self) -> TraceSpansQueryResponse:
@@ -42,12 +50,9 @@ class TraceSpansLatencyPercentilesQueryRunner(TraceSpansQueryRunner):
             settings=self.settings,
         )
 
-        rows = response.results
-        use_entry = any(int(row[1]) > 0 for row in rows)
         results = []
-        for time, entry_count, *entry_quantiles, root_count, root_p50, root_p95, root_p99 in rows:
-            count = int(entry_count if use_entry else root_count)
-            p50, p95, p99 = entry_quantiles if use_entry else (root_p50, root_p95, root_p99)
+        for time, count, p50, p95, p99 in response.results:
+            count = int(count)
             results.append(
                 {
                     "time": time.replace(tzinfo=ZoneInfo("UTC")).isoformat(),
@@ -61,18 +66,17 @@ class TraceSpansLatencyPercentilesQueryRunner(TraceSpansQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # The numbers() axis mirrors latency_heatmap_query_runner.py, so the charts' x axes line up.
+        # The innermost scan keeps quantile states per (bucket, service, environment). The window
+        # sum then picks entry or root spans per service and environment over the whole window,
+        # as the services API does, before the states merge into one line per bucket.
         query = parse_select(
             """
                 SELECT
                     am.time_bucket AS time,
-                    ifNull(ac.entry_count, 0) AS entry_count,
-                    ac.entry_p50 AS entry_p50,
-                    ac.entry_p95 AS entry_p95,
-                    ac.entry_p99 AS entry_p99,
-                    ifNull(ac.root_count, 0) AS root_count,
-                    ac.root_p50 AS root_p50,
-                    ac.root_p95 AS root_p95,
-                    ac.root_p99 AS root_p99
+                    ifNull(ac.count, 0) AS count,
+                    ac.p50 AS p50,
+                    ac.p95 AS p95,
+                    ac.p99 AS p99
                 FROM (
                     SELECT
                         dateAdd({date_from_start_of_interval}, {number_interval_period}) AS time_bucket
@@ -92,18 +96,34 @@ class TraceSpansLatencyPercentilesQueryRunner(TraceSpansQueryRunner):
                 ) AS am
                 LEFT JOIN (
                     SELECT
-                        toStartOfInterval(timestamp, {one_interval_period}) AS time,
-                        countIf(kind IN (2, 5)) AS entry_count,
-                        quantileIf(0.5)(duration_nano, kind IN (2, 5)) AS entry_p50,
-                        quantileIf(0.95)(duration_nano, kind IN (2, 5)) AS entry_p95,
-                        quantileIf(0.99)(duration_nano, kind IN (2, 5)) AS entry_p99,
-                        countIf(is_root_span) AS root_count,
-                        quantileIf(0.5)(duration_nano, is_root_span) AS root_p50,
-                        quantileIf(0.95)(duration_nano, is_root_span) AS root_p95,
-                        quantileIf(0.99)(duration_nano, is_root_span) AS root_p99
-                    FROM posthog.trace_spans
-                    WHERE {where} AND (kind IN (2, 5) OR is_root_span)
-                        AND time >= {date_from_start_of_interval} AND time <= {date_to}
+                        time,
+                        sum(if(use_entry, entry_count, root_count)) AS count,
+                        arrayElement(quantilesMerge(0.5)(if(use_entry, entry_p50, root_p50)), 1) AS p50,
+                        arrayElement(quantilesMerge(0.95)(if(use_entry, entry_p95, root_p95)), 1) AS p95,
+                        arrayElement(quantilesMerge(0.99)(if(use_entry, entry_p99, root_p99)), 1) AS p99
+                    FROM (
+                        SELECT
+                            *,
+                            sum(entry_count) OVER (PARTITION BY service_name, environment) > 0 AS use_entry
+                        FROM (
+                            SELECT
+                                toStartOfInterval(timestamp, {one_interval_period}) AS time,
+                                service_name,
+                                {environment} AS environment,
+                                countIf(kind IN (2, 5)) AS entry_count,
+                                quantilesStateIf(0.5)(duration_nano, kind IN (2, 5)) AS entry_p50,
+                                quantilesStateIf(0.95)(duration_nano, kind IN (2, 5)) AS entry_p95,
+                                quantilesStateIf(0.99)(duration_nano, kind IN (2, 5)) AS entry_p99,
+                                countIf(is_root_span) AS root_count,
+                                quantilesStateIf(0.5)(duration_nano, is_root_span) AS root_p50,
+                                quantilesStateIf(0.95)(duration_nano, is_root_span) AS root_p95,
+                                quantilesStateIf(0.99)(duration_nano, is_root_span) AS root_p99
+                            FROM posthog.trace_spans
+                            WHERE {where} AND (kind IN (2, 5) OR is_root_span)
+                                AND timestamp >= {date_from} AND timestamp < {date_to}
+                            GROUP BY time, service_name, environment
+                        )
+                    )
                     GROUP BY time
                 ) AS ac ON am.time_bucket = ac.time
                 ORDER BY time ASC
@@ -111,6 +131,7 @@ class TraceSpansLatencyPercentilesQueryRunner(TraceSpansQueryRunner):
             """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
+                "environment": parse_expr(_ENVIRONMENT),
                 "where": self.where(),
             },
         )
@@ -123,9 +144,12 @@ def run_latency_percentiles_query(
     team: "Team",
     date_range: DateRange,
     service_names: list[str] | None = None,
+    status_codes: list[int] | None = None,
     filter_group: PropertyGroupFilter | None = None,
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
-    query = TraceSpansQuery(dateRange=date_range, serviceNames=service_names, filterGroup=filter_group)
+    query = TraceSpansQuery(
+        dateRange=date_range, serviceNames=service_names, statusCodes=status_codes, filterGroup=filter_group
+    )
     runner = TraceSpansLatencyPercentilesQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)

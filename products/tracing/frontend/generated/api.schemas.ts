@@ -646,7 +646,7 @@ export interface _TracingTimeseriesQueryBodyApi {
 }
 
 export interface _TracingLatencyPercentilesRequestApi {
-    /** The latency-percentiles query to execute. */
+    /** The latency percentiles query to execute. */
     query: _TracingTimeseriesQueryBodyApi
 }
 

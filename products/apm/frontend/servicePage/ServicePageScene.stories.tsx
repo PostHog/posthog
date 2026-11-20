@@ -203,7 +203,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/:prefix/:team_id/tracing/spans/latency-percentiles/': () => [
+                '/api/:prefix/:team_id/tracing/spans/latency_percentiles/': () => [
                     200,
                     {
                         results: BUCKETS.map((time, index) => ({
