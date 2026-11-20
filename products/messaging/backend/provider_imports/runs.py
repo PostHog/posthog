@@ -257,12 +257,16 @@ def _discard_contacts_of_ended_runs() -> None:
         STAGED_CONTACTS_CLEANUP_FAILED.inc()
         logger.exception("Failed to list the contacts provider imports stored")
         return
-    run_ids = [run_id for _, run_id in staged if _is_uuid(run_id)]
+    run_ids_by_team: dict[int, list[str]] = {}
+    for team_id, run_id in staged:
+        if _is_uuid(run_id):
+            run_ids_by_team.setdefault(team_id, []).append(run_id)
     active = {
         (team_id, str(run_id))
-        for team_id, run_id in ProviderImportRun.objects.unscoped()
-        .filter(id__in=run_ids, status__in=ACTIVE_IMPORT_STATUSES)
-        .values_list("team_id", "id")
+        for team_id, run_ids in run_ids_by_team.items()
+        for run_id in ProviderImportRun.objects.unscoped()
+        .filter(team_id=team_id, id__in=run_ids, status__in=ACTIVE_IMPORT_STATUSES)
+        .values_list("id", flat=True)
     }
     for team_id, run_id in staged - active:
         try:
