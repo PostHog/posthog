@@ -720,7 +720,8 @@ class RunFooter:
     # Whether the run shares charts as insight links instead of images, so reply analytics can
     # compare the two delivery modes. Not rendered.
     chart_links: bool = False
-    # Model spend of the thread's task so far. Sandbox compute is not billed, so it is not included.
+    # What PostHog credits paid for the thread's task so far: model spend, plus sandbox compute
+    # once AI_CREDITS_COMPUTE_BILLED_ORIGINS bills the task's origin.
     thread_cost_usd: Decimal | None = None
     # Where the run's progress card lives, so the handler edits or deletes it without searching
     # the thread. Read once to seed the handler, which owns it from then on. Not rendered.
@@ -854,29 +855,33 @@ def load_run_footer(
             plan=plan,
             chart_links=bool((run.state or {}).get("slack_chart_links")),
             progress_message_ts=(run.state or {}).get(SLACK_PROGRESS_MESSAGE_TS_KEY),
-            # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
-            thread_cost_usd=_thread_cost(run) if include_thread_cost and plan is None else None,
+            thread_cost_usd=_thread_cost(run, own_plan=plan is not None) if include_thread_cost else None,
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
 
 
-def _thread_cost(run: "TaskRunDTO") -> Decimal | None:
-    """What the thread's task spent on models so far, or `None` when unknown.
+def _thread_cost(run: "TaskRunDTO", *, own_plan: bool) -> Decimal | None:
+    """What PostHog credits paid for the thread's task so far, or `None` when unknown or nothing.
 
-    Reads the same task usage that PostHog Desktop shows, which sums the task's `$ai_generation`
-    events. Those events arrive with a short delay and the usage is cached for a minute, so the
+    Reads the same task usage that PostHog Desktop shows. Its model spend sums the task's
+    `$ai_generation` events, which arrive with a short delay and are cached for a minute, so the
     newest requests can be missing here. A later reply's total then includes them.
+
+    A run on someone's own plan does not pay for models with PostHog credits, so only its sandbox
+    compute counts, and a run with no billed compute shows no cost at all.
     """
-    from products.tasks.backend.facade.billing import get_task_usage  # noqa: PLC0415
+    from products.tasks.backend.facade.billing import bills_compute_to_ai_credits, get_task_usage  # noqa: PLC0415
 
     if run.task_created_at is None:
         return None
     try:
-        return get_task_usage(
-            team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at
-        ).token_cost_usd
+        usage = get_task_usage(team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at)
+        compute_cost = usage.compute_cost_usd if bills_compute_to_ai_credits(run.task_origin_product) else Decimal(0)
+        if own_plan:
+            return compute_cost or None
+        return usage.token_cost_usd + compute_cost
     except Exception:
         # Its own guard, like `_project_name`: a failed lookup costs the reader one segment.
         logger.warning("slack_app_thread_cost_load_failed", task_id=str(run.task_id), exc_info=True)
