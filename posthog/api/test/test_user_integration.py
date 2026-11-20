@@ -1,10 +1,7 @@
-import os
-import sys
 import json
 import time
 import uuid
 import base64
-import subprocess
 from datetime import timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -23,7 +20,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 from structlog.testing import capture_logs
 
-from posthog import redis
 from posthog.api.github_callback.personal_state import user_has_personal_github_integration
 from posthog.api.github_callback.state import (
     load_authorize_state,
@@ -2078,80 +2074,83 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             ("replace",),
             ("failed",),
             ("access_revoked",),
-            ("at_capacity",),
-            ("organization_at_capacity",),
+            ("cancel_after_store",),
+            ("cancel_old_connection",),
         ]
     )
     def test_device_login_lifecycle(self, outcome):
-        connected = outcome in ("success", "at_capacity", "organization_at_capacity")
         login_id = self._start_device_login()
-        if outcome in ("at_capacity", "organization_at_capacity"):
-            client = redis.get_client()
-            key = "celery_running_tasks:posthog.tasks.codex_login.complete_codex_login"
-            capacity = 4
-            if outcome == "organization_at_capacity":
-                key += f":{self.organization.id}"
-                capacity = 1
-            client.zadd(key, {f"test-login-{i}": time.time() + 600 for i in range(capacity)})
-            self.addCleanup(client.delete, key)
-        auth = {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_device"}}
-        fake_codex = """
-import json, os, sys
-for line in sys.stdin:
-    request = json.loads(line)
-    if request.get('id') == 1:
-        print(json.dumps({'id': 1, 'result': {}}), flush=True)
-    if request.get('id') == 2:
-        print(json.dumps({'id': 2, 'result': {'loginId': 'provider-login', 'userCode': 'TEST-CODE', 'verificationUrl': 'https://auth.openai.com/codex/device'}}), flush=True)
-        with open(os.path.join(os.environ['CODEX_HOME'], 'auth.json'), 'w') as f:
-            json.dump(AUTH, f)
-        print(json.dumps({'method': 'account/login/completed', 'params': {'loginId': 'provider-login', 'success': SUCCESS}}), flush=True)
-""".replace("AUTH", repr(auth)).replace("SUCCESS", repr(outcome != "failed"))
-        real_popen = subprocess.Popen
-        homes = []
-        replacement_id = None
+        now = time.time()
+        approved = False
+        requests_seen = []
 
-        def spawn(_args, **kwargs):
-            homes.append(kwargs["cwd"])
-            assert kwargs["env"]["HTTPS_PROXY"] == "http://proxy.example.com:8080"
-            assert "DATABASE_URL" not in kwargs["env"]
-            kwargs["env"]["LD_LIBRARY_PATH"] = os.environ.get("LD_LIBRARY_PATH", "")
-            return real_popen([sys.executable, "-u", "-c", fake_codex], **kwargs)
-
-        def update(user_id, attempt_id, state, user_code=None):
-            nonlocal replacement_id
-            changed = update_login(user_id, attempt_id, state, user_code)
-            if state == "pending":
-                response = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/")
-                assert response.json()["user_code"] == "TEST-CODE"
-                if outcome == "cancel":
-                    self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
-                elif outcome == "disconnect":
-                    self.client.delete("/api/users/@me/integrations/codex/")
-                elif outcome == "replace":
-                    replacement_id = self._start_device_login()
-                elif outcome == "access_revoked":
-                    self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
-            return changed
+        def provider(method, url, **kwargs):
+            requests_seen.append(url)
+            if url.endswith("/usercode"):
+                assert kwargs["json"] == {"client_id": "app_EMoamEEZ73f0CkXaXp7hrann"}
+                return self._openai_response(
+                    200, {"device_auth_id": "private-device-id", "user_code": "TEST-CODE", "interval": "5"}
+                )
+            if url.endswith("/deviceauth/token"):
+                assert kwargs["json"] == {"device_auth_id": "private-device-id", "user_code": "TEST-CODE"}
+                if outcome == "failed":
+                    return self._openai_response(500, {})
+                return (
+                    self._openai_response(
+                        200, {"authorization_code": "private-code", "code_verifier": "private-verifier"}
+                    )
+                    if approved
+                    else self._openai_response(403, {})
+                )
+            if "data" in kwargs:
+                assert kwargs["data"] == {
+                    "grant_type": "authorization_code",
+                    "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+                    "redirect_uri": "https://auth.openai.com/deviceauth/callback",
+                    "code": "private-code",
+                    "code_verifier": "private-verifier",
+                }
+            return self._openai_response(200, _codex_refresh_body("rt_rotated"))
 
         with (
-            patch.dict(os.environ, {"HTTPS_PROXY": "http://proxy.example.com:8080", "DATABASE_URL": "secret"}),
-            patch("posthog.tasks.codex_login.subprocess.Popen", side_effect=spawn),
-            patch("posthog.tasks.codex_login.complete_codex_login.apply_async") as retry,
-            patch("posthog.tasks.codex_login.update_login", side_effect=update),
-            patch("requests.request", return_value=self._openai_response(200, _codex_refresh_body("rt_rotated"))),
-            self.captureOnCommitCallbacks(execute=connected),
+            patch("requests.request", side_effect=provider),
+            patch("posthog.tasks.codex_login.complete_codex_login.apply_async") as schedule,
+            patch("posthog.tasks.codex_login.time.time", return_value=now) as clock,
         ):
-            complete_codex_login(self.user.id, login_id)
-            if outcome == "success":
-                assert get_login(self.user.id, login_id)["status"] == "pending"
-            if outcome in ("at_capacity", "organization_at_capacity"):
-                assert get_login(self.user.id, login_id)["status"] == "starting"
-                retry.assert_called_once_with((self.user.id, login_id), countdown=10, expires=600)
-                client.delete(key)
+            with self.captureOnCommitCallbacks(execute=True):
                 complete_codex_login(self.user.id, login_id)
+            result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
+            assert result == {"login_id": login_id, "status": "pending", "user_code": "TEST-CODE"}
+            assert schedule.call_args.kwargs["countdown"] == 5
+            complete_codex_login(self.user.id, login_id)
+            assert len(requests_seen) == 1
+            clock.return_value = now + 5
+            with self.captureOnCommitCallbacks(execute=True):
+                complete_codex_login(self.user.id, login_id)
+            if outcome != "failed":
+                assert get_login(self.user.id, login_id)["status"] == "pending"
+                assert schedule.call_count == 2
+            approved = True
+            clock.return_value = now + 10
+            if outcome == "cancel":
+                self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+            elif outcome == "disconnect":
+                self.client.delete("/api/users/@me/integrations/codex/")
+            elif outcome == "replace":
+                self._start_device_login()
+            elif outcome == "access_revoked":
+                self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
+            with self.captureOnCommitCallbacks(execute=True):
+                complete_codex_login(self.user.id, login_id)
+                if outcome in ("cancel_after_store", "cancel_old_connection"):
+                    assert get_login(self.user.id, login_id)["status"] == "pending"
+                    if outcome == "cancel_old_connection":
+                        self._connect()
+                    response = self.client.delete(f"/api/users/@me/integrations/codex/login/{login_id}/")
+                    assert response.status_code == 204
+            complete_codex_login(self.user.id, login_id)
 
-        assert homes and all(not os.path.exists(home) for home in homes)
+        connected = outcome in ("success", "cancel_old_connection")
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is connected
         result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
         assert result["user_code"] is None
@@ -2164,13 +2163,12 @@ for line in sys.stdin:
                 "replace": "expired",
                 "failed": "failed",
                 "access_revoked": "failed",
-                "at_capacity": "connected",
-                "organization_at_capacity": "connected",
+                "cancel_after_store": "canceled",
+                "cancel_old_connection": "expired",
             }[outcome]
         )
+        assert "private-" not in json.dumps(result)
         assert "rt_" not in json.dumps(result)
-        if replacement_id:
-            assert get_login(self.user.id, replacement_id)["status"] == "starting"
         if connected:
             assert (
                 UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"]
@@ -2209,7 +2207,7 @@ for line in sys.stdin:
         assert get_login(self.user.id, login_id)["status"] == "expired"
         assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
         login_id = self._start_device_login()
-        with patch("posthog.tasks.codex_login.subprocess.Popen", side_effect=FileNotFoundError):
+        with patch("requests.request", side_effect=requests.ConnectionError):
             complete_codex_login(self.user.id, login_id)
         assert get_login(self.user.id, login_id)["status"] == "failed"
 

@@ -144,15 +144,24 @@ describe('personalCodexIntegrationLogic', () => {
         expect(logic.values.connectError).toBeNull()
     })
 
-    it('recovers from a temporary status failure on the same login attempt', async () => {
+    it.each(['login', 'account'])('recovers from a temporary %s failure on the same login attempt', async (read) => {
         await expectLogic(logic, () => logic.actions.openConnectModal('settings')).toFinishAllListeners()
         const originalLoginId = loginId
         let requests = 0
         loginStatus = 'connected'
         useMocks({
             get: {
-                '/api/users/@me/integrations/codex/login/:id/': () =>
-                    ++requests === 1 ? [503, {}] : [200, { login_id: loginId, status: 'connected', user_code: null }],
+                [read === 'login'
+                    ? '/api/users/@me/integrations/codex/login/:id/'
+                    : '/api/users/@me/integrations/codex/']: () =>
+                    ++requests === 1
+                        ? [503, {}]
+                        : [
+                              200,
+                              read === 'login'
+                                  ? { login_id: loginId, status: 'connected', user_code: null }
+                                  : CONNECTED,
+                          ],
             },
         })
         await expectLogic(logic, () => logic.actions.pollDeviceLogin()).toFinishAllListeners()
@@ -173,8 +182,23 @@ describe('personalCodexIntegrationLogic', () => {
         expect(canceled).toContain(loginId)
     })
 
-    it('cancels the active attempt when the user closes the dialog', async () => {
+    it.each([false, true])('cancels the active attempt and keeps a failed cancellation open: %s', async (fail) => {
         await expectLogic(logic, () => logic.actions.openConnectModal('settings')).toFinishAllListeners()
+        if (fail) {
+            useMocks({ delete: { '/api/users/@me/integrations/codex/login/:id/': () => [503, {}] } })
+            await expectLogic(logic, () => logic.actions.closeConnectModal()).toFinishAllListeners()
+            expect(logic.values.connectModalOpener).toBe('settings')
+            expect(logic.values.login?.login_id).toBe(loginId)
+            expect(logic.values.cancelError).toContain('Could not cancel')
+            useMocks({
+                delete: {
+                    '/api/users/@me/integrations/codex/login/:id/': () => {
+                        canceled.push(loginId)
+                        return [204]
+                    },
+                },
+            })
+        }
         await expectLogic(logic, () => logic.actions.closeConnectModal()).toFinishAllListeners()
         expect(canceled).toEqual([loginId])
         expect(logic.values.login).toBeNull()

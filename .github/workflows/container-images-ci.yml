@@ -107,10 +107,6 @@ jobs:
                         - common/tailwind/**
                         - packages/quill/**
                         - packages/llm-normalizer/**
-                        - packages/agent/package.json
-                        - packages/agent/pnpm-lock.yaml
-                        - packages/agent/pnpm-workspace.yaml
-                        - packages/agent/packages/*/package.json
                         - packages/agent/packages/agent-contracts/src/**
                         - docs/onboarding/**
                         - '!products/**/*.test.*'
@@ -196,16 +192,14 @@ jobs:
                   IMAGE_REGISTRY: ${{ steps.build.outputs.registry }}
               run: |
                   echo "Image digest: $IMAGE_DIGEST"
-                  {
-                      echo "## Container image built :rocket:"
-                      echo ""
-                      echo "**Image reference:** \`$IMAGE_REGISTRY/posthog-cloud-prs@$IMAGE_DIGEST\`"
-                      echo ""
-                      echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`"
-                      echo ""
-                      echo "- Commit: \`${{ github.sha }}\`"
-                      echo "- Digest: \`$IMAGE_DIGEST\`"
-                  } >> "$GITHUB_STEP_SUMMARY"
+                  echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`$IMAGE_REGISTRY/posthog-cloud-prs@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
 
     # Validates Dockerfile.dagster-ml on the image this PR built. It builds but never pushes, and
     # skips in the merge queue, where posthog_build pushes no image to build from.

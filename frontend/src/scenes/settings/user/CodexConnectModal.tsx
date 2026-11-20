@@ -13,7 +13,7 @@ export interface CodexConnectModalProps {
 }
 
 export function CodexConnectModal({ opener }: CodexConnectModalProps): JSX.Element {
-    const { connectModalOpener, login, connectError } = useValues(personalCodexIntegrationLogic)
+    const { connectModalOpener, login, connectError, cancelError, canceling } = useValues(personalCodexIntegrationLogic)
     const { closeConnectModal, startDeviceLogin } = useActions(personalCodexIntegrationLogic)
 
     return (
@@ -25,31 +25,33 @@ export function CodexConnectModal({ opener }: CodexConnectModalProps): JSX.Eleme
             description="Use your ChatGPT plan for Codex cloud tasks."
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={closeConnectModal}>
-                        Cancel
+                    <LemonButton type="secondary" onClick={closeConnectModal} loading={canceling}>
+                        {cancelError ? 'Retry cancellation' : 'Cancel'}
                     </LemonButton>
-                    {connectError ? (
-                        <LemonButton type="primary" onClick={startDeviceLogin} data-attr="codex-device-login-retry">
-                            Try again
-                        </LemonButton>
-                    ) : login?.user_code ? (
-                        <LemonButton
-                            type="primary"
-                            to="https://auth.openai.com/codex/device"
-                            targetBlank
-                            data-attr="codex-device-login-open"
-                        >
-                            Open ChatGPT
-                        </LemonButton>
-                    ) : null}
+                    {!cancelError &&
+                        !canceling &&
+                        (connectError ? (
+                            <LemonButton type="primary" onClick={startDeviceLogin} data-attr="codex-device-login-retry">
+                                Try again
+                            </LemonButton>
+                        ) : login?.user_code ? (
+                            <LemonButton
+                                type="primary"
+                                to="https://auth.openai.com/codex/device"
+                                targetBlank
+                                data-attr="codex-device-login-open"
+                            >
+                                Open ChatGPT
+                            </LemonButton>
+                        ) : null)}
                 </>
             }
         >
             <div className="flex flex-col gap-4">
-                {connectError ? (
+                {cancelError || connectError ? (
                     <div role="alert">
                         <LemonBanner type={login?.status === 'expired' ? 'warning' : 'error'}>
-                            {connectError}
+                            {cancelError || connectError}
                         </LemonBanner>
                     </div>
                 ) : login?.user_code ? (
