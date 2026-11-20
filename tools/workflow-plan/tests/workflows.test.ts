@@ -546,6 +546,31 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
         },
         runs,
     })),
+    // The backend test selector runs on a legacy diff, and on a ready PR's product-only diff,
+    // where turbo-discover.js trusts a product cascade's selection by phase.
+    ...[
+        { name: 'ready legacy PR', legacy: true, github: pullRequest(), runs: true },
+        { name: 'ready product-only PR', legacy: false, github: pullRequest(), runs: true },
+        { name: 'draft legacy PR', legacy: true, github: pullRequest({ draft: true }), runs: true },
+        { name: 'draft product-only PR', legacy: false, github: pullRequest({ draft: true }), runs: false },
+        {
+            name: 'product-only PR labeled run-ci-backend',
+            legacy: false,
+            github: pullRequest({ labels: ['run-ci-backend'] }),
+            runs: false,
+        },
+        { name: 'merge queue product-only PR', legacy: false, github: mergeQueue(), runs: false },
+    ].map(({ name, legacy, github, runs }) => ({
+        file: DEPOT_BACKEND,
+        job: 'turbo-discover',
+        step: 'select',
+        scenario: {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ backend: true, legacy }) } },
+        },
+        runs,
+    })),
     ...[
         { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
         { name: 'schema cache miss', matched: '', runs: false },
