@@ -1547,6 +1547,26 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['PR', pullRequest(), 'true', ['vr-setup-selective']],
+        ['draft PR', pullRequest({ draft: true }), 'true', ['vr-setup-selective']],
+        ['PR with no story to render', pullRequest(), 'false', []],
+        ['fork PR', pullRequest({ fork: true }), 'true', []],
+        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), 'true', ['vr-setup']],
+        ['merge queue', mergeQueue(), 'true', ['vr-setup']],
+        ['master push', push(), 'true', ['vr-setup']],
+        ['nightly', schedule(), 'true', []],
+    ] as const)('Storybook Visual Review run creator on %s', (name, github, shouldRun, creators) => {
+        const plan = planWorkflow(workflow('ci-storybook.yml'), {
+            name,
+            github,
+            jobOutputs: { changes: { frontend: 'true', merge_queue: name === 'merge queue' ? 'true' : 'false' } },
+            steps: { 'select-stories': { classify: { outputs: { mode: 'selective', should_run: shouldRun } } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(runningJobs(plan).filter((job) => job.startsWith('vr-setup'))).toEqual(creators)
+    })
+
+    it.each([
         ['master schedule', schedule(), 'success', true],
         ['same-repo PR', pullRequest(), 'success', false],
         ['fork PR', pullRequest({ fork: true }), 'success', false],

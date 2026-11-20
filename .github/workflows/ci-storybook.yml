@@ -489,6 +489,12 @@ jobs:
                       --storybook-index "$RUNNER_TEMP/storybook-index/index.json" \
                       --rendered-files "$RUNNER_TEMP/rendered-files.json"
 
+    # Creates the Visual Review run for the runs that story selection skips: master pushes,
+    # the merge queue, and PRs labelled run-ci-frontend. These runs render the full matrix,
+    # so `run create` needs nothing from the Storybook build and this job runs alongside it.
+    # The shards wait for both jobs, so the run exists before the first upload.
+    # A failed or cancelled build leaves this run pending, the same as a failed shard does.
+    # No required check reads its commit status, and baseline reads use only completed runs.
     vr-setup:
         name: Create Visual Review run
         runs-on: ubuntu-24.04
@@ -496,21 +502,19 @@ jobs:
         # downloads the whole dependency tree. vr-complete allows the same budget for the
         # same build.
         timeout-minutes: 15
-        needs: [changes, build-storybook, select-stories]
-        # A status function is required because select-stories is skipped on forced-full
-        # PRs and master pushes, and GitHub would otherwise cascade that skip to this job.
-        # !cancelled() rather than always() so a superseded run stops here instead of
-        # creating a Visual Review run that its cancelled matrix will never complete.
+        needs: [changes]
+        # The selection clause is the inverse of the condition on select-stories, so on
+        # every run exactly one of vr-setup and vr-setup-selective creates the run.
         if: |
-            !cancelled()
-            && needs.changes.outputs.frontend == 'true'
-            && needs.build-storybook.result == 'success'
-            && needs.select-stories.outputs.should_run != 'false'
+            needs.changes.outputs.frontend == 'true'
+            && (github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' || contains(github.event.pull_request.labels.*.name, 'run-ci-frontend'))
             && github.repository == 'PostHog/posthog'
             && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+        env:
+            VR_PARTIAL: ''
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
-        steps:
+        steps: &vr-setup-steps
             # Head checkout supplies the PR's snapshot baseline; the VR CLI itself is
             # built from the base branch below.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -613,9 +617,6 @@ jobs:
                   # otherwise block every PR behind it on a diff none of their authors can resolve.
                   # The run is still created, so merge-time drift stays visible in Visual Review.
                   VR_PURPOSE: ${{ (github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true') && 'observe' || 'review' }}
-                  # Selective storybook runs only render a subset of stories. Without --partial,
-                  # VR would flag every untouched baseline identifier as removed.
-                  VR_PARTIAL: ${{ needs.select-stories.outputs.mode == 'selective' && '--partial' || '' }}
                   # The rerun target for recompute until the complete job records its own ID.
                   JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
@@ -631,10 +632,41 @@ jobs:
                     $VR_PARTIAL)
                   echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
+    # Creates the Visual Review run for a PR that story selection covers. It needs the
+    # selection result: --partial follows the selection mode, and should_run 'false' means
+    # no shard will complete the run. Selection reads the module graph that the Storybook
+    # build writes, so this job cannot start before the build ends.
+    vr-setup-selective:
+        name: Create Visual Review run after story selection
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        needs: [changes, build-storybook, select-stories]
+        # !cancelled() keeps this job running after a failed story selection, because the
+        # shards then fall back to the full matrix and still upload to this run.
+        # It is !cancelled() rather than always() so a superseded run stops here instead of
+        # creating a Visual Review run that its cancelled matrix will never complete.
+        if: |
+            !cancelled()
+            && needs.changes.outputs.frontend == 'true'
+            && needs.build-storybook.result == 'success'
+            && needs.select-stories.outputs.should_run != 'false'
+            && github.event_name == 'pull_request'
+            && needs.changes.outputs.merge_queue != 'true'
+            && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
+            && github.repository == 'PostHog/posthog'
+            && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+            # Selective storybook runs only render a subset of stories. Without --partial,
+            # VR would flag every untouched baseline identifier as removed.
+            VR_PARTIAL: ${{ needs.select-stories.outputs.mode == 'selective' && '--partial' || '' }}
+        outputs:
+            run_id: ${{ steps.create.outputs.run_id }}
+        steps: *vr-setup-steps
+
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ${{ matrix.browser == 'chromium' && 'ubuntu-24.04' || 'depot-ubuntu-24.04' }}
-        needs: [changes, build-storybook, vr-setup, select-stories]
+        needs: [changes, build-storybook, vr-setup, vr-setup-selective, select-stories]
         # A status function is required because select-stories is skipped on forced-full
         # PRs and master pushes. !cancelled() rather than always() so a superseded run's
         # browser shards stop promptly instead of running the full 30-minute matrix.
@@ -857,7 +889,7 @@ jobs:
             # from the base branch (see vr-setup for the rationale), which also keeps fork
             # code out of the CLI.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
+              if: always() && ((needs.vr-setup.outputs.run_id || needs.vr-setup-selective.outputs.run_id) != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
               with:
                   ref: ${{ github.event.pull_request.base.ref || github.sha }}
                   path: vr-cli
@@ -871,7 +903,7 @@ jobs:
             # the cache version. The save below writes the container version.
             - name: Restore VR CLI build
               id: restore-vr-cli
-              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
+              if: always() && ((needs.vr-setup.outputs.run_id || needs.vr-setup-selective.outputs.run_id) != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -882,7 +914,7 @@ jobs:
             # Runs only on a miss, and retries the install for the reason given at vr-setup.
             - name: Build VR CLI
               id: build-vr-cli
-              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog') && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              if: always() && ((needs.vr-setup.outputs.run_id || needs.vr-setup-selective.outputs.run_id) != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog') && steps.restore-vr-cli.outputs.cache-hit != 'true'
               timeout-minutes: 8
               shell: bash
               working-directory: vr-cli/products/visual_review/cli
@@ -897,7 +929,7 @@ jobs:
             # always() keeps the upload after a test-runner failure. A failed build drops
             # it. A skipped build (cache hit) is not a failure.
             - name: Upload snapshots to Visual Review
-              if: always() && needs.vr-setup.outputs.run_id != '' && steps.build-vr-cli.outcome != 'failure'
+              if: always() && (needs.vr-setup.outputs.run_id || needs.vr-setup-selective.outputs.run_id) != '' && steps.build-vr-cli.outcome != 'failure'
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
               run: |
@@ -905,7 +937,7 @@ jobs:
                   # This container step runs under sh, so the optional flags go through `set --`
                   # rather than a bash array.
                   set -- \
-                    --run-id "${{ needs.vr-setup.outputs.run_id }}" \
+                    --run-id "${{ needs.vr-setup.outputs.run_id || needs.vr-setup-selective.outputs.run_id }}" \
                     --dir frontend/__snapshots__/ \
                     --baseline frontend/snapshots.yml \
                     --token "$VR_TOKEN"
@@ -1169,6 +1201,7 @@ jobs:
                 visual-regression,
                 flake-verification,
                 vr-setup,
+                vr-setup-selective,
                 vr-complete,
                 check-baseline-removals,
             ]
@@ -1218,6 +1251,11 @@ jobs:
                     exit 1
                   fi
 
+                  if [[ "${{ needs.vr-setup-selective.result }}" != "success" && "${{ needs.vr-setup-selective.result }}" != "skipped" ]]; then
+                    echo "Visual Review setup failed or was cancelled (result: ${{ needs.vr-setup-selective.result }})."
+                    exit 1
+                  fi
+
                   if [[ "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ]]; then
                     echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
@@ -1234,7 +1272,7 @@ jobs:
         name: Complete Visual Review run
         runs-on: ubuntu-24.04
         timeout-minutes: 15
-        needs: [changes, visual-regression, vr-setup]
+        needs: [changes, visual-regression, vr-setup, vr-setup-selective]
         # Intentional always(), not !cancelled(): this job finalizes external state,
         # so a run cancelled after the matrix succeeded must still complete the VR
         # run rather than leave its commit status stuck pending. It also stops the
@@ -1243,7 +1281,7 @@ jobs:
         # run_id empty, and a failed or cancelled matrix fails the result check.
         if: |
             always()
-            && needs.vr-setup.outputs.run_id != ''
+            && (needs.vr-setup.outputs.run_id || needs.vr-setup-selective.outputs.run_id) != ''
             && needs.visual-regression.result == 'success'
         steps:
             # Head checkout supplies the PR's snapshot baseline; the VR CLI itself is
@@ -1323,7 +1361,7 @@ jobs:
               # would block the repair as well. Exit 2 is a CLI failure and reds CI everywhere.
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  RUN_ID: ${{ needs.vr-setup.outputs.run_id }}
+                  RUN_ID: ${{ needs.vr-setup.outputs.run_id || needs.vr-setup-selective.outputs.run_id }}
                   VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
                   VR_TOLERATE_DRIFT: ${{ github.event_name == 'push' }}
                   # Recompute re-runs this job, which re-reads the verdict without a new capture.
