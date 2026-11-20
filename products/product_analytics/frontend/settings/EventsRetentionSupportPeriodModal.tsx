@@ -2,8 +2,11 @@ import { useState } from 'react'
 
 import { LemonButton, LemonLabel, LemonModal, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
 import { EventsRetentionLevel } from './eventsRetentionDeletionCountLogic'
+import { QuillEventsRetentionSupportPeriodModal } from './QuillEventsRetentionSupportPeriodModal'
 import { RetentionPeriods, retentionChangeDeletion } from './retentionChangeDeletion'
 import { retentionPeriodLabel } from './retentionPeriodLabel'
 
@@ -31,9 +34,34 @@ export function EventsRetentionSupportPeriodModal({
     dataAttr,
 }: EventsRetentionSupportPeriodModalProps): JSX.Element {
     const [months, setMonths] = useState<number | null>(null)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const supportPeriod = retentionPeriodLabel(supportMonths)
     const keptMonths = months ?? periods.defaultMonths
     const deletion = retentionChangeDeletion({ ...periods, retentionMonths: supportMonths }, months)
+
+    const save = (): void => {
+        onSave(months)
+        onClose()
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillEventsRetentionSupportPeriodModal
+                months={months}
+                onMonthsChange={setMonths}
+                supportPeriod={supportPeriod}
+                keptMonths={keptMonths}
+                deletion={deletion}
+                level={level}
+                owner={owner}
+                scope={scope}
+                options={options}
+                onSave={save}
+                onClose={onClose}
+                dataAttr={dataAttr}
+            />
+        )
+    }
 
     return (
         <LemonModal
@@ -49,10 +77,7 @@ export function EventsRetentionSupportPeriodModal({
                     <LemonButton
                         type="primary"
                         status={deletion ? 'danger' : 'default'}
-                        onClick={() => {
-                            onSave(months)
-                            onClose()
-                        }}
+                        onClick={save}
                         data-attr={`${dataAttr}-confirm`}
                     >
                         {`Keep events for ${retentionPeriodLabel(keptMonths)}`}

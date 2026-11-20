@@ -1,5 +1,7 @@
 import { LemonButton, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
+import { trustedRelaySenderSaveState } from './trustedRelaySenderSaveState'
+
 export interface TrustedRelaySenderSettingsProps {
     configId: string
     value: string
@@ -19,12 +21,13 @@ export function TrustedRelaySenderSettings({
     onChange,
     onSave,
 }: TrustedRelaySenderSettingsProps): JSX.Element {
-    const isDirty = value.trim().toLowerCase() !== savedValue
-    const isSaving = savingConfigId === configId
-    const isSavingAny = savingConfigId !== null
-    const disabledReason =
-        restrictionReason ??
-        (!isDirty ? 'No changes to save' : isSavingAny ? 'Saving a trusted relay sender' : undefined)
+    const { isSaving, isSavingAny, disabledReason } = trustedRelaySenderSaveState({
+        configId,
+        value,
+        savedValue,
+        restrictionReason,
+        savingConfigId,
+    })
 
     return (
         <div className="border-t pt-3">
