@@ -535,6 +535,8 @@ def reproject_organization_gateway_credentials(organization_id: str) -> None:
         try:
             project_gateway_credential(credential)
         except Exception as e:
+            if cache_hash := credential_hash(credential):
+                _clear_unverified_gateway_credential(cache_hash)
             first_error = first_error or e
             if isinstance(e, _REFRESH_INFRA_ERRORS):
                 infra_failures_in_a_row += 1
