@@ -189,6 +189,33 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    def test_restricted_member_renames_a_grouped_pipeline_log_alert_without_the_defaulted_grouping_fields(
+        self,
+    ) -> None:
+        grouping = {"mode": "by_result_labels", "keys": ["service_name"]}
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.pk}/logs/alerts/",
+                {
+                    "name": "Pipeline alert",
+                    "filters": {"serviceNames": [_PIPELINE]},
+                    "threshold_count": 0,
+                    "threshold_operator": "above",
+                    "window_minutes": 5,
+                    "grouping": grouping,
+                },
+                format="json",
+            ).json()
+            set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/logs/alerts/{alert['id']}/",
+                {"name": "Renamed", "grouping": grouping},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+
     def test_restricted_member_renames_a_pipeline_log_alert_by_sending_it_back_whole(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=True):
             alert = self.client.post(
