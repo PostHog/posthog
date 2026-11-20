@@ -11,7 +11,7 @@ import structlog
 
 from posthog.redis import get_client
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError, StoredObjectSummary
+from posthog.storage.object_storage import ObjectStorageError
 
 from products.tasks.backend.metrics import LOG_APPEND_UNSERIALIZED_TOTAL
 from products.tasks.backend.storage_errors import (
@@ -190,15 +190,6 @@ def _log_plan(log: TaskRunLog, start: int, stop: int) -> list[_LogUnit]:
     return _fold_units(start, stop, FOLD_LEVEL_MAX)
 
 
-def _list_chunks(log: TaskRunLog) -> list[StoredObjectSummary]:
-    chunks: list[StoredObjectSummary] = []
-    for summary in object_storage.list_object_summaries(_chunk_prefix(log)):
-        if summary.key != run_log_chunk_key(log, len(chunks)):
-            break
-        chunks.append(summary)
-    return chunks
-
-
 def _fetch_keys(fetch: Callable[[str], T | None], keys: list[str]) -> list[T | None]:
     if len(keys) <= 1:
         return [fetch(key) for key in keys]
@@ -374,7 +365,7 @@ def _write_chunk(log: TaskRunLog, body: bytes, metadata: dict[str, str]) -> int:
             return chunk_index + 1
         if _chunk_append_id(chunk_key) == metadata[_APPEND_ID_METADATA_KEY]:
             return chunk_index + 1
-        chunk_index = len(_list_chunks(log))
+        chunk_index += 1 + len(_fetch_chunks_from(log, object_storage.head_object_strict, chunk_index + 1))
     raise TaskRunLogChunkSlotsTaken(f"{log.key} lost {CHUNK_WRITE_ATTEMPTS_MAX} races for a free chunk")
 
 
