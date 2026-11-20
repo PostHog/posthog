@@ -331,20 +331,6 @@ export function createCdpReaderRedisPool(
     return writerPool
 }
 
-function failPipelineOnCommandError(pool: RedisV2): RedisV2 {
-    return {
-        useClient: pool.useClient,
-        usePipeline: async (options, callback) => {
-            const results = await pool.usePipeline(options, callback)
-            const commandError = results?.find(([error]) => error !== null)?.[0]
-            if (commandError) {
-                throw commandError
-            }
-            return results
-        },
-    }
-}
-
 function failOpenOnAnyError(pool: RedisV2): RedisV2 {
     const failOpen = async <T>(options: RedisOptions, call: () => Promise<T | null>): Promise<T | null> => {
         try {
@@ -409,27 +395,25 @@ export function createCdpValkeyShadowPools(
     // CDP down at boot. Features that have moved over surface it as failing reads instead.
     const createShadowPool = (host: string, port: number, poolName: string, role: string): RedisV2 => {
         const pool = failOpenOnAnyError(
-            failPipelineOnCommandError(
-                createRedisV2PoolFromConfig({
-                    connection: {
-                        url: host,
-                        options: {
-                            port,
-                            password: config.CDP_VALKEY_PASSWORD,
-                            commandTimeout: shadowCommandTimeoutMs,
-                            enableOfflineQueue: false,
-                            autoResendUnfulfilledCommands: false,
-                            tls,
-                        },
-                        name: poolName,
-                        exitOnRepeatedErrors: false,
+            createRedisV2PoolFromConfig({
+                connection: {
+                    url: host,
+                    options: {
+                        port,
+                        password: config.CDP_VALKEY_PASSWORD,
+                        commandTimeout: shadowCommandTimeoutMs,
+                        enableOfflineQueue: false,
+                        autoResendUnfulfilledCommands: false,
+                        tls,
                     },
-                    poolMinSize: config.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-                    acquireTimeoutMillis: shadowCommandTimeoutMs,
-                    discardStalledClients: true,
-                })
-            )
+                    name: poolName,
+                    exitOnRepeatedErrors: false,
+                },
+                poolMinSize: config.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+                acquireTimeoutMillis: shadowCommandTimeoutMs,
+                discardStalledClients: true,
+            })
         )
 
         void pool

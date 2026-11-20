@@ -246,12 +246,21 @@ export class HogWatcherService {
             }
         }
 
+        const readStates = async (pool: RedisV2) => {
+            const results = await pool.usePipeline({ name: 'getStates' }, buildGetStatesPipeline)
+            const commandError = results?.find(([error]) => error)?.[0]
+            if (commandError) {
+                throw commandError
+            }
+            return results
+        }
+
         let res
         try {
-            res = await this.redisReader.usePipeline({ name: 'getStates' }, buildGetStatesPipeline)
+            res = await readStates(this.redisReader)
         } catch (err) {
             logger.warn('🔀', '[HogWatcher] reader getStates failed, falling back to writer', { err })
-            res = await this.redis.usePipeline({ name: 'getStates' }, buildGetStatesPipeline)
+            res = await readStates(this.redis)
         }
 
         return Array.from(idsSet).reduce(
