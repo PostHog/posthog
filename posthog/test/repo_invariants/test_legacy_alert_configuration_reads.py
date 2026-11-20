@@ -65,12 +65,14 @@ READERS: dict[str, str] = {
     "products/logs/backend/legacy_config_drift.py": "drift report compares rows with copies (A5, retired at E2)",
     "products/alerts/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
     "products/logs/backend/alert_comparison.py": "shadow comparison of row and copy checks (D4)",
-    "products/alerts/backend/platform_source_cycle.py": "check input for copies through `legacy_alerts_of` (D1)",
     "products/alerts/backend/facade/platform.py": "`follow_insight_alert` keeps copies in step (D1)",
     "products/logs/backend/tasks/tasks.py": "`follow_logs_alert` keeps copies in step (E5)",
-    "products/alerts/backend/platform_insight_alert.py": "builds a copy's check input from its row (D1)",
-    "products/logs/backend/alert_source_cycle.py": "`_as_configured_now` checks the row (D3)",
-    "products/logs/backend/alert_signal_emitter.py": "signals read the row (D3)",
+    "products/alerts/backend/platform_insight_alert.py": (
+        "investigations and firing signals of a copy load its row (D1 follow-up)"
+    ),
+    "products/logs/backend/alert_source_cycle.py": (
+        "`_as_configured_now` refreshes a copy the logs stack owns from its row (E2)"
+    ),
     "products/logs/backend/alert_incidents.py": "incident close reads `owner` from the row (E4)",
     "products/logs/backend/facade/api.py::_close_if_subscribed": "incident close reads `owner` from the row (E4)",
     "products/alerts/backend/platform_hooks.py": "creator and viewer of an alert with a row, else of the copy (G2)",
@@ -112,7 +114,15 @@ READERS: dict[str, str] = {
     "products/alerts/backend/facade/api.py::snooze_alert_from_slack": (
         "Slack snooze refuses an alert whose row is off (plan: stays until E2)"
     ),
-    "products/alerts/backend/facade/api.py::assign_alert_owner": "sets the creator on the row (E2)",
+    "products/alerts/backend/logic/ownership.py::_load_alert": (
+        "ownership loads the legacy row or platform copy while both stores exist (E2, G3)"
+    ),
+    "products/alerts/backend/logic/ownership.py::take_alert_ownership": (
+        "ownership keeps an unsaved pre-write state for limit checks (G3)"
+    ),
+    "products/alerts/backend/logic/alert_validation.py::validate_alert_write": (
+        "shared write validation builds an unsaved row for limit checks (G3)"
+    ),
     "products/alerts/backend/facade/api.py::delete_insight_alerts": "deletes rows with their insight (G2)",
     # Read surfaces: rows the source stack still owns; platform-owned alerts read their copy (B1-B5).
     "products/alerts/backend/presentation/views/alert.py::AlertViewSet": "insight alert API (B2)",
@@ -130,10 +140,6 @@ READERS: dict[str, str] = {
     "products/alerts/backend/logic/destination_bucket_report.py": "report that informs a cutover",
     "products/logs/backend/destination_buckets.py": "report that informs a cutover",
     "products/logs/backend/delivery_path_report.py": "report that informs a cutover",
-    # Not moved by B: these read rows only, so they miss native alerts. No plan row covers them yet.
-    "products/alerts/backend/logic/organization_offboarding.py": "offboarding lists a member's rows",
-    "products/pulse/backend/generation/persist.py": "Pulse links an alert evidence id to its row",
-    "products/signals/backend/scout_harness/profile/builders.py": "scout profile counts rows",
     "products/alerts/backend/presentation/views/alert.py::ThresholdViewSet": "thresholds endpoint (B6)",
     "products/alerts/backend/presentation/views/alert.py::ThresholdWithAlertSerializer": "thresholds endpoint (B6)",
     "products/alerts/backend/presentation/views/alert.py::_ThresholdsSerializer": "thresholds endpoint (B6)",

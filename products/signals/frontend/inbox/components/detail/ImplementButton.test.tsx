@@ -6,8 +6,6 @@ import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
@@ -63,8 +61,6 @@ describe('ImplementButton', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         window.localStorage.removeItem('inbox-report-implementation-prompt:combo')
         inboxTaskKickoffLogic.mount()
         createPrFromReport = jest.fn()
@@ -337,52 +333,64 @@ describe('ImplementButton', () => {
         expect(createPrFromReport).toHaveBeenCalledTimes(1)
     })
 
-    it.each([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])(
-        'opens the existing %s task instead of starting another',
-        async (status) => {
-            const user = userEvent.setup()
-            const capture = jest.spyOn(posthog, 'capture')
-            jest.mocked(captureInboxReportAction).mockImplementationOnce(
-                jest.requireActual('../../inboxAnalytics').captureInboxReportAction
-            )
-            const report = makeReport()
-            const detail = inboxReportDetailLogic({ reportId: report.id, report })
-            detail.mount()
-            await expectLogic(detail).toFinishAllListeners()
-            const task = mockTask('implementation-task', status)
-            detail.actions.loadReportTasksSuccess([
-                { task, purpose: 'implementation', purposeLabel: 'Implementation', startedAt: task.created_at },
-            ])
-            render(
-                <ImplementButton
-                    report={report}
-                    position="header"
-                    reportTaskToOpen={detail.values.reportTaskToOpen}
-                    implementationDisabledReason={detail.values.implementationDisabledReason}
-                />
-            )
+    it.each([
+        {
+            status: TaskRunStatus.QUEUED,
+            createdBy: null,
+            tooltip: 'Opens the existing run in the PostHog AI sidebar. It does not start a new one.',
+        },
+        {
+            status: TaskRunStatus.IN_PROGRESS,
+            createdBy: teammateClaim.user,
+            tooltip:
+                'Robin started this implementation. Opens the existing run in the PostHog AI sidebar. It does not start a new one.',
+        },
+    ])('opens the existing $status task instead of starting another', async ({ status, createdBy, tooltip }) => {
+        const user = userEvent.setup()
+        const capture = jest.spyOn(posthog, 'capture')
+        jest.mocked(captureInboxReportAction).mockImplementationOnce(
+            jest.requireActual('../../inboxAnalytics').captureInboxReportAction
+        )
+        const report = makeReport()
+        const detail = inboxReportDetailLogic({ reportId: report.id, report })
+        detail.mount()
+        await expectLogic(detail).toFinishAllListeners()
+        const task = { ...mockTask('implementation-task', status), created_by: createdBy }
+        detail.actions.loadReportTasksSuccess([
+            { task, purpose: 'implementation', purposeLabel: 'Implementation', startedAt: task.created_at },
+        ])
+        render(
+            <ImplementButton
+                report={report}
+                position="header"
+                reportTaskToOpen={detail.values.reportTaskToOpen}
+                implementationDisabledReason={detail.values.implementationDisabledReason}
+            />
+        )
 
-            expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
-            await user.click(screen.getByTestId('inbox-report-open-task'))
+        expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
+        expect(screen.getByTestId('inbox-report-open-task')).toHaveTextContent('View running implementation')
+        await user.hover(screen.getByTestId('inbox-report-open-task'))
+        expect(await screen.findByText(tooltip)).toBeInTheDocument()
+        await user.click(screen.getByTestId('inbox-report-open-task'))
 
-            expect(capture).toHaveBeenCalledWith(
-                'Inbox report action',
-                expect.objectContaining({
-                    action_type: 'implementation_button_clicked',
-                    surface: 'detail_pane',
-                    button_action: 'view_task',
-                    button_position: 'header',
-                }),
-                undefined
-            )
-            expect(createPrFromReport).not.toHaveBeenCalled()
-            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
-                taskId: task.id,
-                runId: task.latest_run.id,
-            })
-            detail.unmount()
-        }
-    )
+        expect(capture).toHaveBeenCalledWith(
+            'Inbox report action',
+            expect.objectContaining({
+                action_type: 'implementation_button_clicked',
+                surface: 'detail_pane',
+                button_action: 'view_task',
+                button_position: 'header',
+            }),
+            undefined
+        )
+        expect(createPrFromReport).not.toHaveBeenCalled()
+        expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+            taskId: task.id,
+            runId: task.latest_run.id,
+        })
+        detail.unmount()
+    })
 
     it.each([200, 503])('keeps customer prompts available without GitHub access (status %i)', async (status) => {
         let repositoryStatus = status

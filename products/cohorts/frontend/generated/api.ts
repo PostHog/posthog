@@ -25,6 +25,7 @@ import type {
     PatchedAddPersonsToStaticCohortRequestApi,
     PatchedCohortApi,
     PatchedRemovePersonRequestApi,
+    RealtimeCohortsJoinStateApi,
     StaffCohortLookupResponseApi,
     StaffCohortRecalculateApi,
     StaffCohortRecalculateResponseApi,
@@ -433,5 +434,39 @@ export const cohortsAllActivityRetrieve = async (projectId: string, options?: Re
     return apiMutator<void>(getCohortsAllActivityRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getRealtimeCohortsJoinRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/realtime_cohorts/join/`
+}
+
+/**
+ * Where this project stands in joining the realtime cohorts beta.
+ */
+export const realtimeCohortsJoinRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RealtimeCohortsJoinStateApi> => {
+    return apiMutator<RealtimeCohortsJoinStateApi>(getRealtimeCohortsJoinRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getRealtimeCohortsJoinCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/realtime_cohorts/join/`
+}
+
+/**
+ * Join the realtime cohorts beta for this project when it can join by itself, and return where it stands. A repeated call starts nothing more.
+ */
+export const realtimeCohortsJoinCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<RealtimeCohortsJoinStateApi> => {
+    return apiMutator<RealtimeCohortsJoinStateApi>(getRealtimeCohortsJoinCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

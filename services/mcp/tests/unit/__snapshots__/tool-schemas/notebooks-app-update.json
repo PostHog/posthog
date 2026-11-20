@@ -1,0 +1,304 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "app_draft": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "blocks": {
+                            "description": "Ordered components, arranged in rows within each tab.",
+                            "items": {
+                                "properties": {
+                                    "display": {
+                                        "default": "output",
+                                        "description": "Whether to display cell source, output, or both.\n\n* `output` - Output\n* `source` - Source\n* `both` - Source and output",
+                                        "enum": ["output", "source", "both"],
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "description": "Stable component identifier within the app.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
+                                    "input_kind": {
+                                        "default": "auto",
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider",
+                                        "enum": ["auto", "select", "slider"],
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "description": "Type of app component.\n\n* `cell` - Notebook cell\n* `text` - Text\n* `input` - Input\n* `divider` - Divider",
+                                        "enum": ["cell", "text", "input", "divider"],
+                                        "type": "string"
+                                    },
+                                    "max": {
+                                        "default": 100,
+                                        "description": "Slider maximum.",
+                                        "type": "number"
+                                    },
+                                    "min": {
+                                        "default": 0,
+                                        "description": "Slider minimum.",
+                                        "type": "number"
+                                    },
+                                    "node_id": {
+                                        "default": "",
+                                        "description": "Source notebook cell ID.",
+                                        "maxLength": 160,
+                                        "type": "string"
+                                    },
+                                    "options": {
+                                        "description": "Allowed values for a dropdown.",
+                                        "items": {
+                                            "maxLength": 1000,
+                                            "type": "string"
+                                        },
+                                        "maxItems": 100,
+                                        "type": "array"
+                                    },
+                                    "step": {
+                                        "default": 1,
+                                        "description": "Slider increment.",
+                                        "minimum": 0.000001,
+                                        "type": "number"
+                                    },
+                                    "tab_id": {
+                                        "description": "Tab containing this component.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
+                                    "text": {
+                                        "default": "",
+                                        "description": "Markdown for a text component.",
+                                        "maxLength": 20000,
+                                        "type": "string"
+                                    },
+                                    "title": {
+                                        "default": "",
+                                        "description": "Optional component title.",
+                                        "maxLength": 256,
+                                        "type": "string"
+                                    },
+                                    "variable": {
+                                        "default": "",
+                                        "description": "Notebook variable controlled by an input.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
+                                    "width": {
+                                        "default": 12,
+                                        "description": "Width in a twelve-column grid.",
+                                        "maximum": 12,
+                                        "minimum": 1,
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["id", "kind", "tab_id"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "description": {
+                            "default": "",
+                            "description": "Description displayed below the app title.",
+                            "maxLength": 2000,
+                            "type": "string"
+                        },
+                        "full_width": {
+                            "default": false,
+                            "description": "Use all available width instead of a centered page.",
+                            "type": "boolean"
+                        },
+                        "tabs": {
+                            "description": "Ordered app tabs.",
+                            "items": {
+                                "properties": {
+                                    "id": {
+                                        "description": "Stable tab identifier.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
+                                    "title": {
+                                        "description": "Tab label.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["id", "title"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "title": {
+                            "default": "",
+                            "description": "App title, falling back to the notebook title.",
+                            "maxLength": 256,
+                            "type": "string"
+                        }
+                    },
+                    "required": ["tabs", "blocks"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Editable app layout. Does not change the published layout."
+        },
+        "app_published": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "blocks": {
+                            "description": "Ordered components, arranged in rows within each tab.",
+                            "items": {
+                                "properties": {
+                                    "display": {
+                                        "default": "output",
+                                        "description": "Whether to display cell source, output, or both.\n\n* `output` - Output\n* `source` - Source\n* `both` - Source and output",
+                                        "enum": ["output", "source", "both"],
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "description": "Stable component identifier within the app.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
+                                    "input_kind": {
+                                        "default": "auto",
+                                        "description": "Control used for an input.\n\n* `auto` - Automatic\n* `select` - Dropdown\n* `slider` - Slider",
+                                        "enum": ["auto", "select", "slider"],
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "description": "Type of app component.\n\n* `cell` - Notebook cell\n* `text` - Text\n* `input` - Input\n* `divider` - Divider",
+                                        "enum": ["cell", "text", "input", "divider"],
+                                        "type": "string"
+                                    },
+                                    "max": {
+                                        "default": 100,
+                                        "description": "Slider maximum.",
+                                        "type": "number"
+                                    },
+                                    "min": {
+                                        "default": 0,
+                                        "description": "Slider minimum.",
+                                        "type": "number"
+                                    },
+                                    "node_id": {
+                                        "default": "",
+                                        "description": "Source notebook cell ID.",
+                                        "maxLength": 160,
+                                        "type": "string"
+                                    },
+                                    "options": {
+                                        "description": "Allowed values for a dropdown.",
+                                        "items": {
+                                            "maxLength": 1000,
+                                            "type": "string"
+                                        },
+                                        "maxItems": 100,
+                                        "type": "array"
+                                    },
+                                    "step": {
+                                        "default": 1,
+                                        "description": "Slider increment.",
+                                        "minimum": 0.000001,
+                                        "type": "number"
+                                    },
+                                    "tab_id": {
+                                        "description": "Tab containing this component.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
+                                    "text": {
+                                        "default": "",
+                                        "description": "Markdown for a text component.",
+                                        "maxLength": 20000,
+                                        "type": "string"
+                                    },
+                                    "title": {
+                                        "default": "",
+                                        "description": "Optional component title.",
+                                        "maxLength": 256,
+                                        "type": "string"
+                                    },
+                                    "variable": {
+                                        "default": "",
+                                        "description": "Notebook variable controlled by an input.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
+                                    "width": {
+                                        "default": 12,
+                                        "description": "Width in a twelve-column grid.",
+                                        "maximum": 12,
+                                        "minimum": 1,
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["id", "kind", "tab_id"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "description": {
+                            "default": "",
+                            "description": "Description displayed below the app title.",
+                            "maxLength": 2000,
+                            "type": "string"
+                        },
+                        "full_width": {
+                            "default": false,
+                            "description": "Use all available width instead of a centered page.",
+                            "type": "boolean"
+                        },
+                        "tabs": {
+                            "description": "Ordered app tabs.",
+                            "items": {
+                                "properties": {
+                                    "id": {
+                                        "description": "Stable tab identifier.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    },
+                                    "title": {
+                                        "description": "Tab label.",
+                                        "maxLength": 80,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["id", "title"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "title": {
+                            "default": "",
+                            "description": "App title, falling back to the notebook title.",
+                            "maxLength": 256,
+                            "type": "string"
+                        }
+                    },
+                    "required": ["tabs", "blocks"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app."
+        },
+        "app_revision": {
+            "description": "Current app revision. Required when saving or publishing a layout; stale revisions return 409.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "short_id": {
+            "description": "The notebook short_id from its URL or notebooks-list, not its UUID id.",
+            "type": "string"
+        }
+    },
+    "required": ["short_id", "app_revision"],
+    "type": "object"
+}

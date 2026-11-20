@@ -41,7 +41,6 @@ import { signalsOnboardingList, signalsSourceConfigsCreate, signalsSourceConfigs
 import type {
     InboxOnboardingStateApi,
     PatchedSignalSourceConfigApi,
-    SignalSourceTypeApi,
     SignalSourceConfigSourceTypeEnumApi,
 } from '../generated/api.schemas'
 import {
@@ -580,7 +579,7 @@ export interface signalSourcesLogicActions {
         value: true
     }
     toggleErrorTrackingType: (sourceType: SignalSourceType) => {
-        sourceType: SignalSourceTypeApi
+        sourceType: SignalSourceType
     }
     toggleEvalReports: () => {
         value: true
@@ -645,8 +644,10 @@ export interface signalSourcesLogicMeta {
             sourceCategory: string,
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -663,6 +664,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -746,8 +748,10 @@ export interface signalSourcesLogicMeta {
                 | 'rootly_alerts'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
@@ -801,8 +805,10 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -819,6 +825,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -902,8 +909,10 @@ export interface signalSourcesLogicMeta {
                 | 'rootly_alerts'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'
@@ -947,8 +956,10 @@ export interface signalSourcesLogicMeta {
             externalAgents: AgentRosterDefinition[],
             externalSourceStates: Record<
                 | 'aha'
+                | 'ahrefs'
                 | 'airbrake'
                 | 'amazon_cloudwatch'
+                | 'app_store_connect'
                 | 'appfigures'
                 | 'appfollow'
                 | 'appsignal'
@@ -965,6 +976,7 @@ export interface signalSourcesLogicMeta {
                 | 'bettermode'
                 | 'betterstack'
                 | 'bigeye'
+                | 'bing_webmaster_tools'
                 | 'bugherd'
                 | 'bugsnag'
                 | 'canny'
@@ -1048,8 +1060,10 @@ export interface signalSourcesLogicMeta {
                 | 'rootly_alerts'
                 | 'semgrep'
                 | 'semgrep_sca'
+                | 'semrush'
                 | 'sentinelone'
                 | 'sentry'
+                | 'sentry_feedback'
                 | 'servicenow'
                 | 'shortcut'
                 | 'sleekplan'

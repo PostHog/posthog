@@ -1,6 +1,7 @@
 import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
+import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -9,6 +10,7 @@ import { Releases } from '@posthog/products-error-tracking/frontend/scenes/Error
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { TagRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/tag_rules/TagRules'
 import { McpCustomHarnessesSettings } from '@posthog/products-mcp-analytics/frontend/settings/McpCustomHarnessesSettings'
 import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
@@ -59,6 +61,7 @@ import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevMod
 import { ConnectAgentSetting } from 'products/business_knowledge/frontend/scenes/settings/ConnectAgentSetting'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
+import { SupportChannelsSettings } from 'products/conversations/frontend/components/SupportChannelsSettings/SupportChannelsSettings'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { ImportsSection } from 'products/conversations/frontend/scenes/settings/ImportsSection'
@@ -126,7 +129,6 @@ import {
     EvaluationContextSuggestions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
-    FlagsSecureApiKeys,
     RequireEvaluationContexts,
     RequireFeatureFlagTags,
 } from './environment/FeatureFlagSettings'
@@ -514,7 +516,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Bring your own subscription',
         group: 'AI',
-        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'TODAY_RAIL_NAV'],
         keywords: ['subscriptions', 'byos', 'plan & usage'],
         settings: [
             {
@@ -538,7 +540,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Subscriptions',
         group: 'AI',
-        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', '!TODAY_RAIL_NAV'],
         settings: [
             {
                 id: 'ai-subscription-codex',
@@ -952,6 +954,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
             },
             {
+                id: 'error-tracking-ai-features',
+                title: 'AI features',
+                component: <AIFeaturesSettings />,
+                allowForTeam: (t) => !!t?.available_error_tracking_ai_features?.length,
+                keywords: ['ai', 'llm', 'summary', 'summaries', 'credits'],
+            },
+            {
                 id: 'error-tracking-auto-assignment',
                 title: 'Assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
@@ -971,6 +980,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Set the initial severity of new issues based on rules you define.',
                 component: <SeverityRules />,
                 keywords: ['severity', 'priority', 'triage', 'critical', 'rule'],
+            },
+            {
+                id: 'error-tracking-tag-rules',
+                title: 'Tag rules',
+                description: 'Tag new issues based on rules you define.',
+                component: <TagRules />,
+                flag: 'ERROR_TRACKING_ISSUE_TAGS',
+                keywords: ['tag', 'label', 'rule', 'triage', 'categorize'],
             },
             {
                 id: 'error-tracking-suppression-rules',
@@ -1192,15 +1209,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <EvaluationContextSuggestions />,
                 keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
             },
-            {
-                id: 'feature-flag-secure-api-key',
-                title: 'Feature flags secure API key',
-                description:
-                    'Deprecated. This key is still usable for local evaluation of feature flags or remote config settings, but new integrations should use a project secret API key with the feature_flag:read scope instead.',
-                docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
-                component: <FlagsSecureApiKeys />,
-                keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
-            },
         ],
     },
     {
@@ -1351,6 +1359,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
                 component: <LogsSamplingSection />,
+                // This setting and logs-metric-rules load logs-scoped rules on mount. Hide both from a
+                // member without logs access, because the request returns a 403 for that member.
+                allowForTeam: () => userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer),
                 keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
             },
             {
@@ -1360,6 +1371,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
                 flag: 'METRICS',
+                allowForTeam: () => userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer),
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
@@ -1643,22 +1655,27 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-general',
                 title: 'General',
                 component: <GeneralSection />,
+                keywords: ['conversation', 'ticket', 'message', 'support', 'general', 'enable'],
+            },
+            {
+                id: 'conversations-channels',
+                title: 'Channels',
+                component: <SupportChannelsSettings />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: [
                     'conversation',
-                    'ticket',
-                    'message',
                     'support',
-                    'general',
-                    'api',
-                    'domain',
-                    'identity',
-                    'secret',
                     'channel',
                     'widget',
                     'email',
                     'slack',
                     'teams',
                     'microsoft',
+                    'github',
+                    'api',
+                    'domain',
+                    'identity',
+                    'secret',
                 ],
             },
             {
@@ -1732,6 +1749,15 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'PRODUCT_BUSINESS_KNOWLEDGE',
         settings: [
             {
+                id: 'business-knowledge-connect-agent',
+                title: 'Connect your agent',
+                description:
+                    'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
+                component: <ConnectAgentSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_MCP',
+                keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
+            },
+            {
                 id: 'business-knowledge-learn-from-support',
                 title: 'Self-learning',
                 description:
@@ -1747,15 +1773,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
                 component: <GithubReposSetting />,
                 keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
-            },
-            {
-                id: 'business-knowledge-connect-agent',
-                title: 'Connect your agent',
-                description:
-                    'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
-                component: <ConnectAgentSetting />,
-                flag: 'BUSINESS_KNOWLEDGE_MCP',
-                keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
             },
         ],
     },
@@ -1807,7 +1824,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     "The span attributes PostHog reads to identify which person a trace belongs to. A span is linked when any of these attributes holds one of the person's distinct IDs. Defaults to posthogDistinctId. Add keys only if your pipeline emits the person identifier under different attributes.",
                 component: <TracingDistinctIdAttributeKeys />,
-                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
@@ -1824,7 +1840,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 searchDescription:
                     'The span attributes PostHog reads to identify which session a trace belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId. Add keys only if your pipeline emits the session ID under different attributes.',
                 component: <TracingSessionIdAttributeKeys />,
-                flag: 'TRACING_SESSION_PERSON_LINKS',
                 keywords: ['trace', 'span', 'session', 'replay', 'attribute', 'link'],
             },
             {
@@ -1929,7 +1944,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-engagement-events',
                 title: 'Engagement events',
                 description:
-                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event. This setting only controls event capture: it does not disable open and click tracking itself. To stop tracking opens and clicks for an email, turn off "Track opens and link clicks" on that email step.',
+                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event. New projects start with this on. Turn it off to stop capturing them. This setting only controls event capture: it does not disable open and click tracking itself. To stop tracking opens and clicks for an email, turn off "Track opens and link clicks" on that email step.',
                 docsUrl: 'https://posthog.com/docs/workflows/engagement-events',
                 component: <WorkflowsEngagementEventsSettings />,
                 keywords: [
@@ -2594,13 +2609,27 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-oauth-apps',
         title: 'OAuth applications',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
         settings: [
             {
                 id: 'organization-oauth-apps-list',
                 title: 'OAuth applications',
-                description: 'View applications that have been authorized to connect to your organization.',
+                description:
+                    'OAuth applications linked to your organization. Expand one to see its provisioning review or to request verification.',
                 component: <OAuthApps />,
-                keywords: ['oauth', 'app', 'client', 'integration', 'api', 'authentication', 'third-party'],
+                keywords: [
+                    'oauth',
+                    'app',
+                    'client',
+                    'integration',
+                    'api',
+                    'authentication',
+                    'third-party',
+                    'provisioning',
+                    'partner',
+                    'review',
+                    'verification',
+                ],
             },
         ],
     },

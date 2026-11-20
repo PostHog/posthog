@@ -38,6 +38,10 @@ export function buildAttributionPrompt(
     environment === "local" && apiHost
       ? ` from a [PostHog Desktop task](${apiHost.replace(/\/+$/, "")}/code/task/${encodeURIComponent(taskId)})`
       : "";
+  const createdWith =
+    environment === "local"
+      ? "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)"
+      : "Created with [PostHog](https://posthog.com?ref=pr)";
   const commitInstructions =
     environment === "cloud"
       ? `In cloud tasks, call \`git_signed_commit\` to create commits. It automatically adds these trailers:
@@ -68,7 +72,7 @@ When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-lo
 When creating pull requests, add the following footer at the end of the PR description:
 \`\`\`
 ---
-*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)${threadLink}*
+*${createdWith}${threadLink}*
 \`\`\``;
 }
 

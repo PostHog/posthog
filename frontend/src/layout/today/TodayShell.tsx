@@ -16,6 +16,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
 import { TodayNavSwitchDialog } from './TodayNavSwitchDialog'
+import { TodayPaneIntro } from './TodayPaneIntro'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
@@ -68,7 +69,7 @@ const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: Component
 }
 
 const NewSpaceDialog = lazyWithRetry(() =>
-    import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
+    import('products/today/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
@@ -153,6 +154,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 }
                 actions={PaneAction && <PaneAction />}
             />
+            {/* Keyed by pane, so a closing animation on one pane's intro never carries over to the next pane's. */}
+            <TodayPaneIntro key={activePane} pane={activePane} />
             {paneContent}
         </div>
     )

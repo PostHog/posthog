@@ -10,7 +10,10 @@ deny:
             paths:
                 - 'k8s'
                 - 'dockerfile'
-                - 'docker-compose'
+                # The local-only compose files go to dev_stack instead. Every other compose file stays
+                # here, a new one included: hobby deploys extend docker-compose.base.yml, and image
+                # builds pull and start docker-compose.dev.yml and docker-compose.profiles.yml.
+                - 'docker-compose(?!\.(dev-full|playwright|sandbox)\.yml$)'
                 - '\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)'
                 - '\.github/pr-deploy'
                 - 'iam'
@@ -28,20 +31,49 @@ deny:
                 - '\.depot/workflows'
         exempt_author_teams:
             - 'team-devex'
+    dev_stack:
+        description: 'The compose files that only local runs start.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. owners.yaml gives every docker-compose file to team-devex, and no deploy or image build reads these ones. The compose files that a deploy or an image build reads stay in infra_cicd for every author.'
+        match:
+            paths:
+                - 'docker-compose\.(dev-full|playwright|sandbox)\.yml$'
+        exempt_author_teams:
+            - 'team-devex'
     stamphog_policy:
         match:
             extend_paths:
-                # The dependency proof publisher. A PR that edits it changes what the proof checks.
+                # These paths hold the change prover, its workflows and the setup-uv action they run.
+                # A PR that edits any of them changes what a proof checks.
                 - '^\.github/workflows/dependency-proof'
-                - '^\.github/scripts/dependency_proof/'
+                - '^\.github/workflows/revert-proof'
+                - '^tools/change-prover/'
+                - '^\.github/actions/setup-uv/'
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
                 - 'tools/owners/'
-                - '(?:^|/)owners\.yaml$'
+    ownership_files:
+        description: 'The owners.yaml and product.yaml files that name owning teams and route reviews.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One line changes who reviews later PRs, and the files are .yaml, so without this category they ride the allow-list to a T0 auto-approve. They are not in stamphog_policy, because that category exempts nobody and the root owners.yaml routes every owners.yaml to team-devex. The exemption reads GitHub team membership, which these files do not set, and a PR that changes one reads ownership at the merge base, so it cannot vouch for itself. A change that only adds lines to an owners.yaml passes for every author through edit_paths, and it still gets a full LLM review. The resolver code in packages/owners-yaml/ stays in stamphog_policy.'
+        match:
+            paths:
                 - '(?:^|/)product\.yaml$'
+            # A change that only adds lines to an owners.yaml, such as a new rule, does not match.
+            # Changing or removing a line still does.
+            edit_paths:
+                - '(?:^|/)owners\.yaml$'
+        exempt_author_teams:
+            - 'team-devex'
+    request_boundaries:
+        description: 'The shared inbound webhook verification and outbound request transport.'
+        rationale: 'This code verifies webhook signatures and sends every outbound request, so a mistake weakens a security boundary for every product. It matches no auth or crypto_secrets pattern, so without this category it gets an LLM review only. No team is exempt, because devex_guardrails exempts team-devex and this code is runtime code, not a guard.'
+        match:
+            paths:
+                - '^posthog/egress/(limiter|observability|transport)/'
+                - '^posthog/ingress/(dispatch|observability|verify)/'
+                - '^posthog/ingress/views\.py$'
     devex_guardrails:
         description: 'The guards that keep the house patterns for API codegen, egress, ingress, product isolation, migrations, URLs and startup imports.'
-        rationale: 'These files define what CI blocks, so a small edit can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'
+        rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. These files define what CI blocks, so a small edit from another team can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'
         match:
             paths:
                 - '^\.github/scripts/migration-deletion-allowlist\.txt$'
@@ -49,9 +81,6 @@ deny:
                 - '^\.semgrep/rules/security/prefer-codegen-api\.'
                 - '^frontend/src/lib/api-ratchet-baseline\.txt$'
                 - '^posthog/(egress|ingress)/agents\.md$'
-                - '^posthog/egress/(limiter|observability|transport)/'
-                - '^posthog/ingress/(dispatch|observability|verify)/'
-                - '^posthog/ingress/views\.py$'
                 - '^posthog/management/migration_analysis/'
                 - '^posthog/migration_helpers/'
                 - '^posthog/product_urls\.py$'
@@ -64,6 +93,8 @@ deny:
                 - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\.py$'
                 - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
                 - '^tools/hogli-commands/hogli_commands/product/'
+        exempt_author_teams:
+            - 'team-devex'
     agent_steering:
         description: 'The root agent instructions, the PR authoring guidance, and the agent config that runs in every session.'
         rationale: 'Owner-only: stamphog approves team-devex changes here and refuses everyone else. One edit changes how every agent-written PR reads, and the files are .md, so without this category they ride the allow-list to a T0 auto-approve. A change from outside team-devex now needs a human approval, which is where the owner discussion happens. .claude/settings.json and .mcp.json are .json and ride the same allow-list, but their hooks and MCP servers run commands in every agent session, so they belong here too. Other skills under .agents/skills stay out on purpose, because product teams own several and edit their own. Paths are anchored, so a nested AGENTS.md stays with its folder owner.'
@@ -90,6 +121,18 @@ deny:
                 - '^nodejs/src/cdp/[\s\S]*(?<!\.test\.ts)\Z'
         exempt_author_teams:
             - 'team-workflows'
+    mcp_core:
+        description: 'The MCP exec tool, server instructions, core instruction templates and guidance rules.'
+        rationale: "Owner-only: stamphog approves team-context-and-mcp changes here and refuses everyone else's. These files write the text that every customer's agent reads before its first call and mid-session, and exec parses and rejects every call those agents make. A required CODEOWNERS review blocked the team on its own diffs, so this category gates other teams only. A change from outside the team needs a human approval, and services/mcp/AGENTS.md tells agents to send the author to #team-context-and-mcp first."
+        match:
+            paths:
+                - '^services/mcp/src/tools/exec(-learn)?\.ts$'
+                - '^services/mcp/src/hono/instructions\.ts$'
+                - '^services/mcp/src/lib/instructions-formatter\.ts$'
+                - '^services/mcp/src/hono/guidance/'
+                - '^services/mcp/src/templates/sections/(cli-[^/]*|exec-[^/]*|basic-functionality|compact-instructions|skills-first|tool-search)\.md$'
+        exempt_author_teams:
+            - 'team-context-and-mcp'
 deny_exceptions:
     # Connector code does OAuth and talks to the Stripe API without touching PostHog's auth system
     # or its billing.
@@ -97,6 +140,13 @@ deny_exceptions:
         - path_prefixes:
               - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
               - 'products/warehouse_sources/sources/'
+        # The authorization product's package.json, tsconfig.json and turbo.json hold no auth
+        # logic. They match only because the folder name contains 'auth'. The deps_toolchain
+        # category still catches a manifest script change.
+        - path_prefixes:
+              - 'products/authorization/'
+          extensions:
+              - '.json'
     billing:
         - path_prefixes:
               - 'products/warehouse_sources/backend/temporal/data_imports/sources/'
@@ -112,6 +162,20 @@ deny_exceptions:
               - 'rust/'
           extensions:
               - '.rs'
+    # The unanchored 'migrations/' pattern matches skill folders such as django-migrations/. Their
+    # Markdown documents the migration workflow and runs nothing.
+    migrations:
+        - path_prefixes:
+              - '.agents/skills/'
+          extensions:
+              - '.md'
+    # A deletion certificate is a document that a customer downloads, not key material.
+    crypto_secrets:
+        - keyword: 'certificate'
+          path_prefixes:
+              - 'posthog/templates/'
+          extensions:
+              - '.html'
 allow:
     extend_path_patterns:
         - '.github/CODEOWNERS'
@@ -127,3 +191,51 @@ attestations:
       paths:
           - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
       sibling_files: [max_migration.txt]
+    - name: dependency_proof
+      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. For
+      # an npm update it replays the pnpm update from the merge base, and confirms that the replay
+      # writes the same lockfile as the PR head. For a first-party Python SDK bump it checks that
+      # only the SDK version moves and that PyPI serves the locked files from the SDK's release workflow.
+      check: 'Dependency proof'
+      app_id: 5697920
+      lifts: [deps_toolchain]
+      paths:
+          - '(?:^|/)package\.json$'
+          - '(?:^|/)pnpm-lock\.yaml$'
+          - '(?:^|/)pnpm-workspace\.yaml$'
+          - '(?:^|/)pyproject\.toml$'
+          - '(?:^|/)uv\.lock$'
+          - '(?:^|/)requirements[^/]*\.txt$'
+      # The prover's own manifest lists the default-branch paths it runs from. The engine reads it
+      # from the default branch and ignores a proof whose marker does not pin every path in it.
+      issuer: tools/change-prover/issuer.yml
+    - name: revert_proof
+      # The Revert proof workflow posts this check with the same posthog-dependency-proof token. It
+      # recomputes the revert of one PR merged into the default branch in the last 30 days, and
+      # confirms that the PR head holds exactly that tree and that the PR author pushed it. The
+      # restored code was reviewed and ran before, so the proof lifts what asks only whether code
+      # is safe to run. It lifts nothing a revert cannot answer:
+      # - migrations: the database moved on.
+      # - auth, crypto_secrets, deps_toolchain, infra_cicd: a revert can bring back a vulnerability
+      #   or a vulnerable version that the reverted PR fixed, or turn off team-security's workflows.
+      # - billing: it is the only category over the Stripe provisioning signature check, the billing
+      #   access token and grants, and the billing permission classes, so a revert of a fix there
+      #   would bring the vulnerability back.
+      # - ci_workflows, agent_steering, workflows_delivery: owner-only, and owners are exempt, so a
+      #   lift would only let another team undo the owner's change.
+      # - devex_guardrails: reverting a guard turns the guard off.
+      check: 'Revert proof'
+      app_id: 5697920
+      lifts: [public_api]
+      # A revert can touch any file. The trigger runs only for a title that starts with "Revert",
+      # so no other PR waits for this check.
+      title: '^Revert'
+      paths:
+          - '.*'
+      issuer: tools/change-prover/issuer.yml
+# Stamphog reviews PRs from these bots. It approves one only when an attestation that pins its
+# publisher, through `issuer` or `publisher_files`, proved every file the PR changes.
+bot_authors:
+    - name: renovate
+      login: 'renovate[bot]'
+      id: 29139614

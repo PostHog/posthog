@@ -41,6 +41,7 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, Pl
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import (
     control_plane,
+    destination_handoff,
     platform_lifecycle,
     platform_reads,
     rule_metadata,
@@ -190,24 +191,26 @@ def update_configuration(
         if found is None:
             return None
         source_kind, legacy_configuration_id = found
-        if snooze_changed and legacy_configuration_id is not None:
-            # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
-            raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
-        if (cadence is not None or check_interval_minutes is not None) and legacy_configuration_id is not None:
-            # The source row keeps the schedule, and `update_owned_copy` writes it onto the copy.
-            raise InvalidPlatformAlertEdit(
-                "check_interval_minutes", f"Schedule this alert in the {source_kind} product."
-            )
         spec = source_configs.spec(SourceKind(source_kind))
-        native = spec.native if spec is not None else None
-        if check_interval_minutes is not None:
-            check_interval_minutes = _native_check_interval(native, check_interval_minutes)
         mirror = spec.mirror if spec is not None else None
         write_source = (
             mirror(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
             if mirror is not None and legacy_configuration_id is not None
             else None
         )
+        # A mirror that finds no row means the source deleted it, and the copy alone is the alert.
+        has_source_row = legacy_configuration_id is not None and (mirror is None or write_source is not None)
+        if snooze_changed and has_source_row:
+            # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
+            raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
+        if (cadence is not None or check_interval_minutes is not None) and has_source_row:
+            # The source row keeps the schedule, and `update_owned_copy` writes it onto the copy.
+            raise InvalidPlatformAlertEdit(
+                "check_interval_minutes", f"Schedule this alert in the {source_kind} product."
+            )
+        native = spec.native if spec is not None else None
+        if check_interval_minutes is not None:
+            check_interval_minutes = _native_check_interval(native, check_interval_minutes)
         configuration = readable.select_for_update().first()
         if configuration is None:
             return None
@@ -220,6 +223,8 @@ def update_configuration(
             if spec is not None and legacy_configuration_id is None and not source_checked
             else None
         )
+        # Labels pick the routes, so an edit to them can move a firing between receivers.
+        before = destination_handoff.snapshot(team_id, configuration_ids=[configuration.id], routes_only=True)
         edit, pending = _apply(
             configuration,
             change,
@@ -248,6 +253,7 @@ def update_configuration(
         if write_source is not None:
             write_source(edit)
         control_plane.announce_after_commit(pending)
+        destination_handoff.hand_over_after_commit(before)
         _record_change(
             configuration,
             current,
@@ -298,9 +304,6 @@ def create_configuration(
                 edit=validated,
                 check_interval_minutes=check_interval_minutes,
                 recurrence_unit=recurrence_unit,
-                destinations_owner=PlatformAlertOwner.PLATFORM
-                if spec.native.platform_destinations
-                else PlatformAlertOwner.SOURCE,
                 created_by_id=created_by_id,
                 now=django_timezone.now(),
             )
@@ -430,11 +433,13 @@ def update_owned_copy(
     rescheduled: bool = False,
     at: datetime | None = None,
     first_enabled_at: datetime | None = None,
+    created_by_id: int | None = None,
 ) -> None:
     """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
     back, because the source already wrote its row. A snooze the edit set or cleared becomes the
     copy's mute. A changed `cadence`, or `rescheduled`, makes the copy due when the source is.
-    `first_enabled_at` is when the source row was first turned on, which the copy takes."""
+    `first_enabled_at` is when the source row was first turned on, which the copy takes.
+    `created_by_id` is the row's creator, which the copy's checks run as."""
     with transaction.atomic():
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -443,6 +448,7 @@ def update_owned_copy(
         current, previous_state = edit_of(configuration), platform_lifecycle.shown_state(configuration, now=now)
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now
+        before = destination_handoff.snapshot(team_id, configuration_ids=[configuration.id], routes_only=True)
         edit, pending = _apply(configuration, change, now=now, snoozing=snoozing)
         if cadence is not None:
             platform_lifecycle.write_owned_cadence(configuration, cadence, rescheduled=rescheduled)
@@ -454,7 +460,13 @@ def update_owned_copy(
                 first_enabled_at=first_enabled_at
             )
             configuration.first_enabled_at = first_enabled_at
+        if created_by_id is not None and configuration.created_by_id != created_by_id:
+            PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(id=configuration.id).update(
+                created_by_id=created_by_id
+            )
+            configuration.created_by_id = created_by_id
         control_plane.announce_after_commit(pending)
+        destination_handoff.hand_over_after_commit(before)
         _record_change(
             configuration,
             current,

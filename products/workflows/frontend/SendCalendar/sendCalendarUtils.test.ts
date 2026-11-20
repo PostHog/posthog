@@ -50,6 +50,7 @@ describe('sendCalendarUtils', () => {
     const COHORT_FILTER = { key: 'id', type: 'cohort', value: 21 }
     const EMAIL_IS_SET = { key: 'email', type: 'person', operator: 'is_set', value: 'is_set' }
     const COHORT_EXCLUSION = { key: 'id', type: 'cohort', operator: 'not_in', value: 22 }
+    const COHORT_NEGATION = { key: 'id', type: 'cohort', operator: 'in', negation: true, value: 22 }
 
     it.each([
         [
@@ -60,6 +61,11 @@ describe('sendCalendarUtils', () => {
         [
             'a broadcast that leaves out a cohort',
             { trigger_type: 'batch', audience_properties: [COHORT_FILTER, COHORT_EXCLUSION] },
+            { cohortIds: [21], filters: [COHORT_EXCLUSION], accounts: false, address: null },
+        ],
+        [
+            'a broadcast that leaves out a cohort with negation',
+            { trigger_type: 'batch', audience_properties: [COHORT_FILTER, COHORT_NEGATION] },
             { cohortIds: [21], filters: [COHORT_EXCLUSION], accounts: false, address: null },
         ],
         [

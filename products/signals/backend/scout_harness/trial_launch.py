@@ -19,6 +19,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, scout_scope_posture
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.agent_instructions import SignalAgentRole, resolve_custom_image_id
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutNote, SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.model_selection import ScoutModel, resolve_scout_model
@@ -159,13 +160,17 @@ def _write_document_once(key: str, document: _Document) -> _Document:
 
 
 def trial_capabilities(config: SignalScoutConfig) -> dict[str, JsonValue]:
-    return {
+    capabilities: dict[str, JsonValue] = {
         "repositories": list(config.repositories or []),
         "network_access": config.network_access,
         "mcp_gateway_server_ids": list(config.mcp_gateway_server_ids or []),
         "write_scopes": list(config.write_scopes or []),
         "structured_output_schema": config.structured_output_schema,
     }
+    image_id = resolve_custom_image_id(config.team_id, SignalAgentRole.SCOUT, config.custom_image_id)
+    if image_id is not None:
+        capabilities["custom_image_id"] = image_id
+    return capabilities
 
 
 def assert_trial_environment_ready() -> None:

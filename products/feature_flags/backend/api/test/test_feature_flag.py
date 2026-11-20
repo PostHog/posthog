@@ -849,9 +849,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ("false", False),
         ]
     )
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_boolean_early_exit_accepted(self, _name, value, mock_feature_enabled):
-        mock_feature_enabled.return_value = True
+    def test_boolean_early_exit_accepted(self, _name, value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
@@ -867,59 +865,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag = FeatureFlag.objects.get(key=f"early-exit-{_name}", team=self.team)
         self.assertEqual(flag.filters["early_exit"], value)
-
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_early_exit_rejected_without_feature_flag(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Early exit gated",
-                "key": "early-exit-gated",
-                "filters": {
-                    "early_exit": True,
-                    "groups": [{"rollout_percentage": 100}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("early_exit is not available", response.json()["detail"])
-
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_early_exit_false_accepted_without_feature_flag(self, mock_feature_enabled):
-        mock_feature_enabled.return_value = False
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Early exit off",
-                "key": "early-exit-off",
-                "filters": {
-                    "early_exit": False,
-                    "groups": [{"rollout_percentage": 100}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
-    def test_early_exit_unchanged_truthy_allowed_when_flag_disabled(self, mock_feature_enabled):
-        # A flag created while the feature was enabled keeps working if access is later revoked,
-        # as long as the PATCH doesn't newly turn early_exit on.
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="early-exit-existing",
-            filters={"early_exit": True, "groups": [{"rollout_percentage": 100}]},
-        )
-        mock_feature_enabled.return_value = False
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            data={"filters": {"early_exit": True, "groups": [{"rollout_percentage": 50}]}},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_null_early_exit_accepted(self):
         response = self.client.post(
@@ -2328,49 +2273,15 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
-    @parameterized.expand(
-        [
-            ("legacy_verifiers_on", True),
-            # With the verifiers off, only the mirror row the rotation minted authenticates the token.
-            ("legacy_verifiers_off", False),
-        ]
-    )
-    def test_remote_config_with_project_secret_api_key(self, _name, accept_team_secret_tokens):
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="my-remote-config-flag",
-            name="Remote Config Flag",
-            active=True,
-            filters={
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 100,
-                    }
-                ],
-                "payloads": {"true": '{"test": true}'},
-            },
-            is_remote_configuration=True,
-        )
-        self.client.logout()
-        with self.settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-            )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), '{"test": true}')
-
-    def test_get_remote_config_with_secret_api_token_of_second_environment(self):
+    def test_get_remote_config_with_secret_api_key_of_second_environment(self):
         environment = Team.objects.create(organization=self.organization, project=self.team.project)
-        environment.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        env_token, _ = _make_feature_flag_psak(environment, label="env2")
         self._create_remote_config_flag()
         self.client.logout()
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config?token={environment.api_token}",
-            headers={"authorization": f"Bearer {environment.secret_api_token}"},
+            headers={"authorization": f"Bearer {env_token}"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -2479,7 +2390,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_remote_config_returns_response_even_if_shadow_raises(self):
         # The throwaway Rust shadow (phase 2) must never break the live endpoint, even if it raises.
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="shadow")
         FeatureFlag.objects.create(
             team=self.team,
             key="my-remote-config-flag",
@@ -2498,7 +2409,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ) as shadow:
             response = self.client.get(
                 f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+                headers={"authorization": f"Bearer {secret_token}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
@@ -2549,7 +2460,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     # which must replicate both.
     @parameterized.expand(
         [
-            ("project_secret_key", False),
             ("personal_api_key", True),
             ("psak", False),
         ]
@@ -2564,13 +2474,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             PersonalAPIKey.objects.create(
                 label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
             )
-        elif _name == "psak":
-            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
         else:
-            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-            secret_token = self.team.secret_api_token
-            assert secret_token is not None
-            auth_token = secret_token
+            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
 
         self.client.logout()
         response = self.client.get(
@@ -2613,7 +2518,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("project_secret_key", False, "198.51.100.7", status.HTTP_200_OK),
             ("personal_api_key", True, "198.51.100.7", status.HTTP_403_FORBIDDEN),
             ("personal_api_key_allowed", True, "203.0.113.7", status.HTTP_200_OK),
             ("psak", False, "198.51.100.7", status.HTTP_200_OK),
@@ -2634,13 +2538,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
         elif _name == "session":
             auth_token = None
-        elif _name == "psak":
-            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
         else:
-            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
-            secret_token = self.team.secret_api_token
-            assert secret_token is not None
-            auth_token = secret_token
+            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
 
         self.client.force_login(self.user)
         response = self.client.get(
@@ -2658,7 +2557,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_remote_config_increments_remote_config_bucket_by_one_per_request(
         self, _name: str, has_encrypted_payloads: bool
     ):
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="bucket")
         FeatureFlag.objects.create(
             team=self.team,
             key="my-remote-config-flag",
@@ -2681,7 +2580,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             for _ in range(3):
                 response = self.client.get(
                     f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-                    headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+                    headers={"authorization": f"Bearer {secret_token}"},
                 )
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -2692,7 +2591,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(client.hgetall(f"posthog:decide_requests:{self.team.pk}"), {})
 
     def test_remote_config_does_not_count_when_flag_is_not_remote_config(self):
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="notrc")
         FeatureFlag.objects.create(
             team=self.team,
             key="not-a-remote-config-flag",
@@ -2708,7 +2607,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/not-a-remote-config-flag/remote_config",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            headers={"authorization": f"Bearer {secret_token}"},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
@@ -2739,13 +2638,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_remote_config_with_secret_api_key_prevents_cross_team_access(self):
         # Create two teams with different secret keys
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        secret_token, _ = _make_feature_flag_psak(self.team, label="thisteam")
         other_team = Team.objects.create(
             organization=self.organization,
             api_token="phc_other_team_token",
             name="Other Team",
         )
-        other_team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        _make_feature_flag_psak(other_team, label="otherteam")
 
         # Create a flag in the other team
         FeatureFlag.objects.create(
@@ -2770,7 +2669,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Try to access other team's flag using this team's secret key + other team's project_api_key in body
         response = self.client.get(
             f"/api/projects/{other_team.id}/feature_flags/other-team-flag/remote_config?token={other_team.api_token}",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            headers={"authorization": f"Bearer {secret_token}"},
         )
 
         # Should be forbidden due to team mismatch
@@ -7803,7 +7702,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # experiment_set should include both experiments
         response = self.client.get(f"/api/projects/@current/feature_flags/{feature_flag.id}")
         assert response.status_code == 200
-        assert response.json()["experiment_set"] == [experiment_id, experiment2_id]
+        assert sorted(response.json()["experiment_set"]) == sorted([experiment_id, experiment2_id])
 
         # Delete the active experiments
         update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)

@@ -38,6 +38,10 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "analyzers": "Every analyzer DeepSource offers, resolving the shortcodes carried on issues and checks",
     "metrics": "Latest value per code-quality metric and language (coverage, duplication, and more)",
     "reports": "Current value and status of each compliance and trend report (OWASP Top 10, code health, and more)",
+    "repository_targets": "Dependency manifests and lockfiles DeepSource scans for vulnerabilities (SCA targets)",
+    "ignore_rules": "Repository- and file-level rules that ignore an issue, forever or for a file pattern",
+    "suppressed_issues": "Issues suppressed across the whole account, with who suppressed them and when",
+    "team_members": "Members of the account with their role and when they joined",
 }
 
 

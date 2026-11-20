@@ -9,7 +9,7 @@ export function SettingRow({
     mine,
 }: {
     title: string
-    description: string
+    description: React.ReactNode
     project: JSX.Element
     mine: JSX.Element
 }): JSX.Element {

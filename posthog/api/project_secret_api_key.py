@@ -39,7 +39,7 @@ if EE_AVAILABLE:
 
 logger = structlog.get_logger(__name__)
 
-MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
+MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 100
 
 
 def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> None:
@@ -200,14 +200,11 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
         # Every project member can read the legacy secret token, so the check on the person who grants
         # the scope does not limit who ends up holding this key.
-        if (
-            "business_knowledge:read" in added
-            and self.instance is not None
-            and _mirrors_legacy_team_token(self.instance)
-        ):
+        restricted_legacy_scopes = set(added) & {"business_knowledge:read", "person:write"}
+        if restricted_legacy_scopes and self.instance is not None and _mirrors_legacy_team_token(self.instance):
             raise serializers.ValidationError(
                 "This key is the project's legacy secret token, which every project member can read. "
-                "Create a new key for the business_knowledge:read scope."
+                f"Create a new key for these scopes: {', '.join(sorted(restricted_legacy_scopes))}."
             )
         if "llm_gateway:read" in added:
             _enforce_gateway_bans(self.context["request"], self.context["view"].team)
@@ -274,26 +271,40 @@ def roll_project_secret_api_key_and_notify(project_secret_api_key: ProjectSecret
     )
 
 
+def retire_leaked_team_secret_token(team_id: int, token: str) -> bool:
+    """Record a leaked legacy token's hash and replace a widget signing secret still
+    carrying it. The hash keeps the pre-drop rerun of the #63111 backfill from minting a
+    fresh mirror row for the value. Returns whether the signing secret was replaced."""
+    # Lazy: conversations imports posthog.api modules at load time.
+    from products.conversations.backend.services.signing_secrets import retire_leaked_signing_secret
+
+    # One transaction: the revoked hash and the signing secret change commit together.
+    with transaction.atomic():
+        RevokedTeamSecretToken.objects.for_team(team_id).get_or_create(
+            team_id=team_id, secure_value=hash_key_value(token)
+        )
+        return retire_leaked_signing_secret(team_id, token)
+
+
 def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretAPIKey, more_info: str) -> bool:
     """Revoke an exposed key the right way for what it actually is, and return whether it
     was a mirrored legacy team token.
 
     A backfilled PSAK (#63111) mirrors the team's legacy secret token: deleting the row
-    is the revocation (rolling would mint an unrelated key that later rotation cannot
-    clean up), and the admins must still rotate the legacy token itself. Any other key
-    gets the ordinary roll-and-notify.
+    is the revocation (rolling would leave a new live key the team never asked for).
+    Any other key gets the ordinary roll-and-notify.
     """
     team = project_secret_api_key.team
     for token in (team.secret_api_token, team.secret_api_token_backup):
         if token and project_secret_api_key.secure_value == hash_key_value(token):
             with transaction.atomic():
-                # Remember the hash: the pre-drop rerun of the #63111 backfill must not
-                # give this still-unrotated leaked token a fresh mirror row.
-                RevokedTeamSecretToken.objects.for_team(team.id).get_or_create(
-                    team_id=team.id, secure_value=project_secret_api_key.secure_value
-                )
                 project_secret_api_key.delete()
-            send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
+                # In the same transaction: once the row is gone a retried report finds no
+                # PSAK and would never retire a signing secret still mirroring the value.
+                signing_secret_replaced = retire_leaked_team_secret_token(team.id, token)
+            send_feature_flags_secure_api_key_exposed(
+                team.id, mask_key_value(token), more_info, signing_secret_replaced
+            )
             return True
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
     return False

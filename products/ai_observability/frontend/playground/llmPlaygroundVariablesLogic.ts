@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors 
 
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
+import type { PlaygroundSetupPayload } from './llmPlaygroundPromptsLogic'
 import { extractVariablesFromTexts, getVariableValue, promptTemplateTexts } from './playgroundTemplating'
 
 export type LLMPlaygroundVariablesLogicProps = Record<string, never>
@@ -20,8 +21,8 @@ export interface llmPlaygroundVariablesLogicActions {
     resetPlayground: () => {
         value: true
     } // llmPlaygroundPromptsLogic
-    setupPlaygroundFromEvent: (payload: import('./llmPlaygroundPromptsLogic').PlaygroundSetupPayload) => {
-        payload: import('./llmPlaygroundPromptsLogic').PlaygroundSetupPayload
+    setupPlaygroundFromEvent: (payload: PlaygroundSetupPayload) => {
+        payload: PlaygroundSetupPayload
     } // llmPlaygroundPromptsLogic
     setVariableValue: (
         name: string,

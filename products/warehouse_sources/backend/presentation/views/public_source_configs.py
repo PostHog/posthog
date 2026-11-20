@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.git import get_git_commit_full
+from posthog.rate_limit import IPThrottle
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
 from products.warehouse_sources.backend.facade.source_management import (
@@ -116,6 +117,19 @@ def _build_source_configs_from_registry(*, include_tables: bool) -> dict[str, di
     return results
 
 
+class PublicSourceConfigsIPThrottle(IPThrottle):
+    """Per-IP limit with a scope that only this endpoint uses.
+
+    The global BurstRateThrottle and SustainedRateThrottle put every anonymous request from one
+    address into one bucket, for all endpoints. Internal callers that reach the public host through
+    a shared NAT egress address then get 429 here because of traffic to other endpoints. The
+    catalog is memoized, so a request is cheap, and this limit only bounds nuisance load.
+    """
+
+    scope = "public_source_configs"
+    rate = "300/minute"
+
+
 class PublicSourceConfigViewSet(viewsets.ViewSet):
     """
     Public (unauthenticated) endpoint that returns the full SourceConfig
@@ -127,6 +141,7 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [PublicSourceConfigsIPThrottle]
 
     @extend_schema(
         responses={200: SourceConfigMapResponse},
@@ -141,7 +156,6 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
         ),
     )
     def list(self, request: Request) -> Response:
-        # Results are deploy-static (they only change when source code ships), so this is a
-        # safe candidate for caching if the endpoint ever gets hot; today it is fetched only
-        # at posthog.com build time.
+        # Results are deploy-static (they only change when source code ships). The posthog.com
+        # docs build and internal tools read this endpoint.
         return Response(status=status.HTTP_200_OK, data=build_source_configs())

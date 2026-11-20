@@ -514,7 +514,10 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         parameters=[KnowledgeUsageQuerySerializer],
         responses={200: KnowledgeUsageSerializer},
-        description="How much support agent runs cited the project's knowledge sources over a period.",
+        description=(
+            "Usage of the project's knowledge over a period: chunks ingested, searches, and how often "
+            "support agent runs cited the sources."
+        ),
     )
     @action(
         detail=False,

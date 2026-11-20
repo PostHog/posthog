@@ -141,13 +141,14 @@ rules:
     - match: '/posthog/api/test/test_playwright_setup.py'
       owners: team-devex
     # The guards behind the house patterns: semgrep rules, ratchet baselines, invariant tests,
-    # and the docs that state the rules. A small edit here can quietly reopen what a guard
-    # closed, so the paths are sensitive and the reviewer assigner requests devex for every
-    # change. Busy files that most PRs touch (lib/api.ts, pyproject.toml, the model crossing,
-    # setup receivers and frozen dataclass baselines) stay out, so that the review requests
-    # stay rare.
+    # the boundary linter's policy and hook, and the docs that state the rules. A small edit
+    # here can quietly reopen what a guard closed, so the paths are sensitive and the reviewer
+    # assigner requests devex for every change. Busy files that most PRs touch (lib/api.ts,
+    # pyproject.toml, the model crossing, setup receivers and frozen dataclass baselines) stay
+    # out, so that the review requests stay rare.
     - match:
           - '/.github/scripts/check-no-new-ee-files.py'
+          - '/.github/scripts/hoglint_shadow.py'
           - '/.github/scripts/migration-deletion-allowlist.txt'
           - '/.semgrep/rules/devex/'
           - '/.semgrep/rules/security/prefer-codegen-api.*'
@@ -158,6 +159,8 @@ rules:
           - '/frontend/src/lib/api-ratchet-baseline.txt'
           - '/frontend/src/lib/api-stream.ts'
           - '/frontend/src/lib/utils/createWorker.*'
+          - '/hoglint.exceptions.toml'
+          - '/hoglint.toml'
           - '/posthog/management/commands/analyze_migration_risk.py'
           - '/posthog/migration_helpers/'
           - '/posthog/openapi/'
@@ -177,10 +180,13 @@ rules:
           - '/products/README.md'
           - '/products/architecture.md'
           - '/products/isolation_baseline.txt'
+          - '/tools/hoglint/'
           - '/tools/openapi-codegen/'
       owners: team-devex
       sensitive: true
-    - match: '/products/model_crossing_uses_baseline.txt'
+    - match:
+          - '/hoglint.ledger'
+          - '/products/model_crossing_uses_baseline.txt'
       owners: team-devex
     - match: '/posthog/management/commands/find_enum_collisions.py'
       owners: team-devex
@@ -237,6 +243,7 @@ rules:
           - '/frontend/src/layout/panel-layout/navbar/*.test.*'
           - '/frontend/src/layout/today/TodayPhoneHeader.test.tsx'
           - '/frontend/src/layout/today/TodayPreviewCardProvider.test.tsx'
+          - '/frontend/src/layout/today/todayPaneIntroLogic.test.ts'
           - '/frontend/src/lib/charts/*.test.*'
           - '/frontend/src/lib/forms/*.test.*'
           - '/frontend/src/lib/hooks/*.test.*'
@@ -306,6 +313,9 @@ rules:
     - match:
           - '/frontend/src/lib/signals/*.test.*'
       owners: team-self-driving
+    - match:
+          - '/frontend/src/lib/integrations/AdsAccountIdPickers.test.tsx'
+      owners: team-workflows
     - match:
           - '/services/credentials-service/tests/integration/*.test.*'
           - '/services/credentials-service/tests/unit/*.test.*'

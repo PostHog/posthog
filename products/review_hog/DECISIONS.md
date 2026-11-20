@@ -198,6 +198,42 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-11-19: each repository picks its review cadence
+
+- **What.** Two repository switches set when automatic reviews run (`review_cadence.py`): `review_drafts` (a review when a draft opens) and `review_pushes` (reviews of later pushes, through the push gate).
+  The four combinations are the four options of one "Reviews" select per repository: When ready, When ready + pushes, and the same two plus drafts.
+  With drafts and no pushes, a reviewed draft gets one more review when it is marked ready.
+- **Defaults.** A repository with no row, or with both switches off, gets one review when the PR is ready.
+  Repositories that reviewed drafts before keep `review_drafts` and get no push reviews, so they land on "When ready + drafts". Both come from the column defaults, with no data migration.
+- **Why.** Every push to an opted-in PR started another review run, and teams want to ask for re-reviews instead. Turning follow-ups off for every repository (the first version of #138784) also dropped the review at ready for repositories that review drafts.
+- **Rejected.** A per-repository follow-up select next to the draft switch could express "a draft review and nothing at ready" and "re-review on every return to ready". Neither had a use, and the settings row has room for one control.
+  Two switches ("Drafts", "Pushes") give the same four modes. The select was chosen, with both sections showing the same two options and the second marked as adding drafts.
+- **One decision point.** The webhook dispatch, the push gate's `follow_up` rule and the note a review ends with all ask `ReviewCadence`, and `test_review_cadence.py` holds the whole table.
+
+### ✅ BUILT 2026-11-17: review rules come from the base commit, and repository hooks are off
+
+- **What.**
+  - The single-agent prompt (`prompt.jinja`, "Repository rules") makes the rule files (`AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, `REVIEW.md`, `SKILL.md`, every file under `.agents/` or `.claude/`, and the guides and skills they route to) apply as they are at the PR's merge base.
+    A change the PR makes to one is diff content to review, not a rule to follow.
+  - The prompt names the rule files the whole PR changes, also on a delta turn, and says that the checkout and any copy the agent loaded at session start hold the PR's versions.
+    It gives `git fetch --depth 1 origin <merge base>` and `git show <merge base>:'<path>'` to read the base version, the same commit-id-only command shape the prompt already uses for a left-out diff.
+  - Most of a repository's rules sit in guides and skills, so `.agents/`, `.claude/` and `SKILL.md` match by path, not only the four `AGENTS.md`-style names.
+    A rename lists the old path too, because renaming a rule file away removes it from the checkout.
+  - The listed paths go into an instruction sentence and a single-quoted `git show`, so a path with any character outside `[A-Za-z0-9._/-]` is counted and never repeated. The session is pointed at a commit-id-only `git diff` for its base text instead.
+  - `run_sandbox_review` and `start_sandbox_session` set `disable_repo_hooks` on every sandbox context, as Signals report research does.
+- **Why the base.** The sandbox checks out the PR head, so before this change a PR could edit the rules that judged it.
+  The merge base is the commit the diff is computed against, and its rule files are the ones the repository had already accepted.
+  Rule files the PR does not change are the same in the checkout and at the merge base, so the session reads only the changed ones with git.
+- **Why the prompt and not a restored checkout.** Restoring the base versions in the checkout before the first turn would also cover what each runtime loads at session start (`CLAUDE.md` for Claude, `AGENTS.md` for Codex).
+  It needs a step in the Tasks checkout, which ReviewHog does not own. `SessionFile` puts files in an attachments directory, not in the checkout, so it cannot replace them either.
+  The prompt names that loaded copy as the PR's version instead. Moving the restore into the Tasks checkout is the stronger follow-up.
+- **Amends the devex lens entry (2026-11-10, "Where the rules live").** The lens applied the removed lines of a guide its diff changed. It now applies the whole guide as it is at the merge base, which covers edits and additions too.
+  The removed-lines rule stays only as the fallback when no merge base is known.
+- **Runtimes.** `disable_repo_hooks` is read by the Claude adapter only (`packages/agent/.../claude/session/options.ts`): it passes `disableAllHooks` at flag level, and the session still loads the repository's `CLAUDE.md`.
+  The Codex adapter does not read it. It replaces the configured hooks with its own in a task sandbox and trusts only those by hash. Whether the Codex binary runs a hook from the checkout's own config is not visible in this repository.
+- **Cost.** A PR that adds or edits a rule does not have that rule applied to its own review. The rule applies from the first review after it merges.
+- **Not covered.** The Deep pipeline and validation prompts do not carry the rules section. The review still checks out the head branch by name (see "Sandbox checkout ref"), so the tree can be newer than the `head_sha` the review is pinned to; closing that needs the strict checkout recorded there as out of scope.
+
 ### ✅ BUILT 2026-11-17 — devex lens: its own lane, ownership errors stay local, a matched control
 
 Three points from the #132203 review, settled before the flag goes on. The flag stays off.
@@ -213,6 +249,19 @@ Three points from the #132203 review, settled before the flag goes on. The flag 
 - **Arm means assignment.** `devex_lens_arm` is the flag on a routed PR. Delta turns run without the lens in both arms, so a comparison by arm stays intent-to-treat. `flash_devex_*` says whether the session ran.
 - **Known gap.** A turn that posts only devex findings still counts as a review round, so the round note can come one round earlier on a routed PR.
 - **Still open.** The 2026-11-10 entry's "before the flag goes on" (the plan's experiment and its bars), and the routed-lens table before a second lens.
+
+### ✅ BUILT 2026-11-13 — `code_review` identifier namespace (ReviewHog and Stamphog)
+
+Stamphog folds into PostHog Review, and neither product is released, so the rename is hard, with no aliases.
+Entries below this one keep the old names as history.
+
+- **API paths:** `review_hog/<x>` became `code_review/<x>`. Stamphog's `repo_configs`, `review_runs`, `pull_requests`, `digest_runs` and `routing_runs` became `code_review/approvals/{repositories,runs,pull_requests,digests,reviewer_routing}`. The digest endpoint and its MCP tool moved like the rest (`code_review/approvals/digests`, `code-review-approvals-digests-list`); the digest stays paused, not removed.
+- **MCP tools:** `review-hog-reviews-*` became `code-review-reviews-*`, and `stamphog-*` became `code-review-approvals-*`. Both products share the `PostHog Review` category and the `code_review` feature key.
+- **Scopes and access control:** `review_hog` became `code_review`, and `stamphog` became `code_review_approval`, for API scopes and for the access-control resource. `posthog/migrations/1440_rename_code_review_scopes.py` adds the new names next to the old ones in stored keys, grants, trust policies and access-control rows.
+- **Not in 1440: OAuth applications and access tokens.** The first version also rewrote those. The token table is large and most of its rows are expired. The migration blocked prod deploys on 2026-11-17 until #137370 took both tables out. `backfill_code_review_scopes` covers their usable rows. Every read path translates the old names, so running it is optional until the old names are dropped from storage.
+- **OAuth:** shipped desktop builds still request the old scope names, so `posthog/scopes/catalog.py::RENAMED_OAUTH_SCOPE_OBJECTS` translates them at `/authorize`, device authorization and refresh. Stored scopes are translated where they are read: `get_authenticator_scopes`, refresh narrowing and token introspection. Remove the map once those builds age out and no stored row holds an old name.
+- **Open:** the follow-up that drops the old names and the old access-control rows. Its shape (whether it touches token tables at all) waits on Julian.
+- **Kept:** the GitHub app and its `stamphog` label, `/stamp`, `.stamphog/` policy files, the webhook path, the `/stamphog/install/callback` route, internal code names, feature flag keys, analytics events, and stored enum values such as `stamphog_approved` and `reviewhog_clean`.
 
 ### ✅ BUILT 2026-11-13 — changed lines in follow-up prompts, outcomes and author responses on the reviews API
 
