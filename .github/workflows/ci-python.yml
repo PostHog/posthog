@@ -776,24 +776,24 @@ jobs:
                       git diff --name-only HEAD^1 HEAD | python tools/warehouse_sources_vendor_selection.py
                   fi | tee -a "$GITHUB_OUTPUT"
 
-            # hoglint holds the vendor boundaries in tests too, and runs in shadow until the flip. A
-            # vendor-only diff does not start Backend CI, so it runs here too. A finding on a line
-            # the pull request adds or edits becomes a warning annotation, an advisory row on such a
-            # line becomes a notice, and the step summary lists the rest. The step always exits 0.
-            - name: Check boundaries (hoglint, shadow)
-              env:
-                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
+            # A vendor-only diff does not start Backend CI, so the boundary check runs here too. The
+            # vendor rules read every import, tests included, and fail a vendor that imports a sibling
+            # vendor or anything but the SDK. A finding on a line the pull request adds or edits
+            # becomes a warning annotation, an advisory row on such a line becomes a notice, and the
+            # step summary lists the rest. hoglint's exit decides the step.
+            - name: Check boundaries (hoglint)
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"
                   errors="$RUNNER_TEMP/hoglint-stderr.txt"
                   status=0
                   if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
                       timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --base HEAD^1 || true
                   else
                       timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" || true
                   fi
+                  exit "$status"
 
             # The Django matrix runs every repo invariant, but it does not start for a vendor-only
             # diff. So this job runs the ones that walk the vendor tree. The full run takes all
