@@ -376,9 +376,9 @@ def test_policy_allows_the_kms_key_only_when_one_is_set(
         integration_id=1, bucket="customer", region="us-east-1", prefix="exports", kms_key_id=kms_key_id
     )
 
-    statements = policy_statements(destination, 7, ROLE_ARN)
+    statements = policy_statements(destination, 7, "run-1", ROLE_ARN)
 
-    assert statements[0]["Resource"] == "arn:aws:s3:::customer/exports/7/*"
+    assert statements[0]["Resource"] == "arn:aws:s3:::customer/exports/7/run-1/*"
     assert [s["Resource"] for s in statements[1:]] == ([expected_kms_resource] if expected_kms_resource else [])
 
 

@@ -320,7 +320,7 @@ def load_session_metadata(team_id: int, sessions: list[SessionRow]) -> SessionMe
 
 
 async def resolve_s3_credentials(
-    team_id: int, destination: ExportDestination
+    team_id: int, destination: ExportDestination, run_id: str
 ) -> tuple[AWSCredentials, Callable[[], Coroutine[Any, Any, AWSCredentials]], str]:
     """Return the assumed role's credentials, how to refresh them and the role's AWS account ID."""
     integration = await get_s3_integration(destination.integration_id, team_id)
@@ -333,7 +333,7 @@ async def resolve_s3_credentials(
         aws_role_arn,
         f"posthog-{team.organization_id}",
         session_name=f"PostHog-replay-export-{team_id}",
-        policy_statements=policy_statements(destination, team_id, aws_role_arn),
+        policy_statements=policy_statements(destination, team_id, run_id, aws_role_arn),
     )
     return await refresh_using(), refresh_using, role_account_id(aws_role_arn)
 
@@ -356,14 +356,17 @@ def destination_error(destination: ExportDestination) -> str | None:
     return None
 
 
-def policy_statements(destination: ExportDestination, team_id: int, aws_role_arn: str) -> list[PolicyStatement]:
+def policy_statements(
+    destination: ExportDestination, team_id: int, run_id: str, aws_role_arn: str
+) -> list[PolicyStatement]:
     if error := destination_error(destination):
         raise ApplicationError(error, non_retryable=True)
     statements = [
         PolicyStatement(
             Effect="Allow",
             Action=["s3:PutObject", "s3:AbortMultipartUpload"],
-            Resource=f"arn:aws:s3:::{destination.bucket}/{run_prefix(destination, team_id)}/*",
+            # Only this run's folder, so the session cannot overwrite an earlier run's files.
+            Resource=f"arn:aws:s3:::{destination.bucket}/{run_prefix(destination, team_id)}/{run_id}/*",
         )
     ]
     if destination.kms_key_id:
@@ -419,9 +422,9 @@ class CustomerBucket:
 
 
 @contextlib.asynccontextmanager
-async def customer_bucket(team_id: int, destination: ExportDestination) -> AsyncIterator[CustomerBucket]:
+async def customer_bucket(team_id: int, destination: ExportDestination, run_id: str) -> AsyncIterator[CustomerBucket]:
     try:
-        credentials, refresh_using, owner_account_id = await resolve_s3_credentials(team_id, destination)
+        credentials, refresh_using, owner_account_id = await resolve_s3_credentials(team_id, destination, run_id)
         async with s3_client(credentials, destination.region, refresh_using=refresh_using) as client:
             yield CustomerBucket(client, destination, owner_account_id)
     except NON_RETRYABLE_ERRORS as e:
@@ -593,7 +596,7 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
         page = load_page(checkpoint.last_session_id)
         async with (
             recording_api_client(connection_limit=RECORDING_API_CONNECTIONS) as recordings,
-            customer_bucket(input.team_id, input.destination) as bucket,
+            customer_bucket(input.team_id, input.destination, input.run_id) as bucket,
         ):
             semaphore = asyncio.Semaphore(SESSION_CONCURRENCY)
 
@@ -675,7 +678,7 @@ async def write_summary(input: WriteSummaryInput) -> None:
         "bytes": totals.bytes,
     }
     prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
-    async with customer_bucket(input.team_id, input.destination) as bucket:
+    async with customer_bucket(input.team_id, input.destination, input.run_id) as bucket:
         # The customer gets the selection and the usage. Our cost stays out of their bucket.
         customer_quote = {key: value for key, value in quote.items() if key != "cost"}
         await bucket.put(f"{prefix}/quote.json", json.dumps(customer_quote, indent=2).encode())
