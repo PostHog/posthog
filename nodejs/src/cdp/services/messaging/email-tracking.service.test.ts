@@ -313,6 +313,11 @@ describe('EmailTrackingService', () => {
                     `<a\u00a0title="x>y" t="<a href='https://example.com/b' data-ph-no-track ses:no-track>b</a>">`,
                 ],
                 [
+                    'a javascript: href before a valid one',
+                    '<a href="javascript:x" href="https://example.com/b">x</a>',
+                    '<a href="javascript:x" href="https://example.com/b">x</a>',
+                ],
+                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
