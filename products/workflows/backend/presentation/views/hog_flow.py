@@ -1157,15 +1157,18 @@ def _email_value(config: dict) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+_PLAIN_DOMAIN = re.compile(r"[a-z0-9.-]+")
+
+
 def _custom_address_fits(action: dict, sender_domain: str) -> bool:
     sender = _email_value(action["config"]).get("from")
     address = sender.get("email") if isinstance(sender, dict) else None
     if not isinstance(address, str):
         return not address
     _, at, domain = address.strip().lower().rpartition("@")
-    if "{" in domain or not (at or domain):
-        return True
-    return bool(at) and domain == sender_domain
+    if not at:
+        return "{" in domain or not domain
+    return not _PLAIN_DOMAIN.fullmatch(domain) or domain == sender_domain
 
 
 def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id: int) -> Any:

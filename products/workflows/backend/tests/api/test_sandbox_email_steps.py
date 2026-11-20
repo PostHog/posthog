@@ -667,6 +667,15 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 "{{ person.properties.team }}@other.example.com",
             ),
             ("a_templated_address", [False], None, "function_email", 0, True, "{{ person.properties.sender }}"),
+            (
+                "an_address_built_by_a_filter",
+                [False],
+                None,
+                "function_email",
+                0,
+                True,
+                "{{ 'hi' | append: '@mail0.example.com' }}",
+            ),
         ]
     )
     def test_a_new_api_email_step_without_a_sender_gets_the_sender_the_editor_would_pick(
@@ -738,6 +747,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                     {
                         "configuration": _flow(_sandbox_step()),
                         "globals": {},
+                        "current_action_id": SANDBOX_STEP_ID,
                         "mock_async_functions": path == "mocked_test",
                     },
                     format="json",
