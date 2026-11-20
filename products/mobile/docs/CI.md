@@ -58,7 +58,7 @@ The simulator demo flows do not run in CI. Run them locally before you merge a c
 
 ### Mobile rebuild acknowledgement
 
-The **Mobile Rebuild / Native rebuild acknowledged** check compares the production iOS and Android fingerprints with the PR base when native build inputs change. It also checks production EAS settings, packaging files, and tracked native projects. Preview-only EAS profile changes do not affect the production profile.
+The **Mobile Rebuild / Native rebuild acknowledged** check compares the production iOS and Android fingerprints with the PR base when native build inputs change. It also checks production EAS settings, packaging files, tracked native projects, and iOS extension targets. Preview-only EAS profile changes do not affect the production profile.
 
 When the check finds a possible rebuild or cannot verify native inputs, it fails and a PR comment tags `@PostHog/team-mobile-app`. Anyone with repository write access, including the PR author, can acknowledge the current commit.
 
@@ -66,6 +66,8 @@ When the check finds a possible rebuild or cannot verify native inputs, it fails
 2. Select **Re-run failed jobs** on the workflow run. The check reads the comment and passes for that commit.
 
 If the check flags a later commit, repeat both steps with the new command. Acknowledgement clears this check only. Building the app, approving the PR and approving a production deployment are separate steps.
+
+If the comparison job itself fails, the bot tags the Mobile App team with a link to the failed run. Check the error and select **Re-run failed jobs** so CI can finish the comparison.
 
 The app's `product.yaml` routes mobile reviews. `CODEOWNERS` requires review for changes to the acknowledgement gate and the tooling that builds, validates, signs, and publishes releases.
 

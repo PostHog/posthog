@@ -78,6 +78,9 @@ export function rebuildReasons(paths, before, after) {
     if (paths.some(trackedNativeCode)) {
         reasons.push('Tracked native project files changed')
     }
+    if (paths.some((path) => path.startsWith('targets/'))) {
+        reasons.push('iOS extension target files changed')
+    }
     return reasons
 }
 

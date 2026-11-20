@@ -40,6 +40,11 @@ test('native changes are reported even when Expo omits an input from the fingerp
     ])
 })
 
+test('an iOS widget change requires acknowledgement even with identical production fingerprints', () => {
+    const paths = nativeInputs(['products/mobile/targets/HedgehogWidget/ChartFetcher.swift'])
+    assert.deepEqual(rebuildReasons(paths, base, base), ['iOS extension target files changed'])
+})
+
 test('only a human maintainer can acknowledge the current commit, including the PR author', async () => {
     const command = `/ack-mobile-rebuild ${commit}`
     const comments = [

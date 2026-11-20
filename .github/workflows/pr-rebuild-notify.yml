@@ -32,7 +32,9 @@ jobs:
                           ...context.repo, run_id: run.id, attempt_number: run.run_attempt, per_page: 100,
                       })
                       const gate = jobs.find(job => job.name === 'Mobile Rebuild / Native rebuild acknowledged')
-                      if (!gate?.steps?.some(step => step.name === 'Require rebuild acknowledgement' && step.conclusion === 'failure')) return
+                      const stepFailed = name => gate?.steps?.some(step => step.name === name && step.conclusion === 'failure')
+                      const comparisonFailed = stepFailed('Check comparison job')
+                      if (!comparisonFailed && !stepFailed('Require rebuild acknowledgement')) return
                       if (!/^[a-f0-9]{40}$/.test(run.head_sha) || !run.head_repository) return
 
                       // Fork runs can omit pull_requests. Resolve the matching open PR by its repository, branch and SHA.
@@ -47,13 +49,18 @@ jobs:
                       if (!pr) return
 
                       const issue = { ...context.repo, issue_number: pr.number }
-                      const marker = `<!-- mobile-rebuild:${run.head_sha} -->`
+                      const marker = comparisonFailed
+                          ? `<!-- mobile-rebuild-comparison:${run.head_sha} -->`
+                          : `<!-- mobile-rebuild:${run.head_sha} -->`
                       for await (const page of github.paginate.iterator(github.rest.issues.listComments, { ...issue, per_page: 100 })) {
                           if (page.data.some(comment => comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker))) return
                       }
                       await github.rest.issues.createComment({
                           ...issue,
-                          body: [
+                          body: (comparisonFailed ? [
+                              marker,
+                              `@PostHog/team-mobile-app CI could not compare the production mobile build inputs. [Check the failed workflow run](${run.html_url}), then select **Re-run failed jobs**.`,
+                          ] : [
                               marker,
                               `@PostHog/team-mobile-app This PR may need a new production iOS or Android build. [See why the check flagged it](${gate.html_url}).`,
                               '',
@@ -61,5 +68,5 @@ jobs:
                               '',
                               `1. Post \`/ack-mobile-rebuild ${run.head_sha}\` as a separate PR comment.`,
                               '2. Select **Re-run failed jobs** on the workflow run so the check reads your acknowledgement.',
-                          ].join('\n'),
+                          ]).join('\n'),
                       })
