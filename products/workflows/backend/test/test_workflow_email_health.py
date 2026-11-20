@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -12,7 +12,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.models.instance_setting import set_instance_setting
+from posthog.models.organization import OrganizationMembership
 from posthog.settings import ses as ses_settings
+from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -330,14 +333,14 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("transactional_breach_alone", ["transactional"], (300, 60), None, [], ["transactional"]),
+            ("transactional_breach_alone", ["transactional"], (300, 60), None, [], [("warning", True)]),
             (
                 "transactional_breach_beside_a_quiet_sibling",
                 ["transactional"],
                 (300, 60),
                 (8, 1),
                 [],
-                ["transactional"],
+                [("warning", True)],
             ),
             (
                 "sibling_breach_beside_a_quiet_transactional_workflow",
@@ -345,43 +348,71 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                 (1, 1),
                 (300, 60),
                 ["sibling"],
-                [],
+                [("paused", False)],
             ),
-            ("one_marketing_step_makes_it_pausable", ["transactional", "marketing"], (300, 60), None, ["mixed"], []),
+            (
+                "one_marketing_step_makes_it_pausable",
+                ["transactional", "marketing"],
+                (300, 60),
+                None,
+                ["own"],
+                [("paused", False)],
+            ),
+            (
+                "a_generic_email_template_step_makes_it_pausable",
+                ["transactional", None],
+                (300, 60),
+                None,
+                ["own"],
+                [("paused", False)],
+            ),
         ]
     )
+    @patch("posthog.tasks.email.EmailMessage")
     def test_a_transactional_workflow_is_warned_instead_of_paused(
         self,
         _name: str,
-        categories: list[str],
+        categories: list[str | None],
         own_seed: tuple[int, int],
         sibling_seed: tuple[int, int] | None,
         paused: list[str],
-        warned_transactional: list[str],
+        emails: list[tuple[str, bool]],
+        MockEmailMessage: MagicMock,
     ):
+        set_instance_setting("EMAIL_HOST", "fake_host")
+        set_instance_setting("EMAIL_ENABLED", True)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        sent_emails = mock_email_messages(MockEmailMessage)
         self.flow.actions = [
             {"id": f"email_{index}", "type": "function_email", "config": {"message_category_type": category}}
+            if category is not None
+            else {"id": f"email_{index}", "type": "function", "config": {"template_id": "template-email"}}
             for index, category in enumerate(categories)
         ]
         self.flow.save()
-        own_name = "transactional" if categories == ["transactional"] else "mixed"
-        names = {str(self.flow.id): own_name}
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
-        names[str(sibling.id)] = "sibling"
+        names = {str(self.flow.id): "own", str(sibling.id): "sibling"}
         self._seed(sent=own_seed[0], hard_bounces=own_seed[1])
         if sibling_seed is not None:
             self._seed(source_id=str(sibling.id), sent=sibling_seed[0], hard_bounces=sibling_seed[1])
 
-        self._sweep()
+        with (
+            patch("products.workflows.backend.services.workflow_email_health.reload_hog_flows_on_workers"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            sweep_workflow_email_health(now=self.now)
 
         for flow in (self.flow, sibling):
             flow.refresh_from_db()
         assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
         assert [
-            names[call.kwargs["hog_flow_id"]]
-            for call in self.warning_email.call_args_list
-            if call.kwargs["transactional"]
-        ] == warned_transactional
+            (
+                message.template_name.removeprefix("workflow_email_sending_"),
+                "we don't pause it automatically" in message.html_body,
+            )
+            for message in sent_emails
+        ] == emails
 
     def test_a_project_pause_counts_late_bounces_apart_from_sends(self):
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
