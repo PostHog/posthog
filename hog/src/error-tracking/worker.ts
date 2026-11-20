@@ -69,33 +69,22 @@ const Outcomes = z.object({
 })
 const Done = z.object({})
 const Targets = z.object({ targets: z.array(z.number()) })
+const Container = z.object({ contentHash: z.string(), size: z.number(), path: z.string().nullable() })
 const Prepared = z.object({
-    prepared: z.array(
-        z.union([
-            z.object({ skipped: z.string() }),
-            z.object({
-                chunkId: z.string(),
-                releaseId: z.string().nullable(),
-                contentHash: z.string(),
-                size: z.number(),
-                path: z.string().nullable(),
-            }),
-        ])
-    ),
+    skipped: z.array(z.object({ id: z.number(), reason: z.string() })),
+    prepared: z.array(Container.extend({ id: z.number(), chunkId: z.string(), releaseId: z.string().nullable() })),
+    duplicates: z.array(z.string()),
 })
 const CssCandidates = z.object({
     candidates: z.array(z.object({ id: z.number(), mapRealPath: z.string().nullable() }).nullable()),
 })
 const Cleaned = z.object({ deletedMaps: z.array(z.string()), warnings: z.array(z.string()) })
-const ProguardContainer = z.union([
-    z.object({ invalid: z.enum(['not_utf8', 'not_a_mapping']) }),
-    z.object({ contentHash: z.string(), size: z.number() }),
-])
+const ProguardContainer = z.union([z.object({ invalid: z.enum(['not_utf8', 'not_a_mapping']) }), Container])
 
 export type InjectAction = z.output<typeof InjectAction>
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
 type PairAnswer = z.output<typeof Pairs>['pairs'][number]
-type PreparedPair = z.output<typeof Prepared>['prepared'][number]
+type PreparedPairs = z.output<typeof Prepared>
 type CssCandidate = NonNullable<z.output<typeof CssCandidates>['candidates'][number]>
 type CleanupReport = z.output<typeof Cleaned>
 type ProguardContainer = z.output<typeof ProguardContainer>
@@ -252,13 +241,13 @@ export class Worker {
         return (await this.call({ op: 'fingerprint', ids }, Targets, { targets: [] })).targets
     }
 
-    async setRelease(ids: number[], releaseId: string): Promise<void> {
+    async setRelease(ids: number[], releaseId: string | null): Promise<void> {
         await this.call({ op: 'set_release', ids, releaseId }, Done, {})
     }
 
     // The worker lets the pairs go, so this is the last request that names them.
-    async prepare(ids: number[], mode: ReleaseMode, folder: string | null): Promise<PreparedPair[]> {
-        return (await this.call({ op: 'prepare', ids, mode, folder }, Prepared, { prepared: [] })).prepared
+    async prepare(ids: number[], mode: ReleaseMode, folder: string | null): Promise<PreparedPairs> {
+        return this.call({ op: 'prepare', ids, mode, folder }, Prepared, { skipped: [], prepared: [], duplicates: [] })
     }
 
     async cssCandidates(files: string[], publicPathPrefix: string | undefined): Promise<CssCandidate[]> {
@@ -274,8 +263,8 @@ export class Worker {
         return this.call({ op: 'clean_up', targets, css, roots }, Cleaned)
     }
 
-    async proguard(path: string, out: string | null): Promise<ProguardContainer> {
-        return this.call({ op: 'proguard', path, out }, ProguardContainer)
+    async proguard(path: string, folder: string | null): Promise<ProguardContainer> {
+        return this.call({ op: 'proguard', path, folder }, ProguardContainer)
     }
 
     async close(): Promise<void> {

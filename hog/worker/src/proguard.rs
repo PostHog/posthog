@@ -1,10 +1,10 @@
-// ProGuard and R8 mapping files, checked and packed with the crates posthog-cli uses.
+// Mirrors cli/src/proguard/mod.rs; keep byte output identical.
 
 use posthog_symbol_data::{write_symbol_data, ProguardMapping};
 use serde::Serialize;
 use std::path::Path;
 
-use crate::{node, upload};
+use crate::{node, upload::Container};
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -16,14 +16,8 @@ pub enum Invalid {
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum Built {
-    Invalid {
-        invalid: Invalid,
-    },
-    #[serde(rename_all = "camelCase")]
-    Container {
-        content_hash: String,
-        size: usize,
-    },
+    Invalid { invalid: Invalid },
+    Container(Container),
 }
 
 // Whether a class is followed by a field or a method among the first records. The check works on
@@ -34,7 +28,7 @@ pub fn is_valid_mapping(bytes: &[u8]) -> bool {
 
 // The payload is the file as it is on disk: a byte order mark or CRLF stays, because posthog-cli
 // uploads and hashes the bytes unchanged.
-pub fn build(path: &Path, out: Option<&Path>) -> Result<Built, String> {
+pub fn build(path: &Path, folder: Option<&Path>) -> Result<Built, String> {
     let Ok(content) = String::from_utf8(node::read(path)?) else {
         return Ok(Built::Invalid {
             invalid: Invalid::NotUtf8,
@@ -46,14 +40,9 @@ pub fn build(path: &Path, out: Option<&Path>) -> Result<Built, String> {
         });
     }
 
-    let container =
+    let bytes =
         write_symbol_data(ProguardMapping { content }).map_err(|error| error.to_string())?;
-    if let Some(out) = out {
-        upload::write_container(out, &container).map_err(|error| error.to_string())?;
-    }
-
-    Ok(Built::Container {
-        content_hash: upload::content_hash([&container]),
-        size: container.len(),
-    })
+    Container::write(&bytes, folder)
+        .map(Built::Container)
+        .map_err(|error| error.to_string())
 }

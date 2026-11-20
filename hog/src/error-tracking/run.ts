@@ -191,7 +191,6 @@ function proguardGit(ctx: Context, artifact: Artifact): GitInfo | undefined {
 }
 
 const CONTAINER_FOLDER_PREFIX = 'hog-upload-'
-const CONTAINER_EXTENSION = 'symbolset'
 const CSS_EXTENSION = '.css'
 
 const hasUploadId = ({ pair }: OwnedPair): boolean =>
@@ -202,11 +201,12 @@ const withoutRelease = ({ pair }: OwnedPair): boolean => pair.mapReleaseId === n
 async function proguardUpload(
     worker: Worker,
     artifact: Artifact,
-    file: string | null
+    folder: string | null
 ): Promise<{ file: string | null; size: number; contentHash: string }> {
-    const built = await worker.proguard(artifact.path, file)
+    const built = await worker.proguard(artifact.path, folder)
     if (!('invalid' in built)) {
-        return { file, ...built }
+        const { path, ...container } = built
+        return { ...container, file: path }
     }
 
     if (built.invalid === 'not_utf8') {
@@ -267,7 +267,7 @@ async function uploadFrom(
                 reported.id = release.id
             }
         }
-        for (const [index, artifact] of mappings.entries()) {
+        for (const artifact of mappings) {
             const chunkId = options.mapId ?? artifact.root.mapId
             if (!chunkId) {
                 throw new HogError(
@@ -282,11 +282,7 @@ async function uploadFrom(
                 upload: {
                     chunkId,
                     releaseId: release?.id ?? null,
-                    ...(await proguardUpload(
-                        worker,
-                        artifact,
-                        folder === null ? null : join(folder, `mapping-${index}.${CONTAINER_EXTENSION}`)
-                    )),
+                    ...(await proguardUpload(worker, artifact, folder)),
                 },
                 policy: {
                     force: options.force,

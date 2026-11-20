@@ -9,10 +9,11 @@
 //   drop, save         {}
 //   fingerprint        {"targets":[id]}, which record what each pair's files hold for `clean_up`
 //   set_release        {}
-//   prepare            {"prepared":[{"chunkId","contentHash","size","path",...} | {"skipped"}]}
+//   prepare            {"skipped":[{"id","reason"}],"prepared":[{"id","chunkId","contentHash",...}],
+//                      "duplicates":["chunk id"]}, uploads in order and the first pair per chunk id
 //   css_candidates     {"candidates":[{"id":0,"mapRealPath":"..."} | null]}
 //   clean_up           {"deletedMaps":["..."],"warnings":["..."]}
-//   proguard           {"contentHash":"...","size":640} | {"invalid":"reason"}
+//   proguard           {"contentHash":"...","size":640,"path":"..."} | {"invalid":"reason"}
 // `prepare` writes each pair's symbol set to a file for hog to send and lets the pairs go. Other
 // pairs stay in memory under their ids until hog closes stdin, which ends the worker. PROTOCOL
 // changes whenever a request or an answer does, because hog and the worker ship as two files.
@@ -80,7 +81,7 @@ enum Request {
     #[serde(rename_all = "camelCase")]
     SetRelease {
         ids: Vec<usize>,
-        release_id: String,
+        release_id: Option<String>,
     },
     Prepare {
         ids: Vec<usize>,
@@ -99,7 +100,7 @@ enum Request {
     },
     Proguard {
         path: String,
-        out: Option<String>,
+        folder: Option<String>,
     },
 }
 
@@ -143,7 +144,9 @@ enum Answer {
         targets: Vec<usize>,
     },
     Prepared {
-        prepared: Vec<upload::Prepared>,
+        skipped: Vec<upload::SkippedPair>,
+        prepared: Vec<upload::PreparedPair>,
+        duplicates: Vec<String>,
     },
     CssCandidates {
         candidates: Vec<Option<CssCandidateAnswer>>,
@@ -283,7 +286,7 @@ impl Worker {
             } => self.inject(&ids, mode, release_id.as_deref(), now),
             Request::Save { ids } => self.save(&ids),
             Request::Fingerprint { ids } => self.fingerprint(&ids),
-            Request::SetRelease { ids, release_id } => self.set_release(&ids, &release_id),
+            Request::SetRelease { ids, release_id } => self.set_release(&ids, release_id),
             Request::Prepare { ids, mode, folder } => self.prepare(&ids, mode, folder.as_deref()),
             Request::CssCandidates {
                 files,
@@ -294,8 +297,8 @@ impl Worker {
                 css,
                 roots,
             } => self.clean_up(&targets, &css, &roots),
-            Request::Proguard { path, out } => {
-                proguard::build(Path::new(&path), out.as_deref().map(Path::new))
+            Request::Proguard { path, folder } => {
+                proguard::build(Path::new(&path), folder.as_deref().map(Path::new))
                     .map(Answer::Proguard)
                     .map_err(Failure::failed)
             }
@@ -470,11 +473,15 @@ impl Worker {
         Ok(Answer::Targets { targets })
     }
 
-    fn set_release(&mut self, ids: &[usize], release_id: &str) -> Result<Answer, Failure> {
+    fn set_release(
+        &mut self,
+        ids: &[usize],
+        release_id: Option<String>,
+    ) -> Result<Answer, Failure> {
         let mut pairs = self.pairs.take_all(ids)?;
 
         for pair in &mut pairs {
-            pair.map.release_id = Some(release_id.to_string());
+            pair.map.release_id = release_id.clone();
         }
         self.pairs.put_back(ids, pairs);
         Ok(Answer::Done {})
@@ -488,21 +495,24 @@ impl Worker {
     ) -> Result<Answer, Failure> {
         let pairs = self.pairs.take_all(ids)?;
         let folder = folder.map(Path::new);
+        let claimed = upload::claim(ids, pairs);
 
-        let prepared: Result<Vec<upload::Prepared>, String> = ids
-            .par_iter()
-            .zip(pairs)
-            .map(|(id, pair)| {
+        let prepared: Result<Vec<upload::PreparedPair>, String> = claimed
+            .ready
+            .into_par_iter()
+            .map(|(id, chunk_id, pair)| {
                 let source_path = pair.source_path.clone();
-                upload::prepare(*id, pair, mode, folder)
+                upload::prepare(id, chunk_id, pair, mode, folder)
                     .map_err(|error| format!("{}: {error:#}", source_path.display()))
             })
             .collect();
         self.trace.mark("prepare");
 
-        prepared
-            .map(|prepared| Answer::Prepared { prepared })
-            .map_err(Failure::failed)
+        Ok(Answer::Prepared {
+            skipped: claimed.skipped,
+            prepared: prepared.map_err(Failure::failed)?,
+            duplicates: claimed.duplicates,
+        })
     }
 
     fn css_candidates(&mut self, files: &[String], public_path_prefix: Option<&str>) -> Answer {

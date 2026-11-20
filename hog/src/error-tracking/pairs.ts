@@ -189,10 +189,6 @@ export interface PreparedPairs {
     duplicates: string[]
 }
 
-// A bundle with a native debug id and no chunk id carries the id its map is known by, so it goes
-// first and wins when a second pair has the same id.
-const nativeFirst = ({ pair }: OwnedPair): number => (pair.chunkId === null && pair.sourceDebugId !== null ? 0 : 1)
-
 export async function preparePairs(
     worker: Worker,
     pairs: OwnedPair[],
@@ -205,33 +201,13 @@ export async function preparePairs(
         folder
     )
 
-    const skipped: Skip[] = []
-    const uploads: PreparedPairs['uploads'] = []
-    for (const [index, owned] of pairs.entries()) {
-        const answer = prepared[index]!
-        if ('skipped' in answer) {
-            skipped.push({ path: owned.pair.sourcePath, reason: answer.skipped })
-            continue
-        }
-        const { path, ...container } = answer
-        uploads.push({ owned, upload: { ...container, file: path } })
+    const owners = new Map(pairs.map((owned) => [owned.pair.id, owned]))
+    return {
+        uploads: prepared.prepared.map(({ id, path, ...container }) => ({
+            owned: owners.get(id)!,
+            upload: { ...container, file: path },
+        })),
+        skipped: prepared.skipped.map(({ id, reason }) => ({ path: owners.get(id)!.pair.sourcePath, reason })),
+        duplicates: prepared.duplicates,
     }
-
-    const sorted = uploads
-        .map((entry, index) => ({ entry, index }))
-        .sort((a, b) => nativeFirst(a.entry.owned) - nativeFirst(b.entry.owned) || a.index - b.index)
-    const seen = new Set<string>()
-    const duplicates: string[] = []
-    const kept = sorted
-        .map(({ entry }) => entry)
-        .filter((entry) => {
-            if (seen.has(entry.upload.chunkId)) {
-                duplicates.push(entry.upload.chunkId)
-                return false
-            }
-            seen.add(entry.upload.chunkId)
-            return true
-        })
-
-    return { uploads: kept, skipped, duplicates }
 }
