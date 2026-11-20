@@ -6,33 +6,16 @@ import type { ArtifactKind } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 
-import { discover, isDsymBundle, isIgnored, listFiles, type Artifact, type Root } from './discover'
+import { discover, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
 import { releaseRequested, resolveJsRelease, type InjectAction } from './js-flow'
 import { isHermesBundlePath } from './kinds/hermes'
 import type { ReleaseMode, Skip } from './kinds/js'
-import {
-    dedupeNativeFiles,
-    dsymSlices,
-    dsymUpload,
-    mergePreferDsym,
-    nativeCandidates,
-    nativeUpload,
-    type NativeFile,
-    type NativeProblem,
-} from './native/package'
-import { sourceStep } from './native/sources'
+import { packageNative } from './native'
 import { injectPairs, isBundle, preparePairs, readPairs, type InjectedPairs, type OwnedPair } from './pairs'
 import { plistRelease } from './plist'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
-import {
-    containerHash,
-    containerSize,
-    SymbolSetClient,
-    type SymbolSetContainer,
-    type SymbolSetUpload,
-    type UploadStatus,
-} from './upload'
+import { SymbolSetClient, type SymbolSetFile, type UploadStatus } from './upload'
 import type { MapAnswer, MapState, Worker } from './worker'
 
 export interface ErrorTrackingOptions {
@@ -174,7 +157,7 @@ export interface UploadReport {
 
 interface Planned {
     artifact: Artifact
-    upload: SymbolSetContainer
+    upload: SymbolSetFile
     policy: { force: boolean; skipOnConflict: boolean; batchSize: number }
 }
 
@@ -468,7 +451,15 @@ async function uploadFrom(
     )
     if (nativeArtifacts.length > 0) {
         const before = skipped.length
-        const native = packageNative(nativeArtifacts, selection.cwd, options.includeSource, skipped, warnings)
+        const native = await packageNative(
+            worker,
+            nativeArtifacts,
+            selection.cwd,
+            options.includeSource,
+            folder,
+            skipped,
+            warnings
+        )
         if (native.length === 0 && planned.length === 0) {
             const details = skipped
                 .slice(before)
@@ -535,8 +526,8 @@ async function uploadFrom(
         path: item.artifact.display,
         kind: item.artifact.kind,
         chunkId: item.upload.chunkId,
-        contentHash: containerHash(item.upload),
-        size: containerSize(item.upload),
+        contentHash: item.upload.contentHash,
+        size: item.upload.size,
         status,
     })
     if (options.dryRun) {
@@ -571,7 +562,7 @@ async function uploadFrom(
         type: kindNames.length === 1 ? (kindNames[0] === 'js' ? 'plain' : kindNames[0]) : 'mixed',
         kinds,
         file_count: planned.length,
-        total_bytes: planned.reduce((sum, item) => sum + containerSize(item.upload), 0),
+        total_bytes: planned.reduce((sum, item) => sum + item.upload.size, 0),
     }
     ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_started', uploadProperties)
     const uploadStarted = ctx.runtime.now()
@@ -726,108 +717,4 @@ export async function cloneMaps(
         chunkId: cloned.chunkId,
         releaseId: cloned.releaseId,
     }
-}
-
-const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
-    no_debug_info: 'it has no debug info. Build with debug info, and upload before stripping it.',
-    no_build_id:
-        "it has no GNU build ID, so crashes can't be matched to it. Link with `-Wl,--build-id=sha1`. Go needs `-ldflags=-B=gobuildid`.",
-    missing_uuid: "it has no LC_UUID, so crashes can't be matched to it. Link without `-no_uuid`.",
-    compressed_dwarf:
-        "its DWARF is compressed (`__zdebug` sections), which PostHog can't read yet. Go needs `-ldflags=-compressdwarf=false` on macOS.",
-    unparseable_slice: "one of its architectures can't be parsed, so hog skips that architecture.",
-}
-
-// A path the DWARF names can reach the source folder through a symlink, or the folder can be one,
-// so the globs match the path as written and its canonical form, and either one ignores it.
-function sourceIgnored(root: Root, folder: string): (path: string) => boolean {
-    const canonical = (path: string): string => {
-        try {
-            return realpathSync(path)
-        } catch {
-            return path
-        }
-    }
-    const realFolder = canonical(folder)
-    return (path) => isIgnored(root, folder, path) || isIgnored(root, realFolder, canonical(path))
-}
-
-// `symbol-sets upload`: native files are parsed and deduplicated by debug ID, dSYM bundles are
-// split per slice, and a dSYM wins over a native file with the same ID.
-function packageNative(
-    artifacts: Artifact[],
-    cwd: string,
-    includeSource: boolean,
-    skipped: Skip[],
-    warnings: string[]
-): { artifact: Artifact; upload: SymbolSetUpload }[] {
-    const owners = new Map<SymbolSetUpload, Artifact>()
-    const files: { file: NativeFile; artifact: Artifact }[] = []
-    for (const artifact of artifacts.filter((candidate) => !isDsymBundle(candidate.path))) {
-        let candidates
-        try {
-            candidates = nativeCandidates(artifact.path)
-        } catch (error) {
-            skipped.push({ path: artifact.display, reason: `hog couldn't parse it: ${(error as Error).message}` })
-            continue
-        }
-        for (const candidate of candidates) {
-            if ('problem' in candidate) {
-                skipped.push({ path: artifact.display, reason: NATIVE_PROBLEMS[candidate.problem] })
-            } else {
-                files.push({ file: candidate.file, artifact })
-            }
-        }
-    }
-    const byFile = new Map(files.map(({ file, artifact }) => [file, artifact]))
-    const natives = dedupeNativeFiles(
-        files.map(({ file }) => file),
-        (dropped, kept) =>
-            skipped.push({
-                path: byFile.get(dropped)!.display,
-                reason: `${byFile.get(kept)!.display} has the same debug ID and is at least as large, so hog uploads that one.`,
-                intended: true,
-            })
-    ).map((file) => {
-        const { root } = byFile.get(file)!
-        const folder = resolve(cwd, root.path)
-        const sources = includeSource
-            ? sourceStep(file.data, 'native', warnings, sourceIgnored(root, folder))
-            : undefined
-        const upload = nativeUpload(file, sources)
-        owners.set(upload, byFile.get(file)!)
-        return upload
-    })
-    const dsyms: SymbolSetUpload[] = []
-    for (const artifact of artifacts.filter((candidate) => isDsymBundle(candidate.path))) {
-        try {
-            // Sources come from the whole binary, so every slice of a fat binary carries all of them.
-            const steps = new Map<string, ReturnType<typeof sourceStep>>()
-            const folder = resolve(cwd, artifact.root.path)
-            const slices = dsymSlices(artifact.path, (member) => !isIgnored(artifact.root, folder, member))
-            const uploads = slices.map((slice) => {
-                if (includeSource && !steps.has(slice.path)) {
-                    steps.set(
-                        slice.path,
-                        sourceStep(slice.file, 'dsym', warnings, sourceIgnored(artifact.root, folder))
-                    )
-                }
-                return dsymUpload(slice, steps.get(slice.path))
-            })
-            for (const upload of uploads) {
-                owners.set(upload, artifact)
-                dsyms.push(upload)
-            }
-        } catch (error) {
-            skipped.push({ path: artifact.display, reason: `hog couldn't read the dSYM: ${(error as Error).message}` })
-        }
-    }
-    const merged = mergePreferDsym(dsyms, natives, (dropped) =>
-        skipped.push({
-            path: owners.get(dropped)!.display,
-            reason: `a dSYM bundle has the same UUID ${dropped.chunkId}, so hog uploads the bundle.`,
-            intended: true,
-        })
-    )
-    return merged.map((upload) => ({ artifact: owners.get(upload)!, upload }))
 }

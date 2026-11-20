@@ -62,6 +62,8 @@ const Detected = z.object({
     sourcemap: z.array(z.number()),
     composed: z.array(z.number()),
     mapping: z.array(z.number()),
+    elf: z.array(z.number()),
+    macho: z.array(z.number()),
 })
 const Pairs = z.object({
     pairs: z.array(z.union([PairState, z.object({ skipped: z.string() }), z.null()])),
@@ -117,6 +119,49 @@ const MapContainers = z.object({
         })
     ),
 })
+const NativeProblem = z.enum(['no_debug_info', 'no_build_id', 'missing_uuid', 'compressed_dwarf', 'unparseable_slice'])
+export type NativeProblem = z.output<typeof NativeProblem>
+
+const NativeBinary = z.object({
+    id: z.number(),
+    debugId: z.string(),
+    format: z.enum(['elf', 'macho']),
+    size: z.number(),
+})
+// One ELF or Mach-O binary with debug info and an ID, held by the worker. A fat Mach-O gives one
+// for each architecture.
+export type NativeBinary = z.output<typeof NativeBinary>
+
+const NativeFiles = z.object({
+    files: z.array(
+        z.union([
+            z.object({ candidates: z.array(z.union([NativeBinary, z.object({ problem: NativeProblem })])) }),
+            z.object({ unparseable: z.string() }),
+        ])
+    ),
+})
+const DsymMembers = z.object({
+    members: z.array(
+        z.union([
+            z.object({ slices: z.array(z.object({ id: z.number(), uuid: z.string() })) }),
+            z.object({ unreadable: z.string() }),
+        ])
+    ),
+})
+const SourcePaths = z.object({
+    sources: z.array(z.union([z.object({ paths: z.array(z.string()) }), z.object({ failed: z.string() })])),
+})
+const NativeContainer = z.object({
+    contentHash: z.string(),
+    size: z.number(),
+    // Null in a dry run, which writes nothing.
+    path: z.string().nullable(),
+})
+const Packed = z.object({
+    unreadable: z.array(z.array(z.object({ path: z.string(), message: z.string() }))),
+    containers: z.array(NativeContainer),
+})
+const Wrapped = z.object({ contentHash: z.string(), size: z.number() })
 
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
 export type PairAnswer = z.output<typeof Pairs>['pairs'][number]
@@ -126,18 +171,35 @@ export type CleanupReport = z.output<typeof Cleaned>
 export type ProguardContainer = z.output<typeof ProguardContainer>
 export type MapAnswer = z.output<typeof Maps>['maps'][number]
 export type MapContainer = z.output<typeof MapContainers>['containers'][number]
+export type NativeFileAnswer = z.output<typeof NativeFiles>['files'][number]
+export type DsymMemberAnswer = z.output<typeof DsymMembers>['members'][number]
+export type SourcePathsAnswer = z.output<typeof SourcePaths>['sources'][number]
+export type PackedNative = z.output<typeof Packed>
+export type NativeContainer = z.output<typeof NativeContainer>
+export type WrappedPayload = z.output<typeof Wrapped>
+
+// A binary to pack, with its place in the request's lists of source files. Null packs it alone.
+export interface PackItem {
+    id: number
+    sources: number | null
+}
+
+export type ContainerKind = 'proguard' | 'hermes' | 'dsym' | 'elf'
 
 export interface DetectCandidate {
     path: string
     bundle: boolean
     map: boolean
     mapping: boolean
+    native: boolean
 }
 
 export interface Detected {
     sourcemap: Set<string>
     composed: Set<string>
     mapping: Set<string>
+    elf: Set<string>
+    macho: Set<string>
 }
 
 async function* readLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -228,18 +290,24 @@ export class Worker {
     }
 
     // Which files discovery counts: bundles whose sourcemap exists, maps the Hermes compiler
-    // composed, and ProGuard mappings. Every answer needs the file's contents.
+    // composed, ProGuard mappings, and ELF and Mach-O files. Every answer needs the file's contents.
     async detect(files: DetectCandidate[], publicPathPrefix: string | undefined): Promise<Detected> {
-        const asked = files.filter((file) => file.bundle || file.map || file.mapping)
+        const asked = files.filter((file) => file.bundle || file.map || file.mapping || file.native)
         if (asked.length === 0) {
-            return { sourcemap: new Set(), composed: new Set(), mapping: new Set() }
+            return { sourcemap: new Set(), composed: new Set(), mapping: new Set(), elf: new Set(), macho: new Set() }
         }
         const found = await this.call(
             { op: 'detect', files: asked, publicPathPrefix: publicPathPrefix ?? null },
             Detected
         )
         const paths = (indices: number[]): Set<string> => new Set(indices.map((index) => asked[index]!.path))
-        return { sourcemap: paths(found.sourcemap), composed: paths(found.composed), mapping: paths(found.mapping) }
+        return {
+            sourcemap: paths(found.sourcemap),
+            composed: paths(found.composed),
+            mapping: paths(found.mapping),
+            elf: paths(found.elf),
+            macho: paths(found.macho),
+        }
     }
 
     async readPairs(paths: string[], publicPathPrefix: string | undefined): Promise<PairAnswer[]> {
@@ -345,6 +413,45 @@ export class Worker {
             return []
         }
         return (await this.call({ op: 'prepare_maps', ids, folder }, MapContainers)).containers
+    }
+
+    // What each ELF or Mach-O file holds: its binaries, and the problems that keep others out.
+    async nativeCandidates(paths: string[]): Promise<NativeFileAnswer[]> {
+        if (paths.length === 0) {
+            return []
+        }
+        return (await this.call({ op: 'native_candidates', paths }, NativeFiles)).files
+    }
+
+    // The architectures of each file inside a dSYM bundle, with their UUIDs.
+    async dsymSlices(paths: string[]): Promise<DsymMemberAnswer[]> {
+        if (paths.length === 0) {
+            return []
+        }
+        return (await this.call({ op: 'dsym_slices', paths }, DsymMembers)).members
+    }
+
+    // The source files the DWARF of each binary names. A dSYM slice answers for its whole file.
+    async sourcePaths(ids: number[]): Promise<SourcePathsAnswer[]> {
+        if (ids.length === 0) {
+            return []
+        }
+        return (await this.call({ op: 'source_paths', ids }, SourcePaths)).sources
+    }
+
+    // Builds the symbol set of each binary and writes it into `folder`, with the source files of
+    // the list the item names. The worker lets every binary go, so this is the last request that
+    // names one. Without a folder nothing is written.
+    async packNative(sources: string[][], items: PackItem[], folder: string | null): Promise<PackedNative> {
+        if (items.length === 0) {
+            return { unreadable: sources.map(() => []), containers: [] }
+        }
+        return this.call({ op: 'pack_native', sources, items, folder }, Packed)
+    }
+
+    // Puts the bytes of a file into a container of one type, as they are.
+    async wrap(path: string, kind: ContainerKind, out: string | null): Promise<WrappedPayload> {
+        return this.call({ op: 'wrap', path, kind, out }, Wrapped)
     }
 
     // Closing stdin ends the worker. A worker that never started has nothing to close.

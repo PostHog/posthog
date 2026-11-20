@@ -6,8 +6,8 @@
 // worker speaks first, then answers each request with one line, in order:
 //
 //   worker -> {"type":"hello","protocol":1,"version":"0.1.0"}
-//   hog    -> {"op":"detect","files":[{"path":"dist/a.js","bundle":true,"map":false,"mapping":false}],"publicPathPrefix":null}
-//   worker -> {"ok":true,"result":{"sourcemap":[0],"composed":[],"mapping":[]}}
+//   hog    -> {"op":"detect","files":[{"path":"dist/a.js","bundle":true,"map":false,"mapping":false,"native":true}],"publicPathPrefix":null}
+//   worker -> {"ok":true,"result":{"sourcemap":[0],"composed":[],"mapping":[],"elf":[],"macho":[]}}
 //   hog    -> {"op":"read_pairs","paths":["/abs/dist/a.js"],"publicPathPrefix":null}
 //   worker -> {"ok":true,"result":{"pairs":[{"id":0,"sourcePath":"/abs/dist/a.js", ...}]}}
 //   hog    -> {"op":"inject","ids":[0],"mode":"event","releaseId":null,"newChunkIds":[]}
@@ -44,6 +44,29 @@
 //   hog    -> {"op":"prepare_maps","ids":[1],"folder":"/tmp/hog-upload-1"}
 //   worker -> {"ok":true,"result":{"containers":[{"contentHash":"...","size":640,"path":"/tmp/hog-upload-1/map-1.symbolset"}]}}
 //
+// Native debug symbols are ELF files, Mach-O files and the binaries inside dSYM bundles. Each
+// architecture of a fat Mach-O is a binary of its own, with an id of its own:
+//
+//   hog    -> {"op":"native_candidates","paths":["/abs/libshop.so"]}
+//   worker -> {"ok":true,"result":{"files":[{"candidates":[{"id":0,"debugId":"...","format":"elf","size":9120},{"problem":"no_debug_info"}]},{"unparseable":"..."}]}}
+//   hog    -> {"op":"dsym_slices","paths":["/abs/Shop.app.dSYM/Contents/Resources/DWARF/Shop"]}
+//   worker -> {"ok":true,"result":{"members":[{"slices":[{"id":1,"uuid":"..."}]},{"unreadable":"..."}]}}
+//   hog    -> {"op":"source_paths","ids":[0,1]}
+//   worker -> {"ok":true,"result":{"sources":[{"paths":["/src/shop.c"]},{"failed":"..."}]}}
+//   hog    -> {"op":"pack_native","sources":[["/src/shop.c"]],"items":[{"id":0,"sources":0},{"id":1,"sources":null}],"folder":"/tmp/hog-upload-1"}
+//   worker -> {"ok":true,"result":{"unreadable":[[{"path":"/src/shop.c","message":"ENOENT: ..."}]],"containers":[{"contentHash":"...","size":4102,"path":"/tmp/hog-upload-1/native-0.symbolset"}]}}
+//
+// hog lists the files of a dSYM bundle and drops the ones an ignore pattern matches before it asks
+// for their slices. `source_paths` answers the source files a binary's DWARF names. hog drops the
+// ones an ignore pattern matches, and `pack_native` reads the rest: each list in `sources` is read
+// once, and every item that names it carries those files. A slice of a dSYM takes its sources from
+// its whole file. `pack_native` lets every binary go, so it is the last request that names one.
+//
+// `wrap` puts a payload file into a container as it is, which the parity tests use:
+//
+//   hog    -> {"op":"wrap","path":"/tmp/payload","kind":"dsym","out":null}
+//   worker -> {"ok":true,"result":{"contentHash":"...","size":640}}
+//
 // `fingerprint` records what a pair's files hold, so `clean_up` can tell later that nothing
 // touched them. `prepare` writes each pair's symbol set to a file for hog to send, and lets the
 // pairs go: nothing reads them after it. `prepare_maps` does the same for Hermes maps, which have
@@ -58,13 +81,17 @@
 
 mod cleanup;
 mod constant;
+mod dsym;
 mod hermes;
 mod memory;
+mod native;
 mod node;
 mod pair;
 mod proguard;
+mod sources;
 mod trace;
 mod upload;
+mod wrap;
 mod write;
 
 use rayon::prelude::*;
@@ -167,6 +194,34 @@ enum Request {
         ids: Vec<usize>,
         folder: Option<String>,
     },
+    NativeCandidates {
+        paths: Vec<String>,
+    },
+    DsymSlices {
+        paths: Vec<String>,
+    },
+    SourcePaths {
+        ids: Vec<usize>,
+    },
+    PackNative {
+        // The source files of one binary file, after hog's ignore patterns.
+        sources: Vec<Vec<String>>,
+        items: Vec<PackItem>,
+        // Null in a dry run, which writes nothing.
+        folder: Option<String>,
+    },
+    Wrap {
+        path: String,
+        kind: wrap::Kind,
+        out: Option<String>,
+    },
+}
+
+#[derive(Deserialize)]
+struct PackItem {
+    id: usize,
+    // A place in the request's `sources`. Null packs the binary alone.
+    sources: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -178,12 +233,15 @@ struct Candidate {
     map: bool,
     // Named like a ProGuard mapping, so discovery asks whether it reads as one.
     mapping: bool,
+    // A native binary has any name, so discovery asks for the format its first bytes give.
+    native: bool,
 }
 
 struct Detected {
     sourcemap: bool,
     composed: bool,
     mapping: bool,
+    native: Option<native::Format>,
 }
 
 #[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -201,6 +259,8 @@ enum Answer {
         sourcemap: Vec<usize>,
         composed: Vec<usize>,
         mapping: Vec<usize>,
+        elf: Vec<usize>,
+        macho: Vec<usize>,
     },
     Pairs {
         pairs: Vec<PairAnswer>,
@@ -234,7 +294,67 @@ enum Answer {
     Containers {
         containers: Vec<hermes::Built>,
     },
+    // One for each path of the request.
+    NativeFiles {
+        files: Vec<NativeFileAnswer>,
+    },
+    DsymMembers {
+        members: Vec<DsymMemberAnswer>,
+    },
+    SourcePaths {
+        sources: Vec<SourcePathsAnswer>,
+    },
+    // `unreadable` has one list for each list of the request's `sources`, and `containers` one
+    // entry for each item.
+    Packed {
+        unreadable: Vec<Vec<sources::Unreadable>>,
+        containers: Vec<native::Built>,
+    },
+    Wrapped(wrap::Wrapped),
     Done {},
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum NativeFileAnswer {
+    Parsed { candidates: Vec<CandidateAnswer> },
+    Unparseable { unparseable: String },
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum CandidateAnswer {
+    Problem {
+        problem: native::Problem,
+    },
+    #[serde(rename_all = "camelCase")]
+    Valid {
+        id: usize,
+        debug_id: String,
+        format: native::Format,
+        // hog keeps the larger of two files with one debug id.
+        size: usize,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum DsymMemberAnswer {
+    Read { slices: Vec<SliceAnswer> },
+    Unreadable { unreadable: String },
+}
+
+#[derive(Serialize)]
+struct SliceAnswer {
+    id: usize,
+    uuid: String,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum SourcePathsAnswer {
+    Found { paths: Vec<String> },
+    Failed { failed: String },
 }
 
 #[derive(Serialize)]
@@ -361,6 +481,8 @@ struct Worker {
     // A pair's id is its place here. A dropped pair leaves a hole, so ids never move.
     pairs: Vec<Option<SourcePair>>,
     maps: Vec<Option<hermes::MapFile>>,
+    // A native binary's id is its place here.
+    binaries: Vec<native::Binary>,
     // What `fingerprint` recorded, for `clean_up`.
     targets: Vec<cleanup::Target>,
     stylesheets: Vec<cleanup::CssCandidate>,
@@ -415,6 +537,19 @@ impl Worker {
             }
             Request::WriteMaps { ids } => self.write_maps(&ids),
             Request::PrepareMaps { ids, folder } => self.prepare_maps(&ids, folder.as_deref()),
+            Request::NativeCandidates { paths } => Ok(self.native_candidates(&paths)),
+            Request::DsymSlices { paths } => Ok(self.dsym_slices(&paths)),
+            Request::SourcePaths { ids } => self.source_paths(&ids),
+            Request::PackNative {
+                sources,
+                items,
+                folder,
+            } => self.pack_native(&sources, &items, folder.as_deref()),
+            Request::Wrap { path, kind, out } => {
+                wrap::wrap(Path::new(&path), kind, out.as_deref().map(Path::new))
+                    .map(Answer::Wrapped)
+                    .map_err(|error| Failure::new(READ_FAILED, format!("{error:#}")))
+            }
         }
     }
 
@@ -431,6 +566,7 @@ impl Worker {
                     sourcemap: file.bundle && pair::has_sourcemap(path, public_path_prefix),
                     composed: file.map && pair::is_composed_map(path),
                     mapping: file.mapping && proguard::is_valid_mapping(&node::read(path)?),
+                    native: file.native.then(|| native::magic_format(path)).flatten(),
                 })
             })
             .collect();
@@ -452,6 +588,8 @@ impl Worker {
             sourcemap: indices(|file| file.sourcemap),
             composed: indices(|file| file.composed),
             mapping: indices(|file| file.mapping),
+            elf: indices(|file| file.native == Some(native::Format::Elf)),
+            macho: indices(|file| file.native == Some(native::Format::Macho)),
         })
     }
 
@@ -826,6 +964,138 @@ impl Worker {
     }
 }
 
+impl Worker {
+    fn hold(&mut self, binary: native::Binary) -> usize {
+        self.binaries.push(binary);
+        self.binaries.len() - 1
+    }
+
+    fn binary(&self, id: usize) -> Result<&native::Binary, Failure> {
+        self.binaries
+            .get(id)
+            .ok_or_else(|| Failure::new(BAD_REQUEST, format!("the worker holds no binary {id}")))
+    }
+
+    fn native_candidates(&mut self, paths: &[String]) -> Answer {
+        let parsed: Vec<Result<Vec<native::Candidate>, String>> = paths
+            .par_iter()
+            .map(|path| native::candidates(Path::new(path)))
+            .collect();
+        self.trace.mark("native candidates");
+
+        let files = parsed
+            .into_iter()
+            .map(|result| match result {
+                Ok(candidates) => NativeFileAnswer::Parsed {
+                    candidates: candidates
+                        .into_iter()
+                        .map(|candidate| match candidate {
+                            native::Candidate::Problem(problem) => {
+                                CandidateAnswer::Problem { problem }
+                            }
+                            native::Candidate::Valid { debug_id, binary } => {
+                                CandidateAnswer::Valid {
+                                    debug_id,
+                                    format: binary.format(),
+                                    size: binary.size(),
+                                    id: self.hold(binary),
+                                }
+                            }
+                        })
+                        .collect(),
+                },
+                Err(unparseable) => NativeFileAnswer::Unparseable { unparseable },
+            })
+            .collect();
+        Answer::NativeFiles { files }
+    }
+
+    fn dsym_slices(&mut self, paths: &[String]) -> Answer {
+        let read: Vec<Result<Vec<dsym::Slice>, String>> = paths
+            .par_iter()
+            .map(|path| dsym::slices(Path::new(path)))
+            .collect();
+        self.trace.mark("dsym slices");
+
+        let members = read
+            .into_iter()
+            .map(|result| match result {
+                Ok(slices) => DsymMemberAnswer::Read {
+                    slices: slices
+                        .into_iter()
+                        .map(|slice| SliceAnswer {
+                            uuid: slice.uuid,
+                            id: self.hold(slice.binary),
+                        })
+                        .collect(),
+                },
+                Err(unreadable) => DsymMemberAnswer::Unreadable { unreadable },
+            })
+            .collect();
+        Answer::DsymMembers { members }
+    }
+
+    fn source_paths(&self, ids: &[usize]) -> Result<Answer, Failure> {
+        let binaries: Vec<&native::Binary> = ids
+            .iter()
+            .map(|id| self.binary(*id))
+            .collect::<Result<_, _>>()?;
+
+        let sources = binaries
+            .par_iter()
+            .map(|binary| match binary.source_paths() {
+                Ok(paths) => SourcePathsAnswer::Found { paths },
+                Err(error) => SourcePathsAnswer::Failed {
+                    failed: format!("{error:#}"),
+                },
+            })
+            .collect();
+        self.trace.mark("source paths");
+
+        Ok(Answer::SourcePaths { sources })
+    }
+
+    fn pack_native(
+        &mut self,
+        sources: &[Vec<String>],
+        items: &[PackItem],
+        folder: Option<&str>,
+    ) -> Result<Answer, Failure> {
+        let folder = folder.map(Path::new);
+        let mut work = Vec::with_capacity(items.len());
+        for item in items {
+            if item.sources.is_some_and(|place| place >= sources.len()) {
+                let message = format!("binary {} names a source list that is not there", item.id);
+                return Err(Failure::new(BAD_REQUEST, message));
+            }
+            work.push((item, self.binary(item.id)?));
+        }
+
+        let (collected, unreadable): (Vec<_>, Vec<_>) = sources
+            .par_iter()
+            .map(|paths| sources::collect(paths))
+            .unzip();
+        self.trace.mark("collect sources");
+
+        let containers: Result<Vec<native::Built>, String> = work
+            .par_iter()
+            .map(|(item, binary)| {
+                let sources = item.sources.map(|place| &collected[place]);
+                native::pack(item.id, binary, sources, folder).map_err(|error| format!("{error:#}"))
+            })
+            .collect();
+        self.trace.mark("pack native");
+        self.binaries.clear();
+
+        containers
+            .map(|containers| Answer::Packed {
+                unreadable,
+                containers,
+            })
+            .map_err(|message| Failure::new(PREPARE_FAILED, message))
+    }
+}
+
 fn unknown_map(id: usize) -> Failure {
     Failure::new(BAD_REQUEST, format!("the worker holds no map {id}"))
 }
@@ -851,6 +1121,7 @@ fn main() -> io::Result<()> {
     let mut worker = Worker {
         pairs: Vec::new(),
         maps: Vec::new(),
+        binaries: Vec::new(),
         targets: Vec::new(),
         stylesheets: Vec::new(),
         trace: Trace::from_environment(),

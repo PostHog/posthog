@@ -7,8 +7,6 @@ import { HogError } from '@/core/errors'
 import type { RuntimeFetch } from '@/core/runtime'
 
 import { SymbolDataType } from './container'
-import { decodeUtf8 } from './json'
-import { crc32 } from './native/zip'
 import { ApiFailure, type SymbolSetClient } from './upload'
 
 const MAGIC = Buffer.from('posthog_error_tracking', 'latin1')
@@ -17,6 +15,12 @@ const MAGIC = Buffer.from('posthog_error_tracking', 'latin1')
 const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024 * 1024
 const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024
 const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000
+
+const strictUtf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+// posthog-symbol-data reads text payloads with `String::from_utf8`, which rejects invalid UTF-8
+// and keeps a byte order mark.
+const decodeUtf8 = (bytes: Uint8Array): string => strictUtf8.decode(bytes)
 
 export type ExtractedKind = 'sourcemap' | 'hermes' | 'proguard' | 'elf' | 'dsym'
 
@@ -182,7 +186,7 @@ function readZip(zip: Buffer): ZipEntry[] {
         } catch (error) {
             throw unreadable(`${name} doesn't decompress: ${(error as Error).message}`)
         }
-        if (data.length !== size || crc32(data) !== crc) {
+        if (data.length !== size || Bun.hash.crc32(data) !== crc) {
             throw unreadable(`${name} doesn't match its recorded size and checksum`)
         }
         entries.push({ name, data })

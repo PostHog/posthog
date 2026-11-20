@@ -9,8 +9,6 @@ import { sendRequest } from '@/posthog/api'
 import { hostUrl } from '@/posthog/host'
 import type { KeySession } from '@/posthog/key-session'
 
-import { contentHash } from './container'
-
 // The symbol set upload protocol of posthog-cli (`api/symbol_sets.rs`). Bodies, endpoints, retry
 // counts and the release-mismatch fallback match it, so PostHog sees the same requests from either
 // CLI. Only the user agent differs.
@@ -18,13 +16,6 @@ import { contentHash } from './container'
 interface SymbolSet {
     chunkId: string
     releaseId: string | null
-}
-
-// A container hog built in memory.
-export interface SymbolSetUpload extends SymbolSet {
-    data: Uint8Array
-    // Set when the hash covers something other than the whole container.
-    contentHash?: string
 }
 
 // A container hog-worker wrote to a file. It is read when it is sent, so a large build never
@@ -36,20 +27,9 @@ export interface SymbolSetFile extends SymbolSet {
     contentHash: string
 }
 
-export type SymbolSetContainer = SymbolSetUpload | SymbolSetFile
+type Hashed = SymbolSetFile & { hash: string }
 
-export const containerSize = (upload: SymbolSetContainer): number =>
-    'file' in upload ? upload.size : upload.data.length
-
-export const containerHash = (upload: SymbolSetContainer): string =>
-    'file' in upload ? upload.contentHash : (upload.contentHash ?? contentHash(upload.data))
-
-type Hashed = SymbolSetContainer & { hash: string }
-
-async function containerBytes(upload: SymbolSetContainer): Promise<Uint8Array> {
-    if ('data' in upload) {
-        return upload.data
-    }
+async function containerBytes(upload: SymbolSetFile): Promise<Uint8Array> {
     if (upload.file === null) {
         throw new Error(`The symbol set for chunk ${upload.chunkId} was never written to a file.`)
     }
@@ -230,7 +210,7 @@ export class SymbolSetClient {
         return parseOrThrow(schema, response.json, failure)
     }
 
-    async upload(uploads: SymbolSetContainer[], options: UploadOptions): Promise<UploadOutcome> {
+    async upload(uploads: SymbolSetFile[], options: UploadOptions): Promise<UploadOutcome> {
         const runId = uuidv7(this.runtime.now())
         try {
             return await this.uploadOnce(uploads, options, runId)
@@ -248,20 +228,16 @@ export class SymbolSetClient {
         }
     }
 
-    private async uploadOnce(
-        uploads: SymbolSetContainer[],
-        options: UploadOptions,
-        runId: string
-    ): Promise<UploadOutcome> {
+    private async uploadOnce(uploads: SymbolSetFile[], options: UploadOptions, runId: string): Promise<UploadOutcome> {
         const status = options.progress ?? new Map<string, UploadStatus>()
         const contentHashes = new Map<string, string>()
         const kept: Hashed[] = []
         for (const upload of uploads) {
-            if (containerSize(upload) > MAX_FILE_SIZE) {
+            if (upload.size > MAX_FILE_SIZE) {
                 status.set(upload.chunkId, 'too_large')
                 continue
             }
-            const hash = containerHash(upload)
+            const hash = upload.contentHash
             contentHashes.set(upload.chunkId, hash)
             kept.push({ ...upload, hash })
         }
@@ -292,7 +268,7 @@ export class SymbolSetClient {
             chunk_id: upload.chunkId,
             release_id: upload.releaseId,
             content_hash: upload.hash,
-            content_length: containerSize(upload),
+            content_length: upload.size,
         }
     }
 
@@ -407,7 +383,7 @@ export class SymbolSetClient {
 
     // Sends one container to object storage. A target falls back to its alternate endpoint after two
     // transport errors in a row on the primary, like posthog-cli's endpoint router.
-    private async store(upload: SymbolSetContainer, entry: StartEntry): Promise<void> {
+    private async store(upload: SymbolSetFile, entry: StartEntry): Promise<void> {
         const primary: Target | undefined = entry.presigned_put_url
             ? { kind: 'put', url: entry.presigned_put_url }
             : entry.presigned_url

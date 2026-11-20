@@ -6,7 +6,6 @@ import { HogError } from '@/core/errors'
 
 import { HERMES_BUNDLE_EXTENSIONS } from './kinds/hermes'
 import { hasBundleName, JS_EXTENSIONS } from './kinds/js'
-import { nativeFormat } from './native/package'
 import type { Detected, Worker } from './worker'
 
 export interface Root {
@@ -67,12 +66,12 @@ const DETECTORS: readonly Detector[] = [
         // can't send, such as files without debug info, as posthog-cli does.
         kind: 'elf',
         extensions: null,
-        matches: (path) => nativeFormat(path) === 'elf',
+        matches: (path, answers) => answers.elf.has(path),
     },
     {
         kind: 'dsym',
         extensions: null,
-        matches: (path) => nativeFormat(path) === 'macho',
+        matches: (path, answers) => answers.macho.has(path),
     },
 ]
 
@@ -172,6 +171,7 @@ export function listFiles(roots: readonly Root[], cwd: string): string[] {
 const BUNDLE_EXTENSIONS = [...JS_EXTENSIONS, ...HERMES_BUNDLE_EXTENSIONS]
 const MAP_EXTENSION = '.map'
 const MAPPING_EXTENSION = '.txt'
+const NATIVE_KINDS: readonly ArtifactKind[] = ['elf', 'dsym']
 
 export async function discover(
     worker: Worker,
@@ -183,16 +183,16 @@ export async function discover(
     // One request for every file, so the worker reads them in parallel. A path given on its own is
     // checked against every type, whatever its extension.
     const answers = await worker.detect(
-        listed.flatMap(({ isFile, files }, index) =>
-            files.map((path) => ({
+        listed.flatMap(({ isFile, files }, index) => {
+            const { kind } = roots[index]!
+            return files.map((path) => ({
                 path,
                 bundle: hasBundleName(path, BUNDLE_EXTENSIONS),
                 map: isFile || path.endsWith(MAP_EXTENSION),
-                mapping:
-                    (isFile || path.endsWith(MAPPING_EXTENSION)) &&
-                    (roots[index]!.kind === undefined || roots[index]!.kind === 'proguard'),
+                mapping: (isFile || path.endsWith(MAPPING_EXTENSION)) && (kind === undefined || kind === 'proguard'),
+                native: kind === undefined || NATIVE_KINDS.includes(kind),
             }))
-        ),
+        }),
         options.publicPathPrefix
     )
 
