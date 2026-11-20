@@ -967,32 +967,42 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 }, 'elapsedClock')
             }
 
+            const widgetDataDependencies = (
+                content: JSONContent | null
+            ): ReturnType<typeof getWidgetDataDependencies> =>
+                getWidgetDataDependencies(
+                    content,
+                    getWidgetSourceFrameNames(values.activeFrameNames, values.status?.input_bindings ?? {})
+                )
+
             return {
                 syncWidgetInputs: () => {
-                    const frames = getWidgetSourceFrameNames(
-                        values.activeFrameNames,
-                        values.status?.input_bindings ?? {}
-                    )
-                    const { nodeIds } = getWidgetDataDependencies(props.getContent(), frames)
+                    const { nodeIds } = widgetDataDependencies(props.getContent())
                     actions.registerWidgetInputs(props.nodeId, nodeIds)
                 },
                 runFinished: ({ run }) => {
-                    if (run.status === 'done' && values.activeFrameNames.length && values.selectedVersionId) {
-                        actions.refreshData()
+                    if (!values.activeFrameNames.length || !values.selectedVersionId) {
+                        return
                     }
+                    if (run.status !== 'done') {
+                        const { nodeIds, missingFrameNames } = widgetDataDependencies(props.getContent())
+                        const inputs = run.cells.filter((cell) => nodeIds.includes(cell.node_id))
+                        if (
+                            missingFrameNames.length ||
+                            nodeIds.some((id) => values.staleNodeIds[id]) ||
+                            !inputs.some((cell) => cell.status === 'done') ||
+                            inputs.some((cell) => cell.status && cell.status !== 'done')
+                        ) {
+                            return
+                        }
+                    }
+                    actions.refreshData()
                 },
                 dataNodesUpdated: ({ nodeIds: updatedNodeIds, content }) => {
                     if (!updatedNodeIds.length || values.notebookRunInProgress || values.dataRefreshInFlight) {
                         return
                     }
-                    const frames = getWidgetSourceFrameNames(
-                        values.activeFrameNames,
-                        values.status?.input_bindings ?? {}
-                    )
-                    const { nodeIds, missingFrameNames } = getWidgetDataDependencies(
-                        content ?? props.getContent(),
-                        frames
-                    )
+                    const { nodeIds, missingFrameNames } = widgetDataDependencies(content ?? props.getContent())
                     if (
                         !missingFrameNames.length &&
                         updatedNodeIds.some((id) => nodeIds.includes(id)) &&
