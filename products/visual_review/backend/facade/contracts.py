@@ -654,6 +654,34 @@ class BaselineOverview:
     generated_at: datetime
 
 
+@dataclass(frozen=True)
+class BaselineLedgerRepairEntry:
+    """One entry a ledger repair appends, at the position of the commit that changed the baseline file."""
+
+    position: int
+    commit_sha: str
+    pr_number: int | None
+    identifier: str
+    previous_hash: str
+    # Empty for a removal, as the ledger stores removals.
+    content_hash: str
+
+
+@dataclass(frozen=True)
+class BaselineLedgerRepair:
+    """What a ledger repair of one run type plans or wrote, up to the newest resolved ledger commit."""
+
+    run_type: str
+    cursor_position: int
+    cursor_sha: str
+    entries: tuple[BaselineLedgerRepairEntry, ...]
+    # Identifiers whose ledger hash differs from the baseline file at the cursor, before and after the repair.
+    drift_before: tuple[str, ...]
+    drift_after: tuple[str, ...]
+    # Commits GitHub lists as changes of the file that have no ledger position, so the repair cannot place them.
+    unplaced_commits: tuple[str, ...]
+
+
 # How far back the page reads. Sets the width of the per-day activity strip and
 # the span `headroom` looks over, where more days mean better evidence of the
 # worst case a snapshot can produce.

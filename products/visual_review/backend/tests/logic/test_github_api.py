@@ -117,6 +117,37 @@ class TestCompareCommits:
 
 
 @pytest.mark.parametrize(
+    "total_commits,expected_requests,expected_count",
+    [
+        (150, 2, 150),
+        (5000, github_api.MAX_PATH_COMMITS // 100, None),
+    ],
+)
+def test_commits_touching_path_reads_every_page_up_to_the_cap(
+    total_commits: int, expected_requests: int, expected_count: int | None
+) -> None:
+    def page(method, path, *, params, **kwargs):
+        first = (params["page"] - 1) * params["per_page"]
+        count = max(0, min(params["per_page"], total_commits - first))
+        response = MagicMock(status_code=200)
+        response.json.return_value = [{"sha": f"c{first + i}"} for i in range(count)]
+        return response
+
+    github = MagicMock()
+    github.api_request.side_effect = page
+    repo = Repo(repo_full_name="org/repo", repo_external_id=1)
+
+    with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
+        shas = github_api.commits_touching_path(
+            repo, "frontend/snapshots.yml", "head", since=datetime(2026, 11, 17, tzinfo=UTC)
+        )
+
+    assert github.api_request.call_count == expected_requests
+    assert (None if shas is None else len(shas)) == expected_count
+    assert github.api_request.call_args.kwargs["params"]["since"] == "2026-11-17T00:00:00Z"
+
+
+@pytest.mark.parametrize(
     ("merged_at", "expected"),
     [("2026-10-01T12:00:00Z", datetime(2026, 10, 1, 12, tzinfo=UTC)), (None, None)],
 )
