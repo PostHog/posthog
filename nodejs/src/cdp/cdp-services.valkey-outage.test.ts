@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import Redis from 'ioredis'
 import { AddressInfo, Server, Socket, connect, createServer } from 'net'
 import path from 'path'
 import { register } from 'prom-client'
@@ -71,12 +72,21 @@ const runInChildProcess = (script: string): Promise<ChildProcessOutcome> =>
     })
 
 describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
+    const openedClients = new Set<Redis.Redis>()
+
     beforeEach(() => {
         jest.spyOn(process, 'kill').mockImplementation(() => true)
         jest.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+        const connectClient = Redis.prototype.connect
+        jest.spyOn(Redis.prototype, 'connect').mockImplementation(function (this: Redis.Redis) {
+            openedClients.add(this)
+            return connectClient.call(this)
+        })
     })
 
     afterEach(() => {
+        openedClients.forEach((client) => client.disconnect())
+        openedClients.clear()
         jest.restoreAllMocks()
     })
 
@@ -109,19 +119,30 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
     }, 30_000)
 
     describe('with Valkey behind a proxy that the test controls', () => {
-        type ProxiedConnection = { client: Socket; upstream: Socket; forwarding: boolean }
+        type ProxiedConnection = { client: Socket; upstream: Socket; forwarding: boolean; held: Buffer[] }
         let connections: ProxiedConnection[]
+        let answerNewConnections: boolean
+        let waitingForHeldData: (() => void)[]
         let proxy: Server
         let port: number
         let writer: RedisV2
 
         beforeEach(async () => {
             connections = []
+            answerNewConnections = true
+            waitingForHeldData = []
             proxy = createServer((client) => {
                 const upstream = connect(defaultConfig.CDP_VALKEY_PORT, '127.0.0.1')
-                const connection = { client, upstream, forwarding: true }
+                const connection: ProxiedConnection = { client, upstream, forwarding: answerNewConnections, held: [] }
                 connections.push(connection)
-                client.on('data', (data) => connection.forwarding && upstream.write(data))
+                client.on('data', (data) => {
+                    if (connection.forwarding) {
+                        upstream.write(data)
+                        return
+                    }
+                    connection.held.push(data)
+                    waitingForHeldData.splice(0).forEach((resolve) => resolve())
+                })
                 upstream.pipe(client)
                 client.on('error', () => {})
                 upstream.on('error', () => {})
@@ -149,6 +170,20 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
         const stopAnsweringOpenConnections = (): void => {
             connections.forEach((connection) => (connection.forwarding = false))
         }
+
+        const holdNewConnections = (): void => {
+            answerNewConnections = false
+        }
+
+        const answerEverything = (): void => {
+            answerNewConnections = true
+            connections.forEach((connection) => {
+                connection.forwarding = true
+                connection.held.splice(0).forEach((data) => connection.upstream.write(data))
+            })
+        }
+
+        const aConnectionHoldsData = (): Promise<void> => new Promise((resolve) => waitingForHeldData.push(resolve))
 
         const reopenProxy = (): Promise<void> =>
             new Promise<void>((resolve) => proxy.listen(port, '127.0.0.1', resolve))
@@ -200,6 +235,36 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             await restoreValkey()
 
             expect(await readBack(key)).toBeNull()
+        }, 30_000)
+
+        it('does not resend a write that was in flight when the connection dropped', async () => {
+            const key = `test-valkey-outage-resend/${new UUIDT().toString()}`
+            stopAnsweringOpenConnections()
+            const writeReachedTheConnection = aConnectionHoldsData()
+
+            const write = writer.useClient({ name: 'in-flight-write' }, (client) =>
+                client.set(key, 'in flight at the drop')
+            )
+            await writeReachedTheConnection
+            await dropConnections()
+            await expect(write).rejects.toThrow()
+            await restoreValkey()
+
+            expect(await readBack(key)).toBeNull()
+        }, 30_000)
+
+        it('keeps a reconnecting client that a call borrows during its readiness check', async () => {
+            await dropConnectionsAndWaitForTheClientToNotice()
+            holdNewConnections()
+            const readinessCheckHeld = aConnectionHoldsData()
+            await reopenProxy()
+            await readinessCheckHeld
+
+            const answer = writer.useClient({ name: 'during-readiness-check' }, (client) => client.ping())
+            answerEverything()
+
+            expect(await answer).toEqual('PONG')
+            expect(connections).toHaveLength(2)
         }, 30_000)
 
         it('answers through a new connection after a command stalls', async () => {
