@@ -4,7 +4,7 @@ import { Input as InputPrimitive } from '@base-ui/react/input'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
-import { hasTooltipContent, withTooltip } from './with-tooltip'
+import { hasTooltipContent, withDisabledReason } from './with-tooltip'
 
 // The browser ignores `readOnly` on these types, so only native `disabled` stops a change.
 const READ_ONLY_IGNORED_TYPES = new Set([
@@ -32,7 +32,7 @@ const Input = React.forwardRef<
     const keepsNativeDisabled = hasDisabledReason && type !== undefined && READ_ONLY_IGNORED_TYPES.has(type)
     const usesReadOnly = hasDisabledReason && !keepsNativeDisabled
 
-    return withTooltip(
+    return withDisabledReason(
         <InputPrimitive
             ref={ref}
             type={type}

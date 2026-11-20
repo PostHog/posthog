@@ -5,7 +5,7 @@ import { ChevronDownIcon, ChevronUpIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
-import { hasTooltipContent, withTooltip } from './with-tooltip'
+import { hasTooltipContent, withDisabledReason } from './with-tooltip'
 
 const NumberFieldRoot = React.forwardRef<
     React.ComponentRef<typeof NumberFieldPrimitive.Root>,
@@ -17,7 +17,7 @@ const NumberFieldRoot = React.forwardRef<
     const hasDisabledReason = hasTooltipContent(disabledReason)
 
     // The root stays hoverable while its input and buttons ignore the pointer, so it is the trigger.
-    return withTooltip(
+    return withDisabledReason(
         <NumberFieldPrimitive.Root
             ref={ref}
             data-quill
@@ -27,7 +27,7 @@ const NumberFieldRoot = React.forwardRef<
             {...props}
         />,
         disabledReason,
-        { target: 'self', focusable: hasDisabledReason }
+        { target: 'self', focusable: true }
     )
 })
 

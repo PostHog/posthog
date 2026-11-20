@@ -52,8 +52,7 @@ class AgentEgressLifecycle:
         workflow_run_id: str,
         provisioning_deadline: float | None = None,
     ) -> None:
-        if not settings.DEBUG or settings.SANDBOX_PROVIDER != "MODAL_DOCKER":
-            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER")
+        config.validate_controller(cleanup=True)
         self.config = config
         self.execution_id = execution_id
         self.workflow_run_id = workflow_run_id
@@ -83,6 +82,7 @@ class AgentEgressLifecycle:
         TaskRun.update_state_atomic(run.id, updates={STATE_KEY: state.model_dump(mode="json")})
 
     def _active(self) -> AgentEgressExecution:
+        self.config.validate_controller()
         state = self._read(self._run())
         if state.closed or state.expires_at <= timezone.now().timestamp():
             raise ValueError("The egress execution has ended")

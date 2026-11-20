@@ -32,6 +32,7 @@ If the app says it cannot load the project from your network address, see [Troub
 Demo mode shows fixture reports and needs no PostHog account or network.
 It is available in every build, including preview and store builds, so app reviewers can try the app without an account.
 To start it, tap **Try the demo** on the sign-in screen. This is the only way to start demo mode in a release build.
+Open **Views → Sessions** to play simulated recordings, try **Moment** and **Full recording**, and browse the feed's sources.
 To leave it, tap **Exit demo** in Settings.
 The app saves demo mode on the device, so a demo session continues after the app relaunches.
 

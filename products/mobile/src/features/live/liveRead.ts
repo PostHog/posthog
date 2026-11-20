@@ -48,6 +48,7 @@ export interface LiveReadInput {
     /** True when the live events service cannot count users online, so the read counts them with HogQL. */
     countUsersOnline: boolean
     pathCleaning: boolean
+    filterTestAccounts?: boolean
     now: number
     signal: AbortSignal
 }
@@ -102,6 +103,7 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
     const options = {
         window: liveWindow(now),
         pathCleaning: input.pathCleaning,
+        filterTestAccounts: input.filterTestAccounts,
         mobileOnly: profile.kind === 'mobile',
         webOnly: profile.kind === 'web',
     }
@@ -215,6 +217,7 @@ export async function readLiveSnapshot(input: LiveReadInput): Promise<LiveReadRe
 export interface LiveWorldReadInput {
     webOnly?: boolean
     mobileOnly?: boolean
+    filterTestAccounts?: boolean
     run: LiveQueryRunner
     now: number
     signal: AbortSignal
@@ -227,10 +230,11 @@ export async function readLiveWorld({
     signal,
     mobileOnly,
     webOnly,
+    filterTestAccounts,
 }: LiveWorldReadInput): Promise<LiveReadResult<LiveWorld>> {
     const answer = await run(
         'geo',
-        liveQuery('geo', { window: liveWindow(now), pathCleaning: false, mobileOnly, webOnly }),
+        liveQuery('geo', { window: liveWindow(now), pathCleaning: false, mobileOnly, webOnly, filterTestAccounts }),
         signal,
         now
     )

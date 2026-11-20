@@ -1,9 +1,9 @@
 """Read one person's stored list for the report list. The reads never build.
 
 Each read takes one `PersonalInboxRanking` row and nothing else: no candidate pools, no queued build, no model call.
-So a page load can use them. For `sort=personal`, the order puts the ranked reports first by stored rank, then the
-folded reports, and the view orders every other report in the person's `recommended` order. With no usable row there
-is no order, and the list is the plain `recommended` order. For every sort, the status says what the person's latest
+So a page load can use them. For `sort=recommended` and `sort=personal`, the order puts the ranked reports first by
+stored rank, then the folded reports, and the view orders every other report in priority order. With no usable row
+there is no order, and the list is the plain priority order. For every sort, the status says what the person's latest
 row holds, so the client can record whether a personal ranking was ready.
 """
 

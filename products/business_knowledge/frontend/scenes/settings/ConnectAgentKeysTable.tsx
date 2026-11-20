@@ -30,7 +30,7 @@ function KeyReads({ apiKey }: { apiKey: KnowledgeKeyApi }): JSX.Element {
 }
 
 export function ConnectAgentKeysTable(): JSX.Element | null {
-    const { listedKeys: keys, keysLoading } = useValues(connectAgentLogic)
+    const { listedKeys: keys, keysLoading, fixedLibraryId } = useValues(connectAgentLogic)
     const { loadKeys } = useActions(connectAgentLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -56,7 +56,7 @@ export function ConnectAgentKeysTable(): JSX.Element | null {
                         <TableRow>
                             <TableHead>Key</TableHead>
                             <TableHead>Value</TableHead>
-                            <TableHead expand>Reads</TableHead>
+                            {!fixedLibraryId && <TableHead expand>Reads</TableHead>}
                             <TableHead>Last used</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -67,9 +67,11 @@ export function ConnectAgentKeysTable(): JSX.Element | null {
                                 <TableCell>
                                     <code>{apiKey.mask_value}</code>
                                 </TableCell>
-                                <TableCell expand>
-                                    <KeyReads apiKey={apiKey} />
-                                </TableCell>
+                                {!fixedLibraryId && (
+                                    <TableCell expand>
+                                        <KeyReads apiKey={apiKey} />
+                                    </TableCell>
+                                )}
                                 <TableCell>
                                     {apiKey.last_used_at ? <TZLabel time={apiKey.last_used_at} /> : 'Never'}
                                 </TableCell>
@@ -105,10 +107,15 @@ export function ConnectAgentKeysTable(): JSX.Element | null {
                         title: 'Value',
                         render: (_, apiKey) => <code>{apiKey.mask_value}</code>,
                     },
-                    {
-                        title: 'Reads',
-                        render: (_, apiKey) => <KeyReads apiKey={apiKey} />,
-                    },
+                    // On a library page every listed key reads that library.
+                    ...(fixedLibraryId
+                        ? []
+                        : [
+                              {
+                                  title: 'Reads',
+                                  render: (_: unknown, apiKey: KnowledgeKeyApi) => <KeyReads apiKey={apiKey} />,
+                              },
+                          ]),
                     {
                         title: 'Last used',
                         render: (_, apiKey) => (apiKey.last_used_at ? <TZLabel time={apiKey.last_used_at} /> : 'Never'),

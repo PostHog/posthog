@@ -50,6 +50,8 @@ Both gates probe hosts rather than compare cluster names.
 Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
 `DeletionTarget.cluster_setting` names where a storage table lives, and `ClickhouseCluster.sibling` turns that name into a handle; neither decides reachability.
 `sharded_events_json` carries `CLICKHOUSE_EVENTS_CLUSTER`, which names the `events` cluster.
+`sharded_flag_evaluations` carries `CLICKHOUSE_FLAGS_CLUSTER`, which names the `flags` cluster, and shards across nodes whose `hostClusterRole` is `flags`.
+A deployment with no `flags` cluster keeps the table on the main cluster, and the handle in hand sweeps it there.
 
 ## Dispatching to a target's own cluster
 
@@ -68,6 +70,9 @@ The rest are bound to a single handle and refuse rather than skip when a target 
   Each op runs its SQL on a host of its own shard.
   Each copy records the maximum `inserted_at` it observed for that target. The copy, pre-delete count, mutation and verification reuse that bound, so a later row stays outside the destructive set.
 - The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
+  So a deferred event-removal request without a HogQL predicate that may hold `$feature_flag_called` refuses where `sharded_flag_evaluations` is on the `flags` cluster.
+  It refuses before it queues anything.
+  A request with a predicate refuses earlier, while that table holds rows the predicate matches (see the HogQL section below).
 
 ### Getting the dictionaries onto the second cluster
 
@@ -95,7 +100,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
-- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal with a HogQL predicate does not sweep it, and refuses while a matching row has no events copy. Deferred event removal with a predicate reaches the rows that have an events copy through their uuids, and the rest through the predicate compiled for this table (below). Property removal with a predicate does not sweep it. Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal with a HogQL predicate does not sweep it, and refuses while a matching row has no events copy. Deferred event removal with a predicate reaches the rows that have an events copy through their uuids, and the rest through the predicate compiled for this table (below). Property removal with a predicate does not sweep it. Stored on the `flags` cluster where that cluster exists. There, deferred event removal without a predicate refuses, and event removal with a predicate refuses while the table holds matching rows (above). Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
   A document keyed by another id is not reached by event deletion. The AI observability summaries use `<trace or generation id>::<job id>` under the `llm-analytics` product, so deleting the summary events leaves their embeddings until the table TTL.
   To remove them, turn off AI data analysis for the organization first, so no new summaries arrive during the run. Then run `delete_team_product_documents_job` with the `team_id` and the `product`. It deletes only that product's documents for that team, from the model tables and the ingestion buffer. It fails when the team has no documents for that product (a misspelled name), when the deletes run past `timeout_seconds`, or when any document survives.
@@ -329,6 +334,9 @@ An immediate request without a predicate sweeps the table and verifies it like t
 ### Event removal with a HogQL predicate on `flag_evaluations`
 
 A flag-evaluation row is a fork of its `$feature_flag_called` event, with the same uuid, and both tables shard on `sipHash64(distinct_id)`, so the two copies share a shard.
+That holds only while both tables are on one cluster.
+Where `sharded_flag_evaluations` is on the `flags` cluster, the shard-local copy check below cannot run.
+A request with a predicate then refuses while the table holds rows that match its other criteria, before it deletes or queues anything.
 `DeletionTarget.copied_from` records that relationship.
 A deferred request with a predicate reaches a row that has an events copy through `events`.
 The queue fill reads uuids from `sharded_events` with the events-compiled predicate, and the drain deletes those uuids from every target, so it deletes the flag row of every event the predicate names.

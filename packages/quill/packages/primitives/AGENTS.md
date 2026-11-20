@@ -124,6 +124,8 @@ Always wrap form controls in `Field` (see Composition Patterns below).
 
 To disable a control, pass `disabledReason`, not `disabled`. It disables the control and shows the reason in a tooltip that a keyboard user can also reach. These take it: `Button`, every menu item, `ComboboxItem`, `Checkbox`, `Switch`, `RadioGroupItem`, `ToggleGroupItem`, `SelectTrigger`, `SelectItem`, `NumberFieldRoot`, `Slider`, `ComboboxInput`, `ComboboxChips`, `Input`, `InputGroupInput` and `Textarea`. Never hand-wrap a disabled control in a Tooltip.
 
+- `Checkbox`, `Switch` and `RadioGroupItem` also describe themselves with the reason (`aria-describedby` on hidden text), because screen readers and touch never see a tooltip.
+- A choice card (a `FieldLabel` wrapping a `Field` with the control) takes `disabledReason` on the `FieldLabel`, not the control. The whole card shows the tooltip and joins the tab order, and the control inside disables itself and takes the same description. Write the reason once.
 - `SelectTrigger` passes the reason to its Button, which stays focusable. A `render` that replaces that Button takes its own `disabledReason`.
 - `NumberFieldRoot`, `Slider`, `ComboboxInput` (its input group) and `ComboboxChips` show the tooltip on the whole field, which joins the tab order while the reason is set.
 - `ComboboxChips` also disables its `ComboboxChipsInput` and each chip's remove button.
@@ -376,6 +378,12 @@ For a select-all over a partly selected list, pass `indeterminate`: the box fill
 Switch has sizes: `<Switch size="sm" />` or `<Switch size="default" />`
 
 `disabledReason` on a Checkbox, Switch or `RadioGroupItem` disables it and shows the reason in a tooltip.
+When the control has a disabled reason, pass its label as `children` rather than as a sibling `Label`. For a choice card, put `disabledReason` on the card's `FieldLabel` instead (see Form controls). The label then wraps the control and opens the tooltip too, so hovering the text explains why it is off. A sibling `Label` stays outside the tooltip.
+
+```tsx
+<Checkbox disabledReason="Add a phone number to get SMS alerts">Text me when an alert fires</Checkbox>
+<Switch disabledReason="Only admins can change this">Autocapture</Switch>
+```
 
 ### Select
 
@@ -722,6 +730,19 @@ const [tooltip] = React.useState(() => createTooltipHandle<string>())
 ```
 
 ### Radio Group
+
+A `RadioGroupItem` takes its label as `children`, like Checkbox and Switch. Use it for an item with a `disabledReason`, so the label shows the reason too:
+
+```tsx
+<RadioGroup value={value} onValueChange={setValue}>
+  <RadioGroupItem value="email">Email</RadioGroupItem>
+  <RadioGroupItem value="sms" disabledReason="Add a phone number to get SMS notifications">
+    SMS
+  </RadioGroupItem>
+</RadioGroup>
+```
+
+With a sibling `Label`:
 
 ```tsx
 <RadioGroup value={value} onValueChange={setValue}>

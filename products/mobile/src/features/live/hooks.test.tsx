@@ -162,28 +162,40 @@ async function refocus(rerender: (props: unknown) => void): Promise<void> {
 }
 
 describe('useLiveFeed', () => {
-    test.each(['all', 'web', 'mobile'] as const)('Users online uses the %s audience', async (preference) => {
-        liveProject({ ingested_event: true, live_events_token: 'example-live-token' }, 'web', CLOUD)
-        const stats = jest.fn(async () => ({ ok: true, json: async () => ({ users_on_product: 91 }) }))
-        globalThis.fetch = stats as unknown as typeof fetch
-        const chosen = renderHook(() => useLivePreference())
-        act(() => chosen.result.current.setPreference(preference))
-        mockFetchQuery.mockImplementation(async (query) => {
-            if ((query.tags as { name: string }).name === 'live_users_count') {
-                const text = String(query.query)
-                return { results: [[text.includes(MOBILE_EVENT) ? 7 : text.includes(WEB_EVENT) ? 11 : 3]] }
+    test.each([
+        { preference: 'all', exclude: false, expectedCount: 91 },
+        { preference: 'all', exclude: true, expectedCount: 3 },
+        { preference: 'web', exclude: false, expectedCount: 11 },
+        { preference: 'mobile', exclude: false, expectedCount: 7 },
+    ] as const)(
+        'Users online uses the $preference audience (exclude internal: $exclude)',
+        async ({ preference, exclude, expectedCount }) => {
+            liveProject({ ingested_event: true, live_events_token: 'example-live-token' }, 'web', CLOUD)
+            const stats = jest.fn(async () => ({ ok: true, json: async () => ({ users_on_product: 91 }) }))
+            globalThis.fetch = stats as unknown as typeof fetch
+            const chosen = renderHook(() => useLivePreference())
+            act(() => chosen.result.current.setPreference(preference))
+            mockFetchQuery.mockImplementation(async (query) => {
+                if ((query.tags as { name: string }).name === 'live_users_count') {
+                    const text = String(query.query)
+                    return { results: [[text.includes(MOBILE_EVENT) ? 7 : text.includes(WEB_EVENT) ? 11 : 3]] }
+                }
+                return fakeLiveAnswer(query)
+            })
+            const { result } = renderHook(() => useLiveFeed(() => undefined, exclude))
+            await advance(0)
+            const useStats = preference === 'all' && !exclude
+            expect(result.current.usersOnline).toBe(expectedCount)
+            expect(stats.mock.calls.length > 0).toBe(useStats)
+            const countQueries = mockFetchQuery.mock.calls.filter(
+                ([query]) => (query.tags as { name: string }).name === 'live_users_count'
+            )
+            expect(countQueries.length > 0).toBe(!useStats)
+            if (exclude) {
+                expect(countQueries[0]?.[0].filters).toEqual({ filterTestAccounts: true })
             }
-            return fakeLiveAnswer(query)
-        })
-        const { result } = await renderFeed()
-        await advance(0)
-        expect(result.current.usersOnline).toBe(preference === 'all' ? 91 : preference === 'web' ? 11 : 7)
-        expect(stats.mock.calls.length > 0).toBe(preference === 'all')
-        const countQueries = mockFetchQuery.mock.calls.filter(
-            ([query]) => (query.tags as { name: string }).name === 'live_users_count'
-        )
-        expect(countQueries.length > 0).toBe(preference !== 'all')
-    })
+        }
+    )
 
     test('switching from All drops an in-flight project-wide count', async () => {
         liveProject({ ingested_event: true, live_events_token: 'example-live-token' }, 'app', CLOUD)

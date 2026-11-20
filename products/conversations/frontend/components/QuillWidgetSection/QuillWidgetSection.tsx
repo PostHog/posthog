@@ -27,6 +27,7 @@ import { WIDGET_COLORS, WIDGET_POSITION_OPTIONS } from '../../scenes/settings/wi
 import { QuillSettingsSubsection } from '../QuillSettingsSubsection/QuillSettingsSubsection'
 import { QuillSettingsSwitchRow } from '../QuillSettingsSwitchRow/QuillSettingsSwitchRow'
 import { QuillWidgetTextField } from '../QuillWidgetTextField/QuillWidgetTextField'
+import { WebAndApiAccessSummary } from '../WebAndApiAccessSummary/WebAndApiAccessSummary'
 
 type WidgetPosition = NonNullable<ConversationsSettings['widget_position']>
 
@@ -128,14 +129,7 @@ export function QuillWidgetSection({
                 {settings?.widget_enabled && (
                     <>
                         <Separator />
-                        <Item tone="info" size="sm">
-                            <ItemContent>
-                                <ItemDescription>
-                                    Allowed domains for the widget are managed under the <strong>Direct API</strong>{' '}
-                                    section — they apply to both the widget and direct API calls.
-                                </ItemDescription>
-                            </ItemContent>
-                        </Item>
+                        <WebAndApiAccessSummary />
 
                         <QuillSettingsSubsection title="Visual settings">
                             <div className="flex flex-col gap-3">

@@ -11,7 +11,7 @@ import { cn } from './lib/utils'
 import { MenuEmpty } from './menu-empty'
 import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
-import { hasTooltipContent, withTooltip } from './with-tooltip'
+import { hasTooltipContent, withDisabledReason, withTooltip } from './with-tooltip'
 
 const ComboboxAnchorContext = React.createContext<React.RefObject<HTMLDivElement> | null>(null)
 
@@ -85,7 +85,7 @@ const ComboboxInput = React.forwardRef<
         <div data-slot="combobox-input-group-wrapper">
             {/* The group is the visible field, and it stays hoverable while its input ignores the pointer. The
                 tooltip trigger passes its own data-slot, so the group restates its slot to keep it. */}
-            {withTooltip(
+            {withDisabledReason(
                 <InputGroup ref={anchorRef} data-slot="input-group" className={cn('w-auto', className)}>
                     <ComboboxPrimitive.Input ref={ref} render={<InputGroupInput disabled={isDisabled} />} {...props} />
                     <InputGroupAddon align="inline-end">
@@ -103,7 +103,7 @@ const ComboboxInput = React.forwardRef<
                     {children}
                 </InputGroup>,
                 disabledReason,
-                { target: 'self', focusable: hasDisabledReason }
+                { target: 'self', focusable: true }
             )}
         </div>
     )
@@ -300,7 +300,7 @@ const ComboboxChips = React.forwardRef<
 
     return (
         <ComboboxChipsDisabledContext.Provider value={hasDisabledReason}>
-            {withTooltip(
+            {withDisabledReason(
                 <ComboboxPrimitive.Chips
                     ref={ref}
                     data-slot="combobox-chips"
@@ -316,7 +316,7 @@ const ComboboxChips = React.forwardRef<
                     {...props}
                 />,
                 disabledReason,
-                { target: 'self', focusable: hasDisabledReason }
+                { target: 'self', focusable: true }
             )}
         </ComboboxChipsDisabledContext.Provider>
     )

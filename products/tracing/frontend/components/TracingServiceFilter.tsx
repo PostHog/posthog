@@ -1,7 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonTag } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
@@ -32,6 +36,9 @@ function TracingServiceFilterInner({
 }): JSX.Element {
     const { serviceNames, allServiceNames, allServiceNamesLoading, search } = useValues(tracingServiceFilterLogic)
     const { setSearch } = useActions(tracingServiceFilterLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // The service page lives in application observability, so link to it only where that is on.
+    const linkServices = !!featureFlags[FEATURE_FLAGS.APPLICATION_OBSERVABILITY]
 
     const selected = value ?? []
 
@@ -88,6 +95,16 @@ function TracingServiceFilterInner({
                                             fullWidth
                                             icon={
                                                 <LemonCheckbox checked={isSelected} className="pointer-events-none" />
+                                            }
+                                            sideAction={
+                                                linkServices
+                                                    ? {
+                                                          icon: <IconOpenSidebar />,
+                                                          to: urls.applicationObservabilityService(name),
+                                                          tooltip: 'Open service page',
+                                                          'data-attr': 'tracing-service-filter-open-service',
+                                                      }
+                                                    : undefined
                                             }
                                             onClick={() => {
                                                 const newNames = isSelected

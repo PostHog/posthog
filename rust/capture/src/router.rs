@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::DefaultBodyLimit;
-use axum::http::Method;
+use axum::http::{Method, StatusCode};
 use axum::Extension;
 use axum::{
     routing::{get, post},
@@ -413,6 +413,13 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             "/i/v0/ai/otel/",
             post(otel::otel_handler).options(otel::options),
         )
+        // OTLP exporters configured with the generic `OTEL_EXPORTER_OTLP_ENDPOINT`
+        // append the signal path to it. Only traces are accepted, so logs and
+        // metrics exports still get a 404.
+        .route(
+            "/i/v0/ai/otel/v1/traces",
+            post(otel::otel_handler).options(otel::options),
+        )
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     // Each deployment registers its own ingress and nothing else. The AI paths
@@ -425,7 +432,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // `$ai_*` events still reach capture-analytics — on `/batch`, from SDKs that
     // send everything to one endpoint. Those divert to the AI lane by event
     // name; that is unrelated to which paths are registered here.
-    let mut router = match capture_mode {
+    let router = match capture_mode {
         CaptureMode::Events => Router::new()
             .merge(batch_router)
             .merge(event_router)
@@ -447,6 +454,10 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             .merge(test_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
+
+    // `Router::merge` keeps the merged-in router's default fallback, so without
+    // this the v1 router (merged last) would serve every unmatched request.
+    let mut router = router.fallback(|| async { StatusCode::NOT_FOUND });
 
     if let Some(limit) = concurrency_limit {
         router = router.layer(ConcurrencyLimitLayer::new(limit));
