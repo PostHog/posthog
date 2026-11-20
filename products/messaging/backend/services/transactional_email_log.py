@@ -730,7 +730,8 @@ def _converted_sends(team: Team, user: User | None, event: str, sends: list[_Fol
 
 def _max_query_size(team_id: int) -> int:
     team_limit = CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}).get("max_query_size")
-    return team_limit if isinstance(team_limit, int) else default_settings()["max_query_size"]
+    # ClickHouse reads a zero max_query_size as no limit, so batches then follow the default limit.
+    return team_limit if isinstance(team_limit, int) and team_limit > 0 else default_settings()["max_query_size"]
 
 
 def _batches_by_query_size[T](team_id: int, items: list[T], query_bytes_of: Callable[[T], int]) -> Iterator[list[T]]:

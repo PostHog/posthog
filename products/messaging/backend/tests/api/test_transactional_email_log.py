@@ -761,6 +761,43 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert impact["without_click"] == {"sends": LONG_ID_SENDS, "converted": LONG_ID_SENDS}
 
+    def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
+        welcomed: list[str] = []
+        with patch.dict(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": 0}}):
+            few = self._impact_queries_after_adding_sends(welcomed, 3)
+            more = self._impact_queries_after_adding_sends(welcomed, 3)
+
+        assert few > 0
+        assert more == few
+
+    def _impact_queries_after_adding_sends(self, welcomed: list[str], count: int) -> int:
+        for _ in range(count):
+            name = f"welcome-{len(welcomed)}"
+            welcomed.append(name)
+            create_person(team=self.team, distinct_ids=[name])
+            message_id = self._send(60, f"{name}@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+            self._record_distinct_id(message_id, name, f"{name}@example.com", NOW - timedelta(minutes=60))
+            _create_event(team=self.team, event="purchase", distinct_id=name, timestamp=NOW - timedelta(minutes=30))
+        flush_persons_and_events()
+        [(since_micros,)] = sync_execute("SELECT toUnixTimestamp64Micro(now64(6))")
+
+        impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert impact["without_click"] == {"sends": len(welcomed), "converted": len(welcomed)}
+        sync_execute("SYSTEM FLUSH LOGS")
+        [(queries,)] = sync_execute(
+            """
+            SELECT uniqExact(query_id) FROM system.query_log
+            WHERE event_time_microseconds >= fromUnixTimestamp64Micro(%(since_micros)s) AND current_database = currentDatabase()
+              AND position(query, %(impact_request)s) > 0
+            """,
+            {
+                "since_micros": since_micros,
+                "impact_request": f"request:_api_projects_{self.team.id}_transactional_email_log_impact_",
+            },
+        )
+        return queries
+
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
         self._seed_impact_sends()
         slow_sent_at = NOW - timedelta(minutes=SLOW_SEND_MINUTES_AGO)
