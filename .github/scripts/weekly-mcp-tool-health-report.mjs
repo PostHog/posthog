@@ -53,8 +53,8 @@ const ROLE_FOR_TEAM = {
 }
 // The inbox report API's cap on suggested reviewers.
 const MAX_SIGNAL_REVIEWERS = 10
-// Each report can spend about 8.5 minutes on retries, so no team starts past this budget and the
-// job's timeout-minutes leaves room for the query, one last slow report, and setup.
+// Each request can spend about 8.5 minutes on retries, so no team starts or files past this budget,
+// and the job's timeout-minutes leaves room for the query and one last slow reviewer lookup.
 const SIGNALS_BUDGET_MS = 10 * 60_000
 
 const REPORT_WINDOW_DAYS = 7
@@ -349,18 +349,19 @@ function roleMembers(roles, owner) {
     return (role?.members ?? []).map((member) => member.user?.uuid).filter(Boolean)
 }
 
-const signalsGet = (path) =>
-    requestPosthog(`${HOST}${path}`, { headers: { Authorization: `Bearer ${SIGNALS_API_KEY}` } }, path)
+// Errors carry the label, not the path, so the organization id stays out of the public Actions logs.
+const signalsGet = (path, label) =>
+    requestPosthog(`${HOST}${path}`, { headers: { Authorization: `Bearer ${SIGNALS_API_KEY}` } }, label)
 
 // Roles still list deactivated users, and the report API rejects a whole report that names one, so
 // reviewers are limited to the organization's active members.
 async function fetchReviewerDirectory(projectId = SIGNALS_PROJECT_ID, get = signalsGet) {
-    const project = await get(`/api/projects/${projectId}/`)
-    const roles = await get(`/api/organizations/${project.organization}/roles/?limit=500`)
+    const project = await get(`/api/projects/${projectId}/`, 'signals project')
+    const roles = await get(`/api/organizations/${project.organization}/roles/?limit=500`, 'organization roles')
     const active = new Set()
     let page = `/api/organizations/${project.organization}/members/?limit=500`
     while (page) {
-        const members = await get(page)
+        const members = await get(page, 'organization members')
         for (const member of members.results) {
             active.add(member.user.uuid)
         }
@@ -396,6 +397,10 @@ async function fileTeamSignals(
         }
         try {
             const uuids = await membersOf(team.owner)
+            if (Date.now() > deadline) {
+                console.warn(`signals delivery budget spent - ${team.owner} and later teams were not filed`)
+                break
+            }
             if (uuids.length === 0) {
                 console.warn(`no active role members found for ${team.owner}, filing without reviewers`)
             }

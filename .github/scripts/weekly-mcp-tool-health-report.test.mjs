@@ -246,6 +246,30 @@ describe('weekly MCP tool health report', () => {
             assert.deepEqual(reports, [])
         })
 
+        it('files nothing when the reviewer lookup runs past the delivery deadline', async () => {
+            const reports = await fileTeamSignals([SURVEYS], {
+                now: NOW,
+                deadline: Date.now() + 20,
+                membersOf: () => new Promise((resolve) => setTimeout(() => resolve([]), 40)),
+                file: async () => ({ report_id: 'r4' }),
+            })
+            assert.deepEqual(reports, [])
+        })
+
+        it('keeps the organization id out of reviewer lookup errors, since Actions logs are public', async () => {
+            const labels = []
+            const pages = {
+                '/api/projects/2/': { organization: 'org-uuid' },
+                '/api/organizations/org-uuid/roles/?limit=500': { results: [] },
+                '/api/organizations/org-uuid/members/?limit=500': { results: [], next: null },
+            }
+            await fetchReviewerDirectory('2', async (path, label) => {
+                labels.push(label)
+                return pages[path]
+            })
+            assert.ok(labels.every((label) => !label.includes('org-uuid')))
+        })
+
         it('keeps filing the next team after one team fails', async () => {
             const reports = await fileTeamSignals([SURVEYS, { owner: 'team-cdp', items: [TOOL] }], {
                 now: NOW,

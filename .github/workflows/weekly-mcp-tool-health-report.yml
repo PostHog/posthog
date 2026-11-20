@@ -36,9 +36,10 @@ permissions:
 jobs:
     report:
         runs-on: ubuntu-24.04
-        # The query's worst case is 3 attempts x 150s abort plus 2 x 30s backoffs (~8.5min). Inbox
-        # reports start within a 10-minute budget, and the last one can retry for another ~8.5min.
-        timeout-minutes: 30
+        # Each PostHog request's worst case is 3 attempts x 150s abort plus 2 x 30s backoffs (~8.5min).
+        # After the query, inbox work starts within a 10-minute budget, and the reviewer lookup it can
+        # start last makes three such requests (~25.5min) before the budget stops filing.
+        timeout-minutes: 50
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
         if: >-
