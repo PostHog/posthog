@@ -66,6 +66,8 @@ export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
 import type { BreakPointFunction } from 'kea'
 
+import type { UserType } from '~/types'
+
 import { configMatchesScoutOwner, listScoutOwnerOptions } from '../utils/scoutOwners'
 import type { ScoutOwnerOption } from '../utils/scoutOwners'
 import {
@@ -687,7 +689,7 @@ export interface scoutFleetLogicMeta {
         ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         scoutRunsCoverFleet: (scoutConfigs: SignalScoutConfigApi[] | null) => boolean
-        isStaff: (user: null | import('~/types').UserType) => boolean
+        isStaff: (user: UserType | null) => boolean
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>

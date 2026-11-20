@@ -4,11 +4,18 @@ import posthog from 'posthog-js'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { AnomalySearchResponseApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    AnomalyPointsRequestApi,
+    AnomalySearchResponseApi,
+    AnomalySeriesApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
-import { ANOMALIES_PAGE_SIZE, anomaliesTabLogic } from './anomaliesTabLogic'
+import { ANOMALIES_PAGE_SIZE, anomaliesTabLogic, anomalySeriesKey } from './anomaliesTabLogic'
 
 const SEARCH_URL = '/api/projects/:team_id/signals/anomalies/search/'
+const POINTS_URL = '/api/projects/:team_id/signals/anomalies/points/'
+const POINTS_DATE_TO = '2026-11-17T00:00:00+00:00'
+const POINT = { bucket_start: '2026-11-15T00:00:00+00:00', value: 42, flag: true }
 const TOTAL_ROWS = ANOMALIES_PAGE_SIZE + 5
 
 // The rows of the second page belong to insights the first page already listed, like the other values of a breakdown.
@@ -32,7 +39,6 @@ function makeSeries(index: number): AnomalySeriesApi {
         last_flagged_bucket: '2026-11-15T00:00:00+00:00',
         flagged_points: [],
         dashboards: [],
-        points: [],
     }
 }
 
@@ -60,9 +66,15 @@ function searchPage(offset: number, limit: number): AnomalySearchResponseApi {
 describe('anomaliesTabLogic', () => {
     let logic: ReturnType<typeof anomaliesTabLogic.build>
     let status: number
+    let pointsStatus: number
+    let searchRequests: URLSearchParams[]
+    let pointsRequests: AnomalyPointsRequestApi[]
 
     beforeEach(() => {
         status = 200
+        pointsStatus = 200
+        searchRequests = []
+        pointsRequests = []
         useMocks({
             get: {
                 [SEARCH_URL]: ({ request }) => {
@@ -70,7 +82,22 @@ describe('anomaliesTabLogic', () => {
                         return [status, { detail: 'Not found.' }]
                     }
                     const params = new URL(request.url).searchParams
+                    searchRequests.push(params)
                     return [200, searchPage(Number(params.get('offset')), Number(params.get('limit')))]
+                },
+            },
+            post: {
+                [POINTS_URL]: async ({ request }) => {
+                    const body = (await request.json()) as AnomalyPointsRequestApi
+                    pointsRequests.push(body)
+                    if (pointsStatus !== 200) {
+                        return [pointsStatus, { detail: 'Server error.' }]
+                    }
+                    // The API leaves out a series the user cannot read, here insight 0.
+                    const series = body.series
+                        .filter((ref) => ref.insight_id !== 0)
+                        .map((ref) => ({ ...ref, date_from: '2026-11-03T00:00:00+00:00', points: [POINT] }))
+                    return [200, { date_to: POINTS_DATE_TO, series }]
                 },
             },
         })
@@ -103,6 +130,46 @@ describe('anomaliesTabLogic', () => {
             `series-${ANOMALIES_PAGE_SIZE}`,
         ])
         expect(logic.values.hasMore).toBe(false)
+    })
+
+    it('loads the list without points, then the chart points of each page', async () => {
+        logic = anomaliesTabLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadMoreAnomalies()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(searchRequests.map((params) => params.get('include_points'))).toEqual(['false', 'false'])
+        expect(pointsRequests.map((body) => body.series[0].series_key)).toEqual([
+            'series-0',
+            `series-${ANOMALIES_PAGE_SIZE}`,
+        ])
+        expect(pointsRequests.map((body) => body.series.length)).toEqual([
+            ANOMALIES_PAGE_SIZE,
+            TOTAL_ROWS - ANOMALIES_PAGE_SIZE,
+        ])
+        const [unreadable, readable] = logic.values.series
+        expect(logic.values.chartPoints[anomalySeriesKey(unreadable)]).toEqual({
+            chartFrom: POINTS_DATE_TO,
+            points: [],
+        })
+        expect(logic.values.chartPoints[anomalySeriesKey(readable)]).toEqual({
+            chartFrom: '2026-11-03T00:00:00+00:00',
+            points: [POINT],
+        })
+        expect(logic.values.chartPointsStatus).toEqual({})
+    })
+
+    it('marks the charts of a page as failed when its points do not load', async () => {
+        pointsStatus = 500
+        logic = anomaliesTabLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.series).toHaveLength(ANOMALIES_PAGE_SIZE)
+        expect(logic.values.chartPoints).toEqual({})
+        expect(new Set(Object.values(logic.values.chartPointsStatus))).toEqual(new Set(['failed']))
+        expect(Object.keys(logic.values.chartPointsStatus)).toHaveLength(ANOMALIES_PAGE_SIZE)
     })
 
     it('collapses expanded insights when the filters change', async () => {

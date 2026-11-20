@@ -145,7 +145,7 @@ export interface featureFlagTestingLogicValues {
         matched: boolean
         matchedButNotWinner: boolean | undefined
         properties: FeatureFlagConditionPropertyAnalysisApi[]
-        properties_matched?: boolean | undefined
+        properties_matched?: boolean
         rollout_excluded: boolean
         rollout_percentage: number
         variant: string | null
@@ -361,7 +361,7 @@ export interface featureFlagTestingLogicMeta {
             matched: boolean
             matchedButNotWinner: boolean | undefined
             properties: FeatureFlagConditionPropertyAnalysisApi[]
-            properties_matched?: boolean | undefined
+            properties_matched?: boolean
             rollout_excluded: boolean
             rollout_percentage: number
             variant: string | null

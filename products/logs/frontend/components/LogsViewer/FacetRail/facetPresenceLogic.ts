@@ -32,7 +32,7 @@ export interface facetPresenceLogicValues {
     customFacets: FacetConfig[]
     presenceWindow: {
         date_from: string
-        date_to?: string | undefined
+        date_to?: string
     } | null
     presenceWindowSignature: string
     presentResourceKeys: string[]
@@ -73,12 +73,12 @@ export interface facetPresenceLogicMeta {
             explicitDate: boolean | null | undefined
         }) => {
             date_from: string
-            date_to?: string | undefined
+            date_to?: string
         } | null
         presenceWindowSignature: (
             presenceWindow: {
                 date_from: string
-                date_to?: string | undefined
+                date_to?: string
             } | null
         ) => string
         resolvedFacets: (presentResourceKeys: string[]) => FacetConfig[]
