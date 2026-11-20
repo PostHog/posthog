@@ -279,7 +279,10 @@ def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: in
 
 
 def _policy_for_credential(
-    credential: Credential, memo: "_RefreshMemo | None" = None
+    credential: Credential,
+    memo: "_RefreshMemo | None" = None,
+    *,
+    organization_deactivated: bool | None = None,
 ) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
@@ -295,7 +298,9 @@ def _policy_for_credential(
     if team is None:
         return HyperCacheStoreMissing()
 
-    if _organization_deactivated(team.id):
+    if organization_deactivated is None:
+        organization_deactivated = _organization_deactivated(team.id)
+    if organization_deactivated:
         return HyperCacheStoreMissing()
 
     project_token = team.api_token
@@ -350,7 +355,7 @@ def oauth_credential_authorized(credential: OAuthAccessToken, team: Any) -> bool
     minted the token. Callers outside the projection need it because a token's
     scoped_teams is frozen at consent.
     """
-    return _oauth_authorization_ok(credential, team, team.id, None)
+    return not _organization_deactivated(team.id) and _oauth_authorization_ok(credential, team, team.id, None)
 
 
 def _resolve_credential(hash_key: str) -> Credential | None:
@@ -400,20 +405,23 @@ gateway_credential_hypercache = HyperCache(
 _MAX_PROJECTION_PASSES = 3
 
 
-def _write_or_clear_gateway_credential(credential: Credential, cache_hash: str, memo: "_RefreshMemo | None") -> None:
-    policy = _policy_for_credential(credential, memo)
+def _write_or_clear_gateway_credential(
+    credential: Credential, cache_hash: str, memo: "_RefreshMemo | None", organization_deactivated: bool
+) -> bool:
+    policy = _policy_for_credential(credential, memo, organization_deactivated=organization_deactivated)
     if isinstance(policy, HyperCacheStoreMissing):
         gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
-        return
+        return False
 
     ttl = _ttl_for_credential(credential)
     if ttl <= 0:  # OAuth token expired since the policy check — clear, don't write a 1s blob
         gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
-        return
+        return False
 
     # Floor at 1s so a sub-second-but-valid token isn't written with timeout=0,
     # which Django treats as evict-immediately.
     gateway_credential_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
+    return True
 
 
 def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | None" = None) -> None:
@@ -427,22 +435,21 @@ def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | Non
     def deactivated_now() -> bool:
         return team is not None and _organization_deactivated(team.id)
 
-    for _ in range(_MAX_PROJECTION_PASSES):
-        deactivated = deactivated_now()
-        _write_or_clear_gateway_credential(credential, cache_hash, memo)
-        try:
-            settled = deactivated_now() == deactivated
-        except Exception:
+    unverified_write = False
+    try:
+        for _ in range(_MAX_PROJECTION_PASSES):
+            deactivated = deactivated_now()
+            unverified_write = _write_or_clear_gateway_credential(credential, cache_hash, memo, deactivated)
+            if deactivated_now() == deactivated:
+                return
+        raise RuntimeError("Organization state did not settle during gateway credential projection")
+    except Exception:
+        if unverified_write:
             try:
                 gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
             except Exception as e:
                 logger.warning("gateway_credential: unverified blob could not be cleared", error=str(e))
-            raise
-        if settled:
-            return
-
-    gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
-    raise RuntimeError("Organization state did not settle during gateway credential projection")
+        raise
 
 
 def clear_gateway_credential(credential_or_hash: Credential | str) -> None:
