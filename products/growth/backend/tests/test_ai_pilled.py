@@ -154,9 +154,8 @@ class TestEnrichmentScoreApplication(BaseTest):
                 )
             return OrganizationBridgeInputs()
 
-        with (
-            patch("products.growth.backend.enrichment.core.read_organization_bridge_inputs", side_effect=bridge_inputs),
-            patch("products.growth.backend.enrichment.core.get_person_by_distinct_id", return_value=None),
+        with patch(
+            "products.growth.backend.enrichment.core.read_organization_bridge_inputs", side_effect=bridge_inputs
         ):
             outcome = async_to_sync(enrich_organization)(
                 EnrichmentContext(

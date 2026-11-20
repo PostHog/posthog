@@ -86,6 +86,15 @@ class CreateObservationOutput(BaseModel, frozen=True):
     observation_id: UUID | None
     was_created: bool
     scanner_type: ScannerType
+    # Whether the scan's scope names an experiment, so the workflow can gate variant attribution on
+    # the scope rather than the scanner type. Recorded here because the workflow needs the answer to
+    # be deterministic across replays, and reading a scope in workflow code would not be.
+    #
+    # `None` means the field predates this change. A history written before it deserializes to None
+    # on replay, and the workflow then falls back to the scanner type, which is what that run was
+    # gated on when it started. Defaulting to False instead would skip attribution for an in-flight
+    # experiment scan and leave its session unlabeled.
+    watches_experiment: bool | None = None
 
 
 class MarkObservationRunningInputs(BaseModel, frozen=True):

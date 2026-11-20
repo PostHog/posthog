@@ -5,18 +5,16 @@ from . import catalog
 # llm_gateway:read is staff-only, so ProjectSecretAPIKeySerializer adds it per request.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[catalog.APIScopeObject, catalog.APIScopeActions]] = [
     ("endpoint", "read"),
+    ("person", "write"),
     # SDK local evaluation and remote config. The Rust feature-flags service already
     # validates feature_flag:read PSAKs on the flag-definitions path; this makes them creatable.
     ("feature_flag", "read"),
     # Customer analytics external account list, a bulk export for service integrations.
-    # Gated on a PSAK so the team-wide secret_api_token (readable by any project member)
-    # can't be used to sidestep per-user account access controls.
     ("account", "read"),
-    # Lets a service create customer analytics accounts through the external account POST.
-    # Updates on that route stay team-token only.
+    # Lets a service create and update customer analytics accounts through the external
+    # account routes.
     ("account", "write"),
-    # Conversations external ticket API reads, mirroring the account scope above so
-    # service integrations don't need the team-wide secret_api_token (#63111).
+    # Conversations external ticket API reads.
     ("support_ticket", "read"),
     # Endpoints are gone; kept so existing keys that hold it stay saveable.
     ("loop", "write"),

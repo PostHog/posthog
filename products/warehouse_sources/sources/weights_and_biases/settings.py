@@ -91,6 +91,29 @@ WANDB_ENDPOINTS: dict[str, WeightsAndBiasesEndpointConfig] = {
             "This table can be very large. Incremental syncs re-read the history of the runs active since the last sync"
         ),
     ),
+    "entities": WeightsAndBiasesEndpointConfig(
+        partition_key=None,
+        description="The configured entity (user or team) itself, with its type, plan flags and storage use",
+    ),
+    "run_files": WeightsAndBiasesEndpointConfig(
+        primary_keys=["runId", "name"],
+        incremental_fields=_RUN_CHILD_INCREMENTAL_FIELDS,
+        partition_key="runCreatedAt",
+        description=(
+            "One row per file a run uploaded, with its size and type. "
+            "Incremental syncs re-read the files of the runs active since the last sync"
+        ),
+    ),
+    "run_system_metrics": WeightsAndBiasesEndpointConfig(
+        primary_keys=["runId", "timestamp"],
+        incremental_fields=_RUN_CHILD_INCREMENTAL_FIELDS,
+        partition_key="runCreatedAt",
+        description=(
+            "The CPU, GPU, memory, disk and network samples each run recorded, one row per sample, with the values "
+            "in a JSON metrics column. W&B returns at most 5,000 evenly spaced samples per run. "
+            "Incremental syncs re-read the samples of the runs active since the last sync"
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(WANDB_ENDPOINTS.keys())

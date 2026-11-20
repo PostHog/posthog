@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
@@ -121,6 +121,7 @@ export interface startupProgramLogicValues {
     user: UserType | null // userLogic
     currentStartupProgramLabel: StartupProgramLabel | null
     domainFromEmail: string
+    eligibilityError: string | null
     formSubmitted: boolean
     isCurrentlyOnStartupPlan: boolean
     isEmailDomainBlocked: boolean
@@ -214,6 +215,7 @@ export interface startupProgramLogicMeta {
             isYC: boolean,
             wasPreviouslyOnStartupPlan: boolean
         ) => boolean
+        eligibilityError: (startupProgram: StartupProgramFormValues, isYC: boolean) => string | null
     }
 }
 
@@ -341,7 +343,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
             },
         ],
     }),
-    forms(({ values, actions, props }) => ({
+    forms(({ values, actions, props, cache }) => ({
         startupProgram: {
             defaults: {
                 type: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
@@ -434,9 +436,39 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     // Billing-service validation errors can arrive as an object under error.detail
                     const detail = typeof error.detail === 'string' ? error.detail : error.detail?.detail
                     lemonToast.error(detail || 'Failed to submit application')
+                    cache.applicationRequestFailed = true
                     throw error
                 }
             },
+        },
+    })),
+    selectors({
+        // Checked apart from form validation, which reports only the missing paid plan until one is added
+        eligibilityError: [
+            (s) => [s.startupProgram, s.isYC],
+            (startupProgram: StartupProgramFormValues, isYC: boolean): string | null =>
+                (startupProgram.raised && validateFunding(startupProgram.raised, isYC)) ||
+                (startupProgram.incorporation_date &&
+                    validateIncorporationDate(startupProgram.incorporation_date, isYC)) ||
+                null,
+        ],
+    }),
+    listeners(({ values, cache }) => ({
+        submitStartupProgramFailure: () => {
+            // The form values can change while the request is in flight, so they can't tell the two failures apart
+            if (cache.applicationRequestFailed) {
+                cache.applicationRequestFailed = false
+                return
+            }
+            posthog.capture('startup program application blocked', {
+                program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
+                organization_id: values.currentOrganizationId,
+                blocked_at: 'validation',
+                invalid_fields: Object.keys(values.startupProgramValidationErrors).filter(
+                    (field) => !!values.startupProgramValidationErrors[field as keyof StartupProgramFormValues]
+                ),
+                raised: values.startupProgram.raised,
+            })
         },
     })),
     subscriptions(({ values, cache }) => ({

@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.klaus.settings import KLAUS_ENDPOINTS, K
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -154,10 +155,6 @@ def _coerce_datetime(value: Any) -> datetime | None:
     return None
 
 
-def _format_datetime(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _build_params(
     config: KlausEndpointConfig,
     should_use_incremental_field: bool,
@@ -175,7 +172,7 @@ def _build_params(
         from_value = DEFAULT_FROM_DATE
 
     if from_value is not None:
-        params["fromDate"] = _format_datetime(from_value)
+        params["fromDate"] = format_datetime(from_value)
 
     return params
 

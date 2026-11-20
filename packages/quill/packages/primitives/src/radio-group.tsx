@@ -5,8 +5,8 @@ import { RadioGroup as RadioGroupPrimitive } from '@base-ui/react/radio-group'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
 
+import { useDisabledControl } from './disabled-reason'
 import { cn } from './lib/utils'
-import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 const radioIndicatorVariants = cva('quill-radio-indicator', {
     variants: {
@@ -87,19 +87,27 @@ const radioGroupItemIndicatorVariants = cva('quill-radio__indicator', {
 
 const RadioGroupItem = React.forwardRef<
     React.ComponentRef<typeof RadioPrimitive.Root>,
-    RadioPrimitive.Root.Props &
+    Omit<RadioPrimitive.Root.Props, 'children'> &
         VariantProps<typeof radioGroupItemVariants> & {
             /** Disables the item and says why in a tooltip. */
             disabledReason?: React.ReactNode
+            /** The label. It wraps the radio, so the label also selects it and shows the disabled reason. */
+            children?: React.ReactNode
         }
->(function RadioGroupItem({ className, size = 'default', disabled, disabledReason, ...props }, ref) {
-    return withTooltip(
+>(function RadioGroupItem({ className, size = 'default', disabled, disabledReason, children, ...props }, ref) {
+    const { rootProps, wrap } = useDisabledControl({
+        disabled,
+        disabledReason,
+        label: children,
+        ariaDescribedBy: props['aria-describedby'],
+    })
+    return wrap(
         <RadioPrimitive.Root
             ref={ref}
             data-slot="radio-group-item"
-            disabled={disabled || hasTooltipContent(disabledReason)}
             className={cn(radioGroupItemVariants({ size }), className)}
             {...props}
+            {...rootProps}
         >
             <RadioPrimitive.Indicator
                 data-slot="radio-group-indicator"
@@ -107,9 +115,7 @@ const RadioGroupItem = React.forwardRef<
             >
                 <span className={radioDotVariants({ size })} />
             </RadioPrimitive.Indicator>
-        </RadioPrimitive.Root>,
-        disabledReason,
-        { target: 'inline', focusable: hasTooltipContent(disabledReason) }
+        </RadioPrimitive.Root>
     )
 })
 

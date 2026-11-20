@@ -80,23 +80,21 @@ export function AuthorizedUrlList({
     const quillSurface = useQuillSurface()
 
     // Mirrors `validate_team_attrs`: `app_urls` needs project admin, or web analytics editor when access
-    // controls are on. Recording domains are not admin-gated.
+    // controls are on. `recording_domains` needs project admin even when access controls are on.
     let writeDisabledReason: string | null = null
-    if (type !== AuthorizedUrlListType.RECORDING_DOMAINS) {
-        if (hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)) {
-            // OAuth mode has no app context to read the access level from, so only the backend enforces it there.
-            if (!isOAuthMode()) {
-                writeDisabledReason = getAccessControlDisabledReason(
-                    AccessControlResourceType.WebAnalytics,
-                    AccessControlLevel.Editor
-                )
-            }
-        } else if (
-            currentTeam?.effective_membership_level != null &&
-            currentTeam.effective_membership_level < TeamMembershipLevel.Admin
-        ) {
-            writeDisabledReason = 'Only project admins can change authorized URLs. Ask a project admin to do it.'
+    if (type !== AuthorizedUrlListType.RECORDING_DOMAINS && hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)) {
+        // OAuth mode has no app context to read the access level from, so only the backend enforces it there.
+        if (!isOAuthMode()) {
+            writeDisabledReason = getAccessControlDisabledReason(
+                AccessControlResourceType.WebAnalytics,
+                AccessControlLevel.Editor
+            )
         }
+    } else if (
+        currentTeam?.effective_membership_level != null &&
+        currentTeam.effective_membership_level < TeamMembershipLevel.Admin
+    ) {
+        writeDisabledReason = 'Only project admins can change authorized URLs. Ask a project admin to do it.'
     }
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')

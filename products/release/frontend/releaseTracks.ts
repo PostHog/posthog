@@ -22,7 +22,7 @@ export const DETAILED_LANE = 44
 const NO_STEPS: RolloutStep[] = []
 
 export const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; color: string }> = {
-    flag: { top: 30, height: 14, color: STAGE_COLOR.flag },
+    flag: { top: 26, height: 20, color: STAGE_COLOR.flag },
     early_access: { top: 4, height: 14, color: STAGE_COLOR.early_access },
     experiment: { top: 4, height: 14, color: STAGE_COLOR.experiment },
     experiment_done: { top: 4, height: 14, color: STAGE_COLOR.experiment },

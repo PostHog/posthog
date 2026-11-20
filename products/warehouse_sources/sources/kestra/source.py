@@ -83,8 +83,9 @@ class KestraSource(ResumableSource[KestraSourceConfig, KestraResumeState]):
             INCREMENTAL_FIELDS,
             names,
             merge_only=INCREMENTAL_FIELDS.keys(),
-            # Logs hold every debug line of every task, so a user turns them on deliberately.
-            should_sync_default={"logs": False},
+            # Logs hold every debug line of every task, and task outputs take a request for each task
+            # run that stored outputs, so a user turns them on deliberately.
+            should_sync_default={"logs": False, "task_outputs": False},
             default_incremental_lookback_seconds=LOOKBACK_SECONDS,
         )
 

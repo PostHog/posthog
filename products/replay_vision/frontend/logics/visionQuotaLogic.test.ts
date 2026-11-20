@@ -45,6 +45,46 @@ describe('visionQuotaLogic', () => {
         expect(logic.values.quota?.projected_monthly_credits).toBe(0)
     })
 
+    it('stays loading while billing syncs the org, and keeps polling through a failed request', async () => {
+        await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
+        logic.unmount()
+        let synced = false
+        const unsynced = makeQuota({ credit_limit: 0, free_monthly_credits: 0, awaiting_billing_sync: true })
+        let failNext = false
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/quota/': () => {
+                    if (failNext) {
+                        failNext = false
+                        return [500, {}]
+                    }
+                    return [200, synced ? quota : unsynced]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        try {
+            logic = visionQuotaLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(100)
+            expect(logic.values.quota).toBeNull()
+            expect(logic.values.quotaLoading).toBe(true)
+
+            // A failed poll mid-sync keeps polling rather than settling on the placeholder.
+            failNext = true
+            await jest.advanceTimersByTimeAsync(3100)
+            expect(logic.values.quotaLoading).toBe(true)
+
+            synced = true
+            await jest.advanceTimersByTimeAsync(3100)
+            await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
+            expect(logic.values.quota?.credit_limit).toBe(1000)
+            expect(logic.values.quotaLoading).toBe(false)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('adjustProjectedMonthly is a no-op before the quota has loaded', () => {
         logic.actions.adjustProjectedMonthly(250)
         expect(logic.values.quota).toBeNull()
@@ -102,6 +142,16 @@ describe('visionQuotaLogic', () => {
         expect(logic.values.onFreePlan).toBe(true)
         expect(logic.values.billedCredits).toBe(0)
         expect(logic.values.billedLimitCredits).toBe(0)
+
+        // A subscribed org with a $0 overage limit has the same quota, but needs its limit raised, not billing added.
+        billingLogic.actions.loadBillingSuccess({
+            products: [{ type: 'replay_vision', subscribed: true }],
+        } as BillingType)
+        expect(logic.values.onFreePlan).toBe(false)
+        billingLogic.actions.loadBillingSuccess({
+            products: [{ type: 'replay_vision', subscribed: false }],
+        } as BillingType)
+        expect(logic.values.onFreePlan).toBe(true)
     })
 
     it('loadQuota overwrites any optimistic adjustment with the server value', async () => {

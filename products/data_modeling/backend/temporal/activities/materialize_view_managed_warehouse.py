@@ -55,6 +55,7 @@ from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELIN
 
 from ..metrics import (
     UNKNOWN_RUN_MODE,
+    error_code,
     get_managed_warehouse_trino_compile_failure_metric,
     get_managed_warehouse_trino_missing_object_metric,
     get_node_suspended_metric,
@@ -427,6 +428,7 @@ async def _materialize_view_managed_warehouse(
             await logger.awarning(
                 "Managed warehouse shadow materialization failed",
                 node_name=node.name,
+                error_code=error_code(str(e)),
                 error=str(e),
                 duration_seconds=round(duration, 2),
             )

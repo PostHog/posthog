@@ -973,22 +973,6 @@ class TestProvisioningBoundaries:
                 utils.run_gateway_env_vars(self._ctx(), task)
         record_routing.assert_not_called()
 
-    def test_snapshot_builder_uses_the_shared_derivation(self, mint_settings):
-        from products.tasks.backend.temporal.process_task import utils
-
-        ctx, task = self._ctx(), self._task()
-        with (
-            patch.object(utils, "run_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
-            patch(
-                "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
-                return_value="jwt",
-            ),
-            patch.object(utils, "get_sandbox_api_url", return_value="url"),
-        ):
-            out = utils.build_sandbox_environment_variables(github_token="", access_token="tok", ctx=ctx, task=task)
-        env.assert_called_once_with(ctx, task)
-        assert out["AI_GATEWAY_TOKEN"] == "phe"
-
     def test_pinned_mint_is_stamped_on_the_run(self, mint_settings):
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
         with (

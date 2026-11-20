@@ -87,7 +87,33 @@ Retries reject changes to the registered configuration. They do not reload the r
 The workflow or command runner owns terminal cleanup. A failed preparation attempt cannot tear down a successful retry.
 Cleanup can find an unsaved VM by name. Cancellation markers expire after their enrollment deadline; requests past that deadline are rejected even after the marker is removed.
 Workflow termination skips cleanup, so authority expires with the lease and the VM stops at its TTL.
-The workflow remains development-only and sends synthetic probes.
+The workflow sends synthetic probes and uses the same environment checks as the command.
+
+### Probe the staging deployment
+
+Run the same command from a trusted controller using the staging database, Modal credentials and sandbox signing key. A local database registration cannot authorize a request through a proxy reading the staging registry.
+
+Staging requires `CLOUD_DEPLOYMENT=DEV`, `DEBUG=0`, `SANDBOX_PROVIDER=modal`, and `AGENT_EGRESS_STAGING_PROBE_RUN_ID` set to the one TaskRun being tested. Keep that setting on the probe controller only. Production deployments remain excluded, and normal Tasks launches do not enroll.
+
+```text
+Controller using staging DB -> existing enrollment / renewal / cleanup lifecycle
+Synthetic VM -> isolated relay -> regional TCP ingress -> proxy -> staging registry
+```
+
+Use a dedicated active TaskRun with an eligible actor, no repositories and no sandbox. The configuration must name that run and its exact regional hostname. Staging rejects `sandbox_id` and `dev_proxy_ipv4`: each probe creates its own VM and uses the hostname's real network path. The existing ten-minute duration and request-concurrency limits still apply.
+
+Mount the operator-owned configuration directory and CA material on the controller. The proxy must trust that client CA and the controller's public verification keys. Only the controller receives the client CA private key; only the relay holds its generated private key. Use an image visible in the controller's Modal environment.
+
+```bash
+AGENT_EGRESS_STAGING_PROBE_RUN_ID=<run-uuid> \
+  python manage.py probe_agent_egress --config /run/egress/probes/probe.json
+```
+
+For `--temporal`, use a dedicated worker queue with the same run opt-in, configuration and mounted files. Workflow inputs still contain only IDs and a configuration path.
+
+Before sending traffic, verify the deployed registry, network policy, log redaction, TLS material and load-balancer readiness. Start with the default 60-second probe, then run for 360 seconds to cross capability refresh. Check 204 counts alongside proxy admission/completion events and the registry's final revocation record. Clearing or changing the opt-in blocks enrollment and renewal; the owning workflow can still revoke and clean up its existing probe. A controller crash leaves authority bounded by the 30-second lease and the VM by its TTL.
+
+This proves synthetic enrollment against deployed infrastructure. It does not establish general forwarding, upstream credential injection, DNS containment or production readiness. Denial tests, replica loss and certificate rotation still need separate deployment checks.
 
 ### Observe a development Tasks run
 
@@ -132,9 +158,16 @@ It runs as root inside the isolated sidecar because the controller writes `/run/
 
 Local Docker builds target the host architecture and are for smoke tests. Use the Modal builder above for the sandbox image.
 
-Both builds use digest-pinned bases and copy only Go source and module files. Pass `--build-arg COMMIT_HASH=<revision>` when building a release; local builds default to `development`. No credentials or configuration are baked in.
+Both builds cross-compile Go for the target architecture, use digest-pinned bases and copy only Go source and module files. Pass `--build-arg COMMIT_HASH=<revision>` when building a release; local builds default to `development`. No credentials or configuration are baked in.
 CI starts both images with temporary TLS material, checks readiness and verifies that a request through the relay reaches the proxy and is rejected without a capability. Run the same check locally with `bash products/tasks/services/egress-proxy/scripts/smoke_images.sh` after building the images above.
-Registry publication, certificate delivery and regional deployment remain separate work.
+After tests and image smoke checks pass, the `Agent Egress` workflow publishes multi-architecture images from GitHub-hosted Ubuntu runners on master in the repository with `CD_DEPLOY_ENABLED=true`:
+
+- `posthog-agent-egress`: the regional service.
+- `posthog-agent-egress-relay`: the Modal sidecar.
+
+Each shared-services ECR image has an immutable full-commit tag and an ordered `r<position>-<short-sha>` alias for Kargo. The workflow verifies that the alias resolves to the published digest and prints the digest in its summary. Push and manual runs for the same commit serialize, and retries reuse an existing commit image. `ORDERED_IMAGE_ALIAS_PAUSED=true` pauses publication of both tags. Pull requests only build and test; manual publication also requires master.
+
+The ECR repositories and their publisher permissions must exist before enabling publication. Consume images by digest; a release does not update the development probe's `relay_image_id` or deploy the service. Certificate delivery and regional deployment remain separate work.
 
 ### Local binaries
 
@@ -191,6 +224,8 @@ Before adding streaming adapters, set and test these budgets together, leaving r
 
 Listener addresses must use IP literals. Administration must bind to loopback.
 It exposes `GET /livez`, `/readyz` and `/metrics` on its own listener; those routes do not exist on the request listener.
+Use `egress-proxy -config /run/egress/proxy.json -healthcheck ready` for a Kubernetes exec readiness probe, or `-healthcheck live` for liveness. The relay supports the same flags with its own configuration.
+The check calls the configured loopback listener directly, refuses redirects and exits nonzero on failure within two seconds. It needs no shell, upstream credentials or access to the TLS key files.
 Readiness checks local material and audit health, not registry or upstream availability.
 Keep a relay's plaintext HTTP listener on a provider-isolated bridge if it must be reachable outside loopback.
 
@@ -295,6 +330,17 @@ The `/internal/` route also needs private ingress when the service is deployed.
 ### Registry client and cache
 
 `registry.New` takes a fixed HTTPS origin, region, active registry signing key and lookup timeout.
+
+For a registry in the same Kubernetes cluster, `registry_allow_cluster_http: true` permits
+HTTP to a fully qualified `<service>.<namespace>.svc.cluster.local` origin. It is off by
+default. This sends lookup tokens and responses without transport encryption; the hostname
+check is not a network boundary. Use it only with trusted cluster networking and an enforced
+L7 policy that limits the destination pods, port, method and registry path. Keep HTTPS for
+other origins. The registry must serve this internal endpoint over HTTP without an
+HTTP-to-HTTPS redirect. Django's `SECURE_SSL_REDIRECT` can cause such a redirect; keep
+HTTPS unless the internal route is configured to accept HTTP. The client refuses
+redirects in both modes and reports them as unavailable.
+
 It signs each lookup with a scoped 30-second service JWT and checks the response's team, run, execution and region.
 It refuses redirects, limits response bodies to 16 KiB and honors cancellation through body reads.
 It drains small error bodies within those same limits so HTTP/1.1 connections can be reused.

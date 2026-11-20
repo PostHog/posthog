@@ -11,6 +11,7 @@ import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
+import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import { getToolsFromContext } from '@/tools'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
@@ -367,6 +368,52 @@ describe('exec tool', () => {
                 )
             }
         )
+
+        it.each([
+            ['call mock-tool', { appendTimeSeriesChartData: true }, true],
+            ['call mock-tool', undefined, false],
+            ['call --json mock-tool', { appendTimeSeriesChartData: true }, false],
+        ])('for %s with options %j, appends the time series block: %s', async (command, options, appended) => {
+            const handlerResult = {
+                results: [{ data: [5, 7], days: ['2026-11-10', '2026-11-11'], label: 'signups' }],
+                [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|signups\n2026-11-10|5\n2026-11-11|7',
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })], undefined, options)
+
+            const result = await exec.handler(mockContext, { command })
+
+            const block = JSON.stringify({
+                series: [
+                    {
+                        name: 'signups',
+                        data: [
+                            ['2026-11-10', 5],
+                            ['2026-11-11', 7],
+                        ],
+                    },
+                ],
+            })
+            expect((result as string).endsWith(`\n\n${CHART_DATA_PREAMBLE}\n${block}`)).toBe(appended)
+        })
+
+        it('tells the agent how to read the next page of a partial list', async () => {
+            const handlerResult = {
+                count: 230,
+                next: 'https://example.com/api/projects/1/things/?limit=100&offset=100',
+                previous: null,
+                results: [{ id: 1 }, { id: 2 }, { id: 3 }],
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })])
+
+            const text = await exec.handler(mockContext, { command: 'call mock-tool' })
+            const json = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+
+            expect(text).toBe(
+                `${formatResponse(handlerResult.results)}\n\nShowing 3 of 230 results. More results exist: call mock-tool again with the same arguments and set offset=100 and limit=100 to get the next page.`
+            )
+            // JSON output keeps `next` and `count`, so it needs no footer.
+            expect(json).toBe(JSON.stringify(handlerResult))
+        })
 
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
@@ -734,6 +781,7 @@ describe('exec tool', () => {
             'call mock-tool --json {"name":"foo","tags":["a","b"]}',
             'call mock-tool {"name":"foo","tags":["a","b"]} --json',
             'call mock-tool --confirm {"name":"foo","tags":["a","b"]} --json',
+            'call mock-tool "{\\"name\\":\\"foo\\",\\"tags\\":[\\"a\\",\\"b\\"]}" --json',
         ])('passes inline JSON arguments to the inner tool for %s', async (command) => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), tags: z.array(z.string()) }),
@@ -750,7 +798,10 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('preserves quote-heavy and multi-line content in inline JSON', async () => {
+        it.each([
+            { case: 'inline JSON', encode: (payload: string) => payload },
+            { case: 'inline JSON wrapped in a JSON string', encode: (payload: string) => JSON.stringify(payload) },
+        ])('preserves quote-heavy and multi-line content in $case', async ({ encode }) => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), content: z.string() }),
                 handler: async (_ctx, params) => params,
@@ -759,18 +810,35 @@ describe('exec tool', () => {
             const content = '# Title\n\nLine with "double quotes", \'single quotes\', and `backticks` — also unicode ☃.'
             const payload = JSON.stringify({ name: 'skill', content })
             const result = await exec.handler(mockContext, {
-                command: `call --json mock-tool ${payload}`,
+                command: `call --json mock-tool ${encode(payload)}`,
             })
             expect(JSON.parse(result as string)).toEqual({ name: 'skill', content })
         })
 
-        it('throws a descriptive error when the inline JSON body is malformed', async () => {
+        it('runs a bare SQL string sent to execute-sql as its query', async () => {
+            const tool = makeMockTool({
+                name: 'execute-sql',
+                schema: z.object({ query: z.string() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call --json execute-sql "SELECT 1"' })
+            expect(JSON.parse(result as string)).toEqual({ query: 'SELECT 1' })
+        })
+
+        it.each([
+            { case: 'is malformed', body: '{not-json}', expected: /Invalid JSON input:/ },
+            { case: 'is a JSON string', body: '"funnels"', expected: /expected a JSON object, got a string/ },
+            {
+                case: 'wraps invalid JSON in a string',
+                body: '"{not-json}"',
+                expected: /expected a JSON object, got a string/,
+            },
+            { case: 'is a bare number', body: '42', expected: /expected a JSON object, got a number/ },
+            { case: 'is null', body: 'null', expected: /expected a JSON object, got null/ },
+        ])('throws a descriptive error when the inline JSON body $case', async ({ body, expected }) => {
             const exec = createExec()
-            await expect(
-                exec.handler(mockContext, {
-                    command: 'call mock-tool {not-json}',
-                })
-            ).rejects.toThrow(/Invalid JSON input:/)
+            await expect(exec.handler(mockContext, { command: `call mock-tool ${body}` })).rejects.toThrow(expected)
         })
 
         it.each([
@@ -2015,6 +2083,38 @@ describe('exec tool', () => {
         })
     })
 
+    describe('refusing writes', () => {
+        const writeAnnotations = {
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: true,
+            readOnlyHint: false,
+        }
+        const readOnlyConnectedTool = makeMockTool({ name: 'linear__list_issues' })
+        const exec = createExec(
+            [
+                makeMockTool({ name: 'dashboard-get' }),
+                makeMockTool({ name: 'dashboard-delete', annotations: writeAnnotations }),
+            ],
+            undefined,
+            { refuseWrites: true, gatewayToolsProvider: async () => [readOnlyConnectedTool] }
+        )
+
+        it.each(['call dashboard-delete {}', 'call --confirm dashboard-delete {}', 'call linear__list_issues {}'])(
+            'sends %s to exec-write',
+            async (command) => {
+                await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
+                    reason: 'needs_write_tool',
+                    message: expect.stringContaining('exec-write'),
+                })
+            }
+        )
+
+        it('runs a read-only PostHog tool', async () => {
+            await expect(exec.handler(mockContext, { command: 'call dashboard-get {}' })).resolves.toBeDefined()
+        })
+    })
+
     describe('flag-gated tool redirects', () => {
         const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-update-cell' })
 
@@ -2112,6 +2212,7 @@ describe('exec tool', () => {
             ['llma-tagger-create', 'llma-evaluation-create'],
             ['vision-scanners-suggest-tags', 'vision-scanners-update'],
             ['warehouse-tables-create', 'data-warehouse-source-setup'],
+            ['stamphog-review-runs-create', 'code-review-approvals-runs-create'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -2188,9 +2289,14 @@ describe('exec tool', () => {
                 recovery:
                     'If the user already reconnected and approved all access, this tool is not available through the app yet.',
             },
+            {
+                apiToken: 'pha_test',
+                supportsStepUp: true,
+                recovery: 'Call the tool anyway: this client then asks the user to approve the missing scopes',
+            },
         ])(
-            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId)',
-            async ({ apiToken, oauthClientId, recovery }) => {
+            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId, $supportsStepUp)',
+            async ({ apiToken, oauthClientId, supportsStepUp, recovery }) => {
                 const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
                 const scopeGated = [
                     {
@@ -2211,6 +2317,7 @@ describe('exec tool', () => {
                     scopeGated,
                     {
                         oauthClientId,
+                        supportsStepUp,
                     }
                 )
 
