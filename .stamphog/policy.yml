@@ -87,7 +87,7 @@ deny:
                 - '^posthog/settings/nextgensquash\.py$'
                 - '^posthog/test/repo_invariants/(dataclass_secret_field_exemptions\.txt|setup_import_baseline\.txt)$'
                 - '^posthog/test/repo_invariants/test_(admin_url_conf|dataclass_secret_fields|generated_files_are_registered|migration_dependencies_share_a_database|migration_run_before|model_enum_defaults|squash_partial_fallback|startup_import_budget)\.py$'
-                - '^products/(architecture\.md|readme\.md)$'
+                - '^products/(architecture\.md|isolation_baseline\.txt|readme\.md)$'
                 - '^(hoglint\.exceptions\.toml|hoglint\.toml|tools/hoglint/presets/posthog\.toml)$'
                 - '^docs/internal/django-startup-time\.md$'
                 - '^docs/published/handbook/engineering/type-system\.md$'

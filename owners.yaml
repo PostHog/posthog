@@ -180,6 +180,7 @@ rules:
           - '/posthog/test/repo_invariants/test_startup_import_budget.py'
           - '/products/README.md'
           - '/products/architecture.md'
+          - '/products/isolation_baseline.txt'
           - '/tools/hoglint/'
           - '/tools/openapi-codegen/'
       owners: team-devex
