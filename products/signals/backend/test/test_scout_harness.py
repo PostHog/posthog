@@ -1358,6 +1358,7 @@ class TestPromptBuilder(BaseTest):
         # and the decision to spend a run validating it belongs to the scout, not the harness.
         assert "Follow up on your own past work" in prompt
         assert "followup:<your-skill-name>:<entity>" in prompt
+        assert "`key_prefix=followup:<your-skill-name>:`" in prompt
         assert "You decide when a run becomes a validation run" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
