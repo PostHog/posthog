@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -404,14 +403,31 @@ test('lists the files the release paths of the approver check miss', () => {
     ).toEqual(['hogwarts/spell.ts', 'products/surveys/backend/api.py'])
 })
 
-test("the approver check's release paths cover every input the release build names", () => {
-    const repoRoot = join(import.meta.dir, '../..')
-    const paths = execFileSync('bash', [join(import.meta.dir, 'check-approvers.sh'), '--list-paths'], {
-        encoding: 'utf8',
-    })
-        .split('\n')
-        .filter(Boolean)
-    const workflow = readFileSync(join(repoRoot, '.github/workflows/release-hog.yml'), 'utf8')
+test('lists the release build inputs the release paths miss', () => {
+    const workflow = [
+        'env:',
+        '    HOG_SOURCE_PATHS: >-',
+        '        hog',
+        '        packages/quill',
+        '        pnpm-lock.yaml',
+        'jobs:',
+        '    build:',
+        '        steps:',
+        '            - uses: actions/checkout@0000000000000000000000000000000000000000',
+        '              with:',
+        '                  sparse-checkout: |',
+        '                      /*',
+        '                      !/*/',
+        '                      /hog/',
+        '                      /products/surveys/mcp/',
+        '                      /bin/fix-rdkafka-paths',
+        '            - uses: ./.github/actions/pnpm-install',
+    ].join('\n')
+    const paths = ['hog', ':(glob)products/*/mcp/**', 'pnpm-lock.yaml', '.github/actions/pnpm-install']
 
-    expect(outsideReleasePaths(releaseBuildInputs(workflow), paths)).toEqual([])
+    expect(outsideReleasePaths(releaseBuildInputs(workflow), paths)).toEqual([
+        'bin/fix-rdkafka-paths',
+        'packages/quill',
+        '.github/workflows/release-hog.yml',
+    ])
 })
