@@ -81,9 +81,10 @@ describe('app builder AI updates', () => {
 
     it.each([
         { tool: 'notebooks-add-cell', input: { notebook_id: shortId }, expected: 'AI source' },
+        { tool: 'notebooks-run', input: { notebook_id: shortId }, followUp: true, expected: 'AI source' },
         { tool: 'notebooks-widget-status', input: { short_id: shortId }, expected: 'AI source' },
         { tool: 'notebooks-run', input: { notebook_id: 'another-notebook' }, expected: 'A notebook' },
-    ])('refreshes source after a foreground turn: $tool $input', async ({ tool, input, expected }) => {
+    ])('refreshes source after a foreground turn: $tool $input', async ({ tool, input, followUp, expected }) => {
         const source = notebookLogic({ shortId })
         source.actions.loadNotebook()
         await waitFor(() => expect(source.values.markdownEditorValue).toBe('A notebook'))
@@ -95,7 +96,7 @@ describe('app builder AI updates', () => {
         })
         saved = { ...saved, content: buildMarkdownNotebookContent('AI source') }
         await act(async () => {
-            toolStreamEventsLogic.actions.emitToolEvent({
+            const completion = {
                 streamKey: 'source-run',
                 toolCallId: 'source-update',
                 toolName: tool,
@@ -110,7 +111,20 @@ describe('app builder AI updates', () => {
                     status: 'completed',
                     contentBlocks: [],
                 },
-            } satisfies ToolStreamEvent)
+            } satisfies ToolStreamEvent
+            toolStreamEventsLogic.actions.emitToolEvent(completion)
+            if (followUp) {
+                toolStreamEventsLogic.actions.emitToolEvent({
+                    ...completion,
+                    toolName: 'notebooks-widget-status',
+                    toolCallId: 'other-widget',
+                    invocation: {
+                        ...completion.invocation,
+                        toolCallId: 'other-widget',
+                        input: { command: 'call notebooks-widget-status {"short_id":"another-notebook"}' },
+                    },
+                })
+            }
             expect(source.values.markdownEditorValue).toBe('A notebook')
             toolStreamEventsLogic.actions.emitTurnCompleteEvent({ streamKey: 'source-run' })
             await expectLogic(source).toFinishAllListeners()

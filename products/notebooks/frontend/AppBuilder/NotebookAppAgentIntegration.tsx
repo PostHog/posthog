@@ -77,14 +77,10 @@ export function NotebookAppAgentIntegration({ shortId }: { shortId: string }): n
         ],
         targetKey: dismissGroup,
         applyOn: 'turn_end',
-        onApply: async (event, { innerInput }) => {
-            const target = innerInput?.notebook_id ?? innerInput?.short_id
-            if (
-                target !== shortId ||
-                event.invocation.error ||
-                source.values.localContent !== null ||
-                source.values.notebookLoading
-            ) {
+        matches: (event, { innerInput }) =>
+            (innerInput?.notebook_id ?? innerInput?.short_id) === shortId && !event.invocation.error,
+        onApply: async () => {
+            if (source.values.localContent !== null || source.values.notebookLoading) {
                 return
             }
             try {

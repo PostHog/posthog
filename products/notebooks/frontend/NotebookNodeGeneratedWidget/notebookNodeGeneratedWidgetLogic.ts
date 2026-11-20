@@ -151,7 +151,7 @@ export interface notebookNodeGeneratedWidgetLogicValues {
 
 export interface notebookNodeGeneratedWidgetLogicActions
     extends
-        Pick<notebookNodeStalenessLogicActions, 'nodeRunFinished' | 'registerWidgetInputs' | 'unregisterWidgetInputs'>,
+        Pick<notebookNodeStalenessLogicActions, 'dataNodesUpdated' | 'registerWidgetInputs' | 'unregisterWidgetInputs'>,
         Pick<notebookRunLogicActions, 'runFinished'> {
     syncWidgetInputs: () => { value: true }
     artifactAvailable: () => { value: true }
@@ -462,7 +462,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     'abortChain',
                     'runWidgetDataChain',
                     'widgetDataChainFinished',
-                    'nodeRunFinished',
+                    'dataNodesUpdated',
                     'registerWidgetInputs',
                     'unregisterWidgetInputs',
                 ],
@@ -981,13 +981,8 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         actions.refreshData()
                     }
                 },
-                nodeRunFinished: ({ nodeId, status, content }) => {
-                    if (
-                        status !== 'done' ||
-                        values.notebookRunInProgress ||
-                        values.isDataChainRunning ||
-                        values.dataRefreshInFlight
-                    ) {
+                dataNodesUpdated: ({ nodeIds: updatedNodeIds, content }) => {
+                    if (!updatedNodeIds.length || values.notebookRunInProgress || values.dataRefreshInFlight) {
                         return
                     }
                     const frames = getWidgetSourceFrameNames(
@@ -1000,7 +995,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     )
                     if (
                         !missingFrameNames.length &&
-                        nodeIds.includes(nodeId) &&
+                        updatedNodeIds.some((id) => nodeIds.includes(id)) &&
                         !nodeIds.some((id) => values.staleNodeIds[id])
                     ) {
                         actions.refreshData()
