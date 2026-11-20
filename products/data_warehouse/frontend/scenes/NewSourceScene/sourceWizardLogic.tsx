@@ -1171,7 +1171,7 @@ export interface sourceWizardLogicMeta {
             | 'Set up webhook'
             | 'Tables ready to query'
         isWrapped: (arg: any) => boolean
-        incrementalFieldModelEnabled: (featureFlags: FeatureFlagsSet, isDirectQueryMode: boolean, arg: any) => boolean
+        incrementalFieldModelEnabled: (isDirectQueryMode: boolean, arg: any) => boolean
     }
 }
 
@@ -2067,15 +2067,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         // One-click setup shows no table list, so a late pick would change tables nobody reviews.
         // A direct-query source syncs nothing, so a pick would only reorder unused candidates.
         incrementalFieldModelEnabled: [
-            (s) => [s.featureFlags, s.isDirectQueryMode, (_, props) => props.autoConfigureTables],
-            (
-                featureFlags: FeatureFlagsSet,
-                isDirectQueryMode: boolean,
-                autoConfigureTables: boolean | undefined
-            ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL] &&
-                !isDirectQueryMode &&
-                !autoConfigureTables,
+            (s) => [s.isDirectQueryMode, (_, props) => props.autoConfigureTables],
+            (isDirectQueryMode: boolean, autoConfigureTables: boolean | undefined): boolean =>
+                !isDirectQueryMode && !autoConfigureTables,
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
