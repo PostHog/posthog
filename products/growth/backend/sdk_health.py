@@ -206,7 +206,7 @@ class OutdatedTrafficAlert:
     threshold_percent: float
 
 
-@dataclass
+@dataclass(frozen=False)
 class SdkAssessment:
     """Per-SDK health assessment (corresponds to AugmentedTeamSdkVersionsInfo entry)."""
 
