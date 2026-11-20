@@ -66,6 +66,20 @@ describe('userLogic', () => {
         localStorage.clear()
     })
 
+    it('reports a failed intro save to error tracking', async () => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        useMocks({ patch: { '/api/users/@me/product_intro_seen': () => [500, {}] } })
+        jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        await expectLogic(userLogic, () => {
+            userLogic.actions.updateHasSeenProductIntroFor('today_pane_intro_settings')
+        }).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith(expect.anything(), { product_key: 'today_pane_intro_settings' })
+        expect(localStorage.getItem('product-intro-seen')).toBeNull()
+        jest.restoreAllMocks()
+    })
+
     describe('SQL draft logout cleanup', () => {
         beforeEach(() => {
             localStorage.clear()

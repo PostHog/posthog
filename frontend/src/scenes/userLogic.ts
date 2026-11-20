@@ -907,7 +907,9 @@ export const userLogic = kea<userLogicType>([
                 // Marking an intro seen runs behind whatever the user is already doing, so a failure is
                 // logged rather than surfaced: a toast would land on top of the intro they just dismissed.
                 // The intro comes back next visit, which is the honest outcome of a write that didn't land.
+                // Error tracking still gets the failure, because the person sees only an intro that returns.
                 console.error(error)
+                posthog.captureException(error, { product_key: productKey })
             }
         },
         switchTeam: ({ teamId, destination }) => {
