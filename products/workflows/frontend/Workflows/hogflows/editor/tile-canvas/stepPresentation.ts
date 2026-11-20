@@ -176,13 +176,13 @@ function hoursOf(time: string): number {
     return hours + (minutes || 0) / 60
 }
 
-/** The open hours of each weekday, Monday first. Matches the workflow runner: a window whose end is not after
- * its start runs past midnight, and that morning part belongs to the day the window started. */
 // The step holds only the skill name; the workflow editor does not load scout configs to look up a display name.
 function scoutName(skillName: string | undefined): string | undefined {
     return skillName ? prettifyScoutSkillName(skillName) : undefined
 }
 
+/** The open hours of each weekday, Monday first. Matches the workflow runner: a window whose end is not after
+ * its start runs past midnight, and that morning part belongs to the day the window started. */
 export function timeWindowSpans(config: TimeWindowConfig): TimeSpan[][] {
     return WEEKDAY_NAMES.map((_, weekday) => {
         const isOpenOn = (offset: number): boolean => isWindowDay(config.day, (weekday + 7 - offset) % 7)
