@@ -22,6 +22,7 @@ import {
     useState,
     useSyncExternalStore,
 } from 'react'
+import { flushSync } from 'react-dom'
 
 import { IconCode, IconComment, IconDrag } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -423,15 +424,16 @@ const COMMENT_GUTTER_MIN_CONTAINER_WIDTH_PX = 960
 /** Vertical spacing between stacked comment threads in the gutter. */
 const GUTTER_COMMENT_GAP_PX = 8
 
-function getRefHighlightTop(container: HTMLElement, refId: string): number | null {
-    let top: number | null = null
-    container.querySelectorAll(`[data-notebook-ref="${CSS.escape(refId)}"]`).forEach((element) => {
+function getRefHighlightTops(canvas: HTMLElement): Map<string, number> {
+    const tops = new Map<string, number>()
+    canvas.querySelectorAll<HTMLElement>('[data-notebook-ref]').forEach((element) => {
+        const refId = element.dataset.notebookRef
         const rect = element.getBoundingClientRect()
-        if (rect.height > 0 && (top === null || rect.top < top)) {
-            top = rect.top
+        if (refId && rect.height > 0) {
+            tops.set(refId, Math.min(tops.get(refId) ?? Infinity, rect.top))
         }
     })
-    return top
+    return tops
 }
 
 /** Short, human-skimmable id shared by a `<ref>` highlight and its `<Comment ref>` thread. */
@@ -1032,6 +1034,11 @@ function MarkdownNotebookEditor({
 
         const commentNodes = document.nodes.filter(isDiscussionCommentNode)
         const layoutGutterComments = (): void => {
+            const canvas = canvasRef.current
+            if (!canvas) {
+                return
+            }
+            const highlightTops = getRefHighlightTops(canvas)
             const threads = commentNodes.flatMap((node) => {
                 const shell = blockRefs.current[node.id]
                 const row = shell?.closest('.MarkdownNotebook__row')
@@ -1040,7 +1047,7 @@ function MarkdownNotebookEditor({
                 }
                 const rowTop = row.getBoundingClientRect().top
                 const refId = getDiscussionCommentRefId(node)
-                const anchorTop = refId && canvasRef.current ? getRefHighlightTop(canvasRef.current, refId) : null
+                const anchorTop = refId ? highlightTops.get(refId) : undefined
                 return [{ nodeId: node.id, shell, rowTop, anchorTop: anchorTop ?? rowTop, height: shell.offsetHeight }]
             })
             threads.sort((left, right) => left.anchorTop - right.anchorTop)
@@ -1048,7 +1055,7 @@ function MarkdownNotebookEditor({
             const tops = stackGutterThreads(
                 threads,
                 threads.findIndex((thread) => thread.nodeId === activeCommentNodeId),
-                canvasRef.current?.getBoundingClientRect().top ?? -Infinity,
+                canvas.getBoundingClientRect().top,
                 GUTTER_COMMENT_GAP_PX
             )
             threads.forEach(({ shell, rowTop }, index) => {
@@ -4282,11 +4289,9 @@ function MarkdownNotebookEditor({
             return
         }
 
-        setActiveCommentNodeId(commentNode.id)
-        // In the margin the thread moves next to the clicked highlight, which is already in view.
-        if (!fitsCommentGutter) {
-            scrollNotebookElementIntoView(element)
-        }
+        // Stacking can leave the selected thread below its highlight. Scroll after its new position is applied.
+        flushSync(() => setActiveCommentNodeId(commentNode.id))
+        scrollNotebookElementIntoView(element)
         element.classList.add('MarkdownNotebook__component-shell--comment-flash')
         window.setTimeout(() => element.classList.remove('MarkdownNotebook__component-shell--comment-flash'), 1600)
     }
@@ -4421,15 +4426,9 @@ function MarkdownNotebookEditor({
             focusDiscussionCommentForRef(refId)
             return
         }
-        const clickedThread = event.target.closest('.MarkdownNotebook__row--margin-comment')
-        const clickedCommentNode = clickedThread
-            ? documentRef.current.nodes.find(
-                  (node) => blockRefs.current[node.id]?.closest('.MarkdownNotebook__row') === clickedThread
-              )
-            : undefined
-        setActiveCommentNodeId(
-            clickedCommentNode && isDiscussionCommentNode(clickedCommentNode) ? clickedCommentNode.id : null
-        )
+        if (!event.target.closest('.MarkdownNotebook__row--margin-comment')) {
+            setActiveCommentNodeId(null)
+        }
     }
 
     // A block comment has no `<ref>` highlight: the thread anchors purely by sitting right
@@ -7129,9 +7128,11 @@ function MarkdownNotebookEditor({
                 )}
                 onMouseEnter={(event) => updateActiveBoundaryFromRow(event, index)}
                 onMouseMove={(event) => updateActiveBoundaryFromRow(event, index)}
-                onFocusCapture={() => {
+                onClickCapture={isDiscussionCommentNode(node) ? () => setActiveCommentNodeId(node.id) : undefined}
+                onFocusCapture={(event) => {
                     handleRowFocus(index)
-                    if (isDiscussionCommentNode(node)) {
+                    // Moving a pressed control before mouseup would cancel its click.
+                    if (isDiscussionCommentNode(node) && !event.currentTarget.matches(':active')) {
                         setActiveCommentNodeId(node.id)
                     }
                 }}
