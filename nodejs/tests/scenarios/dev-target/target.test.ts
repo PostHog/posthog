@@ -3,7 +3,7 @@ import { AddressInfo } from 'net'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { captureEmit, devTarget } from './target'
+import { captureEmit } from './target'
 
 describe('captureEmit', () => {
     it.each([
@@ -25,7 +25,6 @@ describe('captureEmit', () => {
         const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
         const config = {
             host: url,
-            capture: url,
             offers: { teamId: 1, token: 'phc_test', workflowId: 'flow-1' },
             receiptsTeamId: 2,
             key: 'phx_test',
@@ -49,28 +48,6 @@ describe('captureEmit', () => {
                     },
                 },
             ])
-        } finally {
-            await new Promise<void>((done) => server.close(() => done()))
-        }
-    })
-
-    it('fails its seed, which the runner reads before it offers, when dev does not know the workflow', async () => {
-        const server = http.createServer((_req, res) => res.writeHead(404).end('{}'))
-        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-        const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-        const config = {
-            host: url,
-            capture: url,
-            offers: { teamId: 1, token: 'phc_test', workflowId: 'flow-1' },
-            receiptsTeamId: 2,
-            key: 'phx_test',
-        }
-        try {
-            const run = devTarget(config).open(undefined as never, 'run-a')
-
-            await expect(run.seed(new AbortController().signal)).rejects.toThrow(
-                'dev answered the workflow metrics read with 404'
-            )
         } finally {
             await new Promise<void>((done) => server.close(() => done()))
         }

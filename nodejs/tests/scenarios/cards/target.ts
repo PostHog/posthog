@@ -15,6 +15,7 @@ function devProblems(
     { drive, invariants, measure, bars, valves, setup, convergeWithin }: Card,
     profile: Profile
 ): string[] {
+    const shapes = drive.traffic.map(({ name }) => captureWebhook.profile.safeParse(profile.traffic[name]).data)
     const used: Record<string, string[]> = {
         'drive.traffic': drive.traffic.map(({ name }) => name),
         drive: drive.stopOnBreak ? ['stopOnBreak'] : [],
@@ -25,11 +26,10 @@ function devProblems(
         profile: [
             ...(['settings', 'replicas'] as const).filter((key) => Object.keys(profile[key]).length > 0),
             ...(['backlog', 'load', 'host'] as const).filter((key) => profile[key] !== undefined),
+            ...(shapes.some((shape) => (shape?.parks ?? 0) > 0) ? ['parks'] : []),
         ],
     }
-    const rates = drive.traffic.map(
-        ({ name }) => captureWebhook.profile.safeParse(profile.traffic[name]).data?.ratePerSecond ?? 0
-    )
+    const rates = shapes.map((shape) => shape?.ratePerSecond ?? 0)
     const steps = stepsOf(drive)
     const peak = rates.reduce((sum, rate) => sum + rate, 0) * Math.max(...steps.map(({ scale }) => scale))
     // Rounds each step and kind the way the generator schedules them, so the cap counts the units it sends.
@@ -49,7 +49,7 @@ function devProblems(
         ...(durationMs(drive.for) <= DEV_CAPS.driveMs ? [] : ['drive.for: dev drives for 10m at most']),
         ...(durationMs(convergeWithin) >= DEV_CAPS.convergeMs
             ? []
-            : ['convergeWithin: dev waits 5m at least, since receipts take minutes to become queryable']),
+            : ['convergeWithin: dev allows 5m at least to converge, since receipts take minutes to become queryable']),
         ...((drive.ramp ?? []).every((step) => durationMs(step.for) >= DEV_CAPS.stepMs)
             ? []
             : ['drive.ramp: each dev step lasts 1m at least, so rounding cannot bunch offers into a burst']),

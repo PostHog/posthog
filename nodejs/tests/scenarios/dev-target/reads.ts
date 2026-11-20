@@ -95,3 +95,15 @@ export async function unfinishedRuns(config: DevConfig, since: string): Promise<
         series.find((entry) => entry.name === name)?.values.reduce((sum, value) => sum + value, 0) ?? 0
     return Math.max(0, total('triggered') - total('fetch') - total('failed') - total('quota_limited'))
 }
+
+export async function checkOffersToken(config: DevConfig): Promise<void> {
+    const { teamId, token } = config.offers
+    const { api_token } = (await devFetch(
+        `${config.host}/api/projects/${teamId}/`,
+        { headers: { authorization: `Bearer ${config.key}` } },
+        'offers project read'
+    )) as { api_token?: string }
+    if (api_token !== token) {
+        throw new Error(`DEV_TARGET_OFFERS_TOKEN is not the token of project ${teamId}, so offers would land elsewhere`)
+    }
+}

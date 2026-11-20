@@ -9,7 +9,6 @@ describe('devConfigOf', () => {
     writeFileSync(keyFile, 'phx_test\n')
     const env = {
         DEV_TARGET_HOST: 'https://dev.example.com',
-        DEV_TARGET_CAPTURE: 'https://capture.example.com/',
         DEV_TARGET_OFFERS_TEAM_ID: '1',
         DEV_TARGET_OFFERS_TOKEN: 'phc_test',
         DEV_TARGET_WORKFLOW_ID: '0190f6a2-0000-7000-8000-000000000001',
@@ -22,7 +21,6 @@ describe('devConfigOf', () => {
     it('reads the target from the environment and the key from its file', () => {
         expect(devConfigOf(env)).toEqual({
             host: 'https://dev.example.com',
-            capture: 'https://capture.example.com',
             offers: { teamId: 1, token: 'phc_test', workflowId: '0190f6a2-0000-7000-8000-000000000001' },
             receiptsTeamId: 2,
             key: 'phx_test',

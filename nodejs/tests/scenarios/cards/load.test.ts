@@ -422,6 +422,12 @@ describe('load', () => {
             'profile: dev does not run settings',
         ],
         ['a host block', devCard, { ...devProfile, host: { cpuCeiling: 0.5 } }, 'profile: dev does not run host'],
+        [
+            'parked flows, which the workflow on dev does not have',
+            devCard,
+            { ...devProfile, traffic: { capture_webhook: { ratePerSecond: 1, parks: 2 } } },
+            'profile: dev does not run parks',
+        ],
         ['a second project', { ...devCard, setup: { teams: 2 } }, devProfile, 'setup.teams: '],
         [
             'the same traffic twice, whose first offers would start together',
@@ -476,7 +482,7 @@ describe('load', () => {
             'a convergence window shorter than receipts take to become queryable',
             { ...devCard, convergeWithin: '30s' },
             devProfile,
-            'convergeWithin: dev waits 5m at least',
+            'convergeWithin: dev allows 5m at least',
         ],
         [
             'a ramp step shorter than a minute, where rounding bunches offers',

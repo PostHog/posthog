@@ -32,7 +32,7 @@ async function fakeDev(state: { receipts: Receipt[]; series: Record<string, numb
             if (req.url === '/api/projects/2/query/') {
                 const key = JSON.stringify(body.query)
                 const limit = Number(/limit (\d+)/.exec(body.query.query)?.[1] ?? 100)
-                const scoped = body.query.query.includes('properties.run_id = {run_id}')
+                const scoped = /properties\.run_id\s*=\s*\{run_id\}/.test(body.query.query)
                 const rows = state.receipts
                     .filter(({ runId }) => !scoped || runId === body.query.values.run_id)
                     .slice(0, limit)
@@ -55,7 +55,6 @@ async function fakeDev(state: { receipts: Receipt[]; series: Record<string, numb
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     const config: DevConfig = {
         host: url,
-        capture: url,
         offers: { teamId: 1, token: 'phc_test', workflowId: 'flow-1' },
         receiptsTeamId: 2,
         key: 'phx_test',

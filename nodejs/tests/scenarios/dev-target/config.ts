@@ -2,7 +2,6 @@ import { readFileSync, statSync } from 'fs'
 
 export type DevConfig = {
     host: string
-    capture: string
     offers: { teamId: number; token: string; workflowId: string }
     receiptsTeamId: number
     key: string
@@ -10,7 +9,6 @@ export type DevConfig = {
 
 const NAMES = [
     'DEV_TARGET_HOST',
-    'DEV_TARGET_CAPTURE',
     'DEV_TARGET_OFFERS_TEAM_ID',
     'DEV_TARGET_OFFERS_TOKEN',
     'DEV_TARGET_WORKFLOW_ID',
@@ -54,7 +52,6 @@ export function devConfigOf(env: NodeJS.ProcessEnv): DevConfig {
     }
     return {
         host: origin('DEV_TARGET_HOST'),
-        capture: origin('DEV_TARGET_CAPTURE'),
         offers: { teamId: team('DEV_TARGET_OFFERS_TEAM_ID'), token, workflowId },
         receiptsTeamId: team('DEV_TARGET_RECEIPTS_TEAM_ID'),
         key,

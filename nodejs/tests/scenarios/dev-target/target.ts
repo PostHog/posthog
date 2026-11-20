@@ -5,14 +5,14 @@ import type { Wiring } from '../environment/topology'
 import { Emit, captureWebhook } from '../generator/traffic'
 import type { RunTarget } from '../runner/runner'
 import type { DevConfig } from './config'
-import { receiptTruth, unfinishedRuns } from './reads'
+import { checkOffersToken, receiptTruth, unfinishedRuns } from './reads'
 
 const METRICS_EVERY_MS = 10_000
 
 export const captureEmit =
     (config: DevConfig, runId: string): Emit =>
     async (unit, event, properties) => {
-        const response = await internalFetch(`${config.capture}/i/v0/e/`, {
+        const response = await internalFetch(`${config.host}/i/v0/e/`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
@@ -48,9 +48,10 @@ export function devTarget(config: DevConfig): RunTarget {
                 fetchRetries: 0,
                 groups: [],
                 connect: () => Promise.resolve(),
-                // Reading the workflow's metrics proves the key, the project and the workflow before any offer.
+                // Proves the key, the workflow, and that offers land in its project, before any offer.
                 seed: async () => {
                     await unfinishedJobs()
+                    await checkOffersToken(config)
                     return { teamIds: [teamId], flowIds: { [captureWebhook.name]: { [teamId]: workflowId } } }
                 },
                 probes: () =>
