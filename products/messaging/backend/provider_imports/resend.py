@@ -428,7 +428,7 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
         )
     # The opt-out steps saw only these contacts, so a contact added to Resend later waits for the next import.
     scanned = {row["email"].lower() for row in contacts.everyone}
-    segments = []
+    segments: list[ContactList] = []
     for page in client.pages("/segments"):
         for segment in page.data:
             segment_id = str(segment.get("id") or "")
