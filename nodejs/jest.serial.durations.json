@@ -5,6 +5,7 @@
     "src/cdp/rerun/rerun-e2e.serial.test.ts": 9,
     "src/cdp/services/cohort-membership/sweeper.service.serial.test.ts": 1,
     "src/cdp/services/hogflows/realtime-cohort-audience.service.serial.test.ts": 0,
+    "src/cdp/services/poison-batch/batch-quarantine-e2e.serial.test.ts": 95,
     "src/cdp/workflows-e2e.serial.test.ts": 96,
     "src/common/kafka/consumer/consumer-v2.rebalance.integration.serial.test.ts": 28,
     "src/ingestion/ingestion-consumer.serial.test.ts": 16,

@@ -10,11 +10,10 @@ import {
     MCPDashboardSection,
     MCPDashboardSectionResult,
     MCPModelBreakdownQuery,
-    MCPProtocolVersionBreakdownItem,
     NodeKind,
 } from '~/queries/schema/schema-general'
 
-import { MCPAnalyticsDashboardOverview } from '../MCPAnalyticsDashboardOverview'
+import { MCPAnalyticsLeaderboardHome } from '../leaderboardHome/MCPAnalyticsLeaderboardHome'
 import {
     type DailyActivity,
     type HarnessRow,
@@ -22,7 +21,6 @@ import {
     type KPIMetric,
     type ModelRow,
     type NotableSession,
-    type ToolDailySeries,
     type ToolRow,
 } from '../mcpDashboardOverviewLogic'
 import { ActivityChart } from './ActivityChart'
@@ -30,9 +28,8 @@ import { HarnessBarChart } from './HarnessBarChart'
 import { KpiTiles } from './KpiTiles'
 import { ModelBarChart } from './ModelBarChart'
 import { NotableSessionsTable } from './NotableSessionsTable'
-import { ProtocolVersionStrip } from './ProtocolVersionStrip'
 import { ToolErrorRateChart } from './ToolErrorRateChart'
-import { ToolUsageChart } from './ToolUsageChart'
+import { ToolLatencyChart } from './ToolLatencyChart'
 
 const DAYS = ['Jun 1', 'Jun 2', 'Jun 3', 'Jun 4', 'Jun 5', 'Jun 6', 'Jun 7']
 
@@ -48,16 +45,6 @@ const DAILY_ACTIVITY_PARTIAL_TAIL: DailyActivity = {
     labels: DAYS,
     successes: [4180, 4360, 4560, 4430, 4720, 4920, 1680],
     errors: [120, 140, 160, 170, 180, 176, 54],
-}
-
-const TOOL_DAILY: ToolDailySeries = {
-    labels: DAYS,
-    tools: [
-        { tool: 'exec', data: [720, 760, 800, 740, 820, 880, 910] },
-        { tool: 'execute-sql', data: [210, 230, 250, 240, 260, 280, 300] },
-        { tool: 'read-data-schema', data: [110, 120, 95, 130, 140, 150, 120] },
-        { tool: 'query-trends', data: [60, 80, 70, 90, 100, 80, 110] },
-    ],
 }
 
 const TOOL_ROWS: ToolRow[] = [
@@ -76,6 +63,7 @@ const HARNESS_ROWS: HarnessRow[] = [
     { category: 'Cursor', total_calls: 1200, errors: 24, error_rate_pct: 2, sessions: 180 },
     { category: 'Cowork', total_calls: 800, errors: 8, error_rate_pct: 1, sessions: 120 },
     { category: 'Claude.ai', total_calls: 400, errors: 12, error_rate_pct: 3, sessions: 80 },
+    { category: 'Claude Artifacts', total_calls: 300, errors: 3, error_rate_pct: 1, sessions: 60 },
     { category: 'Other', total_calls: 200, errors: 10, error_rate_pct: 5, sessions: 50 },
     { category: 'PostHog CLI', total_calls: 125, errors: 5, error_rate_pct: 4, sessions: 20 },
     { category: 'Windsurf', total_calls: 90, errors: 0, error_rate_pct: 0, sessions: 15 },
@@ -120,15 +108,6 @@ const modelPagesDecorator = mswDecorator({
         },
     },
 })
-
-const PROTOCOL_VERSION_ROWS: MCPProtocolVersionBreakdownItem[] = [
-    { protocol_version: '2026-07-28', is_current: true, total_calls: 5832 },
-    { protocol_version: '2025-11-25', is_current: false, total_calls: 2256 },
-    { protocol_version: '2025-06-18', is_current: false, total_calls: 13296 },
-    { protocol_version: '2025-03-26', is_current: false, total_calls: 15 },
-    { protocol_version: '2024-11-05', is_current: false, total_calls: 20 },
-    { protocol_version: 'Unknown', is_current: false, total_calls: 982 },
-]
 
 const NOTABLE_SESSIONS: NotableSession[] = [
     {
@@ -188,6 +167,7 @@ const KPIS: KPIData = {
     toolCalls: metric(31420, 27800, [4100, 4300, 4500, 4720, 4600, 4900, 5100], 'up'),
     errorRatePct: metric(3.6, 4.1, [4.2, 3.9, 3.5, 3.3, 3.7, 3.4, 3.2], 'down'),
     p95LatencyMs: metric(2240, 2380, [1900, 2050, 2100, 2080, 2200, 2150, 2240], 'down'),
+    users: metric(1840, 1655, [262, 271, 280, 294, 288, 301, 312], 'up'),
 }
 
 const meta: Meta = {
@@ -217,10 +197,11 @@ export const KeyMetrics: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -235,10 +216,11 @@ export const KeyMetricsInProgressBucket: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -254,10 +236,11 @@ export const KeyMetricsLoading: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(0, 0, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading
                 usersLoading
+                kpisLoaded={false}
+                usersLoaded={false}
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -276,11 +259,13 @@ export const KeyMetricsEmptyRange: Story = {
                     toolCalls: metric(0, 0, [], 'up'),
                     errorRatePct: metric(0, 0, [], 'down'),
                     p95LatencyMs: metric(0, 0, [], 'down'),
+                    users: metric(0, 0, [], 'up'),
                 }}
-                users={metric(0, 0, [], 'up')}
                 intentClusterCount={metric(0, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 showIntentClusters
                 theme={buildTheme()}
                 interval="day"
@@ -295,10 +280,11 @@ export const KeyMetricsLoadError: Story = {
         <div className="w-[960px]">
             <KpiTiles
                 kpis={KPIS}
-                users={metric(1840, 1655, [], 'up')}
                 intentClusterCount={metric(6, 0, [], 'up')}
                 kpisLoading={false}
                 usersLoading={false}
+                kpisLoaded
+                usersLoaded
                 kpisFailed
                 onRetryKpis={() => {}}
                 showIntentClusters
@@ -478,29 +464,6 @@ export const ShareByModelEmpty: Story = {
     render: withTheme((theme) => <ModelBarChart rows={[]} theme={theme} />),
 }
 
-export const ShareByProtocolVersion: Story = {
-    render: withTheme((theme) => <ProtocolVersionStrip rows={PROTOCOL_VERSION_ROWS} theme={theme} />),
-}
-
-export const ShareByProtocolVersionManyLegacy: Story = {
-    render: withTheme((theme) => (
-        <ProtocolVersionStrip
-            rows={[
-                { protocol_version: 'draft', is_current: true, total_calls: 120 },
-                { protocol_version: '2026-07-28', is_current: true, total_calls: 5832 },
-                { protocol_version: '2025-11-25', is_current: false, total_calls: 2256 },
-                { protocol_version: '2025-06-18', is_current: false, total_calls: 13296 },
-                { protocol_version: '2025-03-26', is_current: false, total_calls: 415 },
-                { protocol_version: '2024-11-05', is_current: false, total_calls: 220 },
-                { protocol_version: 'v2', is_current: false, total_calls: 90 },
-                { protocol_version: 'Other', is_current: false, total_calls: 60 },
-                { protocol_version: 'Unknown', is_current: false, total_calls: 982 },
-            ]}
-            theme={theme}
-        />
-    )),
-}
-
 export const ErrorRateByTool: Story = {
     render: withTheme((theme) => <ToolErrorRateChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
@@ -521,17 +484,10 @@ export const ErrorRateByToolLoadError: Story = {
     )),
 }
 
-export const DailyToolBreakdown: Story = {
-    render: withTheme((theme) => (
-        <ToolUsageChart data={TOOL_DAILY} loading={false} theme={theme} timezone="UTC" interval="day" />
-    )),
-}
-
-export const DailyToolBreakdownLoading: Story = {
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
-    render: withTheme((theme) => (
-        <ToolUsageChart data={{ labels: [], tools: [] }} loading theme={theme} timezone="UTC" interval="day" />
-    )),
+// The full dashboard stories snapshot this card next to the error-rate card, so this story only checks that it renders.
+export const SlowestToolsByLatency: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: withTheme((theme) => <ToolLatencyChart rows={TOOL_ROWS} loading={false} theme={theme} />),
 }
 
 export const FlaggedSessions: Story = {
@@ -551,7 +507,7 @@ export const FlaggedSessionsLoading: Story = {
     ),
 }
 
-// The overview also sends queries of other kinds, such as the recent activity card's EventsQuery.
+// The leaderboard also sends queries of other kinds, such as First Look's EventsQuery.
 function answerDashboardSections(
     answer: (section: MCPDashboardSection) => MCPDashboardSectionResult,
     otherQueries: [number, object]
@@ -579,16 +535,19 @@ function answerDashboardSections(
         ],
         render: () => (
             <div className="w-[960px]">
-                <MCPAnalyticsDashboardOverview />
+                <MCPAnalyticsLeaderboardHome />
             </div>
         ),
     }
 }
 
-export const OverviewUnknownModels: Story = answerDashboardSections(
-    (section) => ({
-        results: section === MCPDashboardSection.ModelRows ? [{ model: 'Unknown', total_calls: 100 }] : [],
-    }),
+const UNKNOWN_MODEL_SECTIONS: Partial<Record<MCPDashboardSection, unknown[]>> = {
+    [MCPDashboardSection.ModelRows]: [{ model: 'Unknown', total_calls: 100 }],
+    [MCPDashboardSection.Model]: [['2026-06-07', 'Unknown', 100]],
+}
+
+export const LeaderboardUnknownModels: Story = answerDashboardSections(
+    (section) => ({ results: UNKNOWN_MODEL_SECTIONS[section] ?? [] }),
     [200, { results: [] }]
 )
 
@@ -599,7 +558,7 @@ const SECTIONS_THAT_LOAD = [
     MCPDashboardSection.SessionRows,
 ]
 
-export const OverviewLoadError: Story = answerDashboardSections(
+export const LeaderboardLoadError: Story = answerDashboardSections(
     (section) => (SECTIONS_THAT_LOAD.includes(section) ? { results: [] } : { error: 'Query timed out' }),
     [504, { detail: 'Query timed out' }]
 )

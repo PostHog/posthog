@@ -22,6 +22,8 @@ export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =
   featureFlagKeys.TASKS_PREWARM_SANDBOX_FLAG;
+/** Lets cloud tasks run in a GitLab project from a gitlab.com integration. Same flag key as the backend. */
+export const TASKS_GITLAB_FLAG = featureFlagKeys.TASKS_GITLAB_FLAG;
 
 export const TASK_ANALYSIS_FLAG = featureFlagKeys.TASK_ANALYSIS_FLAG;
 /** Gates the Fast Mode section of the reasoning dropdown. */
@@ -29,10 +31,6 @@ export const FAST_MODE_FLAG = featureFlagKeys.FAST_MODE_FLAG;
 export const GITLAB_INTEGRATION_FLAG = featureFlagKeys.GITLAB_INTEGRATION_FLAG;
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
 export const SPOKEN_NARRATION_FLAG = featureFlagKeys.SPOKEN_NARRATION_FLAG;
-export const CODEX_OWN_SUBSCRIPTION_FLAG =
-  featureFlagKeys.CODEX_OWN_SUBSCRIPTION_FLAG;
-export const CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG =
-  featureFlagKeys.CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG =

@@ -22,6 +22,9 @@ Vocabulary, one term per concept:
   staler than a consumer requires).
   In interval-space a smaller timedelta means fresher/more frequent, so as plain
   timedeltas: source_floor <= target <= consumer_ceiling.
+- plan floor: the finest cadence the organization's plan lets a person set. It applies to every node
+  of the team alike, so it is not a graph property. It withholds finer options and refuses new or
+  faster targets below it. The scheduler ignores it, and a target saved before it applied stays.
 - pinned: an opt-in on a node with a declared target. Its effective cadence is its own target,
   so consumers do not speed it up, and its ancestors see the pinned target instead of the demand
   below it. It has no consumer ceiling. Its children inherit the coarser of its source floor and
@@ -43,7 +46,15 @@ import dataclasses
 from collections import defaultdict, deque
 from collections.abc import Collection, Iterable, Mapping, Set
 from datetime import timedelta
-from typing import Literal
+
+from products.data_modeling.backend.facade.contracts import (
+    Bound,
+    PlanFloorRefusalError,
+    TargetBounds,
+    TargetOption,
+    UnsatisfiableFrequencyError,
+    UnsupportedFrequencyTargetError,
+)
 
 # A streamed source (e.g. the events table) is continuously fresh, so it imposes no
 # floor: a descendant may be as tight as the buckets allow. Imported sources instead
@@ -71,14 +82,6 @@ SCHEDULABLE_BUCKETS: frozenset[timedelta] = frozenset(
         timedelta(days=30),
     }
 )
-
-
-class UnsatisfiableFrequencyError(ValueError):
-    """A declared target falls outside the node's legal [source_floor, consumer_ceiling] range."""
-
-
-class UnsupportedFrequencyTargetError(ValueError):
-    """A declared target is not one of the cadences a person may pick (SCHEDULABLE_BUCKETS)."""
 
 
 def is_finer_than(cadence: timedelta, other: timedelta) -> bool:
@@ -179,19 +182,6 @@ def compute_effective_cadences(
     if len(resolved) != len(nodes):
         raise ValueError(f"cycle detected in DAG; unresolved nodes: {sorted(nodes - resolved.keys())}")
     return resolved
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class Bound:
-    """A bound and the node that set it, so a refusal can name what someone has to change.
-
-    `blocker` is the node the value originates from, carried across the whole traversal rather
-    than the immediate neighbour: a floor propagated down four views still points at the source
-    that delivers slowly, which is the thing a person can act on.
-    """
-
-    value: timedelta
-    blocker: str | None  # None when nothing set it (a derived node with no parents)
 
 
 def _bound_sort_key(bound: Bound) -> tuple[timedelta, str]:
@@ -441,45 +431,6 @@ def normalize_seed_target(seed: timedelta, source_floor: timedelta) -> timedelta
     return bucket
 
 
-BlockedBy = Literal["source", "consumer"]
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class TargetOption:
-    """One cadence a person could pick, and why it is withheld when it is."""
-
-    value: timedelta
-    allowed: bool
-    blocked_by: BlockedBy | None = None
-    blocker: str | None = None  # node id of the source or consumer that withholds it
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class TargetBounds:
-    """Every selectable cadence for one node, each marked allowed or blocked with its cause.
-
-    `floor` and `ceiling` are reported only when they actually withhold an option. A 5min source
-    delivers faster than any tier runs, so it withholds nothing, and reporting it would explain a
-    restriction the person cannot see.
-    """
-
-    options: tuple[TargetOption, ...]  # ascending by cadence
-    floor: Bound | None = None
-    ceiling: Bound | None = None
-
-    @property
-    def allowed(self) -> tuple[timedelta, ...]:
-        return tuple(option.value for option in self.options if option.allowed)
-
-    @property
-    def satisfiable(self) -> bool:
-        """False when nothing is legal: bounds that cross, or a source slower than every target."""
-        return bool(self.allowed)
-
-    def option_for(self, target: timedelta) -> TargetOption | None:
-        return next((option for option in self.options if option.value == target), None)
-
-
 def compute_target_bounds(
     *,
     node_id: str,
@@ -487,6 +438,7 @@ def compute_target_bounds(
     declared_targets: dict[str, timedelta],
     source_intervals: dict[str, timedelta],
     pinned: Collection[str] = frozenset(),
+    plan_floor: timedelta | None = None,
 ) -> TargetBounds:
     """Resolve one node's selectable cadences, marking each blocked option with what blocks it.
 
@@ -501,16 +453,22 @@ def compute_target_bounds(
     ceiling = all_consumer_ceiling_bounds(edges, declared_targets, pinned).get(node_id)
     if node_id in pinned:
         ceiling = None
-    return _bounds_from(floor=floor, ceiling=ceiling)
+    return _bounds_from(floor=floor, ceiling=ceiling, plan_floor=plan_floor)
 
 
-def _bounds_from(*, floor: Bound, ceiling: Bound | None) -> TargetBounds:
-    """Mark every cadence against one pair of bounds, reporting each bound only if it blocks."""
+def _reachable_ceiling(source_floor: timedelta, consumer_ceiling: timedelta) -> timedelta:
+    return max(consumer_ceiling, nearest_schedulable_bucket_at_least(source_floor))
+
+
+def _bounds_from(*, floor: Bound, ceiling: Bound | None, plan_floor: timedelta | None = None) -> TargetBounds:
+    """Mark every cadence against the bounds, reporting each bound only if it blocks."""
     options: list[TargetOption] = []
     for value in sorted(SCHEDULABLE_BUCKETS):
         if is_finer_than(value, floor.value):
             options.append(TargetOption(value=value, allowed=False, blocked_by="source", blocker=floor.blocker))
-        elif ceiling is not None and is_coarser_than(value, ceiling.value):
+        elif plan_floor is not None and is_finer_than(value, plan_floor):
+            options.append(TargetOption(value=value, allowed=False, blocked_by="plan"))
+        elif ceiling is not None and is_coarser_than(value, _reachable_ceiling(floor.value, ceiling.value)):
             options.append(TargetOption(value=value, allowed=False, blocked_by="consumer", blocker=ceiling.blocker))
         else:
             options.append(TargetOption(value=value, allowed=True))
@@ -519,6 +477,7 @@ def _bounds_from(*, floor: Bound, ceiling: Bound | None) -> TargetBounds:
     return TargetBounds(
         options=tuple(options),
         floor=floor if "source" in blocked else None,
+        plan_floor=plan_floor if "plan" in blocked else None,
         ceiling=ceiling if "consumer" in blocked else None,
     )
 
@@ -533,11 +492,18 @@ def intersect_target_bounds(bounds: Iterable[TargetBounds]) -> TargetBounds:
     """
     per_dag = list(bounds)
     floors = [bound.floor for bound in per_dag if bound.floor is not None]
+    plan_floors = [bound.plan_floor for bound in per_dag if bound.plan_floor is not None]
     ceilings = [bound.ceiling for bound in per_dag if bound.ceiling is not None]
-    return _bounds_from(
+    merged = _bounds_from(
         floor=max(floors, key=_bound_sort_key) if floors else Bound(value=STREAMING, blocker=None),
         ceiling=min(ceilings, key=_bound_sort_key) if ceilings else None,
+        plan_floor=max(plan_floors) if plan_floors else None,
     )
+    blocked_in_some_dag = {option.value: option for bound in per_dag for option in bound.options if not option.allowed}
+    options = tuple(
+        blocked_in_some_dag.get(option.value, option) if option.allowed else option for option in merged.options
+    )
+    return TargetBounds(options=options, floor=merged.floor, plan_floor=merged.plan_floor, ceiling=merged.ceiling)
 
 
 def _describe(node_id: str | None, names: Mapping[str, str] | None, fallback: str) -> str:
@@ -565,27 +531,13 @@ def _nothing_satisfiable_message(
     bounds: TargetBounds, names: Mapping[str, str] | None, pinned: Collection[str] = frozenset()
 ) -> str:
     """Explain a node with no legal cadence at all: crossed bounds, or a source slower than 30 days."""
-    floor, ceiling = bounds.floor, bounds.ceiling
-    floor_reason = _floor_reason(floor, names, pinned) if floor else FloorReason(node="", why="")
-    source = floor_reason.node
-    consumer = _describe(ceiling.blocker, names, "a view or endpoint built on this one") if ceiling else ""
-    if floor is not None and ceiling is not None:
-        return (
-            f"No cadence works here: {floor_reason.why},"
-            f" but {consumer} refreshes every {humanize_cadence(ceiling.value)}."
-            f" Slow down {consumer} or speed up {source}."
-        )
-    if floor is not None:
-        return (
-            f"No cadence works here: {floor_reason.why},"
-            f" less often than anything this can refresh at. Speed up {source} first."
-        )
-    if ceiling is not None:
-        return (
-            f"No cadence works here: {consumer} refreshes every {humanize_cadence(ceiling.value)},"
-            f" more often than anything this can refresh at. Slow down {consumer} first."
-        )
-    return "No cadence works here."
+    if bounds.floor is None:
+        return "No cadence works here."
+    floor_reason = _floor_reason(bounds.floor, names, pinned)
+    return (
+        f"No cadence works here: {floor_reason.why},"
+        f" less often than anything this can refresh at. Speed up {floor_reason.node} first."
+    )
 
 
 def ensure_schedulable(target: timedelta) -> None:
@@ -606,12 +558,14 @@ def validate_declared_target(
     source_intervals: dict[str, timedelta],
     names: Mapping[str, str] | None = None,
     pinned: Collection[str] = frozenset(),
+    plan_floor: timedelta | None = None,
 ) -> None:
     """Raise if `target` is not selectable or falls outside the node's bounds.
 
     `names` maps node ids to display names; supply it to have refusals name the source or view
     that blocks the target, which is the thing a person has to change to unblock it. `pinned`
-    holds the pin state the write would leave, including `node_id`'s own.
+    holds the pin state the write would leave, including `node_id`'s own. `plan_floor` is the
+    finest cadence the organization's plan allows, or None when its plan sets no floor.
     """
     ensure_schedulable(target)
 
@@ -621,14 +575,21 @@ def validate_declared_target(
         declared_targets=declared_targets,
         source_intervals=source_intervals,
         pinned=pinned,
+        plan_floor=plan_floor,
     )
     option = bounds.option_for(target)
     if option is None or option.allowed:
         return
 
+    if option.blocked_by == "plan" and declared_targets.get(node_id) == target:
+        return
+
     # Nothing legal to fall back to, so no message here can end in "pick X instead"
     if not bounds.satisfiable:
-        raise UnsatisfiableFrequencyError(_nothing_satisfiable_message(bounds, names, pinned))
+        message = _nothing_satisfiable_message(bounds, names, pinned)
+        if option.blocked_by == "plan" and bounds.plan_floor is not None:
+            raise PlanFloorRefusalError(message, target=target, plan_floor=bounds.plan_floor)
+        raise UnsatisfiableFrequencyError(message)
 
     # Suggest a cadence the same call would accept, and name the bound itself rather than a
     # direction. Bounds are inclusive, so the bound is always a legal answer, while "or slower" /
@@ -637,6 +598,13 @@ def validate_declared_target(
         raise UnsatisfiableFrequencyError(
             f"Can't refresh every {humanize_cadence(target)}: {_floor_reason(bounds.floor, names, pinned).why}."
             f" Pick {humanize_cadence(min(bounds.allowed))} instead."
+        )
+    if option.blocked_by == "plan" and bounds.plan_floor is not None:
+        raise PlanFloorRefusalError(
+            f"Can't refresh every {humanize_cadence(target)} on your plan."
+            f" Pick {humanize_cadence(min(bounds.allowed))} instead, or upgrade to refresh more often.",
+            target=target,
+            plan_floor=bounds.plan_floor,
         )
     if option.blocked_by == "consumer" and bounds.ceiling is not None:
         consumer = _describe(option.blocker, names, "a view or endpoint built on this one")
@@ -680,7 +648,8 @@ def find_invalid_targets(
         source_floor = floors.get(node_id, STREAMING)
         consumer_ceiling = ceilings.get(node_id)
         if (node_id not in floor_exempt and is_finer_than(declared, source_floor)) or (
-            consumer_ceiling is not None and is_coarser_than(declared, consumer_ceiling)
+            consumer_ceiling is not None
+            and is_coarser_than(declared, _reachable_ceiling(source_floor, consumer_ceiling))
         ):
             invalid.append(
                 InvalidTarget(

@@ -5,9 +5,13 @@ import { forwardRef, memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import { useInView } from 'react-intersection-observer'
 
+import { Card } from '@posthog/quill'
+
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { InsightCard, InsightCardProps } from 'lib/components/Cards/InsightCard/InsightCard'
 import { InsightVisualizationSkeleton } from 'lib/components/Cards/InsightCard/InsightVisualizationSkeleton'
+import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dateRangeZoomEnd, hasTimeComponent } from 'scenes/insights/insightVizDataLogic'
@@ -59,8 +63,10 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         refreshDashboardItem,
         setTileOverride,
         zoomDateRange,
+        setTileInView,
     } = useActions(dashboardLogic)
-    const { zoomPreview } = useValues(dashboardLogic)
+    const { zoomPreview, dashboardV2Enabled } = useValues(dashboardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { renameInsight } = useActions(insightsModel)
     const { tile, insight } = cardProps
     const [keepMountedForOverlay, setKeepMountedForOverlay] = useState(false)
@@ -78,6 +84,15 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         skip: exportPlacement,
     })
     const mergedRefs = useMergeRefs([ref, visibilityRef, keepRef])
+    // Only the dashboard page loads and refreshes tiles by what is on screen.
+    const reportsInView = dashboardV2Enabled && cardProps.placement === DashboardPlacement.Dashboard
+    useEffect(() => {
+        if (!reportsInView) {
+            return
+        }
+        setTileInView(tile.id, inView)
+        return () => setTileInView(tile.id, false)
+    }, [inView, reportsInView, tile.id, setTileInView])
     useEffect(() => {
         if (inView && !cardMounted) {
             return queueDashboardInsightMount(() => setCardMounted(true))
@@ -153,30 +168,40 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
     const interactionActive = gridClasses.includes('resizing') || gridClasses.includes('react-draggable-dragging')
     const shouldMountCard = cardMounted || exportPlacement || interactionActive || keepMountedForOverlay
 
-    return (
-        <div
-            ref={mergedRefs}
-            className={clsx('dashboard-insight-tile DashboardTileCard', className)}
-            style={style}
-            onMouseDown={onMouseDown}
-            onMouseUp={onMouseUp}
-            onTouchStart={onTouchStart}
-            onTouchEnd={onTouchEnd}
-        >
+    const shellProps = {
+        ref: mergedRefs,
+        className: clsx('dashboard-insight-tile DashboardTileCard', todayRailNav && 'overflow-visible pt-0', className),
+        style,
+        onMouseDown,
+        onMouseUp,
+        onTouchStart,
+        onTouchEnd,
+    }
+    const tileContent = (
+        <>
             {shouldMountCard ? (
-                <MemoizedInsightCard
-                    {...cardProps}
-                    {...tileActions}
-                    insight={displayedInsight}
-                    onDateRangeZoom={onDateRangeZoom}
-                    keepMountedDuringInteraction={interactionActive}
-                    onOverlayVisibilityChange={setKeepMountedForOverlay}
-                    renderVizWhenMounted
-                >
-                    {decorations}
-                </MemoizedInsightCard>
+                <QuillSurfaceContext.Provider value={todayRailNav}>
+                    <MemoizedInsightCard
+                        {...cardProps}
+                        {...tileActions}
+                        insight={displayedInsight}
+                        onDateRangeZoom={onDateRangeZoom}
+                        keepMountedDuringInteraction={interactionActive}
+                        onOverlayVisibilityChange={setKeepMountedForOverlay}
+                        renderVizWhenMounted
+                    >
+                        {decorations}
+                    </MemoizedInsightCard>
+                </QuillSurfaceContext.Provider>
             ) : (
-                <div className="dashboard-insight-tile__placeholder" aria-hidden="true">
+                <div
+                    className={clsx(
+                        'dashboard-insight-tile__placeholder',
+                        todayRailNav && 'dashboard-insight-tile__placeholder--quill'
+                    )}
+                    data-not-quill
+                    aria-hidden="true"
+                >
                     <LemonSkeleton className="h-3 w-2/5" active={false} />
                     {inView ? (
                         <InsightVisualizationSkeleton query={insight.query} />
@@ -187,6 +212,14 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
             )}
             {showResizeHandles && <DashboardResizeHandles />}
             {children}
-        </div>
+        </>
+    )
+
+    return todayRailNav ? (
+        <Card flush {...shellProps}>
+            {tileContent}
+        </Card>
+    ) : (
+        <div {...shellProps}>{tileContent}</div>
     )
 })

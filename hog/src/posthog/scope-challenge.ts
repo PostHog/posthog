@@ -17,9 +17,12 @@ export function fewestScopes(scopes: readonly string[]): string[] {
 // `--host` or posthog.json can pick a login that isn't the default. Only URL characters keep the command safe.
 const SHELL_SAFE_HOST = /^https?:\/\/[\w.:-]+(\/[\w./-]*)?$/
 
+export function hostFlag(host: string | undefined): string {
+    return host !== undefined && SHELL_SAFE_HOST.test(host) ? ` --host ${host}` : ''
+}
+
 export function stepUpCommand(scopes: readonly string[], host?: string): string {
-    const hostFlag = host !== undefined && SHELL_SAFE_HOST.test(host) ? ` --host ${host}` : ''
-    return `hog auth add${hostFlag} ${scopes.join(' ')}`
+    return `hog auth add${hostFlag(host)} ${scopes.join(' ')}`
 }
 
 export function canStepUp(credentials: Credentials | undefined): boolean {
@@ -32,7 +35,7 @@ export function workloadScopesHint(scopes: readonly string[]): string {
 }
 
 export function addToKeyHint(scopes: readonly string[]): string {
-    return `Add ${scopes.join(', ')} to the personal API key in PostHog under Settings, Personal API keys.`
+    return `Add ${scopes.join(', ')} to the personal API key in PostHog under Settings > Personal API keys.`
 }
 
 // RFC 6750 section 3.1. A newer PostHog can name a scope this hog doesn't know, so only the shape is checked.

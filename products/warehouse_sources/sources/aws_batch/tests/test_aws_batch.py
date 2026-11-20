@@ -333,6 +333,61 @@ def test_service_jobs_read_only_service_queues(config: AwsBatchSourceConfig) -> 
 
 
 @pytest.mark.parametrize(
+    "resume_state,expected_queues",
+    [
+        (None, ["arn:queue:ecs", "arn:queue:service"]),
+        (AwsBatchResumeConfig(queue_arns=["arn:queue:ecs", "arn:queue:service"], queue_index=1), ["arn:queue:service"]),
+    ],
+)
+def test_job_queue_snapshots_read_each_queue_once(
+    config: AwsBatchSourceConfig, resume_state: AwsBatchResumeConfig | None, expected_queues: list[str]
+) -> None:
+    snapshots: dict[str, dict[str, Any]] = {
+        "arn:queue:ecs": {
+            "frontOfQueue": {
+                "jobs": [{"jobArn": "arn:job/first", "earliestTimeAtPosition": 1735689600000}],
+                "lastUpdatedAt": 1735689605000,
+            },
+            "queueUtilization": {"totalCapacityUsage": [{"capacityUnit": "VCPU", "quantity": 4.0}]},
+        },
+        "arn:queue:service": {"frontOfQueue": {"lastUpdatedAt": 0}, "frontOfQuotaShares": {"quotaShares": {}}},
+    }
+
+    def send(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("describejobqueues"):
+            return ScriptedResponse(
+                json={
+                    "jobQueues": [
+                        {"jobQueueArn": "arn:queue:ecs", "computeEnvironmentOrder": [{"order": 1}]},
+                        {"jobQueueArn": "arn:queue:service", "serviceEnvironmentOrder": [{"order": 1}]},
+                    ]
+                }
+            )
+        return ScriptedResponse(json=snapshots[request.json()["jobQueue"]])
+
+    result = driver(config).run("job_queue_snapshots", send, resume_state=resume_state)
+    assert result.raised is None
+    snapshot_requests = [request.json() for request in result.requests if request.path == "/v1/getjobqueuesnapshot"]
+    assert snapshot_requests == [{"jobQueue": queue} for queue in expected_queues]
+    rows = {row["job_queue_arn"]: row for row in result.rows}
+    assert list(rows) == expected_queues
+    assert rows["arn:queue:service"] == {
+        "job_queue_arn": "arn:queue:service",
+        "front_of_queue_jobs": [],
+        "last_updated_at": None,
+        "front_of_quota_shares": {"quotaShares": {}},
+        "region": "eu-west-1",
+    }
+    if "arn:queue:ecs" in rows:
+        assert rows["arn:queue:ecs"]["front_of_queue_jobs"] == snapshots["arn:queue:ecs"]["frontOfQueue"]["jobs"]
+        assert rows["arn:queue:ecs"]["last_updated_at"] == dt.datetime(2025, 1, 1, 0, 0, 5, tzinfo=dt.UTC)
+        assert rows["arn:queue:ecs"]["queue_utilization"] == snapshots["arn:queue:ecs"]["queueUtilization"]
+    assert [state.queue_index for state in result.saved_states][-1] == 2
+    assert result.saved_states[-1].complete
+    assert result.response is not None and result.response.primary_keys == ["job_queue_arn"]
+
+
+@pytest.mark.parametrize(
     "endpoint,list_key,item_key,detail_path,expected_details",
     [
         (
@@ -568,6 +623,7 @@ def test_connection_error_is_actionable(config: AwsBatchSourceConfig, exception:
         ("service_jobs", ["describejobqueues", "listservicejobs"]),
         ("scheduling_policies", ["listschedulingpolicies", "describeschedulingpolicies"]),
         ("consumable_resources", ["listconsumableresources", "describeconsumableresource"]),
+        ("job_queue_snapshots", ["describejobqueues", "getjobqueuesnapshot"]),
     ],
 )
 def test_validation_probes_only_required_operations(
@@ -597,10 +653,14 @@ def test_validation_probes_only_required_operations(
     with scripted_network(send) as network:
         assert validate_credentials(config, CREDENTIALS, schema_name) == (True, None)
     assert [request.path.removeprefix("/v1/") for request in network.requests_log] == paths
-    probed_queues = {"job_children": "arn:queue", "service_jobs": "arn:service-queue"}
+    probed_queues = {
+        "job_children": "arn:queue",
+        "service_jobs": "arn:service-queue",
+        "job_queue_snapshots": "arn:service-queue",
+    }
     if schema_name in probed_queues:
         assert (
-            network.requests_log[-1 if schema_name == "service_jobs" else -2].json()["jobQueue"]
+            network.requests_log[-2 if schema_name == "job_children" else -1].json()["jobQueue"]
             == probed_queues[schema_name]
         )
     if schema_name in ("jobs", "job_children"):

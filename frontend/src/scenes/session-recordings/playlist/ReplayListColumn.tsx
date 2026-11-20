@@ -44,7 +44,9 @@ export function ReplayListColumn({
                           <>
                               Highlights
                               {unwatchedPicksCount > 0 && (
-                                  <Badge className="group-hover/button:bg-fill-selected">{unwatchedPicksCount}</Badge>
+                                  <Badge className="bg-(--primary) text-(--primary-foreground) group-data-active/button:bg-(--primary-foreground) group-data-active/button:text-(--primary)">
+                                      {unwatchedPicksCount}
+                                  </Badge>
                               )}
                           </>
                       ),

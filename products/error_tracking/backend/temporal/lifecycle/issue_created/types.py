@@ -6,6 +6,7 @@ from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIs
 
 EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE = "EmbeddingServiceUnavailable"
 SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE = "SeverityInferenceUnavailable"
+ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE = "IssueTagsUnavailable"
 
 
 IssueCreatedSnapshot = LifecycleIssueSnapshot
@@ -31,6 +32,16 @@ class SeverityInferenceSkipReason(StrEnum):
     GATEWAY_REJECTED = "gateway_rejected"
     UNEXPECTED_ANSWER = "unexpected_answer"
     SEVERITY_CHANGED = "severity_changed"
+
+
+class IssueTaggerOutcome(StrEnum):
+    ANSWERED = "answered"
+    DECISIONS_UNAVAILABLE = "decisions_unavailable"
+    UNAVAILABLE = "unavailable"
+    GATEWAY_REJECTED = "gateway_rejected"
+    FAILED = "failed"
+    EVENT_MISSING = "event_missing"
+    WORKER_BUSY = "worker_busy"
 
 
 @dataclasses.dataclass(frozen=True)

@@ -14,11 +14,13 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
+from products.slack_app.backend.logic.politeness import POLITE_REQUEST_REACTION, is_polite_request
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
 from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
+    extract_message_text,
     parse_slack_file_refs,
     post_slack_thread_reply,
     thread_permalink,
@@ -613,6 +615,7 @@ def create_posthog_code_task_for_repo_activity(
         api as signals_facade,
         report_tasks,
     )
+    from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -685,10 +688,11 @@ def create_posthog_code_task_for_repo_activity(
     user_message_ts = event.get("ts")
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
+        if is_polite_request(extract_message_text(event)):
+            safe_react(slack.client, channel, user_message_ts, POLITE_REQUEST_REACTION)
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
-        extract_message_text,
         labeled_mentions_to_display_names,
     )
     from products.slack_app.backend.services.slack_user_info import get_slack_user_info  # noqa: PLC0415
@@ -925,11 +929,15 @@ def create_posthog_code_task_for_repo_activity(
         )
 
         if signal_report_id:
+            # The report's scout reads the question, and what a scout reads can reach the whole project.
+            # Only a public channel thread was already open to everyone in the workspace.
+            shared_in_public_channel = not is_fork and conversation_type in PUBLIC_CHANNEL_CONVERSATION_TYPES
             tasks_facade.link_slack_task_to_report(
                 team_id=integration.team_id,
                 task_id=str(created.task_id),
                 report_id=signal_report_id,
                 user_id=user_id,
+                question=title_text or None if shared_in_public_channel else None,
             )
         # Track the workflow to link Temporal jobs to Slack threads
         state_updates: dict[str, Any] = {
@@ -1114,6 +1122,13 @@ def forward_posthog_code_followup_activity(
         slack_user_id=slack_user_id,
         context="followup",
     ):
+        return True
+
+    try:
+        tasks_facade.check_wake_by_task_id(mapping.task_id, source="slack_follow_up")
+    except tasks_facade.TaskDoneError as error:
+        _clear_processing_reaction(slack, channel, user_message_ts)
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=str(error))
         return True
 
     # Reply-tag fallback for turns with no per-turn actor (boot prompt,
@@ -1389,7 +1404,6 @@ def _stop_run_for_runtime_handoff(
     Two runs that both answer the thread are worse than a refusal.
     """
     from products.slack_app.backend.facade.run_preferences import describe_run_model, resolve_live_run_override
-    from products.slack_app.backend.feature_flags import is_slack_app_runtime_handoff_enabled
     from products.tasks.backend.facade import cancellation as tasks_cancellation
 
     if override is None or not override.model:
@@ -1417,11 +1431,6 @@ def _stop_run_for_runtime_handoff(
         slack_user_id=slack_user_id,
         actor_user=actor_user,
     )
-    # Captured with the flag off too, so the refusals show how many people ask for a runtime change.
-    if not is_slack_app_runtime_handoff_enabled(integration, actor_user.distinct_id if actor_user else None):
-        capture("flag_off")
-        return None
-
     try:
         outcome, _ = tasks_cancellation.cancel_task_run(
             task_run.id,
@@ -1674,6 +1683,22 @@ def _build_terminal_recovery_prompt(previous_run: Any, user_text: str) -> str:
     return "\n".join(recovery_lines) + "\n\n" + user_text
 
 
+def _refresh_conversation_type(mapping: Any, slack: Any, event: dict[str, Any], channel: str) -> None:
+    """Resolve the thread's conversation type again before a new run stores the follow-up.
+
+    Slack keeps the channel id when it converts a channel between public and private and sends no
+    event for the conversion, so the stored ``conversation_type`` can be stale. The new run puts the
+    reply in its state, and a stale public type lets the whole team read that state. A failed lookup
+    comes back as ``UNKNOWN``, which keeps the task with its creator.
+    """
+    from products.slack_app.backend.services.slack_conversations import resolve_conversation_type  # noqa: PLC0415
+
+    conversation_type = resolve_conversation_type(slack, event, channel)
+    if conversation_type != mapping.conversation_type:
+        mapping.conversation_type = conversation_type
+        mapping.save(update_fields=["conversation_type", "updated_at"])
+
+
 def _resume_task_with_new_run(
     mapping: Any,
     previous_run: Any,
@@ -1733,6 +1758,8 @@ def _resume_task_with_new_run(
             text="I can't restart the agent — the original task creator is no longer available.",
         )
         return True
+
+    _refresh_conversation_type(mapping, slack, inputs.event, channel)
 
     create_pr = True
 
@@ -1827,6 +1854,9 @@ def _resume_task_with_new_run(
             thread_ts=thread_ts,
             text=exc.detail,
         )
+        return True
+    except tasks_facade.TaskRunAlreadyLiveError as error:
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=str(error))
         return True
     except Exception:
         logger.exception(

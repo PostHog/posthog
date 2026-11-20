@@ -152,4 +152,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "status": "Tax status: active or inactive.",
         },
     },
+    "journals": {
+        "description": "Accounting journal entries with their debit and credit lines.",
+        "docs_url": "https://developer.alegra.com/reference/journalsindex",
+        "columns": {
+            "id": "Unique identifier of the journal entry.",
+            "date": "Journal entry date in YYYY-MM-DD format.",
+            "entries": "Journal lines with debit and credit amounts, description, contact, and cost center.",
+            "client": "Contact associated with the journal entry.",
+            "employee": "Employee associated with the journal entry.",
+            "observations": "Notes on the journal entry.",
+            "status": "Journal entry status: open or void.",
+            "total": "Total amount of the journal entry.",
+        },
+    },
 }

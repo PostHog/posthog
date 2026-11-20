@@ -1,5 +1,6 @@
 import time
 import asyncio
+import dataclasses
 from typing import Any
 
 import structlog
@@ -12,6 +13,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
+from products.slack_app.backend.feature_flags import is_slack_app_jev_needs_repo_enabled
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -81,6 +83,10 @@ def cascade_posthog_code_repository_activity(
     an explicit `org/repo` named in the mention or in the thread it sits in. Anything
     else returns `mode='agent_needed'` and the workflow takes over.
 
+    Behind ``slack-app-jev-needs-repo``, Jev first decides whether the ask needs code at
+    all. A no ends selection with no repo, even for a person with one repository; a yes
+    runs the same tiers and marks an ``agent_needed`` outcome as already classified.
+
     The discovery agent this preempts reads the whole thread, so the fast path must too:
     a mention-only read sends every ask whose link sits in an earlier message to a
     sandbox run that then finds the repo in text the fast path skipped. Only messages at
@@ -100,12 +106,27 @@ def cascade_posthog_code_repository_activity(
     integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     all_repos = _get_full_repo_names(integration, user_id=user_id)
 
+    posthog_user = User.objects.filter(id=user_id).first()
+    distinct_id = posthog_user.distinct_id if posthog_user else None
+
     if not all_repos:
         # No repos means no repo, whatever the team has installed. Deciding here that the user must
         # connect a personal install would gate the mention before anyone has asked whether it is
         # even about code; `no_repo` becomes a repo-less task instead, and the agent tells the user
         # to connect GitHub only once it can see that the ask needs code.
         outcome = PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
+    elif is_slack_app_jev_needs_repo_enabled(integration, distinct_id):
+        eligible_messages = _messages_at_or_before(thread_messages or [], mention_ts)
+        resolution = _ask_jev_needs_repo(integration, inputs, event_text, eligible_messages, all_repos, distinct_id)
+        if resolution != "classifier_needs_repo":
+            # The classifier step already recorded this decision as final.
+            return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason=resolution)
+        if len(all_repos) == 1:
+            outcome = PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
+        else:
+            outcome = _resolve_explicit_repo(event_text, eligible_messages, all_repos)
+            if outcome.mode == "agent_needed":
+                outcome = dataclasses.replace(outcome, needs_repo_classified=True)
     elif len(all_repos) == 1:
         outcome = PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
     else:
@@ -128,6 +149,58 @@ def cascade_posthog_code_repository_activity(
         connected_repo_count=len(all_repos),
     )
     return outcome
+
+
+def _ask_jev_needs_repo(
+    integration: WorkspaceIntegration,
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    event_text: str,
+    thread_messages: list[SlackThreadMessage],
+    all_repos: list[str],
+    distinct_id: str | None,
+) -> str:
+    """Ask Jev before any repository is picked, and return the step's resolution.
+
+    An unanswered question means no repo: a repo-less Slack run keeps its GitHub token,
+    so the agent can still clone a repository when the ask turns out to need one.
+    """
+    from products.slack_app.backend.temporal.activities.classifiers import (  # noqa: PLC0415 — classifiers imports this module
+        _thread_trace_id,
+        classify_needs_repo_with_jev,
+        team_routing_rule_lines,
+    )
+
+    probability: float | None = None
+    try:
+        verdict = classify_needs_repo_with_jev(
+            event_text,
+            thread_messages,
+            routing_rules=team_routing_rule_lines(
+                integration.team_id, candidate_repos={repo.lower() for repo in all_repos}
+            ),
+            team_id=integration.team_id,
+            distinct_id=distinct_id,
+            trace_id=_thread_trace_id(inputs.slack_team_id, inputs.event.get("thread_ts") or inputs.event.get("ts")),
+        )
+        probability = verdict.probability
+        resolution = "classifier_needs_repo" if verdict.needs_repo else "classifier_no_repo"
+        needs_repo = verdict.needs_repo
+    except Exception:
+        logger.warning("slack_app_jev_needs_repo_failed", integration_id=integration.id, exc_info=True)
+        resolution = "classifier_failed"
+        needs_repo = False
+
+    capture_repository_resolved(
+        integration,
+        inputs,
+        resolution,
+        has_repository=False,
+        is_final=not needs_repo,
+        connected_repo_count=len(all_repos),
+        classifier="jev",
+        needs_repo_probability=probability,
+    )
+    return resolution
 
 
 def _messages_at_or_before(messages: list[SlackThreadMessage], mention_ts: str | None) -> list[SlackThreadMessage]:

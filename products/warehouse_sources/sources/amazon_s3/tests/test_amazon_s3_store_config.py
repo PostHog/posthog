@@ -166,3 +166,23 @@ def test_a_role_that_cannot_be_resolved_fails_the_check_with_its_message() -> No
 
     assert not valid
     assert message is not None and ROLE_NOT_FOUND_ERROR in message
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("s3://customer-data", "customer-data/"),
+        ("s3://customer-data/exports", "customer-data/exports/"),
+        ("s3://customer-data/exports/", "customer-data/exports/"),
+        ("https://customer-data.s3.amazonaws.com/exports/2026/orders.csv", None),
+        ("https://s3.eu-west-1.amazonaws.com/customer-data/exports/**/*.parquet", None),
+    ],
+)
+def test_the_table_root_reads_only_the_url(url: str, expected: str | None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(_bucket: str) -> str:
+        raise AssertionError("the table root must not look up the bucket region")
+
+    monkeypatch.setattr("products.warehouse_sources.sources.amazon_s3.source.lookup_s3_bucket_region", refuse)
+    source = AmazonS3Source()
+
+    assert source.table_root(source.parse_config({**VALUES, "url_pattern": url}), team_id=1) == expected

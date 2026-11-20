@@ -8,6 +8,9 @@ from deltalite_selection import should_run
 PROJECT = """[project]
 name = "example"
 dependencies = ["deltalake[pyarrow]==1.0.0", "pyarrow==23.0.0", "duckdb~=1.5.0", "example==1.0.0"]
+
+[tool.importlinter]
+root_packages = ["example"]
 """
 
 
@@ -31,6 +34,11 @@ def repo(tmp_path: Path) -> Path:
     [
         ("uv.lock", "changed", False),
         ("pyproject.toml", PROJECT.replace("example==1.0.0", "example==2.0.0"), False),
+        ("pyproject.toml", PROJECT.replace('root_packages = ["example"]', 'root_packages = ["other"]'), False),
+        ("pyproject.toml", PROJECT.split("[tool.importlinter]")[0], False),
+        ("pyproject.toml", PROJECT + '\n[[tool.importlinter.contracts]]\nname = "example contract"\n', False),
+        ("pyproject.toml", PROJECT + "\n[tool.unknown]\nenabled = true\n", True),
+        ("pyproject.toml", PROJECT + '\n[tool.pytest.ini_options]\naddopts = "-x"\n', True),
         ("pyproject.toml", PROJECT.replace("deltalake[pyarrow]==1.0.0", "deltalake[pyarrow]==2.0.0"), True),
         ("pyproject.toml", PROJECT.replace("pyarrow==23.0.0", "pyarrow==24.0.0"), True),
         ("pyproject.toml", PROJECT.replace("duckdb~=1.5.0", "duckdb~=1.6.0"), True),

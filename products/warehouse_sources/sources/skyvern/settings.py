@@ -33,9 +33,8 @@ class SkyvernEndpointConfig:
     # Fan out over every run of every workflow (workflows -> runs -> this endpoint). The chain saves no
     # resume state, so a retried sync starts again from the first workflow.
     fan_out_over_runs: bool = False
-    # Whether the fan-out child endpoint takes page/page_size. Unpaginated children return everything in
-    # one response.
-    child_paginated: bool = True
+    # Whether the endpoint takes page/page_size. Unpaginated endpoints return everything in one response.
+    paginated: bool = True
     # Copy the parent workflow's workflow_permanent_id onto each child row, for children whose rows do
     # not carry it.
     include_workflow_permanent_id: bool = False
@@ -117,7 +116,7 @@ SKYVERN_ENDPOINTS: dict[str, SkyvernEndpointConfig] = {
         data_key="tags",
         primary_keys=["workflow_permanent_id", "key", "value"],
         fan_out_over_workflows=True,
-        child_paginated=False,
+        paginated=False,
         include_workflow_permanent_id=True,
         incremental_fields=[],
     ),
@@ -128,7 +127,7 @@ SKYVERN_ENDPOINTS: dict[str, SkyvernEndpointConfig] = {
         primary_keys=["workflow_id"],
         partition_key="created_at",
         fan_out_over_workflows=True,
-        child_paginated=False,
+        paginated=False,
         incremental_fields=[],
     ),
     # Block and thought entries of each run, flattened from the nested timeline tree. One request per
@@ -143,10 +142,57 @@ SKYVERN_ENDPOINTS: dict[str, SkyvernEndpointConfig] = {
         default_incremental_field="created_at",
         incremental_lookback=timedelta(days=3),
         fan_out_over_runs=True,
-        child_paginated=False,
+        paginated=False,
         # Entries of different runs arrive in no global created_at order.
         sort_mode=None,
         incremental_fields=[_CREATED_AT_FIELD],
+    ),
+    # Current tag state per run. Tags can change long after a run is created, so a created_at window
+    # would miss later changes: full refresh only, and off by default because it is one request per run.
+    "run_tags": SkyvernEndpointConfig(
+        name="run_tags",
+        path="/v1/runs/{workflow_run_id}/tags",
+        data_key="tags",
+        primary_keys=["workflow_run_id", "key", "value"],
+        should_sync_default=False,
+        fan_out_over_runs=True,
+        paginated=False,
+        sort_mode=None,
+        incremental_fields=[],
+    ),
+    # Artifact metadata of each run (screenshots, logs, recordings, downloads). One request per run, so
+    # it is off by default. Incremental syncs bound the runs with created_at_start, like `run_timeline`.
+    "run_artifacts": SkyvernEndpointConfig(
+        name="run_artifacts",
+        path="/v1/runs/{workflow_run_id}/artifacts",
+        primary_keys=["artifact_id"],
+        partition_key="created_at",
+        should_sync_default=False,
+        supports_incremental=True,
+        default_incremental_field="created_at",
+        incremental_lookback=timedelta(days=3),
+        fan_out_over_runs=True,
+        paginated=False,
+        sort_mode=None,
+        incremental_fields=[_CREATED_AT_FIELD],
+    ),
+    # Tag keys registered for the organization. workflow_count changes, so full refresh only.
+    "tag_keys": SkyvernEndpointConfig(
+        name="tag_keys",
+        path="/v1/tag-keys",
+        primary_keys=["key"],
+        paginated=False,
+        sort_mode=None,
+        incremental_fields=[],
+    ),
+    # Palette color and workflow usage count of each (key, value) tag.
+    "tag_values": SkyvernEndpointConfig(
+        name="tag_values",
+        path="/v1/tag-values",
+        primary_keys=["key", "value"],
+        paginated=False,
+        sort_mode=None,
+        incremental_fields=[],
     ),
 }
 

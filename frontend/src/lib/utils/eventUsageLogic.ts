@@ -681,6 +681,7 @@ function funnelProperties(querySource: InsightQueryNode): SanitizedQuery {
     return {
         funnel_viz_type: querySource.funnelsFilter?.funnelVizType,
         funnel_order_type: querySource.funnelsFilter?.funnelOrderType,
+        funnel_summary_on_dashboards: querySource.funnelsFilter?.showSummaryOnDashboards === true,
     }
 }
 
@@ -1920,7 +1921,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportTimeToSeeData: async ({ payload }) => {
-            posthog.capture('time to see data', payload)
+            posthog.capture('time to see data', { ...payload, $update_person_last_seen_at: false })
         },
         reportGroupTypeDetailDashboardCreated: async () => {
             posthog.capture('group type detail dashboard created')

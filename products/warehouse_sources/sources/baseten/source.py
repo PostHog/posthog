@@ -6,7 +6,7 @@ from products.warehouse_sources.sources.baseten.baseten import (
     baseten_source,
     validate_credentials as validate_baseten_credentials,
 )
-from products.warehouse_sources.sources.baseten.settings import BASETEN_ENDPOINTS, ENDPOINTS
+from products.warehouse_sources.sources.baseten.settings import BASETEN_ENDPOINTS, ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -86,11 +86,10 @@ Create an API key in your [Baseten workspace settings](https://app.baseten.co/se
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Baseten exposes no server-side "updated since" filter on any entity list endpoint, so every
-        # table syncs as a full refresh (no incremental fields).
+        # Only the audit log has a server-side time filter; every other table syncs as a full refresh.
         return build_endpoint_schemas(
             ENDPOINTS,
-            {},
+            INCREMENTAL_FIELDS,
             names,
             should_sync_default={endpoint: BASETEN_ENDPOINTS[endpoint].should_sync_default for endpoint in ENDPOINTS},
         )
@@ -122,4 +121,6 @@ Create an API key in your [Baseten workspace settings](https://app.baseten.co/se
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

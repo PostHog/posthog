@@ -40,6 +40,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     aws_redact_values,
+    camel_to_snake,
     make_tracked_session,
     sign_aws_request,
 )
@@ -69,7 +70,6 @@ _STALE_TOKEN_CODES = ("InvalidNextTokenException", "ExpiredNextTokenException")
 # billing view on a budget but doesn't list that code among the operation's errors.
 _SKIPPABLE_BUDGET_ERROR_CODES = ("NotFoundException", "BillingViewHealthStatusException")
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 _ACCOUNT_ID_PATTERN = re.compile(r"^\d{12}$")
 
@@ -114,11 +114,6 @@ class TimeWindow:
     end: dt.datetime
 
 
-def _snake(name: str) -> str:
-    """`IncludeTax` -> `include_tax`, `UseAmortized` -> `use_amortized`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
-
-
 def _parse_timestamp(value: Any) -> Optional[dt.datetime]:
     """Budgets serializes timestamps as epoch seconds under the JSON 1.1 protocol."""
     if isinstance(value, int | float) and not isinstance(value, bool):
@@ -146,7 +141,7 @@ def cost_type_columns(cost_types: Optional[dict[str, Any]]) -> dict[str, Any]:
     # Driven off the documented member list rather than the response, so a budget type that
     # carries no cost types still lands with the same columns.
     members = cost_types or {}
-    return {f"cost_types_{_snake(member)}": members.get(member) for member in COST_TYPE_MEMBERS}
+    return {f"cost_types_{camel_to_snake(member)}": members.get(member) for member in COST_TYPE_MEMBERS}
 
 
 def normalize_budget(budget: dict[str, Any]) -> dict[str, Any]:

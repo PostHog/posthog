@@ -73,6 +73,10 @@ Moves bucket boundaries; users may be reassigned between variants. Reassigned us
 get excluded (default) or attributed to first-seen. Either way, introduces bias.
 The product allows the edit on a running experiment, with a warning only.
 
+Only people whose hash lies in a part of a variant's range that the new split gives to another variant can be reassigned.
+Zeroing a middle variant moves only that variant's people; a rebalance from 50/50 to 30/70 moves only the control people in the 0.3 to 0.5 range.
+The `split_changed_mid_run` finding is info, with reason `few_could_switch`, when the people who can be reassigned are at most 5% of the people in the results; its evidence holds both counts.
+
 After a split change the sample ratio test compares the whole run against the new split, and can report a mismatch that the assignment never had (A2 in `bias-and-skew.md`), depending on how far the counts of the run sit from the new split.
 
 **Recommend:** reset the experiment if early; end and start a new one if significant data exists.

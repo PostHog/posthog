@@ -1,5 +1,3 @@
-"""Current default-branch CI verdict over the fixed recent-health window."""
-
 from datetime import datetime
 
 from posthog.hogql import ast
@@ -40,7 +38,7 @@ def query_current_branch_health(
     settled_workflows = 0
     failing_workflow_names: list[str] = []
     for workflow_name, completed_count, latest_failed in response.results or []:
-        # Nothing completed yet: not settled, and LATEST_COMPLETED_RUN_FAILED's 0 default would read as passing.
+        # With no completed run, LATEST_COMPLETED_RUN_FAILED's 0 default would read as passing.
         if not completed_count:
             continue
         settled_workflows += 1

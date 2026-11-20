@@ -1,0 +1,150 @@
+import {
+    pendingResult,
+    refuseInCi,
+    resumeApproval,
+    reusablePending,
+    runApproval,
+    SIGN_UP_INSTRUCTIONS,
+    type ApprovalFlow,
+    type ApprovalResult,
+    type PendingResult,
+} from '@/core/approval'
+import type { Context } from '@/core/context'
+import { EXIT_USAGE, HogError } from '@/core/errors'
+import type { AccessKey } from '@/posthog/access-key'
+import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
+import { LOGIN_SCOPES, type PendingLogin } from '@/posthog/device-auth'
+import { REGION_CHOICES, REGIONS, regionOf, sameHost, type Host } from '@/posthog/host'
+import type { ProjectId } from '@/posthog/ids'
+import { finishLogin } from '@/posthog/login/finish'
+import { loginFlow, saveLogin } from '@/posthog/login/flow'
+import type { OAuthLogin } from '@/posthog/oauth'
+
+import type { Stop } from '../result'
+import { runNext, type SetupRun, type Step } from '../setup-run'
+import { SETUP_NEXT, updateState, type SetupState } from '../state'
+
+function regionNote(host: Host, picked: SetupState['hostPicked'], named: boolean): string {
+    const current = REGION_CHOICES.find((choice) => choice.value === regionOf(host))
+    const other = REGION_CHOICES.find((choice) => choice.value !== current?.value)
+    if (named || picked === undefined || !current || !other) {
+        return ''
+    }
+
+    const using =
+        picked === 'default'
+            ? `hog defaults to ${current.label} (${current.hint})`
+            : `hog uses ${current.label} (${current.hint}), where they last logged in`
+    return ` Tell the user ${using}. If they want their data hosted in ${other.label}, or their account is on ${other.hint}, they shouldn't open the link and should tell you instead. Then run \`${SETUP_NEXT} --region ${other.value}\`. End your turn after telling them, and run \`${SETUP_NEXT}\` once they reply that they approved.`
+}
+
+function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, region: string): Stop {
+    const { url, code, expiresAt, next, instructions } = pending
+    const project = projectId === undefined ? '' : ` Tell them to pick project ${projectId} on that page.`
+
+    return {
+        code: 'setup_login_pending',
+        next: {
+            kind: 'wait',
+            command: next,
+            url,
+            code,
+            expiresAt,
+            instructions: `${instructions}${project}${region}`,
+        },
+    }
+}
+
+async function switchRegion(run: SetupRun, named: boolean): Promise<void> {
+    const { region } = run.input
+    const current = run.state?.host
+    if (region === undefined || named || current === undefined || sameHost(REGIONS[region], current)) {
+        return
+    }
+
+    run.state = await updateState(
+        run.ctx,
+        run.scope,
+        (state) => state && { ...state, host: REGIONS[region], hostPicked: undefined }
+    )
+}
+
+// An agent's first call gets the link, and its next call waits for that link. A person at the
+// terminal waits in `runApproval`.
+async function approve(
+    ctx: Context,
+    flow: ApprovalFlow<PendingLogin, OAuthLogin>
+): Promise<ApprovalResult<OAuthLogin>> {
+    const waiting = !ctx.prompts && (await reusablePending(ctx.runtime, flow, 0)) !== undefined
+    if (!waiting) {
+        return runApproval(ctx, flow)
+    }
+
+    const { value } = await resumeApproval(ctx, flow)
+    return { status: 'approved', value }
+}
+
+// posthog.json comes with the repository, so a login to another project must not rename its project.
+async function checkProject(run: SetupRun, key: AccessKey, expected: ProjectId | undefined): Promise<void> {
+    if (expected === undefined || expected === key.projectId) {
+        return
+    }
+
+    // The login works for its own project, so it stays saved.
+    await saveLogin(run.ctx.runtime, key)
+    throw new HogError(
+        'setup_project_mismatch',
+        `You approved project ${key.projectId}, but this folder uses project ${expected}.`,
+        `Run \`${SETUP_NEXT}\` and pick project ${expected} on the approval page. To set up project ${key.projectId} instead, first change \`"projectId"\` in \`posthog.json\` or \`HOG_PROJECT_ID\`.`,
+        EXIT_USAGE
+    )
+}
+
+export const login: Step = {
+    isDone: async (run) => (await run.login()) !== undefined,
+
+    summary: async (run) => {
+        const { host, projectId } = await run.requireLogin()
+        return `Logged in to ${host}, project ${projectId}`
+    },
+
+    async advance(run) {
+        const { ctx } = run
+        const named = (await run.namedHost()) !== undefined
+        await switchRegion(run, named)
+        const { host, projectId } = await run.target()
+        const region = regionNote(host, run.state?.hostPicked, named)
+        const identity = { command: SETUP_NEXT, resume: SETUP_NEXT, pendingName: run.scope.pendingName }
+        const flow = loginFlow(ctx.runtime, host, LOGIN_SCOPES, { identity })
+
+        if (!run.input.next) {
+            const pending = await reusablePending(ctx.runtime, flow)
+            return pending
+                ? waitingStop(pendingResult(flow, pending), projectId, region)
+                : runNext(
+                      'setup_login_needed',
+                      `Run \`${SETUP_NEXT}\` to get a login link for ${host}, and ask the user to open it. ${SIGN_UP_INSTRUCTIONS}${region}`
+                  )
+        }
+
+        refuseInCi(ctx, SETUP_NEXT, CI_CREDENTIALS_HINT)
+        const approval = await approve(ctx, flow)
+        if (approval.status === 'pending') {
+            return waitingStop(approval, projectId, region)
+        }
+
+        await checkProject(run, approval.value, projectId)
+        const { config } = await finishLogin(ctx, approval.value)
+        if (config.status === 'failed') {
+            // Commands here pick the login from posthog.json, so setup can't go on without it.
+            throw new HogError(
+                'setup_config_unwritable',
+                `You're logged in, but hog couldn't write ${config.path}: ${config.error ?? 'unknown error'}`,
+                `Make ${run.scope.folder} writable, or add \`"host": "${host}"\` and \`"projectId": ${approval.value.projectId}\` to \`posthog.json\`. Then run \`${SETUP_NEXT}\`.`
+            )
+        }
+
+        await run.complete('login')
+        return undefined
+    },
+}

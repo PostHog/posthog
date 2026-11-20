@@ -10,6 +10,7 @@ from products.batch_exports.backend.temporal.destinations.workflows_batch_export
     Tracking,
     TrackingAddSet,
 )
+from products.batch_exports.backend.tests.temporal.destinations.workflows.utils import canonicalize_json_text_fields
 
 
 def test_tracking_increase_increments_count():
@@ -112,3 +113,19 @@ async def test_response_handler_can_be_tracked():
     handler = ResponseHandler(asyncio.get_running_loop())
     assert hasattr(handler, "__dict__"), "no longer can be monkeypatched"
     assert not hasattr(handler, "__tracking__"), "must update tracking attribute"
+
+
+@pytest.mark.parametrize(
+    "exported,expected,equal",
+    [
+        ('{"$os":"Mac OS X","prop":"value"}', '{"prop": "value", "$os": "Mac OS X"}', True),
+        ("{}", "", True),
+        ('{"enabled":1}', '{"enabled": true}', False),
+        ('{"count":"1"}', '{"count": 1}', False),
+    ],
+)
+def test_canonicalize_json_text_fields_ignores_formatting_but_not_types(exported, expected, equal):
+    exported_record = canonicalize_json_text_fields({"properties": exported})
+    expected_record = canonicalize_json_text_fields({"properties": expected})
+
+    assert (exported_record == expected_record) is equal

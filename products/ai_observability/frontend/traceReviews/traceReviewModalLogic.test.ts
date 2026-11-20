@@ -43,6 +43,10 @@ describe('traceReviewModalLogic', () => {
         archived: false,
         current_version: 1,
         current_version_id: null,
+        calculation: 'reported',
+        composition: null,
+        input_scorers: [],
+        dependent_composite_count: 0,
         config: {
             true_label: 'Yes',
             false_label: 'No',
@@ -55,6 +59,10 @@ describe('traceReviewModalLogic', () => {
     }
 
     const numericDefinition: ScoreDefinition = {
+        calculation: 'reported',
+        composition: null,
+        input_scorers: [],
+        dependent_composite_count: 0,
         tags: [],
         id: 'score_def_2',
         short_name: '',
@@ -170,6 +178,7 @@ describe('traceReviewModalLogic', () => {
 
         expect(mockTraceReviewsApi.getByTraceId).toHaveBeenCalledWith('trace_1', MOCK_DEFAULT_TEAM.id)
         expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            calculation: 'reported',
             archived: false,
             order_by: 'name',
             search: undefined,
@@ -303,6 +312,7 @@ describe('traceReviewModalLogic', () => {
         }).toFinishAllListeners()
 
         expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            calculation: 'reported',
             archived: false,
             order_by: 'name',
             search: undefined,

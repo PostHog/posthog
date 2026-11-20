@@ -9,7 +9,6 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
-import { fixSQLErrorsLogic } from '../fixSQLErrorsLogic'
 import { sqlEditorLogic } from '../sqlEditorLogic'
 
 interface FixErrorButtonProps {
@@ -20,10 +19,15 @@ interface FixErrorButtonProps {
 }
 
 export function FixErrorButton({ type, size, contentOverride, source }: FixErrorButtonProps): JSX.Element {
-    const { queryInput, fixErrorsError, metadata, selectedConnectionId } = useValues(sqlEditorLogic)
+    const {
+        queryInput,
+        fixErrorsError,
+        metadata,
+        selectedConnectionId,
+        fixErrorsLoading: fixHogQLErrorsLoading,
+    } = useValues(sqlEditorLogic)
     const { fixErrors: fixHogQLErrors } = useActions(sqlEditorLogic)
     const { responseError } = useValues(dataNodeLogic)
-    const { responseLoading: fixHogQLErrorsLoading } = useValues(fixSQLErrorsLogic)
 
     const queryError = responseError || metadata?.errors?.map((n) => n.message)?.join('. ') || undefined
 
@@ -68,6 +72,7 @@ export function FixErrorButton({ type, size, contentOverride, source }: FixError
             type={type}
             size={size}
             disabledReason={disabledReason}
+            loading={fixHogQLErrorsLoading}
             icon={icon}
             onClick={() => {
                 fixHogQLErrors(queryInput ?? '', queryError, selectedConnectionId)

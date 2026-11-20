@@ -228,6 +228,7 @@ describe('snapshotDataLogic', () => {
                 const capture = jest.spyOn(posthog, 'capture')
                 let snapshotsEndpointBlockReads = 0
                 let blockReads = 0
+                const blockRequestHeaders: { referrerPolicy: string; cookie: string | null }[] = []
                 overrideSessionRecordingMocks({
                     getMocks: {
                         '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
@@ -241,7 +242,11 @@ describe('snapshotDataLogic', () => {
                                     : DIRECT_SOURCE
                             return [200, { sources: [source], block_token: 'block.token.sig' }]
                         },
-                        [BLOCK_PATH]: () => {
+                        [BLOCK_PATH]: ({ request }) => {
+                            blockRequestHeaders.push({
+                                referrerPolicy: request.referrerPolicy,
+                                cookie: request.headers.get('cookie'),
+                            })
                             const blockStatus = blockStatuses[Math.min(blockReads++, blockStatuses.length - 1)]
                             return blockStatus === 200
                                 ? new HttpResponse(snapshotsAsJSONLines(), {
@@ -277,6 +282,10 @@ describe('snapshotDataLogic', () => {
 
                 expect(snapshotsEndpointBlockReads > 0).toBe(expectsSnapshotsEndpoint)
                 expect(blockReads).toBe(expectedBlockReads)
+                // Cookies and a long page URL as the Referer both push the headers past recording-api's size limit.
+                expect(blockRequestHeaders).toEqual(
+                    Array(expectedBlockReads).fill({ referrerPolicy: 'no-referrer', cookie: null })
+                )
                 expect(logic.values.isRecordingDeleted).toBe(blockStatuses[0] === 410)
                 const fallbackEvents = capture.mock.calls.filter(
                     ([event]) => event === 'replay direct block fetch fell back'

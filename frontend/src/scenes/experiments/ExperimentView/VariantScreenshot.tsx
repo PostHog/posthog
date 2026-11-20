@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import posthog from 'posthog-js'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconX } from '@posthog/icons'
 import {
@@ -17,7 +18,21 @@ import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { backendAssetUrl } from 'lib/utils/apiHost'
 
 import { experimentLogic } from '../experimentLogic'
+import { getExperimentVariants } from '../utils'
 import { VariantTag } from './VariantTag'
+
+interface ViewerScreenshot {
+    variantKey: string
+    rolloutPercentage: number | undefined
+    mediaId: string
+}
+
+function toMediaIds(value: string | string[] | undefined): string[] {
+    if (!value) {
+        return []
+    }
+    return Array.isArray(value) ? value : [value]
+}
 
 export function VariantScreenshot({
     variantKey,
@@ -29,18 +44,11 @@ export function VariantScreenshot({
     const { experiment } = useValues(experimentLogic)
     const { updateExperimentVariantImages, reportExperimentVariantScreenshotUploaded } = useActions(experimentLogic)
 
-    const getInitialMediaIds = (): string[] => {
-        const variantImages = experiment.parameters?.variant_screenshot_media_ids?.[variantKey]
-        if (!variantImages) {
-            return []
-        }
-
-        return Array.isArray(variantImages) ? variantImages : [variantImages]
-    }
-
-    const [mediaIds, setMediaIds] = useState<string[]>(getInitialMediaIds)
+    const [mediaIds, setMediaIds] = useState<string[]>(() =>
+        toMediaIds(experiment.parameters?.variant_screenshot_media_ids?.[variantKey])
+    )
     const [loadingImages, setLoadingImages] = useState<Record<string, boolean>>({})
-    const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
+    const [selectedKey, setSelectedKey] = useState<{ variantKey: string; mediaId: string } | null>(null)
 
     const [isFocused, setIsFocused] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -74,7 +82,8 @@ export function VariantScreenshot({
 
     const handlePaste = useCallback(
         (e: React.ClipboardEvent): void => {
-            if (uploading) {
+            // The viewer can show another variant, and a paste there would save to this row's variant.
+            if (uploading || selectedKey !== null) {
                 return
             }
 
@@ -101,7 +110,7 @@ export function VariantScreenshot({
                 }
             }
         },
-        [mediaIds.length, setFilesToUpload, uploading]
+        [mediaIds.length, setFilesToUpload, uploading, selectedKey]
     )
 
     const handleImageLoad = (mediaId: string): void => {
@@ -147,13 +156,67 @@ export function VariantScreenshot({
     const getMediaSrc = (mediaId: string): string =>
         mediaId.startsWith('data:') ? mediaId : backendAssetUrl(`/uploaded_media/${mediaId}`)
 
-    const showPrevious = (): void =>
-        setSelectedImageIndex((prev) => (prev === null ? prev : (prev - 1 + mediaIds.length) % mediaIds.length))
-    const showNext = (): void => setSelectedImageIndex((prev) => (prev === null ? prev : (prev + 1) % mediaIds.length))
+    // The viewer steps through every variant's screenshots in table order, so people can compare variants.
+    // This variant uses its local list, because a new upload reaches the experiment only after the save.
+    const viewerScreenshots = useMemo((): ViewerScreenshot[] => {
+        const savedMediaIds = experiment.parameters?.variant_screenshot_media_ids ?? {}
+        // Match the distribution table, which scales variant rollouts down by the holdout share.
+        const holdoutFactor = (100 - (experiment.holdout?.filters[0]?.rollout_percentage || 0)) / 100
+        const variants = getExperimentVariants(experiment)
+        const orderedVariants = variants.some((variant) => variant.key === variantKey)
+            ? variants
+            : [...variants, { key: variantKey, rollout_percentage: rolloutPercentage }]
+        return orderedVariants.flatMap((variant) =>
+            (variant.key === variantKey ? mediaIds : toMediaIds(savedMediaIds[variant.key])).map((mediaId) => ({
+                variantKey: variant.key,
+                rolloutPercentage:
+                    variant.key === variantKey
+                        ? rolloutPercentage
+                        : variant.rollout_percentage !== undefined
+                          ? variant.rollout_percentage * holdoutFactor
+                          : undefined,
+                mediaId,
+            }))
+        )
+    }, [experiment, variantKey, rolloutPercentage, mediaIds])
+
+    // Find the selection by identity, so an upload or delete in another variant does not change the open screenshot.
+    const foundIndex = selectedKey
+        ? viewerScreenshots.findIndex(
+              (screenshot) =>
+                  screenshot.variantKey === selectedKey.variantKey && screenshot.mediaId === selectedKey.mediaId
+          )
+        : -1
+    const selectedImageIndex = foundIndex === -1 ? null : foundIndex
+    const selectedScreenshot = selectedImageIndex !== null ? viewerScreenshots[selectedImageIndex] : undefined
+
+    const openViewer = (mediaId: string): void => {
+        setSelectedKey({ variantKey, mediaId })
+    }
+
+    const step = (offset: number): void => {
+        if (selectedImageIndex === null || viewerScreenshots.length === 0) {
+            return
+        }
+        const nextIndex = (selectedImageIndex + offset + viewerScreenshots.length) % viewerScreenshots.length
+        const fromVariant = viewerScreenshots[selectedImageIndex]?.variantKey
+        const toVariant = viewerScreenshots[nextIndex]?.variantKey
+        if (fromVariant !== toVariant) {
+            posthog.capture('experiment variant screenshot viewer switched variant', {
+                experiment_id: experiment.id,
+                direction: offset > 0 ? 'next' : 'previous',
+                variant_count: new Set(viewerScreenshots.map((screenshot) => screenshot.variantKey)).size,
+            })
+        }
+        const next = viewerScreenshots[nextIndex]
+        setSelectedKey({ variantKey: next.variantKey, mediaId: next.mediaId })
+    }
+    const showPrevious = (): void => step(-1)
+    const showNext = (): void => step(1)
 
     // Arrow-key navigation while the screenshot viewer is open.
     useEffect(() => {
-        if (selectedImageIndex === null || mediaIds.length <= 1) {
+        if (selectedImageIndex === null || viewerScreenshots.length <= 1) {
             return
         }
         const onKeyDown = (e: KeyboardEvent): void => {
@@ -166,7 +229,7 @@ export function VariantScreenshot({
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedImageIndex, mediaIds.length])
+    }, [selectedImageIndex, viewerScreenshots])
 
     return (
         <div
@@ -187,7 +250,7 @@ export function VariantScreenshot({
                 {mediaIds.map((mediaId, index) => (
                     <div key={mediaId} className="relative">
                         <div className="text-secondary inline-flex flow-row items-center gap-1 cursor-pointer">
-                            <div onClick={() => setSelectedImageIndex(index)} className="cursor-zoom-in relative">
+                            <div onClick={() => openViewer(mediaId)} className="cursor-zoom-in relative">
                                 <div
                                     className={`relative flex overflow-hidden select-none ${widthClass} h-16 rounded before:absolute before:inset-0 before:border before:rounded`}
                                 >
@@ -249,25 +312,29 @@ export function VariantScreenshot({
 
             <LemonModal
                 isOpen={selectedImageIndex !== null}
-                onClose={() => setSelectedImageIndex(null)}
+                onClose={() => setSelectedKey(null)}
                 width="90vw"
                 maxWidth={1400}
                 title={
-                    <div className="flex items-center gap-2">
-                        <span>
-                            Screenshot {selectedImageIndex !== null ? selectedImageIndex + 1 : ''} of {mediaIds.length}
-                        </span>
-                        <LemonDivider className="my-0 mx-1" vertical />
-                        <VariantTag variantKey={variantKey} />
-                        {rolloutPercentage !== undefined && (
-                            <span className="text-secondary text-sm">({rolloutPercentage}% rollout)</span>
-                        )}
-                    </div>
+                    selectedScreenshot ? (
+                        <div className="flex items-center gap-2">
+                            <span>
+                                Screenshot {(selectedImageIndex ?? 0) + 1} of {viewerScreenshots.length}
+                            </span>
+                            <LemonDivider className="my-0 mx-1" vertical />
+                            <VariantTag variantKey={selectedScreenshot.variantKey} />
+                            {selectedScreenshot.rolloutPercentage !== undefined && (
+                                <span className="text-secondary text-sm">
+                                    ({selectedScreenshot.rolloutPercentage}% rollout)
+                                </span>
+                            )}
+                        </div>
+                    ) : null
                 }
             >
-                {selectedImageIndex !== null && mediaIds[selectedImageIndex] && (
+                {selectedScreenshot && (
                     <div className="flex items-center gap-2">
-                        {mediaIds.length > 1 && (
+                        {viewerScreenshots.length > 1 && (
                             <LemonButton
                                 icon={<IconChevronLeft />}
                                 onClick={showPrevious}
@@ -277,12 +344,12 @@ export function VariantScreenshot({
                             />
                         )}
                         <ZoomableImage
-                            src={getMediaSrc(mediaIds[selectedImageIndex])}
-                            alt={`Screenshot ${selectedImageIndex + 1}: ${variantKey}`}
-                            resetKey={selectedImageIndex}
+                            src={getMediaSrc(selectedScreenshot.mediaId)}
+                            alt={`Screenshot ${(selectedImageIndex ?? 0) + 1}: ${selectedScreenshot.variantKey}`}
+                            resetKey={selectedImageIndex ?? undefined}
                             className="flex-1 h-[80vh]"
                         />
-                        {mediaIds.length > 1 && (
+                        {viewerScreenshots.length > 1 && (
                             <LemonButton
                                 icon={<IconChevronRight />}
                                 onClick={showNext}

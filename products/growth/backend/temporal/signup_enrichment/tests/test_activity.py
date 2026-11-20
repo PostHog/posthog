@@ -56,6 +56,7 @@ async def test_emits_success_signal_and_snapshot_on_match():
     # Launch signal emitted with success + the filled field keys + the fit status.
     signal = next(c for c in pha_client.capture.call_args_list if c.kwargs["event"] == "signup_enrichment_completed")
     assert signal.kwargs["properties"]["success"] is True
+    assert signal.kwargs["properties"]["$update_person_last_seen_at"] is False
     assert signal.kwargs["properties"]["matched"] is True
     assert signal.kwargs["properties"]["icp_fit_status"] == "scored"
 
@@ -127,6 +128,7 @@ async def test_failure_signal_emitted_only_on_final_attempt(attempt, expect_sign
     if expect_signal:
         assert len(signals) == 1
         assert signals[0].kwargs["properties"]["success"] is False
+        assert signals[0].kwargs["properties"]["$update_person_last_seen_at"] is False
         assert signals[0].kwargs["properties"]["error"] == "RuntimeError"
     else:
         assert signals == []

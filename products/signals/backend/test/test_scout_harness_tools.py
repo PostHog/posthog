@@ -3,11 +3,12 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,8 +27,10 @@ from posthog.models.scoping import team_scope
 from posthog.settings.signals import _parse_team_ids
 from posthog.sync import database_sync_to_async
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.artefact_schemas import ReportLink
+from products.signals.backend.constants import SCRATCHPAD_REVISIONS_PER_KEY
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
@@ -640,6 +643,47 @@ class TestRemember(BaseTest):
         assert rows.count() == 1
         assert search_scratchpad(team_id=self.team.id, key="k")[0].content == "v2"
 
+    @parameterized.expand(
+        [
+            ("identical_write", False, "v1", False, []),
+            ("identical_write_with_expiry", True, "v1", True, []),
+            ("new_content", False, "v2", False, [("v1", "overwrite")]),
+            ("expiry_cleared", True, "v1", False, [("v1", "overwrite")]),
+        ]
+    )
+    def test_stores_a_revision_only_when_the_write_changes_the_entry(
+        self, _name: str, first_expires: bool, content: str, second_expires: bool, expected: list[tuple[str, str]]
+    ) -> None:
+        with time_machine.travel("2026-06-01T12:00:00Z", tick=False):
+            expiry = timezone.now() + timedelta(days=3)
+            remember(team_id=self.team.id, key="k", content="v1", expires_at=expiry if first_expires else None)
+
+            remember(team_id=self.team.id, key="k", content=content, expires_at=expiry if second_expires else None)
+
+            [entry] = search_scratchpad(team_id=self.team.id, key="k", include_revisions=True)
+            assert [(revision.content, revision.change) for revision in entry.revisions or []] == expected
+            assert search_scratchpad(team_id=self.team.id, key="k")[0].revisions is None
+
+    def test_revisions_keep_what_each_change_replaced_and_who_made_it(self) -> None:
+        creator = _create_run(self.team)
+        rewriter = _create_run(self.team, skill_name="signals-scout-apm")
+        remember(team_id=self.team.id, key="k", content="v1", run_id=str(creator.id))
+        remember(
+            team_id=self.team.id, key="k", content="v2", run_id=str(creator.id), changed_by_run_id=str(rewriter.id)
+        )
+        remember(team_id=self.team.id, key="k", content="v3", identity=PIPELINE_AUDIENCE_REPORT_RESEARCH)
+
+        assert forget(team_id=self.team.id, key="k", changed_by_run_id=str(rewriter.id))
+
+        assert search_scratchpad(team_id=self.team.id, key="k") == []
+        [deleted] = search_scratchpad(team_id=self.team.id, key="k", include_revisions=True)
+        assert (deleted.content, deleted.created_at) == ("", None)
+        assert [(r.content, r.change, r.changed_by_skill) for r in deleted.revisions or []] == [
+            ("v3", "forget", "signals-scout-apm"),
+            ("v2", "overwrite", PIPELINE_AUDIENCE_REPORT_RESEARCH),
+            ("v1", "overwrite", "signals-scout-apm"),
+        ]
+
     def test_rejects_expiry_on_a_followup_queue_entry(self) -> None:
         # An expiring follow-up drops out of the queue search before the scout can validate it,
         # while `derived_metadata` reads the row unfiltered and still reports a validation pass.
@@ -709,6 +753,32 @@ class TestForget(BaseTest):
 
 
 class TestSearchScratchpad(BaseTest):
+    @parameterized.expand([("full", False, None), ("keys", True, None), ("preview", False, 2)])
+    def test_revisions_return_a_bounded_newest_first_history(
+        self, _name: str, keys_only: bool, content_max_chars: int | None
+    ) -> None:
+        from products.signals.backend.scout_harness.tools.scratchpad import remember, search_scratchpad
+
+        versions = [f"v{i}: content" for i in range(SCRATCHPAD_REVISIONS_PER_KEY + 3)]
+        for i, content in enumerate(versions):
+            with time_machine.travel(datetime(2026, 6, 1, tzinfo=UTC) + timedelta(minutes=i), tick=False):
+                remember(team_id=self.team.id, key="k", content=content)
+
+        [entry] = search_scratchpad(
+            team_id=self.team.id,
+            key="k",
+            include_revisions=True,
+            keys_only=keys_only,
+            content_max_chars=content_max_chars,
+        )
+
+        def project(content: str) -> str:
+            return "" if keys_only else content[:content_max_chars]
+
+        assert [revision.content for revision in entry.revisions or []] == [
+            project(content) for content in reversed(versions[:-1][-SCRATCHPAD_REVISIONS_PER_KEY:])
+        ]
+
     @parameterized.expand(
         [
             ("search", lambda team_id: search_scratchpad(team_id=team_id, text="shared")),
@@ -1111,7 +1181,7 @@ async def aorganization_emit():
     # test's transaction, so this delete is the only cleanup these rows get. Without it every
     # emit test leaks a committed org into the shared --reuse-db database and poisons later
     # product suites in the same CI job (cascade also removes the team/config/run fixtures).
-    await database_sync_to_async(org.delete)()
+    await database_sync_to_async(delete_skipping_empty_tables)(org)
 
 
 @pytest_asyncio.fixture

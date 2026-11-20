@@ -4,9 +4,11 @@ import { ApiClient } from '@/api/client'
 import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
+    formatSafeRequestTarget,
     handleToolError,
     PostHogApiError,
     PostHogPermissionError,
+    PostHogTransportError,
     PostHogValidationError,
     wrapError,
 } from '@/lib/errors'
@@ -31,6 +33,15 @@ const permissionDeniedBody = JSON.stringify({
 })
 
 describe('PostHogPermissionError', () => {
+    it.each([
+        ['https://fake-user:fake-password@example.com/api/persons/?email=private#fragment', '/api/persons/'],
+        ['/api/persons/?search=private#fragment', '/api/persons/'],
+        ['https://[invalid/?private', '[invalid request target]'],
+        ['data:private', '[invalid request target]'],
+    ])('formats a safe diagnostic target for %s', (url, expected) => {
+        expect(formatSafeRequestTarget(url)).toBe(expected)
+    })
+
     it('builds message with missing scope', () => {
         const error = new PostHogPermissionError({
             detail: "API key missing required scope 'user:read'",
@@ -69,7 +80,7 @@ describe('formatPermissionErrorMessage', () => {
 
         expect(text).toContain("'user:read'")
         expect(text).toContain('MCP Server')
-        expect(text).toContain('GET https://us.posthog.com/api/users/@me/')
+        expect(text).toContain('GET /api/users/@me/')
     })
 
     it('falls back to generic remediation when no scope is parsed', () => {
@@ -212,7 +223,7 @@ describe('handleToolError with permission errors', () => {
         handleToolError(error, 'insights-list')
         handleToolError(error, 'dashboards-list')
 
-        const fingerprints = captureException.mock.calls.map(([, , props]) => props.$exception_fingerprint)
+        const fingerprints = captureException.mock.calls.map(([, options]) => options.properties.$exception_fingerprint)
         expect(fingerprints).toEqual([
             'posthog-permission-error:insights-list:user:read',
             'posthog-permission-error:dashboards-list:user:read',
@@ -440,8 +451,13 @@ describe('handleToolError with API errors', () => {
         expect(captureException).not.toHaveBeenCalled()
         expect(result.isError).toBe(true)
         const [content] = result.content as Array<{ type: string; text: string }>
-        expect(content?.text).toContain('Validation error')
-        expect(content?.text).toContain('field: id')
+        expect(content?.text).toContain('validation error')
+        const fence = content?.text.match(
+            /<posthog-error-detail informational="true" instructional="false">\n([\s\S]*?)\n<\/posthog-error-detail>/
+        )
+        expect(JSON.parse(fence?.[1] ?? '')).toEqual({ detail: 'invalid uuid (field: id)' })
+        expect(content?.text.replace(fence?.[0] ?? '', '')).not.toContain('invalid uuid')
+        expect(error).toMatchObject({ detail: 'invalid uuid', attr: 'id', code: 'invalid' })
     })
 
     it('unwraps a 4xx PostHogApiError hidden behind Error.cause', () => {
@@ -466,11 +482,37 @@ describe('handleToolError with API errors', () => {
         const result = handleToolError(error, 'some-tool', 'user-123', undefined, suppressAnalytics)
 
         expect(captureException).toHaveBeenCalledTimes(1)
-        expect(captureException).toHaveBeenCalledWith(
-            expect.any(Error),
-            'user-123',
-            expect.objectContaining({ suppress_analytics: suppressAnalytics })
-        )
+        expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+            distinctId: 'user-123',
+            properties: expect.objectContaining({ suppress_analytics: suppressAnalytics }),
+        })
         expect(result.isError).toBe(true)
+    })
+})
+
+describe('handleToolError with transport errors', () => {
+    beforeEach(() => {
+        captureException.mockClear()
+    })
+
+    it('reports the transport cause to error tracking but not to the agent', () => {
+        const error = new PostHogTransportError({
+            url: 'https://us.posthog.com/api/projects/2/insights/',
+            method: 'GET',
+            attempts: 3,
+            retryable: true,
+            cause: Object.assign(new TypeError('fetch failed'), {
+                cause: Object.assign(new Error('getaddrinfo ENOTFOUND us.posthog.com'), { code: 'ENOTFOUND' }),
+            }),
+        })
+
+        const result = handleToolError(wrapError('Failed to list insights', error), 'insights-list')
+
+        expect(captureException).toHaveBeenCalledWith(expect.anything(), {
+            distinctId: undefined,
+            properties: expect.objectContaining({ transport_failure: 'TypeError > Error(ENOTFOUND)' }),
+        })
+        const [content] = result.content as Array<{ type: string; text: string }>
+        expect(content?.text).not.toContain('ENOTFOUND')
     })
 })

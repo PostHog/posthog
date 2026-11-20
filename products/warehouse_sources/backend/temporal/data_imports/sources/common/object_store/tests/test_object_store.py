@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import csv
 import gzip
 import json
@@ -25,7 +26,7 @@ from botocore.compat import HTTPHeaders
 from botocore.exceptions import ClientError
 from botocore.response import StreamingBody
 from botocore.stub import Stubber
-from deltalake import DeltaTable, WriterProperties, write_deltalake
+from deltalake import DeltaTable, write_deltalake
 from deltalake.exceptions import DeltaError, TableNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
@@ -52,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
+    explain_no_tables,
     group_tables,
     resolve_table_files,
 )
@@ -60,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     BLOCKED_LOCATION_ERROR,
     FILE_PARSE_ERROR,
     INVALID_CONFIG_ERROR,
+    NO_IMPORTABLE_FILES_ERROR,
     NO_SUCH_BUCKET_ERROR,
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -89,6 +92,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     JSONL_CHUNK_ROWS,
+    MAX_TABLE_OBJECTS,
     MAX_TABLES,
     PARQUET_BATCH_ROWS,
 )
@@ -97,6 +101,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     validate_store_location,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
+    STORE_BUILDERS,
     FakeObjectStorageConfig,
     FakeObjectStorageSource,
     PrefixScopedS3Client,
@@ -447,6 +452,47 @@ class TestTableLimit:
         assert len(group_tables(objects, DiscoveryOptions(), root_name="root", max_tables=None)) == MAX_TABLES + 1
 
 
+class TestExplainNoTables:
+    @parameterized.expand(
+        [
+            ("empty_listing", [], "infer", None, "is empty or doesn't exist"),
+            ("only_folder_markers", ["exports/", "exports/2024/"], "infer", None, "is empty or doesn't exist"),
+            ("delta_without_a_log", ["exports/a.parquet"], "delta", None, "_delta_log"),
+            (
+                "delta_table_outside_the_glob",
+                ["sales/_delta_log/0.json", "sales/p.parquet"],
+                "delta",
+                "*.parquet",
+                "matches the wildcards",
+            ),
+            ("glob_matches_nothing", ["orders/a.csv"], "infer", "orders/*.parquet", "matches the wildcards"),
+            ("unknown_extensions", ["notes.md", "data/rows.txt"], "infer", None, "ends in .csv, .tsv"),
+            ("glob_matches_unknown_extensions", ["orders/a.txt", "x.csv"], "infer", "orders/*", "ends in .csv, .tsv"),
+            ("only_hidden_files", ["_SUCCESS", ".keep"], "infer", None, "though PostHog can read the bucket"),
+        ]
+    )
+    def test_names_why_discovery_found_no_table(
+        self, _name: str, paths: list[str], file_format: str, pattern: str | None, expected: str
+    ) -> None:
+        objects = [stored(path) for path in paths]
+        options = DiscoveryOptions(file_format=cast(Any, file_format))
+        assert group_tables(objects, options, root_name="root", pattern=pattern) == []
+
+        message = explain_no_tables(objects, options, pattern)
+
+        assert message.startswith(NO_IMPORTABLE_FILES_ERROR)
+        assert expected in message
+
+    def test_the_wizard_shows_the_reason(self) -> None:
+        store = MagicMock()
+        store.list_objects.return_value = [stored("exports/notes.md")]
+
+        valid, message = _source_with_store(store).validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message is not None and "ends in .csv" in message
+
+
 class TestResolveTableFiles:
     def test_a_folder_table_leaves_out_subfolders_that_are_tables_of_their_own(self, tmp_path: Path) -> None:
         for path in ("events/a.csv", "events/year=2024/b.csv", "events/clicks/c.csv"):
@@ -726,18 +772,14 @@ class TestReadTable:
         with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
             read_rows(store, table)
 
-    @parameterized.expand([("plain", "orders.parquet", False), ("gzipped", "orders.parquet.gz", True)])
-    def test_a_parquet_file_with_one_brotli_column_is_a_parse_error(self, _name: str, path: str, gzipped: bool) -> None:
-        buffer = io.BytesIO()
-        pq.write_table(
-            pa.table({"id": ["1", "2"], "note": ["a", "b"]}),
-            buffer,
-            compression={"id": "snappy", "note": "brotli"},
-        )
-        content = gzip.compress(buffer.getvalue()) if gzipped else buffer.getvalue()
+    def test_a_row_group_with_fewer_column_chunks_than_the_schema_is_a_parse_error(self) -> None:
+        content = (Path(__file__).parent / "fixtures" / "row_group_missing_a_column_chunk.parquet").read_bytes()
 
-        with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '{path}' as Parquet: Brotli"):
-            list(iter_file_tables(io.BytesIO(content), stored(path), "parquet", CsvOptions()))
+        with pytest.raises(
+            ObjectStorageError,
+            match=f"{FILE_PARSE_ERROR} 'orders.parquet' as Parquet: The file only has 1 columns, requested metadata for column: 1",
+        ):
+            list(iter_file_tables(io.BytesIO(content), stored("orders.parquet"), "parquet", CsvOptions()))
 
     def test_a_corrupt_parquet_block_is_a_parse_error(self) -> None:
         buffer = io.BytesIO()
@@ -803,17 +845,6 @@ class TestReadTable:
         tables = list(iter_delta_tables(store.delta_uri("sales"), {}, "sales"))
 
         assert [(table.column_names, table.num_rows) for table in tables] == [(["id"], 0)]
-
-    @parameterized.expand([("whole_snapshot", False), ("by_file", True)])
-    def test_a_delta_table_with_brotli_compression_is_a_parse_error(self, _name: str, with_file_names: bool) -> None:
-        with tempfile.TemporaryDirectory() as folder:
-            path = str(Path(folder) / "sales")
-            write_deltalake(path, pa.table({"id": [1, 2]}), writer_properties=WriterProperties(compression="BROTLI"))
-
-            read = plan_delta_read(path, {}, "sales")
-
-            with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '.+' in the Delta table 'sales': Brotli"):
-                list(read.iter_tables(with_file_names=with_file_names))
 
 
 def _append(path: str) -> None:
@@ -1252,6 +1283,11 @@ class TestLocationAndErrors:
                 OSError("An error occurred (PermanentRedirect) when calling the ListObjectsV2 operation"),
                 WRONG_REGION_ERROR,
             ),
+            (
+                "malformed_credential_length",
+                OSError(22, "Credential access key has length 145, should be 32"),
+                INVALID_CONFIG_ERROR,
+            ),
         ]
     )
     def test_storage_errors_map_to_stable_prefixes(self, _name: str, error: Exception, expected: str) -> None:
@@ -1669,6 +1705,14 @@ class TestAccessDeniedMessage:
         assert not valid
         assert message is not None and message.startswith(NO_SUCH_BUCKET_ERROR)
 
+    def test_a_sync_also_sees_a_bare_forbidden_error(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = _forbidden_os_error()
+        source = _source_with_store(store)
+
+        with pytest.raises(ObjectStorageError, match=ACCESS_DENIED_ERROR):
+            source.get_schemas(BUCKET_ROOT_CONFIG, 1)
+
 
 BUCKET_ROOT_CONFIG = FakeObjectStorageConfig(
     values={
@@ -1770,3 +1814,348 @@ class TestDescribePinnedSchema:
 
         with pytest.raises(ObjectStorageError, match=f"^{error_prefix}"):
             source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "events", metadata)
+
+
+EXPORTS_ROOT_CONFIG = FakeObjectStorageConfig(
+    values={**BUCKET_ROOT_CONFIG.values, "url_pattern": "https://s3.us-east-1.amazonaws.com/example-bucket/exports/"}
+)
+
+
+def _write_files(root: Path, paths: list[str]) -> None:
+    for path in paths:
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text("id\n1\n")
+
+
+class TestDefineAddedTable:
+    @pytest.mark.parametrize(
+        "_name, location, file_format, paths, expected",
+        [
+            (
+                "folder",
+                "events/",
+                "infer",
+                ["events/a.csv", "events/2026/b.csv", "events-archive/c.csv", "other/d.csv"],
+                ("files", "all", "events", None, "csv", ["events/2026/b.csv", "events/a.csv"]),
+            ),
+            (
+                "single_file",
+                "/other/d.csv",
+                "infer",
+                ["other/d.csv", "other/e.csv"],
+                ("files", "all", "other/d.csv", None, "csv", ["other/d.csv"]),
+            ),
+            (
+                "glob",
+                "events/2026/*.parquet",
+                "infer",
+                ["events/2026/a.parquet", "events/2026/b.csv", "events/2026/x/c.parquet", "events/a.parquet"],
+                ("files", "glob", "events/2026", "events/2026/*.parquet", "infer", ["events/2026/a.parquet"]),
+            ),
+            (
+                "glob_ending_at_a_folder",
+                "events/*/",
+                "infer",
+                ["events/2025/a.csv", "events/2026/x/b.csv", "events/c.csv"],
+                ("files", "glob", "events", "events/*/**", "infer", ["events/2025/a.csv", "events/2026/x/b.csv"]),
+            ),
+            (
+                "mixed_formats",
+                "events",
+                "infer",
+                ["events/a.csv", "events/b.parquet", "events/notes.md"],
+                ("files", "all", "events", None, "infer", ["events/a.csv", "events/b.parquet"]),
+            ),
+            (
+                "chosen_format_reads_every_file",
+                "events/",
+                "jsonl",
+                ["events/a.txt", "events/b.log"],
+                ("files", "all", "events", None, "jsonl", ["events/a.txt", "events/b.log"]),
+            ),
+            (
+                "full_url_into_the_source_folder",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/exports/events/",
+                "infer",
+                ["events/a.csv", "other/d.csv"],
+                ("files", "all", "events", None, "csv", ["events/a.csv"]),
+            ),
+            (
+                "full_url_with_another_region_for_the_same_bucket",
+                "https://example-bucket.s3.eu-west-1.amazonaws.com/exports/events/*.csv",
+                "infer",
+                ["events/a.csv", "events/b.json"],
+                ("files", "glob", "events", "events/*.csv", "infer", ["events/a.csv"]),
+            ),
+            (
+                "empty_path_reads_the_whole_folder",
+                "",
+                "infer",
+                ["a.csv", "events/b.csv"],
+                ("files", "all", "", None, "csv", ["a.csv", "events/b.csv"]),
+            ),
+        ],
+    )
+    def test_defines_one_table_that_the_sync_finds_again(
+        self,
+        _name: str,
+        location: str,
+        file_format: str,
+        paths: list[str],
+        expected: tuple[str, str | None, str, str | None, str, list[str]],
+        tmp_path: Path,
+    ) -> None:
+        _write_files(tmp_path, paths)
+        store = local_store(tmp_path)
+
+        table = _source_with_store(store).define_added_table(
+            EXPORTS_ROOT_CONFIG, 1, "My_Events", location, cast(Any, file_format), allow_double_quotes=False
+        )
+
+        assert (
+            table.kind,
+            table.scope,
+            table.path,
+            table.pattern,
+            table.file_format,
+            [f.path for f in table.files],
+        ) == expected
+        assert table.name == "My_Events"
+        assert table.csv.allow_double_quotes is False
+        rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
+        assert rebuilt is not None
+        resolved = resolve_table_files(store, rebuilt)
+        assert (resolved.name, [f.path for f in resolved.files]) == ("My_Events", expected[5])
+
+    @pytest.mark.parametrize(
+        "_name, location, file_format", [("inferred", "events", "infer"), ("chosen", "events/", "delta")]
+    )
+    def test_a_delta_folder_is_a_delta_table(self, _name: str, location: str, file_format: str, tmp_path: Path) -> None:
+        write_deltalake(str(tmp_path / "events"), pa.table({"id": [1]}))
+
+        table = _source_with_store(local_store(tmp_path)).define_added_table(
+            EXPORTS_ROOT_CONFIG, 1, "events", location, cast(Any, file_format), allow_double_quotes=True
+        )
+
+        assert (table.kind, table.path, table.pattern, table.file_format) == ("delta", "events", None, "delta")
+        assert TableDefinition.from_schema_metadata(table.name, table.schema_metadata()) == dataclasses.replace(
+            table, files=()
+        )
+
+    def test_an_inferred_delta_folder_is_found_without_listing_its_data_files(self, tmp_path: Path) -> None:
+        write_deltalake(str(tmp_path / "events"), pa.table({"id": [1]}))
+        store = local_store(tmp_path)
+        listed: list[str] = []
+        list_objects = type(store).list_objects
+
+        def list_only_the_log(self: ObjectStore, prefix: str, max_objects: int) -> list[StoredObject]:
+            listed.append(prefix)
+            if not prefix.endswith("_delta_log"):
+                return [stored(f"events/part-{index}.parquet") for index in range(MAX_TABLE_OBJECTS + 1)]
+            return list_objects(self, prefix, max_objects)
+
+        with patch.object(type(store), "list_objects", list_only_the_log):
+            table = _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, 1, "events", "events/", "infer", allow_double_quotes=True
+            )
+
+        assert (table.kind, table.path, listed) == ("delta", "events", ["events/_delta_log"])
+
+    def test_a_failed_delta_log_probe_that_is_not_a_denial_stops_before_listing_the_folder(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = TimeoutError("read timed out")
+
+        with pytest.raises(Exception):
+            _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, 1, "events", "events/", "infer", allow_double_quotes=True
+            )
+
+        assert [c.args[0] for c in store.list_objects.call_args_list] == ["events/_delta_log"]
+
+    def test_a_folder_without_a_delta_log_is_not_a_delta_table(self, tmp_path: Path) -> None:
+        _write_files(tmp_path, ["events/a.parquet"])
+
+        with pytest.raises(ObjectStorageError, match="^No Delta table is at .*_delta_log"):
+            _source_with_store(local_store(tmp_path)).define_added_table(
+                EXPORTS_ROOT_CONFIG, 1, "events", "events", "delta", allow_double_quotes=True
+            )
+
+    @parameterized.expand(
+        [
+            (
+                "another_bucket",
+                "https://other-bucket.s3.us-east-1.amazonaws.com/exports/a.csv",
+                "infer",
+                "This path is in another bucket",
+            ),
+            ("another_provider", "gs://example-bucket/exports/a.csv", "infer", INVALID_CONFIG_ERROR),
+            (
+                "outside_the_source_folder",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/exports-old/a.csv",
+                "infer",
+                "This path is outside example-bucket/exports/. Change the source's files URL",
+            ),
+            (
+                "glob_that_reaches_outside_the_source_folder",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/exp*/a.csv",
+                "infer",
+                "This path is outside example-bucket/exports",
+            ),
+            ("parent_folder", "events/../secrets/a.csv", "infer", "can't contain '.' or '..' folders"),
+            ("encoded_parent_folder", "%2e%2e/finance/ledger", "delta", "can't contain '.' or '..' folders"),
+            ("partly_encoded_parent_folder", "events/.%2E/ledger", "delta", "can't contain '.' or '..' folders"),
+            ("encoded_current_folder", "%2E/events/a.csv", "infer", "can't contain '.' or '..' folders"),
+            ("empty_folder", "events//a.csv", "infer", "can't contain an empty folder"),
+            ("control_character", "events/\na.csv", "infer", "can't contain control characters"),
+            ("delta_glob", "events/*", "delta", "can't contain wildcards"),
+            ("unreadable_glob", "events/{a.csv", "infer", INVALID_CONFIG_ERROR),
+        ]
+    )
+    def test_refuses_a_location_outside_the_source_without_reading_the_bucket(
+        self, _name: str, location: str, file_format: str, expected: str
+    ) -> None:
+        store = MagicMock()
+
+        with pytest.raises(ObjectStorageError, match=re.escape(expected)):
+            _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, 1, "events", location, cast(Any, file_format), allow_double_quotes=True
+            )
+
+        store.list_objects.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "_name, url, location, expected",
+        [
+            pytest.param(
+                "folder_without_a_slash", "exports", "events/", ("exports/events", None), id="folder_relative"
+            ),
+            pytest.param(
+                "folder_without_a_slash",
+                "exports",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/exports/events/*.csv",
+                ("exports/events", "exports/events/*.csv"),
+                id="folder_full_url",
+            ),
+            pytest.param(
+                "folder_without_a_slash",
+                "exports",
+                "https://example-bucket.s3.us-east-1.amazonaws.com/other/",
+                None,
+                id="url_outside_the_folder",
+            ),
+            pytest.param("one_file", "exports/orders.csv", "events/", None, id="file_url_source"),
+            pytest.param("pattern", "exports/*.csv", "events/", None, id="pattern_url_source"),
+        ],
+    )
+    def test_a_path_stays_inside_the_files_url(
+        self, _name: str, url: str, location: str, expected: tuple[str, str | None] | None, tmp_path: Path
+    ) -> None:
+        _write_files(tmp_path, ["exports/events/a.csv", "other/b.csv"])
+        config = FakeObjectStorageConfig(
+            values={
+                **BUCKET_ROOT_CONFIG.values,
+                "url_pattern": f"https://s3.us-east-1.amazonaws.com/example-bucket/{url}",
+            }
+        )
+        source = _source_with_store(local_store(tmp_path))
+
+        if expected is None:
+            with pytest.raises(ObjectStorageError, match="outside|can't be added to it"):
+                source.define_added_table(config, 1, "events", location, "infer", allow_double_quotes=True)
+            return
+        table = source.define_added_table(config, 1, "events", location, "infer", allow_double_quotes=True)
+        assert (table.path, table.pattern, [f.path for f in table.files]) == (*expected, ["exports/events/a.csv"])
+
+    @pytest.mark.parametrize(
+        "_name, location, paths, expected",
+        [
+            ("nothing_there", "events/", [], "is empty or doesn't exist"),
+            ("glob_matches_nothing", "events/*.parquet", ["events/a.csv"], "matches the wildcards"),
+            ("unknown_extensions", "events/", ["events/notes.md"], "ends in .csv"),
+        ],
+    )
+    def test_a_location_without_importable_files_says_why(
+        self, _name: str, location: str, paths: list[str], expected: str, tmp_path: Path
+    ) -> None:
+        _write_files(tmp_path, paths)
+
+        with pytest.raises(ObjectStorageError, match=f"^{NO_IMPORTABLE_FILES_ERROR}.*{re.escape(expected)}"):
+            _source_with_store(local_store(tmp_path)).define_added_table(
+                EXPORTS_ROOT_CONFIG, 1, "events", location, "infer", allow_double_quotes=True
+            )
+
+    def test_a_location_with_more_files_than_a_sync_reads_is_refused(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = lambda prefix, _max: (
+            []
+            if prefix.endswith("_delta_log")
+            else [stored(f"events/{index}.csv") for index in range(MAX_TABLE_OBJECTS + 1)]
+        )
+
+        with pytest.raises(ObjectStorageError, match=f"^{TOO_MANY_FILES_ERROR}"):
+            _source_with_store(store).define_added_table(
+                EXPORTS_ROOT_CONFIG, 1, "events", "events/", "infer", allow_double_quotes=True
+            )
+
+    @pytest.mark.parametrize(
+        "location, allowed_prefix, exact",
+        [
+            pytest.param("tables/orders/", "tables/orders/", False, id="folder"),
+            pytest.param("tables/orders/", "tables/orders/", True, id="folder_with_a_key_for_that_prefix_only"),
+            pytest.param("tables/orders/2024-*.csv", "tables/orders/2024-", False, id="glob_with_a_key_prefix"),
+        ],
+    )
+    def test_reads_only_the_location_with_a_key_scoped_to_it(
+        self, location: str, allowed_prefix: str, exact: bool
+    ) -> None:
+        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix=allowed_prefix, exact=exact)
+        store = bucket_root_store(client)
+
+        table = _source_with_store(store).define_added_table(
+            BUCKET_ROOT_CONFIG, 1, "orders", location, "infer", allow_double_quotes=True
+        )
+        rebuilt = TableDefinition.from_schema_metadata(table.name, table.schema_metadata())
+        assert rebuilt is not None
+        resolved = resolve_table_files(store, rebuilt)
+
+        expected = ["tables/orders/2024-01.csv", "tables/orders/2024-02.csv"]
+        assert ([f.path for f in table.files], [f.path for f in resolved.files]) == (expected, expected)
+        assert all(prefix.startswith(allowed_prefix) for prefix in client.listed_prefixes)
+
+    @pytest.mark.parametrize(
+        "override, expected",
+        [
+            pytest.param(None, f"{ACCESS_DENIED_ERROR} 'example-bucket/tables/other'", id="default"),
+            pytest.param("Grant the role on the bucket.", "Grant the role on the bucket.", id="provider_override"),
+        ],
+    )
+    def test_a_location_the_key_can_not_read_fails_with_the_access_error(
+        self, override: str | None, expected: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(FakeObjectStorageSource, "access_denied_message", override)
+        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix="tables/orders/")
+
+        with pytest.raises(ObjectStorageError) as error:
+            _source_with_store(bucket_root_store(client)).define_added_table(
+                BUCKET_ROOT_CONFIG, 1, "other", "tables/other/", "infer", allow_double_quotes=True
+            )
+
+        assert str(error.value).startswith(expected)
+
+    @pytest.mark.parametrize(
+        "provider, url, expected",
+        [
+            ("gcs", "gs://example-bucket/exports", "example-bucket/exports/"),
+            ("gcs", "gs://example-bucket/exports/", "example-bucket/exports/"),
+            ("gcs", "gs://example-bucket", "example-bucket/"),
+            ("azure", "https://exampleaccount.blob.core.windows.net/exports/2026/orders.csv", None),
+            ("r2", f"https://{'a' * 32}.r2.cloudflarestorage.com/example-bucket/exports/*.csv", None),
+        ],
+    )
+    def test_the_table_root_is_where_relative_paths_start(self, provider: str, url: str, expected: str | None) -> None:
+        source = FakeObjectStorageSource(STORE_BUILDERS[provider])
+        config = FakeObjectStorageConfig(
+            values={**BUCKET_ROOT_CONFIG.values, "url_pattern": url, "account_key": "a2V5"}
+        )
+
+        assert source.table_root(config, 1) == expected

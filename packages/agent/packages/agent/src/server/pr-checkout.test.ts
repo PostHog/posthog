@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { checkoutExistingPullRequest } from "./pr-checkout";
 
@@ -289,6 +293,209 @@ describe("checkoutExistingPullRequest", () => {
     });
 
     expect(result).toEqual({ status: "failed", error: "gh unavailable" });
+  });
+
+  describe("GitLab merge requests", () => {
+    const MR_URL = "https://gitlab.com/acme/platform/api/-/merge_requests/7";
+    const mergeRequest = {
+      iid: 7,
+      web_url: MR_URL,
+      title: "Draft: Fix",
+      state: "opened",
+      draft: true,
+      source_branch: PR_BRANCH,
+      target_branch: "main",
+      sha: PR_HEAD_OID,
+      created_at: null,
+      author_username: null,
+      source_project_id: 1,
+      target_project_id: 1,
+    };
+
+    it("checks out a single-branch clone and advances an existing branch", async () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "gitlab-checkout-"));
+      const git = (cwd: string, ...args: string[]): string =>
+        execFileSync("git", args, {
+          cwd,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      try {
+        const remote = path.join(dir, "remote.git");
+        const seed = path.join(dir, "seed");
+        const clone = path.join(dir, "clone");
+        git(dir, "init", "--bare", remote);
+        git(dir, "clone", remote, seed);
+        git(seed, "config", "user.name", "Test");
+        git(seed, "config", "user.email", "test@example.com");
+        writeFileSync(path.join(seed, "file"), "base");
+        git(seed, "add", "file");
+        git(seed, "commit", "-m", "base");
+        git(seed, "branch", "-M", "main");
+        git(seed, "push", "origin", "main");
+        git(seed, "checkout", "-b", PR_BRANCH);
+        writeFileSync(path.join(seed, "file"), "first");
+        git(seed, "commit", "-am", "first");
+        git(seed, "push", "origin", PR_BRANCH);
+        git(
+          dir,
+          "clone",
+          "--single-branch",
+          "--branch",
+          "main",
+          `file://${remote}`,
+          clone,
+        );
+        const runCommand: RunCommand = async (executable, args, cwd) => ({
+          stdout:
+            args[0] === "remote" && args[1] === "get-url"
+              ? "https://gitlab.com/acme/platform/api.git"
+              : execFileSync(executable, args, {
+                  cwd,
+                  encoding: "utf8",
+                  stdio: ["ignore", "pipe", "pipe"],
+                }),
+        });
+        const checkout = () =>
+          checkoutExistingPullRequest({
+            repositoryPath: clone,
+            prUrl: MR_URL,
+            runCommand,
+            lookupGitlabMergeRequest: async () => ({
+              ...mergeRequest,
+              sha: git(seed, "rev-parse", "HEAD").trim(),
+            }),
+          });
+        expect((await checkout()).status).toBe("checked_out");
+        expect(
+          git(clone, "rev-parse", "--abbrev-ref", "@{upstream}").trim(),
+        ).toBe(`origin/${PR_BRANCH}`);
+        git(clone, "checkout", "main");
+        writeFileSync(path.join(seed, "file"), "second");
+        git(seed, "commit", "-am", "second");
+        git(seed, "push", "origin", PR_BRANCH);
+        expect((await checkout()).status).toBe("checked_out");
+        expect(git(clone, "rev-parse", "HEAD").trim()).toBe(
+          git(seed, "rev-parse", "HEAD").trim(),
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it.each(["fetch", "checkout"])(
+      "recovers appropriately when %s fails",
+      async (failedCommand) => {
+        const { runCommand: baseCommand, calls } = buildRunCommand({
+          currentBranch: "main",
+          currentHead: OTHER_OID,
+          originUrl: "https://gitlab.com/acme/platform/api.git",
+        });
+        const runCommand: RunCommand = async (
+          executable,
+          args,
+          cwd,
+          signal,
+        ) => {
+          if (executable === "git" && args[0] === failedCommand) {
+            throw new Error("command failed");
+          }
+          return baseCommand(executable, args, cwd, signal);
+        };
+        const result = await checkoutExistingPullRequest({
+          repositoryPath: "/tmp/repo",
+          prUrl: MR_URL,
+          runCommand,
+          lookupGitlabMergeRequest: async () => mergeRequest,
+        });
+        expect(result.status).toBe("failed");
+        expect(
+          calls.mock.calls.some(
+            ([, args]) => args[0] === "reset" || args.includes("--force"),
+          ),
+        ).toBe(failedCommand === "checkout");
+      },
+    );
+
+    it("leaves tracked changes untouched when checkout would be needed", async () => {
+      const { runCommand: baseCommand, calls } = buildRunCommand({
+        currentBranch: "main",
+        currentHead: OTHER_OID,
+        originUrl: "https://gitlab.com/acme/platform/api.git",
+      });
+      const runCommand: RunCommand = (executable, args, cwd, signal) =>
+        args[0] === "status"
+          ? Promise.resolve({ stdout: " M file.txt\n" })
+          : baseCommand(executable, args, cwd, signal);
+      const result = await checkoutExistingPullRequest({
+        repositoryPath: "/tmp/repo",
+        prUrl: MR_URL,
+        runCommand,
+        lookupGitlabMergeRequest: async () => mergeRequest,
+      });
+      expect(result.status).toBe("failed");
+      expect(
+        calls.mock.calls.some(
+          ([, args]) => args[0] === "checkout" || args[0] === "reset",
+        ),
+      ).toBe(false);
+    });
+
+    it.each([
+      {
+        name: "fetches and checks out the MR source branch from origin",
+        originUrl:
+          "https://oauth2:glpat-secret@gitlab.com/acme/platform/api.git",
+        mr: mergeRequest,
+        expectedStatus: "checked_out",
+      },
+      {
+        name: "refuses an MR from another project",
+        originUrl: "https://oauth2:glpat-secret@gitlab.com/acme/other.git",
+        mr: mergeRequest,
+        expectedStatus: "failed",
+      },
+      {
+        name: "refuses an MR from a fork",
+        originUrl:
+          "https://oauth2:glpat-secret@gitlab.com/acme/platform/api.git",
+        mr: { ...mergeRequest, source_project_id: 2 },
+        expectedStatus: "failed",
+      },
+    ])("$name", async ({ originUrl, mr, expectedStatus }) => {
+      const { runCommand, calls } = buildRunCommand({
+        currentBranch: "main",
+        currentHead: OTHER_OID,
+        originUrl,
+      });
+      const lookupGitlabMergeRequest = vi.fn(async () => mr);
+
+      const result = await checkoutExistingPullRequest({
+        repositoryPath: "/tmp/repo",
+        prUrl: MR_URL,
+        runCommand,
+        lookupGitlabMergeRequest,
+      });
+
+      expect(result.status).toBe(expectedStatus);
+      expect(JSON.stringify(result)).not.toContain("glpat-secret");
+      expect(lookupGitlabMergeRequest).toHaveBeenCalledWith(
+        "acme/platform/api",
+        7,
+      );
+      const gitArgs = calls.mock.calls
+        .filter(([executable]: string[]) => executable === "git")
+        .map(([, args]) => (args as string[]).join(" "));
+      expect(calls.mock.calls.some(([e]: string[]) => e === "gh")).toBe(false);
+      if (expectedStatus === "checked_out") {
+        expect(gitArgs).toContain(
+          `fetch origin +refs/heads/${PR_BRANCH}:refs/remotes/origin/${PR_BRANCH}`,
+        );
+        expect(gitArgs).toContain(`checkout ${PR_BRANCH}`);
+      } else {
+        expect(gitArgs.some((a) => a.startsWith("checkout"))).toBe(false);
+      }
+    });
   });
 
   it("rejects a non-PR URL without invoking git or gh", async () => {

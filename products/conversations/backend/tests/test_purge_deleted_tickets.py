@@ -14,7 +14,11 @@ from posthog.models.data_deletion_request import DataDeletionRequest
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.business_knowledge.backend.models import KnowledgeGapSuggestion, KnowledgeLearningRun
+from products.business_knowledge.backend.models import (
+    KnowledgeGapSuggestion,
+    KnowledgeLearningRun,
+    KnowledgeRunCitation,
+)
 from products.conversations.backend.models import ConversationDelivery, ConversationInboundEvent
 from products.conversations.backend.models.constants import Channel
 from products.conversations.backend.models.delivery import ConversationDeliveryChannel
@@ -107,6 +111,14 @@ class TestPurgeDeletedTickets(BaseTest):
             topic="How do I export?",
             normalized_topic="how do i export",
         )
+        KnowledgeRunCitation.objects.for_team(self.team.id).create(
+            team=self.team,
+            run_id="run-1",
+            ticket_id=ticket.id,
+            chunk_id=uuid4(),
+            document_id=uuid4(),
+            source_id=uuid4(),
+        )
         KnowledgeLearningRun.objects.for_team(self.team.id).create(
             team=self.team,
             evidence_key=f"{ticket.id}:{uuid4()}",
@@ -139,6 +151,7 @@ class TestPurgeDeletedTickets(BaseTest):
         self.assertFalse(ConversationDelivery.objects.for_team(self.team.id).filter(ticket_id=ticket.id).exists())
         self.assertFalse(ConversationInboundEvent.objects.for_team(self.team.id).filter(ticket_id=ticket.id).exists())
         self.assertFalse(KnowledgeGapSuggestion.objects.for_team(self.team.id).filter(ticket_id=ticket.id).exists())
+        self.assertFalse(KnowledgeRunCitation.objects.for_team(self.team.id).filter(ticket_id=ticket.id).exists())
         self.assertFalse(
             KnowledgeLearningRun.objects.for_team(self.team.id)
             .filter(evidence_key__startswith=f"{ticket.id}:")

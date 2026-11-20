@@ -39,7 +39,7 @@ describe('PostHog client', () => {
                             ? options.body
                             : gunzipSync(options.body as Uint8Array).toString()
                     events.push(...JSON.parse(body).batch)
-                    return new Response('{}', { status: 200 })
+                    return new Response('{"results":{}}', { status: 200 })
                 })
             )
             const client = getPostHogClient()
@@ -69,7 +69,7 @@ describe('PostHog client', () => {
                 } else if (method === 'captureToolsList') {
                     client.captureToolsList({ distinctId: 'user-123', toolNames: ['user-get'], properties })
                 } else if (method === 'captureException') {
-                    client.captureException(new Error('Test error'), 'user-123', properties)
+                    client.captureException(new Error('Test error'), { distinctId: 'user-123', properties })
                 } else {
                     client.capture({ distinctId: 'user-123', event: eventName, properties })
                 }

@@ -11,20 +11,29 @@ import type { ChartPoint, ChartSeries } from '@/ui/chart/types'
 import { createStyles, useTheme } from '@/ui/theme'
 import { type } from '@/ui/tokens'
 
-import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
+import { LiveCard, LiveCardLoading, LiveCardNote } from './LiveCard'
 
 const SELECTION_ID = 'live-activity'
 const CHART_HEIGHT = 168
 
-function caption(minute: LiveMinute): string {
-    return `${formatClock(new Date(minute.at))} · ${plural(minute.users, 'visitor')} · ${plural(minute.pageviews, 'pageview')}`
+function caption(minute: LiveMinute, audience: 'web' | 'mobile' | 'mixed'): string {
+    const people = plural(minute.users, audience === 'web' ? 'visitor' : 'user')
+    const views =
+        audience === 'mobile' ? plural(minute.screenviews ?? 0, 'screen view') : plural(minute.pageviews, 'pageview')
+    return `${formatClock(new Date(minute.at))} · ${people} · ${views}${audience === 'mixed' ? ` · ${plural(minute.screenviews ?? 0, 'screen view')}` : ''}`
 }
 
 /**
  * Active users per minute as the web draws them: new visitors stacked under returning visitors, one bar per minute.
  * The line under the chart names the scrubbed minute, or the current one, with its pageviews, which the bars leave out.
  */
-export function LiveActivityCard({ activity }: { activity: LiveActivity | null }): ReactElement {
+export function LiveActivityCard({
+    activity,
+    audience = 'web',
+}: {
+    activity: LiveActivity | null
+    audience?: 'web' | 'mobile' | 'mixed'
+}): ReactElement {
     const { colors, chartPalette } = useTheme()
     const styles = useStyles()
     const legend = useChartLegend()
@@ -42,24 +51,24 @@ export function LiveActivityCard({ activity }: { activity: LiveActivity | null }
         return [
             {
                 key: 'new',
-                label: 'New visitors',
+                label: audience === 'web' ? 'New visitors' : 'New in window',
                 color: colors.diffGreen,
                 points: points((minute) => minute.newUsers),
                 incompleteFrom: last,
             },
             {
                 key: 'returning',
-                label: 'Returning visitors',
+                label: audience === 'web' ? 'Returning visitors' : 'Seen earlier in window',
                 color: seriesColor(0, chartPalette),
                 points: points((minute) => minute.returningUsers),
                 incompleteFrom: last,
             },
         ]
-    }, [minutes, colors.diffGreen, chartPalette])
+    }, [minutes, colors.diffGreen, chartPalette, audience])
 
     let body: ReactElement
     if (!minutes) {
-        body = <LiveCardNote text={NOT_LOADED_TEXT} testID="live-activity-not-loaded" />
+        body = <LiveCardLoading testID="live-activity-loading" />
     } else if (minutes.every((minute) => minute.users === 0)) {
         body = <LiveCardNote text="No activity in the last 30 minutes" testID="live-activity-empty" />
     } else {
@@ -89,7 +98,7 @@ export function LiveActivityCard({ activity }: { activity: LiveActivity | null }
                 />
                 {shown ? (
                     <Text style={styles.caption} testID="live-activity-caption">
-                        {caption(shown)}
+                        {caption(shown, audience)}
                     </Text>
                 ) : null}
                 <ChartLegend

@@ -1,5 +1,8 @@
 export const AUDIENCE = 'posthog:credentials_service'
 
+/** A separate audience, so a platform-secrets token and an integrations token are never interchangeable. */
+export const INTEGRATIONS_AUDIENCE = 'posthog:credentials_service:integrations'
+
 /** Why a token was rejected. A metric label, so keep the set small and stable. */
 export type AuthFailureReason =
     | 'missing_token'

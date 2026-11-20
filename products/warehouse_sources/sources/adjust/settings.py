@@ -121,6 +121,13 @@ ADJUST_REPORTS: dict[str, AdjustReportConfig] = {
         primary_keys=["day", "app_token", "os_name"],
         description="Daily performance per app broken down by operating system.",
     ),
+    "device_type_report": AdjustReportConfig(
+        name="device_type_report",
+        dimensions=["day", "app", "app_token", "device_type"],
+        metrics=[*_CORE_METRICS, *_USER_METRICS],
+        primary_keys=["day", "app_token", "device_type"],
+        description="Daily performance per app broken down by device type (phone, tablet, and so on).",
+    ),
     "retention_report": AdjustReportConfig(
         name="retention_report",
         dimensions=["day", "app", "app_token", "partner_name"],

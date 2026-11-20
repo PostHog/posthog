@@ -37,11 +37,13 @@ from posthog.egress.github.transport import (
 )
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
+from posthog.integrations import AuthAccessor
 from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_BRANCH_REFRESH_LOCK_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
+    PullRequestCiStatus,
     PullRequestRef,
     github_app_jwt_credentials,
 )
@@ -780,7 +782,9 @@ class TestGitHubIntegrationModel(BaseTest):
             return response
 
         with (
-            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(
+                github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f", "mergeable": False}
+            ),
             patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
         ):
             result = github.get_pull_request_checks("PostHog/posthog", 1)
@@ -790,6 +794,7 @@ class TestGitHubIntegrationModel(BaseTest):
             {"name": "unit", "status": "completed", "conclusion": "failure", "url": "https://github.com/checks/1"},
             {"name": "buildkite", "status": "completed", "conclusion": "success", "url": "https://bk/1"},
         ]
+        assert result["has_conflict"] is True
 
     def test_get_pull_request_checks_follows_pagination(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
@@ -1931,11 +1936,12 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
         with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-            integration = GitHubIntegration.integration_from_installation_id(
+            record = GitHubIntegration.integration_from_installation_id(
                 "INSTALLATION_ID",
                 self.team.id,
                 self.user,
             )
+            integration = Integration.objects.get(pk=record.id)
             integration.errors = "TOKEN_REFRESH_FAILED"
             integration.save()
 
@@ -2247,11 +2253,13 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
         mock_list_all.return_value = cached_repositories
 
-        with patch.object(integration, "save", wraps=integration.save) as mock_save:
+        store = AuthAccessor.set_repository_cache
+        with patch.object(AuthAccessor, "set_repository_cache", autospec=True, side_effect=store) as mock_store:
             repos = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).sync_repository_cache()
 
         assert repos == cached_repositories
-        mock_save.assert_called_once_with(update_fields=["repository_cache_updated_at"])
+        mock_store.assert_called_once()
+        assert mock_store.call_args.kwargs["repositories"] is None
         integration.refresh_from_db()
         assert integration.repository_cache == cached_repositories
         assert integration.repository_cache_updated_at is not None
@@ -2596,6 +2604,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.assert_not_called()
         mock_refresh_delay.assert_called_once()
         assert mock_refresh_delay.call_args.args[:3] == (str(integration.id), repo, False)
+        assert mock_refresh_delay.call_args.args[4] == integration.team_id
 
     @patch("posthog.models.github_integration_base.get_redis_client", side_effect=ConnectionError("redis down"))
     def test_list_cached_branches_serves_stale_cache_when_the_refresh_lock_is_unavailable(
@@ -3329,24 +3338,38 @@ class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
         return GitHubIntegration(_create_github_integration(self.team), source="test", priority=Priority.CRITICAL)
 
     @staticmethod
-    def _rollup(state: str | None) -> dict:
-        return {"pullRequest": {"commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": state}}}]}}}
+    def _rollup(state: str | None, mergeable: str = "MERGEABLE") -> dict:
+        return {
+            "pullRequest": {
+                "mergeable": mergeable,
+                "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": state}}}]},
+            }
+        }
 
     def test_one_call_resolves_every_pull_request_against_its_own_reference(self):
         # The whole point of the batch: a list of PRs costs one GraphQL call, and each rollup lands on
         # the reference it was asked about. A mismatch here paints CI onto the wrong report.
+        # Only CONFLICTING is a conflict. UNKNOWN means GitHub has not computed it yet.
         references = [
             PullRequestRef(owner="acme", repo="widgets", number=7),
             PullRequestRef(owner="acme", repo="widgets", number=8),
             PullRequestRef(owner="other", repo="thing", number=3),
         ]
-        payload = {"pr0": self._rollup("SUCCESS"), "pr1": self._rollup("FAILURE"), "pr2": self._rollup(None)}
+        payload = {
+            "pr0": self._rollup("SUCCESS", mergeable="CONFLICTING"),
+            "pr1": self._rollup("FAILURE"),
+            "pr2": self._rollup(None, mergeable="UNKNOWN"),
+        }
 
         with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload) as mock_graphql:
             statuses = self._github().get_pull_request_ci_statuses(references)
 
         mock_graphql.assert_called_once()
-        assert statuses == {references[0]: "passing", references[1]: "failing", references[2]: "none"}
+        assert statuses == {
+            references[0]: PullRequestCiStatus(ci_status="passing", has_conflict=True),
+            references[1]: PullRequestCiStatus(ci_status="failing", has_conflict=False),
+            references[2]: PullRequestCiStatus(ci_status="none", has_conflict=False),
+        }
         variables = mock_graphql.call_args.args[1]
         assert variables["owner2"] == "other" and variables["repo2"] == "thing" and variables["number2"] == 3
 
@@ -3359,7 +3382,7 @@ class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
         with patch.object(GitHubIntegration, "_gh_graphql", return_value={"pr0": self._rollup("PENDING"), "pr1": None}):
             statuses = self._github().get_pull_request_ci_statuses([readable, unreadable])
 
-        assert statuses == {readable: "pending"}
+        assert statuses == {readable: PullRequestCiStatus(ci_status="pending", has_conflict=False)}
 
     def test_more_pull_requests_than_one_batch_holds_are_split_across_calls(self):
         # Without chunking a big inbox would build one query past GitHub's node limit and get nothing.

@@ -97,30 +97,62 @@ class TestTopLevelPagination:
         assert request.param("sort_option") == "asc"
         assert request.param("updated_at") == "2026-03-04T02:58:14.000Z"
 
+    @parameterized.expand(
+        [
+            ("indexes", "created_at", "asc", "asc"),
+            ("knowledge_stores", "created_at", "asc", "asc"),
+            ("assets", None, None, None),
+            ("analyze_tasks", None, None, None),
+        ]
+    )
+    def test_full_refresh_sort_matches_sort_mode(
+        self, endpoint: str, sort_by: str | None, sort_option: str | None, sort_mode: str | None
+    ) -> None:
+        # /assets and /analyze/tasks take no sort params and return the newest rows first, so
+        # claiming sort_mode="asc" there would make a resumed run skip rows.
+        result = _run(endpoint, [_page([{"_id": "a"}], page=1, total_page=1)])
+
+        request = result.requests[0]
+        assert request.param("sort_by") == sort_by
+        assert request.param("sort_option") == sort_option
+        assert result.response is not None
+        assert result.response.sort_mode == sort_mode
+
 
 class TestFanOut:
-    def test_injects_parent_index_id_into_every_video_row(self) -> None:
-        # /indexes returns two indexes, each with one video page. The parent index_id must land on
-        # every row so the [index_id, _id] primary key stays unique table-wide.
+    @parameterized.expand(
+        [
+            ("videos", "/indexes", "index_id", "videos"),
+            ("indexed_assets", "/indexes", "index_id", "indexed-assets"),
+            ("knowledge_store_items", "/knowledge-stores", "knowledge_store_id", "items"),
+            ("knowledge_store_item_collections", "/knowledge-stores", "knowledge_store_id", "item-collections"),
+        ]
+    )
+    def test_injects_parent_id_into_every_child_row(
+        self, endpoint: str, parent_path: str, parent_column: str, child_segment: str
+    ) -> None:
+        # The parent returns two rows, each with one child page. The parent id must land on every
+        # row so the [parent_id, _id] primary key stays unique table-wide.
         result = _run(
-            "videos",
+            endpoint,
             [
-                _page([{"_id": "idx1"}, {"_id": "idx2"}], page=1, total_page=1),
-                _page([{"_id": "v1"}], page=1, total_page=1),
-                _page([{"_id": "v2"}], page=1, total_page=1),
+                _page([{"_id": "p1"}, {"_id": "p2"}], page=1, total_page=1),
+                _page([{"_id": "c1"}], page=1, total_page=1),
+                _page([{"_id": "c2"}], page=1, total_page=1),
             ],
         )
 
-        assert result.rows == [{"_id": "v1", "index_id": "idx1"}, {"_id": "v2", "index_id": "idx2"}]
+        assert result.rows == [{"_id": "c1", parent_column: "p1"}, {"_id": "c2", parent_column: "p2"}]
         assert result.paths == [
-            "/v1.3/indexes",
-            "/v1.3/indexes/idx1/videos",
-            "/v1.3/indexes/idx2/videos",
+            f"/v1.3{parent_path}",
+            f"/v1.3{parent_path}/p1/{child_segment}",
+            f"/v1.3{parent_path}/p2/{child_segment}",
         ]
-        # Child pages carry the videos sort params, and the resolve param never leaks into the query.
+        # Child pages carry the sort params, and the resolve param never leaks into the query.
         assert result.requests[1].param("sort_by") == "created_at"
+        assert result.requests[1].param("sort_option") == "asc"
         assert result.requests[1].param("page_limit") == "50"
-        assert result.requests[1].param("index_id") is None
+        assert result.requests[1].param(parent_column) is None
 
     def test_resume_skips_completed_index(self) -> None:
         # Bookmarked with idx1 already completed: idx1's videos must not be re-fetched.
