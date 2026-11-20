@@ -1,17 +1,89 @@
 use crate::{
-    api::symbol_sets::SymbolSetUpload,
-    sourcemaps::{
-        args::ReleaseMode,
-        content::{get_injected_release_id, MinifiedSourceFile, SourceMapContent, SourceMapFile},
+    files::{content_hash, SourceFile},
+    sourcemaps::content::{
+        get_injected_release_id, AdjustmentOptions, MinifiedSourceFile, SourceMapContent,
+        SourceMapFile,
     },
-    utils::files::content_hash,
+    upload::{ReleaseMode, SymbolSetUpload},
 };
 use anyhow::{anyhow, Context, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
 use serde_json::Value;
-use std::borrow::Cow;
+use std::{borrow::Cow, path::PathBuf};
 use tracing::{debug, info, warn};
 use walkdir::DirEntry;
+
+/// Sibling-JS size below which an empty sourcemap is treated as a harmless
+/// bundler-generated wrapper (e.g. Turbopack App Router page entries,
+/// webpack re-export shims). Turbopack page entries reach about 3 KiB after
+/// chunk-id injection (#70235), and every layout, loading or error file on the
+/// route makes the entry larger. Every empty map is skipped whatever its size,
+/// so this cutoff only picks the message and which of the wrapper and suspect
+/// counts the map adds to. A bundler that drops maps for a whole build also
+/// writes empty maps for chunks well above 4 KiB, so a summary still reports it.
+pub const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 4096;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EmptySourcemap {
+    /// The bundle is small: a wrapper the bundler wrote, with nothing to symbolicate.
+    Wrapper,
+    /// The bundle is large, which points at a bundler that is set to drop its sourcemaps.
+    Suspect,
+}
+
+/// A fault in the debug ids a bundler wrote. The caller decides how to tell the user: posthog-cli
+/// logs [`DebugIdIssue::log`], hog-worker returns its own wording to hog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DebugIdIssue {
+    /// The chunk's comment and the sourcemap's field disagree. The chunk's id is used.
+    Mismatch { source_id: String, map_id: String },
+    /// The debug id is not a UUID. A chunk id derived from the content is used instead.
+    Malformed { debug_id: String },
+}
+
+impl DebugIdIssue {
+    /// posthog-cli's wording.
+    pub fn log(&self, source_path: &std::path::Path) {
+        match self {
+            DebugIdIssue::Mismatch { source_id, map_id } => warn!(
+                "debug id mismatch for {}: chunk has {}, sourcemap has {} — using the chunk's",
+                source_path.display(),
+                source_id,
+                map_id
+            ),
+            DebugIdIssue::Malformed { debug_id } => warn!(
+                "ignoring malformed debug id {:?} on {} — falling back to a content-derived chunk id",
+                debug_id,
+                source_path.display()
+            ),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UploadOptions {
+    pub adjustment: AdjustmentOptions,
+    /// Whether a debug id mismatch found while resolving the upload id is logged. posthog-cli
+    /// logs it. hog-worker reports it once, at injection, and sets `false` here.
+    pub log_debug_id_mismatch: bool,
+}
+
+impl Default for UploadOptions {
+    fn default() -> Self {
+        Self {
+            adjustment: AdjustmentOptions::default(),
+            log_debug_id_mismatch: true,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReadPairsOptions {
+    /// Skip a pair whose `sourceMappingURL` names a JSON file that is not a sourcemap, see
+    /// [`SourceMapContent::is_sourcemap`]. posthog-cli reads such a file as a map with no
+    /// mappings, and hog-worker skips it.
+    pub skip_non_sourcemaps: bool,
+}
 
 #[derive(Debug)]
 // Source pairs are the fundamental unit of a frontend symbol set
@@ -21,6 +93,24 @@ pub struct SourcePair {
 }
 
 impl SourcePair {
+    /// Build a pair from content the caller already read, for a caller that does its own file
+    /// reading and error reporting.
+    pub fn from_parts(
+        source_path: PathBuf,
+        source: String,
+        sourcemap_path: PathBuf,
+        sourcemap: SourceMapContent,
+    ) -> Self {
+        Self {
+            source: MinifiedSourceFile {
+                inner: SourceFile::new(source_path, source),
+            },
+            sourcemap: SourceMapFile {
+                inner: SourceFile::new(sourcemap_path, sourcemap),
+            },
+        }
+    }
+
     pub fn has_chunk_id(&self) -> bool {
         // Minified chunks are the source of truth for their ID's, not sourcemaps,
         // because sometimes sourcemaps are shared across multiple chunks.
@@ -34,19 +124,41 @@ impl SourcePair {
     /// Debug id already present in the pair, if any. The chunk's comment is authoritative
     /// (sourcemaps can be shared across chunks); the sourcemap's field is only a fallback.
     pub fn get_debug_id(&self) -> Option<String> {
+        let (debug_id, mismatch) = self.resolve_debug_id();
+        if let Some(mismatch) = mismatch {
+            mismatch.log(&self.source.inner.path);
+        }
+        debug_id
+    }
+
+    pub fn resolve_debug_id(&self) -> (Option<String>, Option<DebugIdIssue>) {
         let source_debug_id = self.source.get_debug_id();
         let sourcemap_debug_id = self.sourcemap.get_debug_id();
-        if let (Some(source_id), Some(map_id)) = (&source_debug_id, &sourcemap_debug_id) {
-            if source_id != map_id {
-                warn!(
-                    "debug id mismatch for {}: chunk has {}, sourcemap has {} — using the chunk's",
-                    self.source.inner.path.display(),
-                    source_id,
-                    map_id
-                );
+        let mismatch = match (&source_debug_id, &sourcemap_debug_id) {
+            (Some(source_id), Some(map_id)) if source_id != map_id => {
+                Some(DebugIdIssue::Mismatch {
+                    source_id: source_id.clone(),
+                    map_id: map_id.clone(),
+                })
             }
+            _ => None,
+        };
+
+        (source_debug_id.or(sourcemap_debug_id), mismatch)
+    }
+
+    pub fn empty_sourcemap(&self) -> Option<EmptySourcemap> {
+        if !self.sourcemap.is_empty() {
+            return None;
         }
-        source_debug_id.or(sourcemap_debug_id)
+
+        Some(
+            if self.source.inner.content.len() < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
+                EmptySourcemap::Wrapper
+            } else {
+                EmptySourcemap::Suspect
+            },
+        )
     }
 
     pub fn has_release_id(&self) -> bool {
@@ -65,10 +177,18 @@ impl SourcePair {
     }
 
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<()> {
+        self.remove_chunk_id_with(chunk_id, AdjustmentOptions::default())
+    }
+
+    pub fn remove_chunk_id_with(
+        &mut self,
+        chunk_id: String,
+        options: AdjustmentOptions,
+    ) -> Result<()> {
         if self.get_chunk_id().as_ref() != Some(&chunk_id) {
             return Err(anyhow!("Chunk ID mismatch"));
         }
-        let adjustment = self.source.remove_chunk_id(chunk_id)?;
+        let adjustment = self.source.remove_chunk_id_with(chunk_id, options)?;
         self.sourcemap.apply_adjustment(adjustment)?;
         self.sourcemap.set_chunk_id(None);
         Ok(())
@@ -79,17 +199,41 @@ impl SourcePair {
         previous_chunk_id: String,
         new_chunk_id: String,
     ) -> Result<()> {
-        self.remove_chunk_id(previous_chunk_id)?;
-        self.add_chunk_id(new_chunk_id, None)?;
+        self.update_chunk_id_with(
+            previous_chunk_id,
+            new_chunk_id,
+            AdjustmentOptions::default(),
+        )
+    }
+
+    pub fn update_chunk_id_with(
+        &mut self,
+        previous_chunk_id: String,
+        new_chunk_id: String,
+        options: AdjustmentOptions,
+    ) -> Result<()> {
+        self.remove_chunk_id_with(previous_chunk_id, options)?;
+        self.add_chunk_id_with(new_chunk_id, None, options)?;
         Ok(())
     }
 
     pub fn add_chunk_id(&mut self, chunk_id: String, release_id: Option<&str>) -> Result<()> {
+        self.add_chunk_id_with(chunk_id, release_id, AdjustmentOptions::default())
+    }
+
+    pub fn add_chunk_id_with(
+        &mut self,
+        chunk_id: String,
+        release_id: Option<&str>,
+        options: AdjustmentOptions,
+    ) -> Result<()> {
         if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
         }
 
-        let adjustment = self.source.set_chunk_id(&chunk_id, release_id)?;
+        let adjustment = self
+            .source
+            .set_chunk_id_with(&chunk_id, release_id, options)?;
         // In cases where sourcemaps are shared across multiple chunks,
         // we should only apply the adjustment if the sourcemap doesn't
         // have a chunk ID set (since otherwise, it's already been adjusted)
@@ -114,6 +258,14 @@ impl SourcePair {
 pub fn read_pairs(
     selection: impl Iterator<Item = DirEntry>,
     prefix: &Option<String>,
+) -> Vec<SourcePair> {
+    read_pairs_with(selection, prefix, ReadPairsOptions::default())
+}
+
+pub fn read_pairs_with(
+    selection: impl Iterator<Item = DirEntry>,
+    prefix: &Option<String>,
+    options: ReadPairsOptions,
 ) -> Vec<SourcePair> {
     let mut seen_paths = std::collections::HashSet::new();
     let pairs = selection
@@ -143,6 +295,14 @@ pub fn read_pairs(
                 .context("failed to read sourcemap")
                 .map_err(|e| warn!("skip: {e:?}"))
                 .ok()?;
+            if options.skip_non_sourcemaps && !sourcemap.inner.content.is_sourcemap() {
+                info!(
+                    "skip: {} names {} as its sourcemap, which has no mappings",
+                    entry_path.display(),
+                    sourcemap_path.display()
+                );
+                return None;
+            }
             debug!("adding pair for {}", entry_path.display());
             Some(SourcePair { source, sourcemap })
         })
@@ -248,9 +408,24 @@ impl SourcePair {
     ///
     /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
     /// the hashes the server already stores for previous uploads.
-    pub fn into_upload(mut self, release_mode: ReleaseMode) -> Result<SymbolSetUpload> {
+    pub fn into_upload(self, release_mode: ReleaseMode) -> Result<SymbolSetUpload> {
+        self.into_upload_with(release_mode, UploadOptions::default())
+    }
+
+    pub fn into_upload_with(
+        mut self,
+        release_mode: ReleaseMode,
+        options: UploadOptions,
+    ) -> Result<SymbolSetUpload> {
         let injected_chunk_id = self.get_chunk_id();
-        let chunk_id = injected_chunk_id.clone().or_else(|| self.get_debug_id()).ok_or_else(|| {
+        let debug_id = |pair: &Self| {
+            if options.log_debug_id_mismatch {
+                pair.get_debug_id()
+            } else {
+                pair.resolve_debug_id().0
+            }
+        };
+        let chunk_id = injected_chunk_id.clone().or_else(|| debug_id(&self)).ok_or_else(|| {
             anyhow!(
                 "Chunk ID or debug ID not found in {}. Run 'sourcemap inject' before 'sourcemap upload', enable native debug IDs in the bundler, or use 'sourcemap process' to do both.",
                 self.source.inner.path.display()
@@ -269,7 +444,7 @@ impl SourcePair {
                     } else {
                         b"chunk-id-only"
                     };
-                    self.remove_chunk_id(chunk_id.clone())?;
+                    self.remove_chunk_id_with(chunk_id.clone(), options.adjustment)?;
                     snippet_variant
                 } else {
                     b"native-debug-id"
@@ -351,6 +526,35 @@ mod tests {
         assert_eq!(normalize("é日.js 😀 é.mjs"), "<path> 😀 <path>");
         // An emoji is not a path character, so the path starts after it.
         assert_eq!(normalize("😀js.js"), "😀<path>");
+    }
+
+    #[test]
+    fn empty_sourcemap_is_a_wrapper_only_below_the_size_threshold() {
+        // posthog-cli and hog-worker report the two cases differently, so both must draw the
+        // line at the same byte.
+        let empty_map =
+            serde_json::json!({"version": 3, "sources": [], "names": [], "mappings": ""});
+        let pair = |source_bytes: usize, map: serde_json::Value| {
+            SourcePair::from_parts(
+                PathBuf::from("app.js"),
+                ";".repeat(source_bytes),
+                PathBuf::from("app.js.map"),
+                serde_json::from_value(map).expect("Failed to build SourceMapContent"),
+            )
+        };
+
+        assert_eq!(
+            pair(WRAPPER_JS_SIZE_THRESHOLD_BYTES - 1, empty_map.clone()).empty_sourcemap(),
+            Some(EmptySourcemap::Wrapper)
+        );
+        assert_eq!(
+            pair(WRAPPER_JS_SIZE_THRESHOLD_BYTES, empty_map).empty_sourcemap(),
+            Some(EmptySourcemap::Suspect)
+        );
+        assert_eq!(
+            pair(1, serde_json::json!({"version": 3, "mappings": "AAAA"})).empty_sourcemap(),
+            None
+        );
     }
 
     #[test]

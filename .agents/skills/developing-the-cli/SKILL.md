@@ -51,6 +51,8 @@ Port the behavior, not the code. The two CLIs are laid out differently.
    | `cli/src/login.rs`                              | `hog/src/commands/auth/`, `hog/src/posthog/`       |
    | `cli/src/experimental/`                         | `hog/src/commands/query/`, `endpoints/`, `schema/` |
 
+   The code that decides the bytes of an upload is not in `cli/src/`. It lives in the `posthog-symbol-processing` crate, in `rust/common/symbol_processing/`, which posthog-cli builds by path. `cli/src/sourcemaps/content.rs`, `source_pairs.rs`, `cli/src/dsym/source_bundle.rs` and the processing half of `debug_symbols/` and `proguard/` are there. Its README lists the options that differ between posthog-cli and hog's Rust worker.
+
 3. Check how the runtimes differ before copying a fix. For example, reqwest puts the request URL in its error text, while Bun's `fetch` keeps it off `error.message`, so a redaction needed in Rust may not be needed in hog. Verify such a difference, then name it in the PR.
 
 ## Follow each side's rules
@@ -58,6 +60,7 @@ Port the behavior, not the code. The two CLIs are laid out differently.
 - hog: read `hog/AGENTS.md` before the first edit. It holds the command, output, error and typed-boundary rules.
 - Uploads: hog must send the same bytes, content hashes and requests as posthog-cli, or re-uploads fail with `content_hash_mismatch`. Read `hog/test/parity/README.md` before changing anything that reaches an upload. When a Rust change alters what posthog-cli uploads, regenerate the goldens from the new binary as that README describes, and review the diff.
 - Releases: every user-visible change needs a sampo changeset on each side it touches, in `cli/.sampo/changesets/` (`--package cargo/posthog-cli`) and in `hog/.sampo/changesets/` (`--package npm/hog`). Write it in the pull request, with a sentence that tells users what changed, and rename the file sampo writes after the change. `cli/.sampo/README.md` and the Releases section of `hog/README.md` have the commands.
+- Crate releases: a change in `rust/common/symbol_processing/` needs its own changeset there (`--package cargo/posthog-symbol-processing`), and the crate must publish before posthog-cli releases. `rust/common/symbol_processing/CONTRIBUTING.md` has the order.
 - hog release timing: the changeset's file name decides it, because sampo accepts nothing but packages and bumps in the front matter. `weekly-<name>.md` waits for the weekly run on Tuesdays, so use it when the change can wait. Any other name starts a release, which a person approves, when the pull request merges. The `hog changeset` workflow adds `weekly-pr-<number>.md` to a pull request with MCP or catalog changes and no changeset, so those wait for the weekly run too.
 
 ## Test both sides
@@ -67,6 +70,7 @@ Port the behavior, not the code. The two CLIs are laid out differently.
 cargo test --locked --manifest-path cli/Cargo.toml
 cargo clippy --locked --manifest-path cli/Cargo.toml --all-targets -- -D warnings
 cargo fmt --manifest-path cli/Cargo.toml -- --check
+cargo test --locked --manifest-path rust/common/symbol_processing/Cargo.toml
 
 # hog
 pnpm --filter hog unit

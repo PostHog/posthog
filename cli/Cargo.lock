@@ -2169,14 +2169,12 @@ dependencies = [
  "dunce",
  "globset",
  "inquire",
- "libc",
- "magic_string",
  "miette",
  "open",
  "plist",
  "posthog",
  "posthog-symbol-data",
- "proguard",
+ "posthog-symbol-processing",
  "ratatui",
  "rayon",
  "regex",
@@ -2184,10 +2182,8 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "sha2",
  "similar",
  "sourcemap",
- "symbolic",
  "tempfile",
  "test-log",
  "thiserror 2.0.17",
@@ -2211,6 +2207,28 @@ dependencies = [
  "serde",
  "thiserror 2.0.17",
  "zstd 0.13.5",
+]
+
+[[package]]
+name = "posthog-symbol-processing"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "magic_string",
+ "posthog-symbol-data",
+ "proguard",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sourcemap",
+ "symbolic",
+ "tempfile",
+ "tracing",
+ "urlencoding",
+ "uuid",
+ "walkdir",
+ "zip 2.4.2",
 ]
 
 [[package]]

@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+pub use posthog_symbol_processing::upload::{dedup_uploads_by_chunk_id, SymbolSetUpload};
 use rayon::{
     iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
     ThreadPool, ThreadPoolBuilder,
@@ -21,7 +22,7 @@ use tracing::{debug, info, warn};
 use crate::{
     api::client::ClientError,
     invocation_context::context,
-    utils::{files::content_hash, raise_for_presigned_err, redact_request_error},
+    utils::{raise_for_presigned_err, redact_request_error},
 };
 
 pub(crate) const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
@@ -41,38 +42,6 @@ pub enum UploadError {
     ContentHashMismatch,
     #[error("{0}")]
     Other(#[from] anyhow::Error),
-}
-
-#[derive(Debug, Clone)]
-pub struct SymbolSetUpload {
-    pub chunk_id: String,
-    pub release_id: Option<String>,
-
-    pub data: Vec<u8>,
-
-    /// Precomputed hash for the server's skip-identical-content check; `None` hashes `data`
-    /// as-is. Set this when `data` contains bytes that vary between builds of identical code
-    /// (e.g. an injected release id), so unchanged chunks still skip re-upload.
-    pub content_hash: Option<String>,
-}
-
-/// Coalesce uploads that share a chunk_id, keeping the first occurrence. The check and start
-/// requests reject a batch with a repeated id, before they filter out the chunks the server
-/// already has.
-pub fn dedup_uploads_by_chunk_id(uploads: Vec<SymbolSetUpload>) -> Vec<SymbolSetUpload> {
-    let mut seen = std::collections::HashSet::new();
-    let mut deduped = Vec::with_capacity(uploads.len());
-    for upload in uploads {
-        if seen.insert(upload.chunk_id.clone()) {
-            deduped.push(upload);
-        } else {
-            warn!(
-                "Duplicate chunk id {} across symbol sets; keeping the first",
-                upload.chunk_id
-            );
-        }
-    }
-    deduped
 }
 
 /// Per-run tally of what an upload actually did. Without it a run that skipped
@@ -368,11 +337,7 @@ fn upload_inner(
     let content_hashes: Vec<String> = thread_pool.install(|| {
         upload_requests
             .par_iter()
-            .map(|u| {
-                u.content_hash
-                    .clone()
-                    .unwrap_or_else(|| content_hash([&u.data]))
-            })
+            .map(|upload| upload.resolved_content_hash())
             .collect()
     });
     let hashed: Vec<HashedUpload> = upload_requests
@@ -811,17 +776,6 @@ pub fn download_bytes(symbol_set_id: &str) -> Result<Vec<u8>> {
 
     let bytes = response.bytes().context("Failed to read response body")?;
     Ok(bytes.to_vec())
-}
-
-impl SymbolSetUpload {
-    pub fn cheap_clone(&self) -> Self {
-        Self {
-            chunk_id: self.chunk_id.clone(),
-            release_id: self.release_id.clone(),
-            data: vec![],
-            content_hash: self.content_hash.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -7,13 +7,65 @@ use sourcemap::SourceMap;
 use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
-    api::symbol_sets::SymbolSetUpload,
+    files::SourceFile,
     sourcemaps::constant::{
-        CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE,
-        CODE_SNIPPET_WITH_RELEASE_TEMPLATE, QUOTED_CHUNKID_PLACEHOLDER, RELEASE_ID_PLACEHOLDER,
+        CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CHUNK_ID_COMMENT, CODE_SNIPPET_TEMPLATE,
+        CODE_SNIPPET_WITH_RELEASE_TEMPLATE, DEBUG_ID_COMMENT, QUOTED_CHUNKID_PLACEHOLDER,
+        RELEASE_ID_PLACEHOLDER, SOURCEMAP_REFERENCE_PREFIXES,
     },
-    utils::files::SourceFile,
+    upload::SymbolSetUpload,
 };
+
+/// A release id longer than this between the two halves of the release snippet is user code, not
+/// an id this crate injected.
+const MAX_RELEASE_ID_LITERAL_BYTES: usize = 256;
+
+/// The key the Hermes compiler adds to the map it composes. Metro's packager map does not have
+/// it, so it tells the two apart.
+pub const HERMES_FUNCTION_OFFSETS_FIELD: &str = "x_hermes_function_offsets";
+
+/// How the map that describes an edit to a minified file is generated.
+///
+/// The adjustment map only moves the mappings of the real sourcemap, so its `sourcesContent` is
+/// never read. `include_content: false` skips a copy of the whole minified file. posthog-cli
+/// keeps `true`, hog-worker sets `false` to hold less memory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AdjustmentOptions {
+    pub include_content: bool,
+}
+
+impl Default for AdjustmentOptions {
+    fn default() -> Self {
+        Self {
+            include_content: true,
+        }
+    }
+}
+
+/// Which characters count as blank around a stylesheet's sourcemap comment.
+///
+/// The two sets differ in U+FEFF, which only JavaScript treats as whitespace, and U+0085, which
+/// only Rust does. posthog-cli uses `Rust`. hog-worker uses `JavaScript`, because hog's
+/// stylesheet rules were written against `String.prototype.trim`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CssWhitespace {
+    #[default]
+    Rust,
+    JavaScript,
+}
+
+impl CssWhitespace {
+    fn is_whitespace(self, c: char) -> bool {
+        match self {
+            CssWhitespace::Rust => c.is_whitespace(),
+            CssWhitespace::JavaScript => (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}',
+        }
+    }
+
+    fn is_blank(self, text: &str) -> bool {
+        text.chars().all(|c| self.is_whitespace(c))
+    }
+}
 
 /// Build the injected IIFE for a chunk. Both ids are filled in as JSON-encoded string literals,
 /// so quotes/backslashes in the values can't break out of the snippet — chunk ids matter too,
@@ -57,7 +109,7 @@ fn find_release_snippet(source: &str, chunk_id: &str) -> Option<ReleaseSnippetSp
     let release_id_len = source[release_id_start..].find(&suffix)?;
     // The span between prefix and suffix must be the injected release id — a short JSON
     // string literal. A distant suffix match means user code, not our snippet.
-    if release_id_len > 256 {
+    if release_id_len > MAX_RELEASE_ID_LITERAL_BYTES {
         return None;
     }
     let release_id_end = release_id_start + release_id_len;
@@ -105,6 +157,33 @@ impl SourceMapContent {
     pub fn is_empty(&self) -> bool {
         let get = |k: &str| self.fields.get(k);
         is_map_empty(get)
+    }
+
+    /// Whether the JSON object is a sourcemap at all: a sourcemap always has `mappings`, or
+    /// `sections` when it is an index map. A `sourceMappingURL` can name any JSON file, such as
+    /// a settings file next to the build.
+    pub fn is_sourcemap(&self) -> bool {
+        self.fields.contains_key("mappings") || self.fields.contains_key("sections")
+    }
+
+    pub fn is_hermes_composed(&self) -> bool {
+        self.fields.contains_key(HERMES_FUNCTION_OFFSETS_FIELD)
+    }
+
+    /// The id this map's symbol set uploads under: our stamped chunk id when present, else a
+    /// bundler-emitted debug id. Hermes maps built with Expo's tooling carry only the latter.
+    pub fn upload_chunk_id(&self) -> Option<String> {
+        self.chunk_id.clone().or_else(|| self.debug_id.clone())
+    }
+
+    /// The Hermes symbol set container for this map. It does not check that the map is a
+    /// composed one, so a caller that must refuse a packager map checks `is_hermes_composed`.
+    pub fn to_hermes_container(&self) -> Result<Vec<u8>> {
+        let data = HermesMap {
+            sourcemap: serde_json::to_string(self)?,
+        };
+
+        Ok(write_symbol_data(data)?)
     }
 }
 
@@ -163,7 +242,7 @@ impl SourceMapFile {
     /// The id this map's symbol set uploads under: our stamped chunk id when present, else a
     /// bundler-emitted debug id. Hermes maps built with Expo's tooling carry only the latter.
     pub fn get_upload_chunk_id(&self) -> Option<String> {
-        self.get_chunk_id().or_else(|| self.get_debug_id())
+        self.inner.content.upload_chunk_id()
     }
 
     pub fn get_release_id(&self) -> Option<String> {
@@ -252,16 +331,25 @@ impl MinifiedSourceFile {
     }
 
     pub fn get_chunk_id(&self) -> Option<String> {
-        let patterns = ["//# chunkId="];
+        let patterns = [CHUNK_ID_COMMENT];
         self.get_comment_value(&patterns)
     }
 
     pub fn get_debug_id(&self) -> Option<String> {
-        let patterns = ["//# debugId="];
+        let patterns = [DEBUG_ID_COMMENT];
         self.get_comment_value(&patterns)
     }
 
     pub fn set_chunk_id(&mut self, chunk_id: &str, release_id: Option<&str>) -> Result<SourceMap> {
+        self.set_chunk_id_with(chunk_id, release_id, AdjustmentOptions::default())
+    }
+
+    pub fn set_chunk_id_with(
+        &mut self,
+        chunk_id: &str,
+        release_id: Option<&str>,
+        options: AdjustmentOptions,
+    ) -> Result<SourceMap> {
         let (new_source_content, source_adjustment) = {
             // Update source content with chunk ID
             let source_content = &self.inner.content;
@@ -274,19 +362,7 @@ impl MinifiedSourceFile {
             magic_source
                 .append(&chunk_comment)
                 .map_err(|err| anyhow!("Failed to append chunk comment: {err}"))?;
-            let adjustment = magic_source
-                .generate_map(GenerateDecodedMapOptions {
-                    include_content: true,
-                    ..Default::default()
-                })
-                .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
-            let adjustment_sourcemap = SourceMap::from_slice(
-                adjustment
-                    .to_string()
-                    .map_err(|err| anyhow!("Failed to serialize source map: {err}"))?
-                    .as_bytes(),
-            )
-            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {err}"))?;
+            let adjustment_sourcemap = adjustment_map(&mut magic_source, options)?;
             (magic_source.to_string(), adjustment_sourcemap)
         };
 
@@ -346,14 +422,9 @@ impl MinifiedSourceFile {
 
     pub fn get_sourcemap_reference(&self) -> Result<Option<String>> {
         let found = if self.is_stylesheet() {
-            css_sourcemap_reference(&self.inner.content)
+            css_sourcemap_reference(&self.inner.content, CssWhitespace::default())
         } else {
-            self.inner.content.lines().rev().find_map(|line| {
-                let line = line.trim();
-                ["//# sourceMappingURL=", "//@ sourceMappingURL="]
-                    .iter()
-                    .find_map(|prefix| line.strip_prefix(prefix))
-            })
+            sourcemap_reference(&self.inner.content)
         };
 
         Ok(found
@@ -363,7 +434,7 @@ impl MinifiedSourceFile {
 
     pub fn remove_sourcemap_reference(&mut self) -> bool {
         let range = if self.is_stylesheet() {
-            css_sourcemap_reference_removal_range(&self.inner.content)
+            css_sourcemap_reference_removal_range(&self.inner.content, CssWhitespace::default())
         } else {
             trailing_sourcemap_reference_range(&self.inner.content)
         };
@@ -405,6 +476,14 @@ impl MinifiedSourceFile {
     }
 
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
+        self.remove_chunk_id_with(chunk_id, AdjustmentOptions::default())
+    }
+
+    pub fn remove_chunk_id_with(
+        &mut self,
+        chunk_id: String,
+        options: AdjustmentOptions,
+    ) -> Result<SourceMap> {
         let (new_source_content, source_adjustment) = {
             // Update source content with chunk ID
             let source_content = &self.inner.content;
@@ -430,20 +509,7 @@ impl MinifiedSourceFile {
                     .map_err(|err| anyhow!("Failed to remove code snippet {err}"))?;
             }
 
-            let adjustment = magic_source
-                .generate_map(GenerateDecodedMapOptions {
-                    include_content: true,
-                    ..Default::default()
-                })
-                .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
-
-            let adjustment_sourcemap = SourceMap::from_slice(
-                adjustment
-                    .to_string()
-                    .map_err(|err| anyhow!("Failed to serialize source map: {err}"))?
-                    .as_bytes(),
-            )
-            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {err}"))?;
+            let adjustment_sourcemap = adjustment_map(&mut magic_source, options)?;
 
             (magic_source.to_string(), adjustment_sourcemap)
         };
@@ -451,6 +517,32 @@ impl MinifiedSourceFile {
         self.inner.content = new_source_content;
         Ok(source_adjustment)
     }
+}
+
+fn adjustment_map(magic_source: &mut MagicString, options: AdjustmentOptions) -> Result<SourceMap> {
+    let adjustment = magic_source
+        .generate_map(GenerateDecodedMapOptions {
+            include_content: options.include_content,
+            ..Default::default()
+        })
+        .map_err(|err| anyhow!("Failed to generate source map: {err}"))?;
+
+    SourceMap::from_slice(
+        adjustment
+            .to_string()
+            .map_err(|err| anyhow!("Failed to serialize source map: {err}"))?
+            .as_bytes(),
+    )
+    .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {err}"))
+}
+
+pub fn sourcemap_reference(content: &str) -> Option<&str> {
+    content.lines().rev().find_map(|line| {
+        let line = line.trim();
+        SOURCEMAP_REFERENCE_PREFIXES
+            .iter()
+            .find_map(|prefix| line.strip_prefix(prefix))
+    })
 }
 
 const CSS_SOURCEMAP_REFERENCE_PREFIX: &str = "/*# sourceMappingURL=";
@@ -504,13 +596,18 @@ fn css_sourcemap_reference_range(line: &str) -> Option<std::ops::Range<usize>> {
     found
 }
 
-fn css_sourcemap_reference(content: &str) -> Option<&str> {
+pub fn css_sourcemap_reference(content: &str, whitespace: CssWhitespace) -> Option<&str> {
     let range = css_sourcemap_reference_range(content)?;
     let reference_start = range.start + CSS_SOURCEMAP_REFERENCE_PREFIX.len();
-    Some(content[reference_start..range.end - 2].trim_end())
+    Some(content[reference_start..range.end - 2].trim_end_matches(|c| whitespace.is_whitespace(c)))
 }
 
-fn css_sourcemap_reference_removal_range(content: &str) -> Option<std::ops::Range<usize>> {
+/// The bytes to cut to drop a stylesheet's sourcemap comment: its whole line when nothing else
+/// is on it, else the comment alone.
+pub fn css_sourcemap_reference_removal_range(
+    content: &str,
+    whitespace: CssWhitespace,
+) -> Option<std::ops::Range<usize>> {
     let comment_range = css_sourcemap_reference_range(content)?;
     let line_start = content[..comment_range.start]
         .rfind('\n')
@@ -519,8 +616,8 @@ fn css_sourcemap_reference_removal_range(content: &str) -> Option<std::ops::Rang
         .find('\n')
         .map_or(content.len(), |index| comment_range.end + index + 1);
 
-    if content[line_start..comment_range.start].trim().is_empty()
-        && content[comment_range.end..line_end].trim().is_empty()
+    if whitespace.is_blank(&content[line_start..comment_range.start])
+        && whitespace.is_blank(&content[comment_range.end..line_end])
     {
         Some(line_start..line_end)
     } else {
@@ -528,7 +625,9 @@ fn css_sourcemap_reference_removal_range(content: &str) -> Option<std::ops::Rang
     }
 }
 
-fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<usize>> {
+/// The line of a script's trailing `sourceMappingURL` comment. Only blank lines and the chunk id
+/// and debug id comments may follow it, so a reference inside the code is left alone.
+pub fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<usize>> {
     let mut line_start = 0;
     let mut lines = Vec::new();
     for line in content.split_inclusive('\n') {
@@ -540,13 +639,14 @@ fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<u
     for (line_start, line_end, line) in lines.into_iter().rev() {
         let trimmed_line = line.trim();
         if trimmed_line.is_empty()
-            || trimmed_line.starts_with("//# chunkId=")
-            || trimmed_line.starts_with("//# debugId=")
+            || trimmed_line.starts_with(CHUNK_ID_COMMENT)
+            || trimmed_line.starts_with(DEBUG_ID_COMMENT)
         {
             continue;
         }
-        if trimmed_line.starts_with("//# sourceMappingURL=")
-            || trimmed_line.starts_with("//@ sourceMappingURL=")
+        if SOURCEMAP_REFERENCE_PREFIXES
+            .iter()
+            .any(|prefix| trimmed_line.starts_with(prefix))
         {
             return Some(line_start..line_end);
         }
@@ -566,14 +666,11 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
 
         let release_id = self.get_release_id();
         let sourcemap = self.inner.content;
-        let content = serde_json::to_string(&sourcemap)?;
-        if !sourcemap.fields.contains_key("x_hermes_function_offsets") {
-            bail!("Map is not a hermes sourcemap - missing key x_hermes_function_offsets");
+        if !sourcemap.is_hermes_composed() {
+            bail!("Map is not a hermes sourcemap - missing key {HERMES_FUNCTION_OFFSETS_FIELD}");
         }
 
-        let data = HermesMap { sourcemap: content };
-
-        let data = write_symbol_data(data)?;
+        let data = sourcemap.to_hermes_container()?;
 
         Ok(SymbolSetUpload {
             chunk_id,

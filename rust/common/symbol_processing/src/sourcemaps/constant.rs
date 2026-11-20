@@ -14,6 +14,11 @@ pub const CHUNKID_PLACEHOLDER: &str = "__POSTHOG_CHUNK_ID__";
 pub const QUOTED_CHUNKID_PLACEHOLDER: &str = "\"__POSTHOG_CHUNK_ID__\"";
 pub const RELEASE_ID_PLACEHOLDER: &str = "__POSTHOG_RELEASE_ID__";
 
+pub const CHUNK_ID_COMMENT: &str = "//# chunkId=";
+pub const DEBUG_ID_COMMENT: &str = "//# debugId=";
+pub const SOURCEMAP_REFERENCE_PREFIXES: [&str; 2] =
+    ["//# sourceMappingURL=", "//@ sourceMappingURL="];
+
 // Fixed namespace for deriving deterministic (content-addressed) chunk ids via UUIDv5.
 // Same minified bytes in, same chunk id out — across machines and rebuilds — so re-uploads
 // dedupe and symbol sets stay stable without a per-build random id.

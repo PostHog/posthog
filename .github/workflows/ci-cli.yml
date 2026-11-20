@@ -5,6 +5,7 @@ on:
     pull_request:
         paths:
             - 'cli/**'
+            - 'rust/common/symbol_processing/**'
             - 'rust/cymbal/tests/static/native/**'
             - 'rust/cymbal/tests/static/apple/**'
             - '.github/actions/paths-filter/**'
@@ -53,10 +54,12 @@ jobs:
                       api_bundle:
                           - '**'
                           - '!cli/**'
+                          - '!rust/common/symbol_processing/**'
                           - '!rust/cymbal/tests/static/native/**'
                           - '!rust/cymbal/tests/static/apple/**'
                       rust:
                           - 'cli/**'
+                          - 'rust/common/symbol_processing/**'
                           - 'rust/cymbal/tests/static/native/**'
                           - 'rust/cymbal/tests/static/apple/**'
                           - '.github/workflows/ci-cli.yml'
@@ -78,6 +81,7 @@ jobs:
               with:
                   sparse-checkout: |
                       /cli/
+                      /rust/common/symbol_processing/
                       /rust/cymbal/tests/static/native/
                       /rust/cymbal/tests/static/apple/
                   sparse-checkout-cone-mode: false
@@ -95,6 +99,11 @@ jobs:
             - name: Run tests
               run: cargo test --all-features
 
+            # posthog-cli builds this crate by path, and cargo tests only the package it is asked
+            # for, so the crate's own tests need their own run.
+            - name: Run posthog-symbol-processing tests
+              run: cargo test --locked --manifest-path ../rust/common/symbol_processing/Cargo.toml
+
     clippy:
         name: Clippy
         needs: changes
@@ -109,6 +118,7 @@ jobs:
               with:
                   sparse-checkout: |
                       /cli/
+                      /rust/common/symbol_processing/
                       /rust/cymbal/tests/static/native/
                       /rust/cymbal/tests/static/apple/
                   sparse-checkout-cone-mode: false
@@ -121,6 +131,9 @@ jobs:
 
             - name: Run clippy
               run: cargo clippy --all-targets --all-features -- -D warnings
+
+            - name: Run clippy on posthog-symbol-processing
+              run: cargo clippy --locked --manifest-path ../rust/common/symbol_processing/Cargo.toml --all-targets -- -D warnings
 
     format:
         name: Format
@@ -136,6 +149,7 @@ jobs:
               with:
                   sparse-checkout: |
                       /cli/
+                      /rust/common/symbol_processing/
                       /rust/cymbal/tests/static/native/
                       /rust/cymbal/tests/static/apple/
                   sparse-checkout-cone-mode: false
@@ -148,6 +162,9 @@ jobs:
 
             - name: Check formatting
               run: cargo fmt --all -- --check
+
+            - name: Check posthog-symbol-processing formatting
+              run: cargo fmt --manifest-path ../rust/common/symbol_processing/Cargo.toml --all -- --check
 
     api-cli-release-bundle:
         name: API CLI release bundle

@@ -3,11 +3,12 @@ use std::path::Path;
 use tracing::{info, warn};
 use walkdir::DirEntry;
 
+pub use posthog_symbol_processing::sourcemaps::inject::{inject_pairs, inject_pairs_legacy};
+
 use crate::{
     api::releases::{Release, ReleaseBuilder},
     sourcemaps::{
         args::{FileSelectionArgs, ReleaseArgs, ReleaseMode},
-        constant::CHUNK_ID_NAMESPACE,
         content::SourceMapFile,
         source_pairs::{read_pairs, SourcePair},
     },
@@ -129,93 +130,6 @@ pub fn inject_impl(
     }
     info!("injecting done");
     Ok(pairs)
-}
-
-/// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
-/// `_posthogReleaseId` payload. A bundler-emitted debug id, when present, is adopted as the
-/// chunk id so one id identifies the chunk across the whole toolchain.
-pub fn inject_pairs(
-    mut pairs: Vec<SourcePair>,
-    release_id: Option<&str>,
-) -> Result<Vec<SourcePair>> {
-    for pair in &mut pairs {
-        let Some(chunk_id) = pair.get_chunk_id() else {
-            let chunk_id = adopted_debug_id(pair)
-                .unwrap_or_else(|| stable_chunk_id(&pair.source.inner.content));
-            pair.add_chunk_id(chunk_id, release_id)?;
-            continue;
-        };
-
-        // Already injected: the chunk id is content-addressed and the content didn't change,
-        // so keep it — but refresh the embedded release id when a different release resolved,
-        // or a re-run over an existing dist would keep reporting the old release on every
-        // event. When no release resolves, leave the pair untouched: failing to resolve is
-        // missing information (e.g. no git context), not evidence the embedded id is stale.
-        let Some(release_id) = release_id else {
-            continue;
-        };
-        if pair.get_injected_release_id().as_deref() == Some(release_id) {
-            continue;
-        }
-        pair.remove_chunk_id(chunk_id.clone())?;
-        pair.add_chunk_id(chunk_id, Some(release_id))?;
-    }
-
-    Ok(pairs)
-}
-
-/// A bundler-emitted ECMA-426 debug id is already content-derived, so adopt it as the chunk id
-/// instead of deriving our own. Non-UUID values are refused: the id flows into upload rows and
-/// SDK events, and a malformed one is worse than a derived one.
-fn adopted_debug_id(pair: &SourcePair) -> Option<String> {
-    let debug_id = pair.get_debug_id()?;
-    if uuid::Uuid::parse_str(&debug_id).is_err() {
-        warn!(
-            "ignoring malformed debug id {:?} on {} — falling back to a content-derived chunk id",
-            debug_id,
-            pair.source.inner.path.display()
-        );
-        return None;
-    }
-    Some(debug_id)
-}
-
-/// Symbol-set-mode injection (the default): a random per-build chunk id and the created release
-/// id stamped into the sourcemap. Regenerates the chunk id whenever the release id changes or is
-/// missing.
-pub fn inject_pairs_legacy(
-    mut pairs: Vec<SourcePair>,
-    created_release_id: Option<String>,
-) -> Result<Vec<SourcePair>> {
-    for pair in &mut pairs {
-        let current_release_id = pair.get_release_id();
-        // We only update release ids and chunk ids when the release id changed or is not present
-        if current_release_id != created_release_id || pair.get_chunk_id().is_none() {
-            pair.set_release_id(created_release_id.clone());
-
-            let chunk_id = uuid::Uuid::now_v7().to_string();
-            if let Some(previous_chunk_id) = pair.get_chunk_id() {
-                pair.update_chunk_id(previous_chunk_id, chunk_id)?;
-            } else {
-                pair.add_chunk_id(chunk_id, None)?;
-            }
-        }
-    }
-
-    Ok(pairs)
-}
-
-/// Deterministically derive a chunk id from the pristine minified source (UUIDv5). Identical
-/// builds produce identical ids on every machine and rebuild, so uploads dedupe instead of
-/// minting a per-build random id.
-///
-/// The sourcemap is deliberately not part of the identity. It carries `sourcesContent`, so a
-/// comment-only edit rewrites the map while the minified code stays byte-identical, and folding
-/// the map in would mint a new chunk for code that never changed. The map still reaches the
-/// server, because the upload hashes the payload it sends: a map-only change is a content
-/// change, and event mode overwrites the stored symbol set with the newer map.
-fn stable_chunk_id(source_content: &str) -> String {
-    uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, source_content.as_bytes()).to_string()
 }
 
 /// Resolve the release row whose id gets injected into the chunks. Reuses the release already
@@ -430,14 +344,6 @@ mod tests {
         );
 
         assert_eq!(one, two);
-    }
-
-    #[test]
-    fn stable_chunk_id_tracks_the_minified_source() {
-        let id = stable_chunk_id("code();");
-
-        assert_eq!(id, stable_chunk_id("code();"));
-        assert_ne!(id, stable_chunk_id("other();"));
     }
 
     #[test]

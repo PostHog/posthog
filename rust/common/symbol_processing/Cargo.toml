@@ -1,0 +1,59 @@
+# A workspace of its own, not a member of `rust/`. posthog-cli and hog-worker each build this crate
+# by path from a checkout that has no `rust/Cargo.toml`, and the crates that decide a written byte
+# stay on the versions `cli/Cargo.lock` pins instead of the ones the services in `rust/` resolve.
+[workspace]
+members = ["."]
+resolver = "2"
+
+[package]
+name = "posthog-symbol-processing"
+version = "0.1.0"
+authors = [
+    "David <david@posthog.com>",
+    "Olly <oliver@posthog.com>",
+    "Hugues <hugues@posthog.com>",
+]
+description = "The file processing behind PostHog error tracking uploads: source maps, Hermes maps, native debug files, dSYMs and ProGuard mappings"
+edition = "2021"
+license = "MIT"
+homepage = "https://posthog.com"
+repository = "https://github.com/PostHog/posthog"
+readme = "README.md"
+include = [
+    "src/**/*",
+    "/README.md",
+    "/CHANGELOG.md",
+]
+
+# The same lints as `cli/Cargo.toml`, where this code came from.
+[lints.rust]
+unstable_features = "forbid"
+macro_use_extern_crate = "forbid"
+let_underscore_drop = "deny"
+non_ascii_idents = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unit_bindings = "deny"
+
+# posthog-cli and hog-worker must write the same bytes, so the requirements here match the ones
+# posthog-cli had when this code lived in `cli/`. Each binary pins the exact versions in its own
+# Cargo.lock.
+[dependencies]
+anyhow = "1.0.97"
+magic_string = "0.3.4"
+posthog-symbol-data = "0.5.2"
+proguard = "5.6.2"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+sha2 = "0.10.9"
+sourcemap = "9.1.2"
+symbolic = { version = "12.12", features = ["debuginfo"] }
+tempfile = "3"
+tracing = "0.1.41"
+urlencoding = "2.1.3"
+uuid = { version = "1.16.0", features = ["v5", "v7"] }
+walkdir = "2.5.0"
+zip = { version = "2.2", default-features = false, features = ["deflate", "deflate-zlib"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

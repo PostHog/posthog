@@ -130,6 +130,13 @@ mark-changed = []
 globs = ["AGENTS.md"]
 mark-changed = []
 
+# posthog-symbol-processing is a cargo workspace of its own that posthog-cli builds, so no crate
+# of this workspace reads it. Without this rule its files match no package and mark every crate.
+# ci-cli.yml tests it.
+[[path-rule]]
+globs = ["common/symbol_processing/**"]
+mark-changed = []
+
 # Migration directories are not cargo crates. Tell the determinator to
 # ignore them (don't try ancestor-walk package matching). The sqlx-migrate
 # image trigger is handled in custom code outside the determinator.

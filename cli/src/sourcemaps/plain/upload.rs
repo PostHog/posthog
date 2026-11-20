@@ -11,17 +11,6 @@ use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
-/// Sibling-JS size below which an empty sourcemap is treated as a harmless
-/// bundler-generated wrapper (e.g. Turbopack App Router page entries,
-/// webpack re-export shims). Turbopack page entries reach about 3 KiB after
-/// chunk-id injection (#70235), and every layout, loading or error file on the
-/// route makes the entry larger. Every empty map is skipped whatever its size,
-/// so this cutoff only picks the log message and which of the
-/// `empty_skipped_wrapper` and `empty_skipped_suspect` telemetry counts the
-/// map adds to. A bundler that drops maps for a whole build also writes empty
-/// maps for chunks well above 4 KiB, so the summary still reports it.
-const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 4096;
-
 /// Cap on the suspect paths named in the summary line. They share one line, and an
 /// oversized line kills the process on a non-blocking stderr pipe (see `FileSelectionArgs`).
 const MAX_LISTED_SUSPECT_PATHS: usize = 3;
@@ -40,7 +29,7 @@ use crate::{
         content::{MinifiedSourceFile, SourceMapFile},
         inject::get_release_for_maps,
         plain::inject::{is_javascript_file, is_stylesheet_file},
-        source_pairs::{read_pairs, SourcePair},
+        source_pairs::{read_pairs, SourcePair, WRAPPER_JS_SIZE_THRESHOLD_BYTES},
     },
     utils::files::{content_hash, FileSelection, SourceFile},
 };
@@ -343,7 +332,7 @@ fn prepare_uploads(
         .map(|pair| {
             let source_carries_native_debug_id =
                 !pair.has_chunk_id() && pair.source.get_debug_id().is_some();
-            pair.into_upload(release_mode)
+            pair.into_upload(release_mode.into())
                 .map(|upload| (source_carries_native_debug_id, upload))
         })
         .collect::<Result<Vec<_>>>()

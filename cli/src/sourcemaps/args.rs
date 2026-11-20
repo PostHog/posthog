@@ -142,6 +142,15 @@ pub enum ReleaseMode {
     Event,
 }
 
+impl From<ReleaseMode> for posthog_symbol_processing::ReleaseMode {
+    fn from(release_mode: ReleaseMode) -> Self {
+        match release_mode {
+            ReleaseMode::SymbolSet => Self::SymbolSet,
+            ReleaseMode::Event => Self::Event,
+        }
+    }
+}
+
 #[derive(clap::Args, Clone)]
 pub struct ReleaseArgs {
     /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with

@@ -522,7 +522,7 @@ fn test_upload_set() {
 
     // Convert to UploadSet
     let upload_set = pair_with_different_ids
-        .into_upload(ReleaseMode::SymbolSet)
+        .into_upload(ReleaseMode::SymbolSet.into())
         .expect("Failed to convert to SymbolSetUpload");
 
     // Verify that the upload set uses the source's chunk ID, not the sourcemap's
@@ -549,7 +549,7 @@ fn test_event_mode_content_hash_tracks_the_snippet_variant() {
             .into_iter()
             .next()
             .expect("Failed to get first pair")
-            .into_upload(ReleaseMode::Event)
+            .into_upload(ReleaseMode::Event.into())
             .expect("Failed to convert to SymbolSetUpload")
             .content_hash
             .expect("event mode always sets a content hash")
@@ -701,7 +701,7 @@ fn test_event_mode_content_hash_is_stable_across_releases_for_adopted_ids() {
         )
     };
     let upload_of = |pair: SourcePair| {
-        pair.into_upload(ReleaseMode::Event)
+        pair.into_upload(ReleaseMode::Event.into())
             .expect("Failed to convert to SymbolSetUpload")
     };
 
@@ -772,7 +772,7 @@ fn event_mode_hashes(pairs: Vec<SourcePair>) -> Vec<String> {
     pairs
         .into_iter()
         .map(|pair| {
-            pair.into_upload(ReleaseMode::Event)
+            pair.into_upload(ReleaseMode::Event.into())
                 .expect("Failed to convert to SymbolSetUpload")
                 .content_hash
                 .expect("event mode always sets a content hash")
@@ -839,7 +839,7 @@ fn test_event_mode_upload_keeps_the_file_names() {
     );
 
     let upload = pair
-        .into_upload(ReleaseMode::Event)
+        .into_upload(ReleaseMode::Event.into())
         .expect("Failed to convert to SymbolSetUpload");
     let stored: SourceAndMap = read_symbol_data(&upload.data).expect("Failed to read upload");
 

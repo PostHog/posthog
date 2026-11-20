@@ -38,14 +38,15 @@ dunce = "1.0.5"
 inquire = "0.8.1"
 chrono = "0.4.42"
 posthog-symbol-data = "0.5.2"
+# The path keeps local and CI builds on the source in this repository. The version is what a
+# published posthog-cli resolves from crates.io, so that version must be published first.
+posthog-symbol-processing = { path = "../rust/common/symbol_processing", version = "0.1.0" }
 walkdir = "2.5.0"
 globset = "0.4"
 ratatui = "0.29.0"
 crossterm = "0.28.1"
 tui-textarea = "0.7.0"
 sourcemap = "9.1.2"
-proguard = "5.6.2"
-magic_string = "0.3.4"
 miette = { version = "7.5.0", features = ["fancy"] }
 serde_json = "1.0.140"
 # Both root stores. `rustls-tls` compiles in the public CA list, which verifies PostHog
@@ -69,7 +70,6 @@ uuid = { version = "1.16.0", features = ["v5", "v7"] }
 thiserror = "2.0.12"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 posthog = { version = "1.1.3", default-features = false, features = ["error-tracking", "tls"] }
-sha2 = "0.10.9"
 urlencoding = "2.1.3"
 url = "2"
 rayon = "1.11.0"
@@ -79,11 +79,7 @@ similar = "3.2.1"
 open = { version = "5", features = ["shellexecute-on-windows"] }
 zip = { version = "2.2", default-features = false, features = ["deflate", "deflate-zlib"] }
 tempfile = "3"
-symbolic = { version = "12.12", features = ["debuginfo"] }
 plist = "1"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
 
 [dev-dependencies]
 test-log = "0.2.17"

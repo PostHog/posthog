@@ -31,6 +31,14 @@ The bump arrives as a pull request rather than a direct commit because every cha
 
 Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
 
+### posthog-symbol-processing comes first
+
+posthog-cli builds the `posthog-symbol-processing` crate from `rust/common/symbol_processing/`.
+The package on crates.io cannot use that path, so it resolves the version named in `cli/Cargo.toml` from crates.io.
+The workflow runs `cli/scripts/check-symbol-processing-published.sh` before it prepares a release, and again on the release commit.
+The check fails when that version is not on crates.io, when the crate has unreleased changesets, or when the published source differs from the folder.
+The error names the step to take. [The crate's CONTRIBUTING.md](../rust/common/symbol_processing/CONTRIBUTING.md) has the release order.
+
 ### The release bucket
 
 Artifacts are also published to `releases.posthog.com`, a shared S3 and CloudFront origin in the prod-us account, under the `posthog-cli/` prefix.

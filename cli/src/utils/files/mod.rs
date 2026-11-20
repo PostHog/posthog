@@ -1,5 +1,4 @@
-mod content;
 mod selection;
 
-pub use content::*;
+pub use posthog_symbol_processing::files::*;
 pub use selection::*;

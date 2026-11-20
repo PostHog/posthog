@@ -24,6 +24,50 @@ pub struct SourceFiles {
     pub contents: BTreeMap<String, Vec<u8>>,
 }
 
+const MANIFEST_VERSION: u32 = 1;
+const MANIFEST_ENTRY: &str = "__source/manifest.json";
+const SOURCE_FOLDER: &str = "__source";
+
+/// Generous enough that even large generated sources (protobuf output, amalgamated C) are never
+/// clipped.
+const MAX_SOURCE_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SourceReadOptions {
+    /// Open with `O_NONBLOCK`, so a FIFO without a writer is refused as "not a regular file"
+    /// instead of blocking the open. hog-worker sets it. posthog-cli keeps the blocking open.
+    /// Unix only.
+    pub non_blocking_open: bool,
+}
+
+/// The system call a source file read failed in, for a caller that words its own message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceReadStep {
+    Lstat,
+    Open,
+    Fstat,
+    Read,
+}
+
+#[derive(Debug)]
+pub enum SourceReadFailure {
+    Io {
+        step: SourceReadStep,
+        error: std::io::Error,
+    },
+    /// The path is not something a compiler read as a source file.
+    Refused(&'static str),
+}
+
+impl std::fmt::Display for SourceReadFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SourceReadFailure::Io { error, .. } => error.fmt(formatter),
+            SourceReadFailure::Refused(reason) => formatter.write_str(reason),
+        }
+    }
+}
+
 /// Extract all source file paths referenced in a DWARF binary file.
 ///
 /// ## Strategy: CU-anchored line-table walk
@@ -390,31 +434,36 @@ fn cu_main_files_from_dwarf<'d>(obj: &impl DwarfObject<'d>) -> CuInfo {
 /// between check and read, non-regular files (devices, FIFOs) are refused,
 /// and reads are capped generously enough that even large generated sources
 /// (protobuf output, amalgamated C) are never clipped.
-fn read_source_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    use std::io::{Error, ErrorKind, Read};
+fn read_source_file(path: &Path, options: SourceReadOptions) -> Result<Vec<u8>, SourceReadFailure> {
+    use std::io::Read;
 
-    const MAX_SOURCE_FILE_BYTES: u64 = 64 * 1024 * 1024;
+    let failed = |step: SourceReadStep| move |error| SourceReadFailure::Io { step, error };
 
-    let err = |msg: &str| Err(Error::new(ErrorKind::InvalidInput, msg));
-    if fs::symlink_metadata(path)?.file_type().is_symlink() {
-        return err("path is a symlink");
+    let link = fs::symlink_metadata(path).map_err(failed(SourceReadStep::Lstat))?;
+    if link.file_type().is_symlink() {
+        return Err(SourceReadFailure::Refused("path is a symlink"));
     }
-    let file = open_no_follow(path)?;
-    let meta = file.metadata()?;
+    let file = open_no_follow(path, options).map_err(failed(SourceReadStep::Open))?;
+    let meta = file.metadata().map_err(failed(SourceReadStep::Fstat))?;
     if !meta.is_file() {
-        return err("not a regular file");
+        return Err(SourceReadFailure::Refused("not a regular file"));
     }
     if meta.len() > MAX_SOURCE_FILE_BYTES {
-        return err("exceeds the source file size limit");
+        return Err(SourceReadFailure::Refused(
+            "exceeds the source file size limit",
+        ));
     }
 
     // Read one byte past the cap so a file that grew after the metadata
     // check errors out rather than being silently truncated in the bundle.
     let mut data = Vec::with_capacity(meta.len() as usize);
     file.take(MAX_SOURCE_FILE_BYTES + 1)
-        .read_to_end(&mut data)?;
+        .read_to_end(&mut data)
+        .map_err(failed(SourceReadStep::Read))?;
     if data.len() as u64 > MAX_SOURCE_FILE_BYTES {
-        return err("exceeds the source file size limit");
+        return Err(SourceReadFailure::Refused(
+            "exceeds the source file size limit",
+        ));
     }
     Ok(data)
 }
@@ -422,18 +471,25 @@ fn read_source_file(path: &Path) -> std::io::Result<Vec<u8>> {
 /// Open without following a symlink at the final component, so the symlink
 /// check above can't be raced by swapping the path between check and open.
 #[cfg(unix)]
-fn open_no_follow(path: &Path) -> std::io::Result<fs::File> {
+fn open_no_follow(path: &Path, options: SourceReadOptions) -> std::io::Result<fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
+
+    let non_blocking = if options.non_blocking_open {
+        libc::O_NONBLOCK
+    } else {
+        0
+    };
+
     fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        .custom_flags(libc::O_NOFOLLOW | non_blocking)
         .open(path)
 }
 
 /// Windows has no O_NOFOLLOW equivalent in std; creating symlinks there
 /// requires elevated privileges, so the metadata pre-check has to do.
 #[cfg(not(unix))]
-fn open_no_follow(path: &Path) -> std::io::Result<fs::File> {
+fn open_no_follow(path: &Path, _options: SourceReadOptions) -> std::io::Result<fs::File> {
     fs::File::open(path)
 }
 
@@ -609,6 +665,26 @@ pub fn filter_source_paths_for_upload<'a>(
 /// Since the CLI runs on the build machine, the absolute paths from DWARF are valid.
 /// Files that don't exist are skipped with a warning.
 pub fn collect_source_files(dwarf_paths: &[&str]) -> Result<SourceFiles> {
+    collect_source_files_with(
+        dwarf_paths,
+        SourceReadOptions::default(),
+        &mut |dwarf_path, failure| {
+            warn!(
+                "Could not read source file {}: {} (skipping)",
+                dwarf_path, failure
+            );
+        },
+    )
+}
+
+/// [`collect_source_files`] for a caller that reports unreadable files itself. `on_unreadable`
+/// receives each path that is left out and why. The manifest is written even when every read
+/// failed.
+pub fn collect_source_files_with(
+    dwarf_paths: &[&str],
+    options: SourceReadOptions,
+    on_unreadable: &mut dyn FnMut(&str, SourceReadFailure),
+) -> Result<SourceFiles> {
     let mut manifest_files = BTreeMap::new();
     let mut contents = BTreeMap::new();
 
@@ -618,18 +694,13 @@ pub fn collect_source_files(dwarf_paths: &[&str]) -> Result<SourceFiles> {
     let zip_paths = build_zip_relative_paths(dwarf_paths);
 
     for (dwarf_path, zip_rel_path) in dwarf_paths.iter().zip(zip_paths.iter()) {
-        match read_source_file(Path::new(dwarf_path)) {
+        match read_source_file(Path::new(dwarf_path), options) {
             Ok(data) => {
-                let zip_path = format!("__source/{}", zip_rel_path);
+                let zip_path = format!("{SOURCE_FOLDER}/{zip_rel_path}");
                 manifest_files.insert(dwarf_path.to_string(), zip_path.clone());
                 contents.insert(zip_path, data);
             }
-            Err(e) => {
-                warn!(
-                    "Could not read source file {}: {} (skipping)",
-                    dwarf_path, e
-                );
-            }
+            Err(failure) => on_unreadable(dwarf_path, failure),
         }
     }
 
@@ -645,7 +716,7 @@ pub fn collect_source_files(dwarf_paths: &[&str]) -> Result<SourceFiles> {
 
     Ok(SourceFiles {
         manifest: SourceManifest {
-            version: 1,
+            version: MANIFEST_VERSION,
             files: manifest_files,
         },
         contents,
@@ -664,7 +735,7 @@ pub fn add_source_to_zip<W: std::io::Write + std::io::Seek>(
 
     // Write manifest
     let manifest_json = serde_json::to_vec_pretty(&source_files.manifest)?;
-    zip.start_file("__source/manifest.json", options)?;
+    zip.start_file(MANIFEST_ENTRY, options)?;
     std::io::Write::write_all(zip, &manifest_json)?;
 
     // Write source files
@@ -737,7 +808,7 @@ fn build_zip_relative_paths(paths: &[&str]) -> Vec<String> {
 pub fn read_source_manifest_from_zip(
     archive: &mut zip::ZipArchive<Cursor<Vec<u8>>>,
 ) -> Option<SourceManifest> {
-    let mut manifest_file = archive.by_name("__source/manifest.json").ok()?;
+    let mut manifest_file = archive.by_name(MANIFEST_ENTRY).ok()?;
     let mut manifest_data = Vec::new();
     std::io::Read::read_to_end(&mut manifest_file, &mut manifest_data).ok()?;
     serde_json::from_slice(&manifest_data).ok()
@@ -767,6 +838,7 @@ mod tests {
     use super::{
         build_zip_relative_paths, collect_source_files, filter_go_toolchain_sources,
         filter_source_paths_under_root, is_bundleable_go_source, read_source_file,
+        SourceReadOptions,
     };
 
     #[test]
@@ -845,8 +917,11 @@ mod tests {
         #[cfg(windows)]
         std::os::windows::fs::symlink_file(&target, &link).unwrap();
 
-        assert!(read_source_file(&link).is_err());
-        assert_eq!(read_source_file(&target).unwrap(), b"sensitive");
+        assert!(read_source_file(&link, SourceReadOptions::default()).is_err());
+        assert_eq!(
+            read_source_file(&target, SourceReadOptions::default()).unwrap(),
+            b"sensitive"
+        );
     }
 
     fn goroot_witnesses(root: &str, sep: char) -> Vec<String> {

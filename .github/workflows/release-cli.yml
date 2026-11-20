@@ -242,6 +242,12 @@ jobs:
                   message: 'Superseded by a newer release. Nothing left to release from this run.'
                   emoji_reaction: 'fast_forward'
 
+            # Before the version bump, so a release that cannot publish to crates.io opens no
+            # release pull request.
+            - name: Check posthog-symbol-processing is published
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
+              run: cli/scripts/check-symbol-processing-published.sh
+
             - name: Install Rust
               if: steps.recheck-changesets.outputs.has-changesets == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -604,6 +610,12 @@ jobs:
                           | capture("^<!-- slack-thread-ts: (?<ts>[0-9]+\\.[0-9]+) -->$").ts]
                       | if length == 1 then .[0] else empty end' || true)
                   echo "slack_ts=$slack_ts" >> "$GITHUB_OUTPUT"
+
+            # Again on the release commit, because master can gain a crate change between the
+            # two runs. A failure here stops every build and publish job, which all need this one.
+            - name: Check posthog-symbol-processing is published
+              if: steps.release-metadata.outputs.release-commit != ''
+              run: cli/scripts/check-symbol-processing-published.sh
 
             - name: Send failure event to PostHog
               if: ${{ failure() }}
