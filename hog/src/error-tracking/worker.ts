@@ -71,48 +71,22 @@ const Outcomes = z.object({
 })
 const Done = z.object({})
 const Targets = z.object({ targets: z.array(z.number()) })
+const Container = z.object({ contentHash: z.string(), size: z.number(), path: z.string().nullable() })
 const Prepared = z.object({
-    prepared: z.array(
-        z.union([
-            z.object({ skipped: z.string() }),
-            z.object({
-                chunkId: z.string(),
-                releaseId: z.string().nullable(),
-                contentHash: z.string(),
-                size: z.number(),
-                path: z.string().nullable(),
-            }),
-        ])
-    ),
+    skipped: z.array(z.object({ id: z.number(), reason: z.string() })),
+    prepared: z.array(Container.extend({ id: z.number(), chunkId: z.string(), releaseId: z.string().nullable() })),
+    duplicates: z.array(z.string()),
 })
 const CssCandidates = z.object({
     candidates: z.array(z.object({ id: z.number(), mapRealPath: z.string().nullable() }).nullable()),
 })
 const Cleaned = z.object({ deletedMaps: z.array(z.string()), warnings: z.array(z.string()) })
-const ProguardContainer = z.union([
-    z.object({ invalid: z.enum(['not_utf8', 'not_a_mapping']) }),
-    z.object({ contentHash: z.string(), size: z.number() }),
-])
-const MapState = z.object({
-    id: z.number(),
-    chunkId: z.string().nullable(),
-    debugId: z.string().nullable(),
-    releaseId: z.string().nullable(),
-    empty: z.boolean(),
-})
+const ProguardContainer = z.union([z.object({ invalid: z.enum(['not_utf8', 'not_a_mapping']) }), Container])
+const MapState = z.object({ id: z.number(), chunkId: z.string().nullable(), releaseId: z.string().nullable() })
 export type MapState = z.output<typeof MapState>
 
 const Maps = z.object({ maps: z.array(z.union([MapState, z.object({ unreadable: z.string() })])) })
 const ClonedMap = z.object({ map: MapState })
-const MapContainers = z.object({
-    containers: z.array(
-        z.object({
-            contentHash: z.string(),
-            size: z.number(),
-            path: z.string().nullable(),
-        })
-    ),
-})
 const NativeProblem = z.enum(['no_debug_info', 'no_build_id', 'missing_uuid', 'compressed_dwarf', 'unparseable_slice'])
 export type NativeProblem = z.output<typeof NativeProblem>
 
@@ -143,31 +117,24 @@ const DsymMembers = z.object({
 const SourcePaths = z.object({
     sources: z.array(z.union([z.object({ paths: z.array(z.string()) }), z.object({ failed: z.string() })])),
 })
-const NativeContainer = z.object({
-    contentHash: z.string(),
-    size: z.number(),
-    path: z.string().nullable(),
-})
 const Packed = z.object({
     unreadable: z.array(z.array(z.object({ path: z.string(), message: z.string() }))),
-    containers: z.array(NativeContainer),
+    containers: z.array(Container),
 })
 const Wrapped = z.object({ contentHash: z.string(), size: z.number() })
 
 export type InjectAction = z.output<typeof InjectAction>
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
 type PairAnswer = z.output<typeof Pairs>['pairs'][number]
-type PreparedPair = z.output<typeof Prepared>['prepared'][number]
+type PreparedSymbolSets = z.output<typeof Prepared>
 type CssCandidate = NonNullable<z.output<typeof CssCandidates>['candidates'][number]>
 type CleanupReport = z.output<typeof Cleaned>
 type ProguardContainer = z.output<typeof ProguardContainer>
 export type MapAnswer = z.output<typeof Maps>['maps'][number]
-type MapContainer = z.output<typeof MapContainers>['containers'][number]
 type NativeFileAnswer = z.output<typeof NativeFiles>['files'][number]
 type DsymMemberAnswer = z.output<typeof DsymMembers>['members'][number]
 type SourcePathsAnswer = z.output<typeof SourcePaths>['sources'][number]
 type PackedNative = z.output<typeof Packed>
-type NativeContainer = z.output<typeof NativeContainer>
 type WrappedPayload = z.output<typeof Wrapped>
 
 export interface PackItem {
@@ -326,14 +293,8 @@ export class Worker {
         await this.call({ op: 'drop', ids }, Done, {})
     }
 
-    async inject(
-        ids: number[],
-        mode: ReleaseMode,
-        releaseId: string | null,
-        newChunkIds: string[] = []
-    ): Promise<InjectOutcome[]> {
-        return (await this.call({ op: 'inject', ids, mode, releaseId, newChunkIds }, Outcomes, { outcomes: [] }))
-            .outcomes
+    async inject(ids: number[], mode: ReleaseMode, releaseId: string | null, now: number): Promise<InjectOutcome[]> {
+        return (await this.call({ op: 'inject', ids, mode, releaseId, now }, Outcomes, { outcomes: [] })).outcomes
     }
 
     async save(ids: number[]): Promise<void> {
@@ -344,13 +305,16 @@ export class Worker {
         return (await this.call({ op: 'fingerprint', ids }, Targets, { targets: [] })).targets
     }
 
-    async setRelease(ids: number[], releaseId: string): Promise<void> {
-        await this.call({ op: 'set_release', ids, releaseId }, Done, {})
+    async setRelease(held: { pairs?: number[]; maps?: number[] }, releaseId: string | null): Promise<void> {
+        const { pairs = [], maps = [] } = held
+        if (pairs.length > 0 || maps.length > 0) {
+            await this.call({ op: 'set_release', pairs, maps, releaseId }, Done)
+        }
     }
 
     // The worker lets the pairs go, so this is the last request that names them.
-    async prepare(ids: number[], mode: ReleaseMode, folder: string | null): Promise<PreparedPair[]> {
-        return (await this.call({ op: 'prepare', ids, mode, folder }, Prepared, { prepared: [] })).prepared
+    async prepare(ids: number[], mode: ReleaseMode, folder: string | null): Promise<PreparedSymbolSets> {
+        return this.call({ op: 'prepare', ids, mode, folder }, Prepared, { skipped: [], prepared: [], duplicates: [] })
     }
 
     async cssCandidates(files: string[], publicPathPrefix: string | undefined): Promise<CssCandidate[]> {
@@ -366,8 +330,8 @@ export class Worker {
         return this.call({ op: 'clean_up', targets, css, roots }, Cleaned)
     }
 
-    async proguard(path: string, out: string | null): Promise<ProguardContainer> {
-        return this.call({ op: 'proguard', path, out }, ProguardContainer)
+    async proguard(path: string, folder: string | null): Promise<ProguardContainer> {
+        return this.call({ op: 'proguard', path, folder }, ProguardContainer)
     }
 
     async loadMaps(paths: string[]): Promise<MapAnswer[]> {
@@ -378,16 +342,12 @@ export class Worker {
         return (await this.call({ op: 'clone_metadata', from, to }, ClonedMap)).map
     }
 
-    async setMapRelease(ids: number[], releaseId: string | null): Promise<void> {
-        await this.call({ op: 'set_map_release', ids, releaseId }, Done, {})
-    }
-
     async writeMaps(ids: number[]): Promise<void> {
         await this.call({ op: 'write_maps', ids }, Done, {})
     }
 
-    async prepareMaps(ids: number[], folder: string | null): Promise<MapContainer[]> {
-        return (await this.call({ op: 'prepare_maps', ids, folder }, MapContainers, { containers: [] })).containers
+    async prepareMaps(ids: number[], folder: string | null): Promise<PreparedSymbolSets> {
+        return this.call({ op: 'prepare_maps', ids, folder }, Prepared, { skipped: [], prepared: [], duplicates: [] })
     }
 
     async nativeCandidates(paths: string[]): Promise<NativeFileAnswer[]> {

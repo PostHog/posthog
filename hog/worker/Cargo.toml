@@ -14,8 +14,9 @@ publish = false
 name = "hog-worker"
 path = "src/main.rs"
 
-# The crates that decide a written byte are pinned to the versions in cli/Cargo.lock, because a
-# symbol set must hash the same from either CLI. Raise one here only together with cli/.
+# The crates that decide a written byte are pinned with `=` to the versions in cli/Cargo.lock,
+# because a symbol set must hash the same from either CLI. test/parity/worker-pins.test.ts fails
+# until both sides name the same version.
 [dependencies]
 anyhow = "1.0.100"
 dunce = "1.0.5"
@@ -34,7 +35,7 @@ symbolic = { version = "=12.17.2", features = ["debuginfo"] }
 urlencoding = "=2.1.3"
 # posthog-symbol-data compresses with this crate, so its version decides the bytes of a container.
 zstd = "=0.13.5"
-uuid = { version = "=1.18.1", features = ["v4", "v5"] }
+uuid = { version = "=1.18.1", features = ["v4", "v5", "v7"] }
 zip = { version = "=2.4.2", default-features = false, features = ["deflate", "deflate-zlib"] }
 
 [target.'cfg(unix)'.dependencies]

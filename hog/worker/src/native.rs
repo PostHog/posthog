@@ -16,7 +16,7 @@ use symbolic::debuginfo::{Archive, FileFormat, Object, ObjectKind};
 use crate::{
     node,
     sources::{self, SourceFiles},
-    upload::{content_hash, write_container},
+    upload::Container,
 };
 
 const ELF_MAGIC: [u8; 4] = *b"\x7fELF";
@@ -32,8 +32,6 @@ const MACHO_MAGICS: [[u8; 4]; 3] = [
 // the section headers as written, so a scan of the bytes finds it.
 const COMPRESSED_DWARF_MARKER: &[u8] = b"__zdebug_";
 const DWARF_ENTRY: &str = "dwarf";
-const CONTAINER_PREFIX: &str = "native";
-const CONTAINER_EXTENSION: &str = "symbolset";
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -189,21 +187,12 @@ fn problem(object: &Object<'_>, format: Format) -> Option<Problem> {
     })
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Built {
-    content_hash: String,
-    size: usize,
-    path: Option<String>,
-}
-
 // A zip with the binary as `dwarf` and the sources after it, in the container of its format.
 pub fn pack(
-    id: usize,
     binary: &Binary,
     sources: Option<&SourceFiles>,
     folder: Option<&Path>,
-) -> Result<Built> {
+) -> Result<Container> {
     let mut buffer = Cursor::new(Vec::new());
     {
         let mut zip = zip::ZipWriter::new(&mut buffer);
@@ -224,18 +213,5 @@ pub fn pack(
         Format::Elf => write_symbol_data(ElfDebugInfo { data })?,
     };
 
-    let path = match folder {
-        Some(folder) => {
-            let path = folder.join(format!("{CONTAINER_PREFIX}-{id}.{CONTAINER_EXTENSION}"));
-            write_container(&path, &container)?;
-            Some(path.to_string_lossy().into_owned())
-        }
-        None => None,
-    };
-
-    Ok(Built {
-        content_hash: content_hash([&container]),
-        size: container.len(),
-        path,
-    })
+    Container::write(&container, folder)
 }

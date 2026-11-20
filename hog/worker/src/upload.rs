@@ -1,17 +1,21 @@
-// Copied from posthog-cli's `sourcemaps/source_pairs.rs` and `plain/upload.rs`, so the container
-// and its content hash are the ones PostHog already stores for a posthog-cli upload.
+// Mirrors cli/src/sourcemaps/source_pairs.rs and plain/upload.rs; keep byte output identical.
 
 use anyhow::{anyhow, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha512};
-use std::{borrow::Cow, fs, path::Path};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    fs,
+    path::Path,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use crate::{node, pair::SourcePair, ReleaseMode};
 
-// Keep in step with WRAPPER_JS_SIZE_THRESHOLD_BYTES in cli/src/sourcemaps/plain/upload.rs. A
-// smaller bundle with an empty map is a wrapper the bundler wrote, with nothing to symbolicate.
+// A smaller bundle with an empty map is a wrapper the bundler wrote, with nothing to symbolicate.
 const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 4096;
 // The control characters keep the token from matching anything a bundler writes.
 const FILE_PATH_TOKEN: &str = "\u{1}file-path\u{1}";
@@ -31,21 +35,67 @@ pub fn content_hash<Item: AsRef<[u8]>>(parts: impl IntoIterator<Item = Item>) ->
     format!("{:x}", hasher.finalize())
 }
 
+// Every kind of symbol set writes to one folder, so the files are numbered across the worker's life.
+static NEXT_CONTAINER_FILE: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Serialize)]
-#[serde(untagged)]
-pub enum Prepared {
-    Skipped {
-        skipped: &'static str,
-    },
-    #[serde(rename_all = "camelCase")]
-    Container {
-        chunk_id: String,
-        release_id: Option<String>,
+#[serde(rename_all = "camelCase")]
+pub struct Container {
+    pub content_hash: String,
+    pub size: usize,
+    // Null in a dry run, which writes nothing.
+    pub path: Option<String>,
+}
+
+impl Container {
+    pub fn write(bytes: &[u8], folder: Option<&Path>) -> Result<Self> {
+        Self::write_with_hash(bytes, folder, content_hash([bytes]))
+    }
+
+    pub fn write_with_hash(
+        bytes: &[u8],
+        folder: Option<&Path>,
         content_hash: String,
-        size: usize,
-        // Null in a dry run, which writes nothing.
-        path: Option<String>,
-    },
+    ) -> Result<Self> {
+        let path = match folder {
+            Some(folder) => {
+                let number = NEXT_CONTAINER_FILE.fetch_add(1, Ordering::Relaxed);
+                let path = folder.join(format!("{number}.{CONTAINER_EXTENSION}"));
+                fs::write(&path, bytes)
+                    .map_err(|error| anyhow!(node::message(&error, "open", &path)))?;
+                Some(path.to_string_lossy().into_owned())
+            }
+            None => None,
+        };
+
+        Ok(Container {
+            content_hash,
+            size: bytes.len(),
+            path,
+        })
+    }
+}
+
+#[derive(Serialize)]
+pub struct Skipped {
+    pub id: usize,
+    pub reason: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Prepared {
+    pub id: usize,
+    pub chunk_id: String,
+    pub release_id: Option<String>,
+    #[serde(flatten)]
+    pub container: Container,
+}
+
+pub struct Claimed {
+    pub skipped: Vec<Skipped>,
+    pub ready: Vec<(usize, String, SourcePair)>,
+    pub duplicates: Vec<String>,
 }
 
 // Replaces every script file path with one token for the event-mode content hash, because with
@@ -138,56 +188,94 @@ fn event_mode_hash(mut pair: SourcePair, injected_chunk_id: Option<&str>) -> Res
     ]))
 }
 
-// The payload is always the injected pair. In symbol-set mode the hash covers the container.
+// A bundle with a native debug id and no chunk id carries the id its map is known by, so it goes
+// first and wins over a later pair with the same id. A skipped pair claims no id.
+pub fn claim(ids: &[usize], pairs: Vec<SourcePair>) -> Claimed {
+    let mut skipped = Vec::new();
+    let mut ready = Vec::new();
+    for (id, pair) in ids.iter().zip(pairs) {
+        match upload_id(&pair) {
+            Ok(chunk_id) => ready.push((*id, chunk_id, pair)),
+            Err(reason) => skipped.push(Skipped { id: *id, reason }),
+        }
+    }
+
+    ready.sort_by_key(|(_, _, pair)| {
+        !(pair.chunk_id().is_none() && pair.source_debug_id().is_some())
+    });
+    let mut claimed = HashSet::new();
+    let mut duplicates = Vec::new();
+    ready.retain(|(_, chunk_id, _)| {
+        let first = claimed.insert(chunk_id.clone());
+        if !first {
+            duplicates.push(chunk_id.clone());
+        }
+        first
+    });
+
+    Claimed {
+        skipped,
+        ready,
+        duplicates,
+    }
+}
+
+fn upload_id(pair: &SourcePair) -> Result<String, &'static str> {
+    let chunk_id = pair
+        .chunk_id()
+        .or_else(|| pair.debug_id())
+        .ok_or(SKIPPED_NO_ID)?;
+    if !pair.map.is_empty() {
+        return Ok(chunk_id);
+    }
+
+    Err(if pair.source.len() < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
+        SKIPPED_EMPTY_WRAPPER
+    } else {
+        SKIPPED_EMPTY_SUSPECT
+    })
+}
+
+// The payload is always the injected pair. In symbol-set mode the hash covers the container. The
+// event-mode hash rewrites the pair, so the container leaves memory first.
 pub fn prepare(
     id: usize,
+    chunk_id: String,
     pair: SourcePair,
     mode: ReleaseMode,
     folder: Option<&Path>,
 ) -> Result<Prepared> {
-    let injected_chunk_id = pair.chunk_id();
-    let Some(chunk_id) = injected_chunk_id.clone().or_else(|| pair.debug_id()) else {
-        return Ok(Prepared::Skipped {
-            skipped: SKIPPED_NO_ID,
-        });
-    };
-    if pair.map.is_empty() {
-        let skipped = if pair.source.len() < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
-            SKIPPED_EMPTY_WRAPPER
-        } else {
-            SKIPPED_EMPTY_SUSPECT
-        };
-        return Ok(Prepared::Skipped { skipped });
-    }
-
     let release_id = pair.map.release_id.clone();
-    let container = write_symbol_data(SourceAndMap {
-        minified_source: pair.source.clone(),
-        sourcemap: String::from_utf8(pair.map.serialize()?)?,
-    })?;
-    let content_hash = match mode {
-        ReleaseMode::Event => event_mode_hash(pair, injected_chunk_id.as_deref())?,
-        ReleaseMode::SymbolSet => content_hash([&container]),
-    };
+    let sourcemap = String::from_utf8(pair.map.serialize()?)?;
 
-    let path = match folder {
-        Some(folder) => {
-            let path = folder.join(format!("{id}.{CONTAINER_EXTENSION}"));
-            write_container(&path, &container)?;
-            Some(path.to_string_lossy().into_owned())
+    let container = match mode {
+        ReleaseMode::SymbolSet => {
+            let bytes = write_symbol_data(SourceAndMap {
+                minified_source: pair.source,
+                sourcemap,
+            })?;
+            Container::write(&bytes, folder)?
         }
-        None => None,
+        ReleaseMode::Event => {
+            let bytes = write_symbol_data(SourceAndMap {
+                minified_source: pair.source.clone(),
+                sourcemap,
+            })?;
+            let written = Container::write_with_hash(&bytes, folder, String::new())?;
+            drop(bytes);
+
+            let injected_chunk_id = pair.chunk_id();
+            Container {
+                content_hash: event_mode_hash(pair, injected_chunk_id.as_deref())?,
+                ..written
+            }
+        }
     };
 
-    Ok(Prepared::Container {
+    Ok(Prepared {
+        id,
         chunk_id,
         release_id,
-        content_hash,
-        size: container.len(),
-        path,
+        container,
     })
-}
-
-pub fn write_container(path: &Path, container: &[u8]) -> Result<()> {
-    fs::write(path, container).map_err(|error| anyhow!(node::message(&error, "open", path)))
 }

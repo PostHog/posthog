@@ -6,10 +6,7 @@ use posthog_symbol_data::{write_symbol_data, AppleDsym, ElfDebugInfo, HermesMap,
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::{
-    node,
-    upload::{content_hash, write_container},
-};
+use crate::{node, upload::content_hash};
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -42,7 +39,8 @@ pub fn wrap(path: &Path, kind: Kind, out: Option<&Path>) -> Result<Wrapped> {
         Kind::Elf => write_symbol_data(ElfDebugInfo { data })?,
     };
     if let Some(out) = out {
-        write_container(out, &container)?;
+        std::fs::write(out, &container)
+            .map_err(|error| anyhow!(node::message(&error, "open", out)))?;
     }
 
     Ok(Wrapped {
