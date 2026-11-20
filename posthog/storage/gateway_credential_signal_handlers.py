@@ -330,7 +330,18 @@ def _reproject_organization_on_active_change(
     from posthog.tasks.gateway_credential import reproject_organization_gateway_credentials_task  # noqa: PLC0415
 
     organization_id = str(instance.pk)
-    transaction.on_commit(lambda: reproject_organization_gateway_credentials_task.delay(organization_id))
+
+    def enqueue() -> None:
+        try:
+            reproject_organization_gateway_credentials_task.delay(organization_id)
+        except Exception as e:
+            logger.warning(
+                "Failed to enqueue organization gateway credential reprojection",
+                organization_id=organization_id,
+                error=str(e),
+            )
+
+    transaction.on_commit(enqueue)
 
 
 def _capture_old_membership_level_if_deferred(
