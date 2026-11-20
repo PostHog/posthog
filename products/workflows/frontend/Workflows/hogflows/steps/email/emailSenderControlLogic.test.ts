@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -18,6 +20,8 @@ const STATUS = {
     adoption_enabled: true,
 }
 const OWN_SENDER = { id: 7, kind: 'email', config: { verified: true } } as unknown as IntegrationType
+const SECOND_SENDER = { id: 8, kind: 'email', config: { verified: true } } as unknown as IntegrationType
+const VERIFYING_SENDER = { id: 9, kind: 'email', config: { verified: false } } as unknown as IntegrationType
 
 function ownStep(value: Record<string, any> = {}): HogFlowAction {
     return {
@@ -60,18 +64,23 @@ describe('emailSenderControlLogic', () => {
     function setUp(
         step: HogFlowAction,
         status: Record<string, any> = STATUS,
-        workflowInfo: Partial<HogFlow> = {}
+        workflowInfo: Partial<HogFlow> = {},
+        senders: IntegrationType[] = [VERIFYING_SENDER],
+        defaultSenderId: number | null = null
     ): void {
-        initKeaTests()
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, default_email_integration_id: defaultSenderId },
+        })
         wfLogic = workflowLogic({ id: 'new' })
         wfLogic.mount()
         wfLogic.actions.setWorkflowInfo({ ...workflowInfo, actions: [...wfLogic.values.workflow.actions, step] })
         integrationsLogic.mount()
-        integrationsLogic.actions.loadIntegrationsSuccess([OWN_SENDER])
         sandboxSenderLogic.mount()
         sandboxSenderLogic.actions.loadSandboxStatusSuccess(status as any)
         logic = emailSenderControlLogic({ workflowLogicProps: wfLogic.props, actionId: step.id })
         logic.mount()
+        integrationsLogic.actions.loadIntegrationsSuccess(senders)
     }
 
     function storedStep(): HogFlowAction | undefined {
@@ -107,7 +116,7 @@ describe('emailSenderControlLogic', () => {
     })
 
     it('switches a sandbox step to the chosen own sender', () => {
-        setUp(SANDBOX_STEP)
+        setUp(SANDBOX_STEP, STATUS, {}, [OWN_SENDER, SECOND_SENDER])
 
         logic.actions.chooseSender(7)
 
@@ -118,7 +127,7 @@ describe('emailSenderControlLogic', () => {
     })
 
     it.each<[string, HogFlowAction, Record<string, any>, boolean, Partial<HogFlow>]>([
-        ['an own step when adoption is on', ownStep(), STATUS, true, {}],
+        ['an own step when adoption is on and no sender is verified', ownStep(), STATUS, true, {}],
         ['an own step when adoption is off', ownStep(), { ...STATUS, adoption_enabled: false }, false, {}],
         [
             'an own step when the organization is blocked',
@@ -139,5 +148,60 @@ describe('emailSenderControlLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event === 'workflows sandbox sender offered')).toEqual(
             expected ? [['workflows sandbox sender offered', { step_type: step.type }]] : []
         )
+    })
+
+    it('stops offering the sandbox sender on an own step once a sender is verified', () => {
+        setUp(ownStep({ from: { integrationId: 7 } }), STATUS, {}, [OWN_SENDER])
+
+        expect(logic.values.showSandboxOption).toEqual(false)
+    })
+
+    it.each<[string, IntegrationType[], number | null, Record<string, any>, Record<string, any>]>([
+        [
+            'the only verified sender',
+            [OWN_SENDER, VERIFYING_SENDER],
+            null,
+            STATUS,
+            {
+                type: 'function_email',
+                config: { inputs: { email: { value: { subject: 'Hi', from: { integrationId: 7 } } } } },
+            },
+        ],
+        [
+            "the project's default sender",
+            [OWN_SENDER, SECOND_SENDER],
+            8,
+            STATUS,
+            { type: 'function_email', config: { inputs: { email: { value: { from: { integrationId: 8 } } } } } },
+        ],
+        [
+            'no sender when several are verified and none is the default',
+            [OWN_SENDER, SECOND_SENDER],
+            null,
+            STATUS,
+            { type: 'email_sandbox' },
+        ],
+        ['no sender when none is verified', [VERIFYING_SENDER], null, STATUS, { type: 'email_sandbox' }],
+        [
+            'no sender when adoption is off',
+            [OWN_SENDER],
+            null,
+            { ...STATUS, adoption_enabled: false },
+            { type: 'email_sandbox' },
+        ],
+    ])('moves a sandbox step to %s', (_, senders, defaultSenderId, status, expected) => {
+        setUp(SANDBOX_STEP, status, {}, senders, defaultSenderId)
+
+        expect(storedStep()).toMatchObject(expected)
+    })
+
+    it.each<[string, IntegrationType[], boolean]>([
+        ['no sender is verified', [VERIFYING_SENDER], true],
+        ['the project has no sender', [], true],
+        ['a sender is verified', [OWN_SENDER, SECOND_SENDER], false],
+    ])('keeps a sandbox step on the test sender only when %s', (_, senders, expected) => {
+        setUp(SANDBOX_STEP, STATUS, {}, senders)
+
+        expect(logic.values.testSenderOnly).toEqual(expected)
     })
 })

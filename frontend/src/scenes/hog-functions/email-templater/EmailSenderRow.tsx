@@ -76,6 +76,37 @@ export function EmailSenderRow(): JSX.Element {
         setIsEditing(visible)
     }
 
+    // With no verified sender, the test sender is the only one that can send, so the row shows it instead of a choice.
+    if (sandbox?.selected && sandbox.onlySender) {
+        const unverified = senders.map((sender) => sender.config?.email ?? sender.display_name ?? `Sender ${sender.id}`)
+        return (
+            <EmailHeaderRow label="From" className="py-1">
+                <div className="flex-1 min-w-0" data-attr="workflow-email-test-sender">
+                    <div className="truncate">PostHog test sender</div>
+                    <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
+                        <span className="min-w-0 truncate">{sandboxSenderHint(sandbox)}</span>
+                        {unverified.length > 0 ? (
+                            <span className="min-w-0 truncate text-warning">
+                                {`${unverified.join(', ')} ${unverified.length === 1 ? "isn't" : "aren't"} verified yet. This step sends from the test sender until a sender is verified.`}
+                            </span>
+                        ) : null}
+                    </div>
+                </div>
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    className="shrink-0"
+                    to={urls.workflows('channels')}
+                    targetBlank
+                    icon={<IconExternal />}
+                    data-attr="workflow-email-test-sender-add"
+                >
+                    Add email sender
+                </LemonButton>
+            </EmailHeaderRow>
+        )
+    }
+
     if (!sandbox && !integrationsLoading && senders.length === 0) {
         return (
             <EmailHeaderRow label="From" className="py-1">
