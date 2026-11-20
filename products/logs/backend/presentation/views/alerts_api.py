@@ -486,6 +486,24 @@ def require_pipeline_log_access(*, team_id: int, user: object, filters: dict) ->
         )
 
 
+_TIMING_AND_NAME_FIELDS = frozenset(
+    {
+        "name",
+        "enabled",
+        "snooze_until",
+        "threshold_count",
+        "threshold_operator",
+        "window_minutes",
+        "check_interval_minutes",
+        "evaluation_periods",
+        "datapoints_to_alarm",
+        "cooldown_minutes",
+        "schedule_restriction",
+    }
+)
+_PLATFORM_RUNTIME_FIELDS = frozenset({"grouping", "labels", "annotations"})
+
+
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(
         read_only=True,
@@ -978,12 +996,23 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             team_id=self.context["get_team"]().id, user=request.user if request is not None else None, filters=filters
         )
 
-    def _labels_change(self, attrs: dict) -> bool:
-        # Routing labels pick who gets the alert's notifications, as a destination does.
-        if self.instance is None or "labels" not in attrs:
-            return False
-        runtime = _platform_runtime_of([self.instance]).get(self.instance.id)
-        return (attrs["labels"] or {}) != ((runtime.labels if runtime is not None else None) or {})
+    def _changes_reads_or_recipients(self, attrs: dict) -> bool:
+        """Whether an update changes what the alert reads or who it tells, beyond a rename or its timing."""
+        if self.instance is None:
+            return True
+        runtime = None
+        for name, value in attrs.items():
+            if name in _TIMING_AND_NAME_FIELDS:
+                continue
+            if name in _PLATFORM_RUNTIME_FIELDS:
+                # These live on the platform row, so compare the shapes a client sends and reads.
+                runtime = runtime or _platform_runtime_of([self.instance]).get(self.instance.id)
+                stored = self.fields[name].to_representation(getattr(runtime, name)) if runtime is not None else None
+                if (self.initial_data.get(name) or None) != (stored or None):
+                    return True
+            elif value != getattr(self.instance, name, None):
+                return True
+        return False
 
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
@@ -996,14 +1025,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
         if effective_enabled or filters:
             _validate_filters(filters)
-        # Snoozing or renaming an enabled alert shows nothing new, so only new reads are checked.
-        # The edit form sends the stored filters back on every save, so compare values, not keys.
-        starts_reading = (
-            self.instance is None
-            or not self.instance.enabled
-            or attrs.get("filters", self.instance.filters) != self.instance.filters
-            or self._labels_change(attrs)
-        )
+        # Only a rename, a snooze or a change to when the alert fires leaves what it reads and who it tells as
+        # they were. The edit form sends unchanged settings back on every save, so compare values, not keys.
+        starts_reading = self.instance is None or not self.instance.enabled or self._changes_reads_or_recipients(attrs)
         if effective_enabled and starts_reading:
             self._require_pipeline_log_access(filters)
 
