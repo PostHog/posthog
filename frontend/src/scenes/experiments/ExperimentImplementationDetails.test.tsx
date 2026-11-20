@@ -421,6 +421,22 @@ describe('ExperimentImplementationDetails', () => {
             ],
         },
         {
+            setup: 'an activation event named like the default exposure',
+            overrides: {
+                exposure_criteria: {
+                    activation_config: {
+                        kind: NodeKind.ExperimentEventExposureConfig,
+                        event: '$feature_flag_called',
+                        properties: [],
+                    },
+                },
+            },
+            expected: [
+                '- Activation event: "$feature_flag_called"',
+                'Users count as exposed only once the activation event fires after that read.',
+            ],
+        },
+        {
             setup: 'a group-aggregated flag',
             overrides: { feature_flag: { key: 'new-checkout', filters: { aggregation_group_type_index: 0 } } },
             expected: [

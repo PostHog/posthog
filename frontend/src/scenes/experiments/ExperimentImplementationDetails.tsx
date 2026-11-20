@@ -116,14 +116,17 @@ function reportAgentPromptCopied(
     })
 }
 
-/** The event or action an exposure config names, or null when there is none to name: the default exposure the flag
- * read records, or exposures a warehouse query reads. */
-function promptEvent(config: ExperimentExposureConfig | undefined): ExperimentAgentPromptEvent | null {
+/** The event or action an exposure or activation config names, or null when there is none to name: the default
+ * exposure the flag read records, or exposures a warehouse query reads. */
+function promptEvent(
+    config: ExperimentExposureConfig | undefined,
+    role: 'exposure' | 'activation'
+): ExperimentAgentPromptEvent | null {
     if (!config) {
         return null
     }
     if ('event' in config) {
-        return [EXPOSURE_DEFAULT_EVENT, EXPERIMENT_EXPOSURE_EVENT].includes(config.event)
+        return role === 'exposure' && [EXPOSURE_DEFAULT_EVENT, EXPERIMENT_EXPOSURE_EVENT].includes(config.event)
             ? null
             : { kind: 'event', name: config.event }
     }
@@ -156,8 +159,8 @@ function experimentFlagAgentPrompt(
         flagKey: experiment?.feature_flag?.key ?? '',
         variantKeys: getExperimentVariants(experiment).map((variant) => variant.key),
         baselineVariantKey: getBaselineVariantKey(experiment),
-        customExposure: promptEvent(experiment?.exposure_criteria?.exposure_config),
-        activation: promptEvent(getActivationConfig(experiment?.exposure_criteria)),
+        customExposure: promptEvent(experiment?.exposure_criteria?.exposure_config, 'exposure'),
+        activation: promptEvent(getActivationConfig(experiment?.exposure_criteria), 'activation'),
         groupType:
             groupTypeIndex != null ? (groupTypes.get(groupTypeIndex as GroupTypeIndex)?.group_type ?? null) : null,
         warehouseExposure: promptWarehouseExposure(experiment?.exposure_criteria?.exposure_config),
