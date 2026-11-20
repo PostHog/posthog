@@ -127,7 +127,7 @@ SELECT
   lc.estimated_bytes AS lc_estimated_bytes,
   if(
     ql.is_initial_query AND notEmpty(ql.log_comment),
-    concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.1 NOT IN ('timings', 'query'), JSONExtractKeysAndValuesRaw(ql.log_comment))), ','), '}'),
+    concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> ((kv.1) NOT IN ('timings', 'query')), JSONExtractKeysAndValuesRaw(ql.log_comment))), ','), '}'),
     ''
   ) AS log_comment
 FROM system.query_log AS ql

@@ -9493,7 +9493,7 @@ SELECT
         arrayMap(
           kv -> concat(toJSONString(kv.1), ':', kv.2),
           arrayFilter(
-            kv -> kv.1 NOT IN ('timings', 'query'),
+            kv -> ((kv.1) NOT IN ('timings', 'query')),
             JSONExtractKeysAndValuesRaw(ql.log_comment)
           )
         ),
