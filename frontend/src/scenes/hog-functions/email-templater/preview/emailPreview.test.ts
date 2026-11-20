@@ -116,6 +116,17 @@ describe('renderEmailPreview', () => {
         expect(doc.querySelector('a')?.getAttribute('href')).toBe('/plan name')
     })
 
+    it('counts quickly when a person value is full of chip fences', () => {
+        const rendered = renderEmailPreviewMarked('{{ person.properties.bio }}', {
+            id: 'person-5',
+            properties: { bio: '\uE000'.repeat(80000) },
+        })
+        const started = performance.now()
+
+        expect(countUnresolved(rendered)).toBe(0)
+        expect(performance.now() - started).toBeLessThan(1000)
+    })
+
     it('counts a missing value once however often the email uses it', () => {
         const rendered = renderEmailPreviewMarked(
             '{{ person.properties.plan }} {{ person.properties.plan }} {{ person.properties.seats }}',

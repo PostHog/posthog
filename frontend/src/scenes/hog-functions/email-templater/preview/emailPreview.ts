@@ -46,7 +46,7 @@ export function renderEmailPreview(
 // can each turn them into a chip after rendering, without the marker ever reading as Liquid.
 const CHIP_START = '\uE000'
 const CHIP_END = '\uE001'
-const CHIP_PATTERN = /\uE000([^\uE001]*)\uE001/g
+const CHIP_PATTERN = /\uE000([^\uE000\uE001]*)\uE001/g
 
 /** Renders the template against the person, fencing each tag the person has no value for. */
 export function renderEmailPreviewMarked(template: string, person: EmailPreviewPerson | null): string {
