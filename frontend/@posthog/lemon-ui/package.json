@@ -12,7 +12,7 @@
         "build:types": "echo \"Building types\" && tsup src/index.ts --dts-only",
         "prepublishOnly": "pnpm build",
         "typecheck": "tsc --noEmit",
-        "typecheck:tsgo": "tsgo --noEmit"
+        "typecheck:tsgo": "tsc --noEmit"
     },
     "dependencies": {
         "kea": "^4.0.0-pre.3",

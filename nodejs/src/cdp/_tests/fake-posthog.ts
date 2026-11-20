@@ -31,7 +31,7 @@ export async function startFakePostHog(): Promise<FakePostHog> {
                 events.push({ event: message.event, distinctId: message.distinct_id, properties: message.properties })
             }
             res.writeHead(200, { 'content-type': 'application/json' })
-            res.end('{"status":1}')
+            res.end('{"results":{}}')
         })
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))

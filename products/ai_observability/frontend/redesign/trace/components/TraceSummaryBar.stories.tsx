@@ -7,7 +7,8 @@ const meta: Meta<typeof TraceSummaryBar> = {
     title: 'Scenes-App/AI observability/Trace view/Trace summary bar',
     component: TraceSummaryBar,
     args: {
-        trace: FIXTURE_SUMMARY_TRACE,
+        overview: FIXTURE_SUMMARY_TRACE,
+        person: FIXTURE_SUMMARY_TRACE.person,
         clusters: null,
     },
 }
@@ -19,11 +20,20 @@ type Story = StoryObj<typeof TraceSummaryBar>
 const wide: Story = { decorators: [withWidth(960)] }
 
 export const Default: Story = wide
-export const Anonymous: Story = { ...wide, args: { trace: { ...FIXTURE_SUMMARY_TRACE, person: null } } }
-export const ShortId: Story = { ...wide, args: { trace: { ...FIXTURE_SUMMARY_TRACE, id: 'notes-run-42' } } }
+export const Anonymous: Story = { ...wide, args: { person: null } }
+export const ShortId: Story = { ...wide, args: { overview: { ...FIXTURE_SUMMARY_TRACE, id: 'notes-run-42' } } }
 export const LongSlugId: Story = {
     ...wide,
-    args: { trace: { ...FIXTURE_SUMMARY_TRACE, id: 'support-chat-session-2026-09-01-weekly-billing-review' } },
+    args: { overview: { ...FIXTURE_SUMMARY_TRACE, id: 'support-chat-session-2026-09-01-weekly-billing-review' } },
+}
+export const PartialTotals: Story = {
+    ...wide,
+    args: { overview: { ...FIXTURE_SUMMARY_TRACE, totalsPartial: true } },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+export const NarrowPartialTotals: Story = {
+    ...PartialTotals,
+    decorators: [withWidth(420)],
 }
 export const WithClusters: Story = { ...wide, args: { clusters: FIXTURE_CLUSTERS } }
 export const Narrow: Story = { args: { clusters: FIXTURE_CLUSTERS }, decorators: [withWidth(420)] }
@@ -64,11 +74,8 @@ export const WithGitPullRequest: Story = {
 export const EveryChip: Story = {
     ...wide,
     args: {
-        trace: {
-            ...FIXTURE_SUMMARY_TRACE,
-            id: 'support-chat-session-2026-09-01-weekly-billing-review',
-            person: { distinctId: 'a', label: 'alexandra.konstantinopoulou@enterprise-customer.example.com' },
-        },
+        overview: { ...FIXTURE_SUMMARY_TRACE, id: 'support-chat-session-2026-09-01-weekly-billing-review' },
+        person: { distinctId: 'a', label: 'alexandra.konstantinopoulou@enterprise-customer.example.com' },
         clusters: FIXTURE_CLUSTERS,
         evals: { summary: { passed: 2, failed: 3, unrated: 1, nodes: [] }, onClick: () => {} },
         feedback: { summary: { total: 6, thumbsUp: 3, thumbsDown: 1 }, onClick: () => {} },

@@ -1,10 +1,10 @@
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
 
 import { ScoutReportAction } from '../../../logics/scoutDetailLogic'
 import { SignalReport } from '../../../types'
+import { useInboxReportDetailUrl } from '../../../utils/inboxReportUrls'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -37,10 +37,11 @@ export function ScoutReportCard({
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const headline = deriveHeadline(report.summary)
+    const reportUrl = useInboxReportDetailUrl()
 
     return (
         <Link
-            to={urls.inboxReport('reports', report.id)}
+            to={reportUrl(report.id)}
             className="group flex w-full items-start gap-3 rounded border border-primary bg-surface-primary px-4 py-3.5 text-left no-underline transition-all duration-150 hover:border-secondary hover:bg-surface-secondary"
         >
             {report.priority && (

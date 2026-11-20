@@ -126,6 +126,8 @@ export interface EmailContent {
     to: string
     html?: string
     text?: string
+    /** Hog templates use their own syntax, so only Liquid ones can render as a person. */
+    liquid: boolean
 }
 
 export function emailContent(action: HogFlowAction): EmailContent | undefined {
@@ -140,5 +142,7 @@ export function emailContent(action: HogFlowAction): EmailContent | undefined {
         to: /person\.properties\.email/.test(toEmail) ? 'Their email address' : toEmail || 'Not set',
         html: asText(email.html),
         text: asText(email.text),
+        // The worker treats an input without a templating engine as Hog.
+        liquid: asRecord(asRecord(asRecord(action.config).inputs).email).templating === 'liquid',
     }
 }

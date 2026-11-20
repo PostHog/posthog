@@ -126,7 +126,7 @@ export interface annotationsOverlayLogicActions {
         annotationId: RawAnnotationType['id']
     }) => {
         annotationData: AnnotationDataWithoutInsight
-        annotationId: RawAnnotationType[]
+        annotationId: RawAnnotationType['id']
     } // annotationsModel
     activateDate: (date: Dayjs) => {
         date: Dayjs

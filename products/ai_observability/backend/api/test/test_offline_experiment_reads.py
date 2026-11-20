@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -34,9 +34,6 @@ from products.ai_observability.backend.resource_tags import ResourceTags
 class TestOfflineExperimentReads(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.feature_flag = self.enterContext(
-            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
-        )
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -93,6 +90,32 @@ class TestOfflineExperimentReads(APIBaseTest):
             f"/api/projects/{team_id or self.team.id}/ai_observability/"
             f"offline_scorers/{definition_id or self.definition.id}/history/"
         )
+
+    @parameterized.expand(
+        [
+            ("evaluated_before_edit", -1, None, True),
+            ("updated_at_edit", -1, 0, False),
+            ("accepted_after_edit", None, None, False),
+        ]
+    )
+    def test_result_cells_and_detail_use_the_same_score_time(
+        self, _name: str, evaluated_hours: int | None, updated_hours: int | None, expected_stale: bool
+    ) -> None:
+        edit_time = self.result.accepted_at - timedelta(hours=1)
+        self.item.content_updated_at = edit_time
+        self.item.save(update_fields=["content_updated_at"])
+        self.result.evaluated_at = edit_time + timedelta(hours=evaluated_hours) if evaluated_hours is not None else None
+        self.result.score_updated_at = edit_time + timedelta(hours=updated_hours) if updated_hours is not None else None
+        self.result.save(update_fields=["evaluated_at", "score_updated_at"])
+        query = {"scorer_version_ids": str(self.version.id)}
+        cells = self.client.get(
+            self._endpoint(f"{self.experiment.id}/result_cells/"), {**query, "item_ids": str(self.item.id)}
+        )
+        items = self.client.get(self._endpoint(f"{self.experiment.id}/items/"), query)
+        detail = self.client.get(self._endpoint(f"{self.experiment.id}/items/{self.item.id}/results/"))
+        self.assertEqual(cells.data["results"][0]["is_stale"], expected_stale)
+        self.assertEqual(items.data["results"][0]["results"][0]["is_stale"], expected_stale)
+        self.assertEqual(detail.data["results"][0]["is_stale"], expected_stale)
 
     def _metadata_paths(self) -> list[str]:
         return [
@@ -427,15 +450,6 @@ class TestOfflineExperimentReads(APIBaseTest):
         self.assertEqual(results.data["results"][0]["scorer"]["config"], config)
 
     @parameterized.expand([("session",), ("personal_key",)])
-    def test_read_routes_require_the_rollout_flag(self, auth_kind: str) -> None:
-        self._authenticate(auth_kind, ["evaluation:read", "llm_analytics:read"])
-        self.feature_flag.return_value = False
-        for path in self._metadata_paths() + self._score_paths():
-            with self.subTest(path=path):
-                response = self.client.get(path)
-                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
-
-    @parameterized.expand([("session",), ("personal_key",)])
     def test_evaluation_permission_is_required_even_with_scorer_access(self, auth_kind: str) -> None:
         membership = self._member("none")
         AccessControl.objects.create(
@@ -559,7 +573,10 @@ class TestOfflineExperimentReads(APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
                 self.assertEqual(response.data["attr"], field)
 
-    def test_child_scorer_and_hosted_dataset_can_be_uploaded_and_read_in_the_same_environment(self) -> None:
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
+    def test_child_scorer_and_hosted_dataset_can_be_uploaded_and_read_in_the_same_environment(
+        self, _datasets_flag: MagicMock
+    ) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child environment")
         sibling = Team.objects.create(organization=self.organization, parent_team=self.team, name="Sibling environment")
         _, unrelated = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)

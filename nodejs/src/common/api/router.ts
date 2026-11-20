@@ -107,6 +107,10 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
             res.status(413).json({ status: 'error', error: 'Request entity too large' })
             return
         }
+        if (err?.type === 'encoding.malformed') {
+            res.status(400).json({ status: 'error', error: 'Malformed compressed body' })
+            return
+        }
         next(err)
     })
 

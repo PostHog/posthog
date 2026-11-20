@@ -253,7 +253,6 @@ const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
 const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
-const KNOWLEDGE_WRITER_ORIGIN_PRODUCT = "knowledge_writer";
 
 export function codexProcessCwd(
   config: Pick<AgentServerConfig, "repositoryPath" | "repoReadyFile">,
@@ -572,7 +571,6 @@ export class AgentServer {
   private productSession: SessionBehavior = {};
   private productLaunch: ProductLaunchConfiguration;
   private taskRepositories: string[] = [];
-  private taskOriginProduct: string | null = null;
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
   private readonly evaluatedPrUrls = new Set<string>();
@@ -2243,7 +2241,6 @@ export class AgentServer {
     };
     const launch = readRunLaunch(launchSources);
     this.taskRepositories = launch.repositories;
-    this.taskOriginProduct = launch.originProduct;
 
     this.runUsage = new RunUsageAccumulator();
     this.runUsageRunId = payload.run_id;
@@ -4737,7 +4734,7 @@ export class AgentServer {
    * Products such as the Slack app and the Self-driving inbox auto-publish by
    * default, and manual runs auto-publish when the user opted in (Settings → Advanced, sent as
    * autoPublish). Every other run is review-first unless the user explicitly
-   * asks, and createPr=false disables publishing except a knowledge_writer run pushing its task branch.
+   * asks, and createPr=false always disables publishing.
    */
   private shouldAutoPublishCloudChanges(): boolean {
     return (
@@ -4938,8 +4935,6 @@ export class AgentServer {
     return new CloudTaskPrompt({
       apiUrl: this.config.apiUrl,
       baseBranch: this.config.baseBranch,
-      branchPushOnly:
-        this.taskOriginProduct === KNOWLEDGE_WRITER_ORIGIN_PRODUCT,
       createPr: this.config.createPr,
       hasGithubToken: Boolean(resolveGithubToken()),
       identityInstructions: this.productSession.identityInstructions,
