@@ -184,9 +184,21 @@ pub fn redact_string(value: &str, sensitive: &[String]) -> Option<String> {
     Some(out)
 }
 
+/// The work of a redaction grows with the number of secrets, and no clock runs inside it.
+const MAX_LOG_REDACTION_CHECKS: usize = 1 << 24;
+const MAX_RESULT_REDACTION_BYTES: usize = 1 << 30;
+
+fn result_redaction_bytes(sensitive: &[String], text: &str) -> usize {
+    sensitive.len().saturating_mul(text.len() + 16)
+}
+
 pub fn redact_sensitive_values(message: &str, sensitive: &[String], max_units: usize) -> String {
     if message.is_empty() || sensitive.is_empty() {
         return message.to_string();
+    }
+    let checks = (sensitive.len() * 3).saturating_mul(utf16_len(message).min(max_units) + 64);
+    if checks > MAX_LOG_REDACTION_CHECKS {
+        return REDACTED.to_string();
     }
     let mut variants: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -276,6 +288,7 @@ struct Converter<'a> {
     path: Vec<HeapReference>,
     nodes: usize,
     bytes: usize,
+    redaction_bytes: usize,
 }
 
 impl Converter<'_> {
@@ -292,6 +305,12 @@ impl Converter<'_> {
         let out = if self.sensitive.is_empty() {
             s.to_string()
         } else {
+            self.redaction_bytes = self
+                .redaction_bytes
+                .saturating_add(result_redaction_bytes(self.sensitive, s));
+            if self.redaction_bytes > MAX_RESULT_REDACTION_BYTES {
+                return Err(ConvertError::TooLarge);
+            }
             redact_string(s, self.sensitive).ok_or(ConvertError::TooLarge)?
         };
         self.charge(out.len())?;
@@ -424,6 +443,7 @@ pub fn hog_values_to_js(
         path: Vec::new(),
         nodes: 0,
         bytes: 0,
+        redaction_bytes: 0,
     };
     values.iter().map(|v| converter.convert(v)).collect()
 }
@@ -648,10 +668,16 @@ fn result_fields(vm: &HogVM, value: &HogValue, sensitive: &[String]) -> JsValue 
     match literal {
         HogLiteral::Object(map) => {
             let mut out = JsObject::new();
+            let mut redaction_bytes = 0usize;
             for (key, item) in map.iter() {
                 let key = if sensitive.is_empty() {
                     Some(key.clone())
                 } else {
+                    redaction_bytes =
+                        redaction_bytes.saturating_add(result_redaction_bytes(sensitive, key));
+                    if redaction_bytes > MAX_RESULT_REDACTION_BYTES {
+                        return invalid;
+                    }
                     redact_string(key, sensitive)
                 };
                 let Some(key) = key.filter(|k| {

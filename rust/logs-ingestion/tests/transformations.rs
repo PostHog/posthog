@@ -516,3 +516,57 @@ fn redaction_stops_at_the_length_the_log_line_keeps() {
     let redacted = redact_sensitive_values(&"x".repeat(100_000), &["x".to_string()], 100);
     assert!(redacted.len() < 200, "{}", redacted.len());
 }
+
+fn secret_inputs(count: usize) -> String {
+    let secrets: Vec<String> = (0..count).map(|i| format!("\"secret-{i}\"")).collect();
+    format!(
+        r#"{{"many": {{"value": [{}], "order": 0}}}}"#,
+        secrets.join(",")
+    )
+}
+
+#[test]
+fn a_log_line_that_too_many_secrets_would_scan_is_redacted_whole() {
+    let secrets: Vec<String> = (0..150_000).map(|i| format!("secret-{i}")).collect();
+    let redacted = redact_sensitive_values("no secret here", &secrets, 10_000);
+    assert_eq!(redacted, "***REDACTED***");
+}
+
+#[tokio::test]
+async fn a_result_that_too_many_secrets_would_scan_fails_the_invocation() {
+    let staged = StagedRecord::fresh(record_from_js(&js(&format!(
+        r#"{{"uuid": "u", "body": "{}"}}"#,
+        "b".repeat(900 * 1024)
+    ))));
+    let records = run_one(
+        function(IDENTITY, "{}", Some(&secret_inputs(2_000))),
+        vec![staged],
+    )
+    .await;
+    assert!(failed(&records[0]));
+}
+
+// throw Error(record.body)
+const THROW_BODY: &str = r#"["_H", 1, 32, "body", 32, "record", 1, 2, 2, "Error", 1, 49]"#;
+
+#[tokio::test]
+async fn the_redaction_of_an_error_log_spends_the_budgets() {
+    let (service, _) = service(
+        Arc::new(StaticHogFunctions(vec![function(
+            THROW_BODY,
+            "{}",
+            Some(&secret_inputs(500)),
+        )])),
+        60_000.0,
+    );
+    let staged = StagedRecord::fresh(record_from_js(&js(&format!(
+        r#"{{"uuid": "u", "body": "{}"}}"#,
+        "b".repeat(10_000)
+    ))));
+    let budget = Arc::new(TransformationBatchBudget::new(f64::INFINITY, f64::INFINITY));
+    service
+        .transform_records(TEAM_ID, &mut vec![staged], Some(budget.clone()))
+        .await
+        .unwrap();
+    assert!(budget.used_ms() > 5.0, "{}", budget.used_ms());
+}

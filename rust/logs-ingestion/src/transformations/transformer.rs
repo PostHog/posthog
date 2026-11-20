@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use async_trait::async_trait;
 use hogvm::OrderedJson;
@@ -217,11 +218,14 @@ impl RecordContext<'_> {
             agg.error_logs.push(entry("info", message));
         }
         // The thrown text is customer-influenced like print output, so it is redacted too.
+        let started = Instant::now();
         let message = sanitize_log_message(
             &[crate::js::JsValue::string(error)],
             &function.sensitive_values,
         );
         agg.error_logs.push(entry("error", message));
+        // This redaction runs after the VM's clock stops, and its time grows with the number of secrets.
+        self.add_vm_ms(started.elapsed().as_secs_f64() * 1000.0);
     }
 
     fn unexpected_failure(&mut self, record: &mut LogRecord, function: &HogFunction) {
