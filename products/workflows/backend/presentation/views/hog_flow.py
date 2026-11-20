@@ -1094,7 +1094,7 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
         return data
     stored_ids = (
         {
-            action.get("id")
+            action["id"].strip()
             for action in [*(instance.actions or []), *((instance.draft or {}).get("actions") or [])]
             if isinstance(action, dict) and isinstance(action.get("id"), str)
         }
@@ -1104,7 +1104,7 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
     new_steps = [
         index
         for index, action in enumerate(actions)
-        if isinstance(action, dict) and _has_no_sender(action) and action.get("id") not in stored_ids
+        if isinstance(action, dict) and _has_no_sender(action) and action["id"].strip() not in stored_ids
     ]
     if not new_steps:
         return data
@@ -1146,7 +1146,7 @@ def _has_no_sender(action: dict) -> bool:
     ):
         return False
     sender = _email_value(action["config"]).get("from")
-    if not sender:
+    if sender is None:
         return True
     return isinstance(sender, dict) and not sender.get("integrationId") and not sender.get("integrationIds")
 
