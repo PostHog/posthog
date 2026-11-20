@@ -58,7 +58,7 @@ export function buildMovingAverageSeries<Meta = unknown>(input: BuildMovingAvera
         meta: sourceSeries.meta,
         stroke: { pattern: MA_DASH_PATTERN },
         overlay: true,
-        visibility: { excluded: input.excluded, tooltip: false },
+        visibility: { excluded: input.excluded, tooltip: false, valueLabel: false },
     }
 }
 
