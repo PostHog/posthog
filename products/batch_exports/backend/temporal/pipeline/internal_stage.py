@@ -116,15 +116,15 @@ class HogQLTableNotSupportedError(Exception):
 class CustomSchemaWithoutQueryError(Exception):
     """A custom schema stored without its HogQL query, so a run on the native events table cannot recompile it.
 
-    A schema is stored without its query when the user who saved it had restricted properties. Its stored fields
-    read the legacy String `properties`, so they cannot run on the native table either.
+    Older saves by a user with restricted properties stored the schema without its query. Its stored fields read the
+    legacy String `properties`, so they cannot run on the native table either. Saving the export again stores the
+    query and the restrictions it needs.
     """
 
     def __init__(self) -> None:
         super().__init__(
             "This export can't read the new events table because its fields were saved without their query. "
-            "This happens when the person who saved the export has restricted properties. "
-            "Ask someone without restricted properties to save the export again, or contact support."
+            "Save the export again to fix this, or contact support."
         )
 
 

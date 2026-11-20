@@ -80,24 +80,24 @@ export interface funnelDataWarehouseStepDefinitionPopoverLogicValues {
     previewExpressionColumns: TablePreviewExpressionColumn[]
     previewSelectedKey: string | undefined
     previewTable: {
-        aggregation_target_field?: string | undefined
-        certification?: DatabaseSchemaTableCertification | undefined
-        description?: string | undefined
-        distinct_id_field?: string | undefined
+        aggregation_target_field?: string
+        certification?: DatabaseSchemaTableCertification
+        description?: string
+        distinct_id_field?: string
         fields: {
             [k: string]: DatabaseSchemaField
         }
-        format?: string | undefined
+        format?: string
         id: string
-        id_field?: string | undefined
+        id_field?: string
         name: string
-        row_count?: number | undefined
-        schema?: DatabaseSchemaSchema | undefined
-        search_aliases?: string[] | undefined
-        source?: DatabaseSchemaSource | undefined
-        timestamp_field?: string | undefined
+        row_count?: number
+        schema?: DatabaseSchemaSchema
+        search_aliases?: string[]
+        source?: DatabaseSchemaSource
+        timestamp_field?: string
         type: 'data_warehouse'
-        url_pattern?: string | undefined
+        url_pattern?: string
     }
     scopedLocalDefinition: Partial<TaxonomicDefinitionTypes>
     selectedItemMeta: any
@@ -149,24 +149,24 @@ export interface funnelDataWarehouseStepDefinitionPopoverLogicMeta {
             activeFieldKey: FunnelFieldKey
         ) => string | undefined
         previewTable: (table: DataWarehouseTableForInsight) => {
-            aggregation_target_field?: string | undefined
-            certification?: DatabaseSchemaTableCertification | undefined
-            description?: string | undefined
-            distinct_id_field?: string | undefined
+            aggregation_target_field?: string
+            certification?: DatabaseSchemaTableCertification
+            description?: string
+            distinct_id_field?: string
             fields: {
                 [k: string]: DatabaseSchemaField
             }
-            format?: string | undefined
+            format?: string
             id: string
-            id_field?: string | undefined
+            id_field?: string
             name: string
-            row_count?: number | undefined
-            schema?: DatabaseSchemaSchema | undefined
-            search_aliases?: string[] | undefined
-            source?: DatabaseSchemaSource | undefined
-            timestamp_field?: string | undefined
+            row_count?: number
+            schema?: DatabaseSchemaSchema
+            search_aliases?: string[]
+            source?: DatabaseSchemaSource
+            timestamp_field?: string
             type: 'data_warehouse'
-            url_pattern?: string | undefined
+            url_pattern?: string
         }
         previewExpressionColumns: (
             table: DataWarehouseTableForInsight,

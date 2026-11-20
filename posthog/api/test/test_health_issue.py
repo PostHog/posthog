@@ -402,13 +402,26 @@ class TestHealthIssueAPI(APIBaseTest):
         issue.refresh_from_db()
         self.assertIsNone(issue.snoozed_until)
 
+    def test_summary_reports_the_worst_severity_of_each_kind(self):
+        self._create_issue(severity=HealthIssue.Severity.WARNING, kind="external_data_failure", unique_hash="h1")
+        self._create_issue(severity=HealthIssue.Severity.CRITICAL, kind="external_data_failure", unique_hash="h2")
+        self._create_issue(severity=HealthIssue.Severity.INFO, kind="sdk_outdated", unique_hash="h3")
+
+        response = self.client.get(self._url("/summary"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()["unsnoozed"]
+        self.assertEqual(data["worst_severity_by_kind"], {"external_data_failure": "critical", "sdk_outdated": "info"})
+        self.assertEqual(data["by_kind"], {"external_data_failure": 2, "sdk_outdated": 1})
+
     def test_summary_empty(self):
         response = self.client.get(self._url("/summary"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        self.assertEqual(data["unsnoozed"], {"total": 0, "by_severity": {}, "by_kind": {}})
-        self.assertEqual(data["snoozed"], {"total": 0, "by_severity": {}, "by_kind": {}})
+        empty = {"total": 0, "by_severity": {}, "by_kind": {}, "worst_severity_by_kind": {}}
+        self.assertEqual(data["unsnoozed"], empty)
+        self.assertEqual(data["snoozed"], empty)
 
     def test_sdk_issue_visible_even_when_latest_release_is_fresh(self):
         # A fresh upstream release (<7 days old) must not hide sdk_outdated issues — fast-releasing
