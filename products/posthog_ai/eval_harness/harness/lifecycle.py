@@ -469,7 +469,10 @@ class SandboxedEvalHarness:
             self.provider.start(self._stack)
 
         # The harness uses TEST for its database, but this client captures eval traces deliberately.
-        self._posthog_client = get_client("US", disabled=bool(os.environ.get("OPT_OUT_CAPTURE", False)))
+        # The AI lane queue defaults to 1,000 events; keep the 10,000 the analytics lane held for these traces.
+        self._posthog_client = get_client(
+            "US", disabled=bool(os.environ.get("OPT_OUT_CAPTURE", False)), capture_ai_max_queue_size=10_000
+        )
         if self._posthog_client is not None:
             self._stack.callback(_shutdown_trace_client, self._posthog_client)
 

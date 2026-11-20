@@ -43,7 +43,7 @@ class FeedbackCommand(SlashCommand):
         trace_id = config.get("configurable", {}).get("trace_id")
 
         # Capture feedback event
-        posthoganalytics.capture(
+        posthoganalytics.capture_ai(
             distinct_id=str(self._user.distinct_id),
             event="$ai_feedback",
             properties={

@@ -202,7 +202,7 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
         score_value = getattr(result, "score", None)
         metadata = getattr(result, "metadata", {}) or {}
 
-        self._posthog_client.capture(
+        self._posthog_client.capture_ai(
             distinct_id=DISTINCT_ID,
             event="$ai_span",
             properties={

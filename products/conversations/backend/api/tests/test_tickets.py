@@ -3567,7 +3567,7 @@ class TestAiFeedbackAPI(APIBaseTest):
         )
         self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/ai_feedback/"
 
-    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture_ai")
     def test_ai_feedback_captures_metric_on_rating(self, mock_capture, mock_on_commit):
         response = self.client.post(
             self.url,
@@ -3597,7 +3597,7 @@ class TestAiFeedbackAPI(APIBaseTest):
             ),
         ]
     )
-    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture_ai")
     def test_ai_feedback_metric_vs_text_are_mutually_exclusive(
         self, _name, payload, expected_event, expected_metric_value, mock_capture, mock_on_commit
     ):
@@ -3622,7 +3622,7 @@ class TestAiFeedbackAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture_ai")
     def test_ai_feedback_rejects_automated_update(self, mock_capture, mock_on_commit):
         update = Comment.objects.create(
             team=self.team,

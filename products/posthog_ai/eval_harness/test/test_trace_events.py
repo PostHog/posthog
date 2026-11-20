@@ -37,7 +37,7 @@ class _CapturingClient:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def capture(self, **kwargs: Any) -> None:
+    def capture_ai(self, **kwargs: Any) -> None:
         self.calls.append(kwargs)
 
 
