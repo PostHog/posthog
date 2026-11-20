@@ -67,6 +67,12 @@ describe('renderEmailPreview', () => {
         )
     })
 
+    it('falls back to the template when the output would be huge', () => {
+        const template = `{% for i in (1..1100) %}${'x'.repeat(10000)}{% endfor %}`
+
+        expect(renderEmailPreview(template, person)).toBe(template)
+    })
+
     it('gives up on a runaway loop instead of freezing the page', () => {
         const template = '{% for i in (1..100000000) %}x{% endfor %}'
 

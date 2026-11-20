@@ -12,6 +12,9 @@ export interface EmailPreviewPerson {
  * Returns the template unchanged when it can't be parsed, because a preview must never be the
  * thing that breaks the review step.
  */
+// The worker's output budget, from nodejs/src/cdp/utils/liquid.ts: real bodies reach megabytes of inlined images.
+const MAX_PREVIEW_LENGTH = 10_000_000
+
 export function renderEmailPreview(
     template: string,
     person: EmailPreviewPerson | null,
@@ -31,7 +34,9 @@ export function renderEmailPreview(
         now: new Date(),
     }
     try {
-        return LiquidRenderer.renderKeepingUnresolved(template, context, markUnresolved)
+        const rendered = LiquidRenderer.renderKeepingUnresolved(template, context, markUnresolved)
+        // Render budgets don't bound output size, and the chip and link passes parse the result as a document.
+        return rendered.length > MAX_PREVIEW_LENGTH ? template : rendered
     } catch {
         return template
     }
