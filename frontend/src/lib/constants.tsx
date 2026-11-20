@@ -373,6 +373,7 @@ export const FEATURE_FLAGS = {
     HOGQL_QUERY_SHARING: 'hogql-query-sharing',
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
+    INBOX_CARDS_LINK_RELATED_REPORTS: 'inbox-cards-link-related-reports', // owner: #team-self-driving, gates the link strip on inbox report cards, the collapse of plan layers into one card, and the list's link_summary field (also checked server-side)
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
     INBOX_INTERVIEW_INVITE: 'inbox-interview-invite', // owner: #team-self-driving, gates the interview invite after report feedback
     INBOX_MCP_USED: 'inbox-mcp-used', // owner: #team-self-driving, hides the MCP banner after confirmed Inbox tool use
@@ -464,6 +465,7 @@ export const FEATURE_FLAGS = {
     NEW_EVENTS_TABLE_SELF_SERVE: 'new-events-table-self-serve', // owner: @aspicer #team-query-performance, the backend evaluates the same key per project in `new_events_schema.py`
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
+    NOTEBOOK_APP_BUILDER: 'notebook-app-builder', // owner: #team-data-tools
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
     OPEN_INBOX_BUTTON: 'open-inbox-button', // owner: #team-growth multivariate=control,test, shows a "Check your Gmail inbox"-style link on the verify email page and the login code step; gate on === 'test'
@@ -508,7 +510,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_AI_SUGGESTION_ORGS: 'product-support-ai-suggestion-orgs', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
-    PRODUCT_SUPPORT_INTERCOM_IMPORT: 'product-support-intercom-import', // owner: @veryayskiy #team-conversations, Intercom import in Support settings
     PRODUCT_SUPPORT_PYLON_IMPORT: 'product-support-pylon-import', // owner: @veryayskiy #team-conversations, Pylon import in Support settings
     PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS: 'support-reply-file-attachments', // owner: #team-conversations, attach any file type to in-app ticket replies
     PRODUCT_SUPPORT_SIMPLIFIED_REPLIES: 'conversations-simplified-replies', // owner: @jonmcwest #team-conversations, composer header + one Send menu in place of draft mode
@@ -603,7 +604,6 @@ export const FEATURE_FLAGS = {
     WAREHOUSE_COLUMN_SENSITIVITY: 'warehouse-column-sensitivity', // owner: #team-warehouse-sources, flags and suggests masking personal or secret columns
     WAREHOUSE_DESTINATION_MOTHERDUCK: 'warehouse-destination-motherduck', // owner: #team-warehouse-sources
     WAREHOUSE_HISTORY_ACCESS_RULES: 'warehouse-history-access-rules', // owner: #team-warehouse-sources, offers to give a table's history table the same access rules
-    WAREHOUSE_INCREMENTAL_FIELD_MODEL: 'warehouse-incremental-field-model', // owner: #team-warehouse-sources, gates the decision model picking incremental fields
     WAREHOUSE_MIGRATION_IMPORT: 'warehouse-migration-import', // owner: #team-warehouse-sources — gates importing a Fivetran setup
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_OBJECT_STORAGE_ADD_TABLE: 'warehouse-object-storage-add-table', // owner: #team-warehouse-sources, adds tables to an object storage source by path
@@ -651,6 +651,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_CONDITION_FILTER_GROUPS: 'workflows-condition-filter-groups', // owner: @meikelmosby #team-workflows, AND/OR filter groups in conditional branch conditions
     WORKFLOWS_DESTINATION_SUGGESTION: 'workflows-destination-suggestion', // owner: #team-workflows, offers workflows instead of a new email tool destination
+    WORKFLOWS_EMAIL_ACTIVITY: 'workflows-email-activity', // owner: @dmarchuk #team-workflows, shows what a workflow email's recipient did around the send
     WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS: 'workflows-email-delivery-webhooks', // owner: @silthus #team-workflows, delivery webhooks for transactional email
     WORKFLOWS_EMAIL_DOCUMENT_EDITOR: 'workflows-email-document-editor', // owner: @dmarchuk #team-workflows, the TipTap email editor that replaces Unlayer
     WORKFLOWS_EMAIL_FROM_CODE: 'workflows-email-from-code', // owner: #team-workflows, lets code send emails it rendered itself under a template key

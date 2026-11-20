@@ -427,6 +427,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         self._withheld_is_staff = self.is_staff
         self.is_staff = False
 
+    @property
+    def staff_rights_withheld(self) -> bool:
+        """Whether this instance holds back staff rights that the stored user has."""
+        return bool(self._withheld_is_staff)
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         if self._withheld_is_staff is None:
             super().save(*args, **kwargs)

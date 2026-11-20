@@ -8,7 +8,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
 from products.slack_app.backend.services.workspace_integrations import get_integration, require_workspace_integration
-from products.slack_app.backend.temporal.helpers import safe_react, swap_reaction
+from products.slack_app.backend.temporal.helpers import post_personal_github_prompt, safe_react, swap_reaction
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
     SLACK_APP_QUEUED_REACTION,
@@ -84,64 +84,6 @@ def post_posthog_code_repo_picker_activity(
     )
 
 
-def _post_connect_personal_github_prompt(
-    slack: "SlackIntegration",
-    *,
-    channel: str,
-    thread_ts: str,
-    settings_url: str,
-    user_id: int,
-    team_id: int,
-    reconnect: bool = False,
-) -> None:
-    """Post the single-button prompt for a task held on an unusable personal GitHub install.
-
-    ``reconnect`` picks the wording: a stale install (expired credentials) gets reconnect
-    copy, a missing one gets first-time-setup copy. Both send the user to the same settings
-    page, so the reconnect copy still reads correctly if the stale row was already discarded.
-    """
-    if reconnect:
-        text = (
-            "I can't start this task. Your personal GitHub connection has expired, so I can't open "
-            "the pull request as you. Reconnect it, then mention me again."
-        )
-        button_text = "Reconnect GitHub"
-    else:
-        text = (
-            "I can't start this task yet. You haven't connected your personal GitHub, so I can't open "
-            "the pull request as you. Connect it, then mention me again."
-        )
-        button_text = "Connect GitHub"
-    post_slack_thread_reply(
-        slack.client,
-        channel=channel,
-        thread_ts=thread_ts,
-        text=text,
-        blocks=[
-            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": button_text, "emoji": True},
-                        "url": settings_url,
-                        "style": "primary",
-                    }
-                ],
-            },
-        ],
-    )
-    logger.info(
-        "slack_app_task_blocked_no_personal_github",
-        user_id=user_id,
-        team_id=team_id,
-        channel=channel,
-        thread_ts=thread_ts,
-        reconnect=reconnect,
-    )
-
-
 @activity.defn
 @close_db_connections
 def block_posthog_code_task_if_no_personal_github_activity(
@@ -165,11 +107,10 @@ def block_posthog_code_task_if_no_personal_github_activity(
     PostHog app identity instead of the user's. Rather than degrading silently, hold
     the task and surface the one-click path to the personal integration setup.
     """
-    from django.conf import settings
-
     from posthog.models.user_integration import UserIntegration
 
     from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.facade.contracts import PersonalGitHubRepoAccess
 
     inputs = coerce_mention_workflow_inputs(inputs)
     # Usability, not existence: a row with expired credentials would clear an existence
@@ -183,16 +124,13 @@ def block_posthog_code_task_if_no_personal_github_activity(
         user_id=user_id,
         kind=UserIntegration.IntegrationKind.GITHUB,
     ).exists()
-    slack = SlackIntegration(integration)
-    settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
-    _post_connect_personal_github_prompt(
-        slack,
+    post_personal_github_prompt(
+        slack=SlackIntegration(integration),
         channel=channel,
         thread_ts=thread_ts,
-        settings_url=settings_url,
-        user_id=user_id,
         team_id=integration.team_id,
-        reconnect=has_stale_github,
+        user_id=user_id,
+        access=PersonalGitHubRepoAccess.NEEDS_RECONNECT if has_stale_github else PersonalGitHubRepoAccess.NOT_CONNECTED,
     )
     return True
 
