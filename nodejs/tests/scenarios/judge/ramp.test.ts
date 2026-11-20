@@ -194,7 +194,11 @@ describe('ramp', () => {
         ],
         [
             'ends at a harness limit when the live judge itself fails, rather than rejecting the drive',
-            { writerCpu: () => Promise.reject(new Error('socket hang up')) },
+            {
+                samples: () => {
+                    throw new Error('socket hang up')
+                },
+            },
             1,
             UNITS_PER_STEP[1],
             {
@@ -246,6 +250,28 @@ describe('ramp', () => {
                     end: 'harness_limit',
                     reason: `writer_cpu_under was not judged: no writer CPU reading for the minute at ${iso(T)} in the 1x step`,
                     broke: expect.objectContaining({ by: 'run_host', kind: 'harness', scale: 1 }),
+                }),
+            },
+        ],
+        [
+            'breaks at the pickup bar the step broke when the writer CPU read failed',
+            {
+                bars: [WRITER_CPU, PICKUP],
+                samples: () =>
+                    scrapedEvery5s(135, (atS) => ({
+                        processed: {},
+                        lateness: { email: { '1': 0, '5': 0, '10': atS, '+Inf': atS } },
+                    })),
+                writerCpu: () => Promise.reject(new Error('socket hang up')),
+            },
+            0,
+            UNITS_PER_STEP[0],
+            {
+                advance: false,
+                stop: expect.objectContaining({
+                    index: 0,
+                    end: 'broke',
+                    broke: expect.objectContaining({ by: 'pickup_p99_under', kind: 'bar', scale: 1 }),
                 }),
             },
         ],
