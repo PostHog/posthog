@@ -107,6 +107,10 @@ jobs:
             replay_shared: >-
                 ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
             complexity_files: ${{ steps.filter.outputs.complexity_files }}
+            # Consumed as a file list by the markdown lint step, which narrows a pull request's
+            # scan to the files it changes instead of all 2018 in the repository.
+            markdown_files: ${{ steps.filter.outputs.markdown_files }}
+            all_files_count: ${{ steps.filter.outputs.all_files_count }}
             # The API caps lists at 3000 rows. Renames expand to two paths, so a
             # count mismatch also keeps the full scan rather than trusting a partial list.
             markdown: >-
@@ -529,7 +533,51 @@ jobs:
 
             - name: Lint markdown files
               if: needs.changes.outputs.markdown != 'false'
-              run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
+              env:
+                  # The files this run matched in the `markdown` filter, in paths-filter's
+                  # `escape` list format: space separated, backslash escaped. Empty for a
+                  # push, the hourly cron and the merge queue, where the filter step is
+                  # skipped; every one of those keeps the repo-wide scan.
+                  MARKDOWN_CHANGED: ${{ needs.changes.outputs.markdown_files }}
+                  # The pull request's own file count against the count the filter saw. They
+                  # disagree when the API capped the list (3000 rows) or a rename expanded one
+                  # path into two, and a partial list cannot be narrowed to.
+                  CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+                  FILTERED_FILES: ${{ needs.changes.outputs.all_files_count }}
+              run: |
+                  config=.config/.markdownlint-cli2.jsonc
+                  # A scan of every markdown file in the repository is 2018 files and about
+                  # 80s, and both grow with the repository while its findings can only come
+                  # from the files a diff changes: every markdownlint rule is per file, so a
+                  # lint result never depends on a file the diff left alone. A pull request
+                  # therefore lints the markdown it changes. Master's push run and the merge
+                  # queue still scan everything, which is where drift that no single diff
+                  # shows up in, and the merge gate itself, are covered.
+                  #
+                  # A diff that moves the lint configuration, or the ignore rules it reads,
+                  # changes the verdict for files it does not touch, so it keeps the full scan.
+                  # A toolchain file changes which markdownlint runs and is not handled here;
+                  # the repo-wide runs after it cover the version bump.
+                  narrow=true
+                  targets=()
+                  if [ -z "$CHANGED_FILES" ] || [ "$CHANGED_FILES" != "$FILTERED_FILES" ]; then
+                      narrow=false
+                  fi
+                  # xargs re-parses the escape format, one path per line.
+                  while IFS= read -r path; do
+                      [ -n "$path" ] || continue
+                      case "$path" in
+                          *.md | *.mdx) targets+=("$path") ;;
+                          .markdownlint* | */.markdownlint* | .config/* | .gitignore | */.gitignore) narrow=false ;;
+                      esac
+                  done < <(printf '%s' "$MARKDOWN_CHANGED" | xargs -r -n 1 printf '%s\n')
+                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$narrow" = true ] && [ "${#targets[@]}" -gt 0 ]; then
+                      echo "Linting the ${#targets[@]} markdown file(s) this pull request changes"
+                      pnpm exec markdownlint-cli2 --config "$config" "${targets[@]}"
+                  else
+                      echo "Linting every markdown file"
+                      pnpm exec markdownlint-cli2 --config "$config" "**/*.{md,mdx}"
+                  fi
 
     frontend-bundle-size:
         name: Frontend checks
