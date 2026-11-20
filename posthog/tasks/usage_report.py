@@ -221,16 +221,18 @@ USAGE_REPORT_QUEUE_MAX_DEPTH = 20_000
 USAGE_REPORT_QUEUE_CHECK_INTERVAL = 1_000
 USAGE_REPORT_QUEUE_POLL_SECONDS = 5
 USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS = 600
+# Bounds the whole run, so slow workers can't hold back the billing sends in the same loop.
+USAGE_REPORT_QUEUE_MAX_TOTAL_WAIT_SECONDS = 2 * 60 * 60
 
 
-def _wait_for_usage_reports_queue() -> bool:
+def _wait_for_usage_reports_queue(max_wait_seconds: float) -> bool:
     """Wait until the usage_reports queue is at or below USAGE_REPORT_QUEUE_MAX_DEPTH.
 
-    Returns False if the depth can't be read or stays above the limit for
-    USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS. The workers aren't draining it then, so the caller
-    stops waiting and publishes the rest of the run straight away, as it did before pacing.
+    Returns False if the depth can't be read or stays above the limit for max_wait_seconds.
+    The caller then stops waiting and publishes the rest of the run straight away, as it did
+    before pacing.
     """
-    deadline = time.monotonic() + USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS
+    deadline = time.monotonic() + max_wait_seconds
     while True:
         try:
             depth = get_celery_broker_client().llen(CeleryQueue.USAGE_REPORTS.value)
@@ -4268,7 +4270,12 @@ def send_all_org_usage_reports(
                 try:
                     if pace_capture_tasks and capture_tasks_queued % USAGE_REPORT_QUEUE_CHECK_INTERVAL == 0:
                         wait_start = time.monotonic()
-                        pace_capture_tasks = _wait_for_usage_reports_queue()
+                        pace_capture_tasks = _wait_for_usage_reports_queue(
+                            max_wait_seconds=min(
+                                USAGE_REPORT_QUEUE_MAX_WAIT_SECONDS,
+                                USAGE_REPORT_QUEUE_MAX_TOTAL_WAIT_SECONDS - queue_wait_seconds,
+                            )
+                        )
                         queue_wait_seconds += time.monotonic() - wait_start
 
                     at_date_str = at_date.isoformat() if at_date else None
