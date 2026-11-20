@@ -189,6 +189,8 @@ def test_base_that_cannot_be_fetched_is_not_masked(scenario):
         "posthog/models/event/sql.py",
         "posthog/clickhouse/schema.py",
         "ee/clickhouse/views/x.py",
+        "docker/clickhouse/config.d/dev-system-logs.xml",
+        "docker-compose.dev.yml",
     ],
 )
 def test_pr_that_changes_the_database_or_packages_is_not_masked(scenario, path):
