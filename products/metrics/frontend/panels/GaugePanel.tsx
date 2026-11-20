@@ -61,7 +61,7 @@ export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps)
     }
 
     return (
-        <div className="flex h-full w-full flex-wrap content-center items-center justify-center gap-4 overflow-auto p-2">
+        <div className="flex h-full w-full flex-1 flex-wrap content-center items-center justify-center gap-4 overflow-auto p-2">
             {rows.map((row, index) => {
                 const value = row.values[reducer] ?? null
                 const unit = row.series.unit ?? undefined

@@ -18,6 +18,11 @@ const card = {
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
 
+const TWICE_DECLARED_BARS = [
+    { name: 'pickup_p99_under', params: { seconds: 5, queues: ['email'] } },
+    { name: 'pickup_p99_under', params: { seconds: 10, queues: ['hogflow'] } },
+]
+
 const emailWorkerKill = {
     valve: 'role.kill',
     target: 'cdp-cyclotron-worker-email',
@@ -99,6 +104,23 @@ describe('load', () => {
             'bars.0.params.percent: ',
         ],
         [
+            'a bar declared twice on a card that stops on break',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                    stopOnBreak: true,
+                },
+                bars: TWICE_DECLARED_BARS,
+            },
+            undefined,
+            'bars: declare each bar once on a stopOnBreak card; pickup_p99_under is declared twice',
+        ],
+        [
             'ramp steps that do not add up to the drive',
             {
                 ...card,
@@ -144,6 +166,46 @@ describe('load', () => {
             },
             undefined,
             'drive.ramp: each ramp step must scale higher than the one before',
+        ],
+        [
+            'a stop on break without a ramp to climb',
+            { ...card, drive: { ...card.drive, stopOnBreak: true } },
+            undefined,
+            'drive.stopOnBreak: stopOnBreak needs a ramp of at least two steps',
+        ],
+        [
+            'a stop on break with a step that lasts no time',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '0ms' },
+                        { scale: 3, for: '20s' },
+                    ],
+                    stopOnBreak: true,
+                },
+            },
+            undefined,
+            'drive.ramp: every step of a ramp that stops on a break must last longer than 0ms',
+        ],
+        [
+            'a stop on break with a valve the stop could leave due',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                    stopOnBreak: true,
+                },
+                valves: [emailWorkerKill],
+            },
+            undefined,
+            'valves: a stopOnBreak card schedules no valves, since its drive can stop before they are due',
         ],
         [
             'an unknown valve',
@@ -335,6 +397,10 @@ describe('load', () => {
             'drive.traffic.0.name: unknown traffic kind event_sms',
             'invariants.0.name: unknown invariant exactly_twice',
         ])
+    })
+
+    it('accepts a bar declared twice with different params on a card that does not stop on break', () => {
+        expect(loadCard({ ...card, bars: TWICE_DECLARED_BARS }).card.bars).toEqual(TWICE_DECLARED_BARS)
     })
 
     it('keeps the name of a profile passed from outside the repository', () => {

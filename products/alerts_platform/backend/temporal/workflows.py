@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, SearchAttributeKey, WorkflowIDReusePolicy
@@ -28,6 +29,9 @@ from products.alerts_platform.backend.temporal.metrics import (
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -856,12 +860,12 @@ SHARED_ORCHESTRATION_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformSourceDispatchWorkflow,
     AlertsPlatformRecordInventoryWorkflow,
 ]
-SHARED_ORCHESTRATION_ACTIVITIES: list[Callable[..., object]] = [
+SHARED_ORCHESTRATION_ACTIVITIES: list[ActivityDefinition] = [
     alerts_platform_discover_demand_activity,
     alerts_platform_record_inventory_activity,
 ]
 EVALUATION_WORKFLOWS: list[type[PostHogWorkflow]] = [AlertsPlatformEvaluateWorkflow]
-EVALUATION_ACTIVITIES: list[Callable[..., object]] = [
+EVALUATION_ACTIVITIES: list[ActivityDefinition] = [
     alerts_platform_probe_postgres_activity,
     alerts_platform_record_outcomes_activity,
 ]
@@ -871,7 +875,7 @@ DELIVERY_WORKFLOWS: list[type[PostHogWorkflow]] = [
     AlertsPlatformHandOverWorkflow,
     AlertsPlatformReleaseExpiredHoldsWorkflow,
 ]
-DELIVERY_ACTIVITIES: list[Callable[..., object]] = [
+DELIVERY_ACTIVITIES: list[ActivityDefinition] = [
     alerts_platform_deliver_activity,
     alerts_platform_deliver_preview_activity,
     alerts_platform_deliver_routes_activity,

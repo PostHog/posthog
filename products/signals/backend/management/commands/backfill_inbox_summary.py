@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from products.signals.backend.inbox_summary import INBOX_SUMMARY_PERIOD, generated_pull_requests
+from products.signals.backend.models import SignalReportPullRequest
 from products.signals.backend.tasks import refresh_pull_request_participants
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -32,8 +33,9 @@ class Command(BaseCommand):
             if next_run is not None:
                 self.stdout.write(f"Normalized verified pull request URLs. Resume with --run-after {next_run}")
                 return
-        rows = (
-            generated_pull_requests(team_id)
+        # Page through candidates without the provenance EXISTS, then check provenance only for that page.
+        candidates = (
+            SignalReportPullRequest.objects.for_team(team_id)
             .filter(
                 Q(merged_at__gte=timezone.now() - INBOX_SUMMARY_PERIOD) | Q(merged_at__isnull=True),
                 state="merged",
@@ -42,11 +44,14 @@ class Command(BaseCommand):
             .order_by("id")
         )
         if options["after"]:
-            rows = rows.filter(id__gt=options["after"])
-        batch = list(rows[: max(1, min(cast(int, options["limit"]), 1000))])
+            candidates = candidates.filter(id__gt=options["after"])
+        candidate_ids = list(candidates.values_list("id", flat=True)[: max(1, min(cast(int, options["limit"]), 1000))])
+        batch = (
+            list(generated_pull_requests(team_id).filter(id__in=candidate_ids).order_by("id")) if candidate_ids else []
+        )
         for pr in batch:
             if not options["dry_run"]:
                 refresh_pull_request_participants.delay(team_id=team_id, repository=pr.repository, pr_number=pr.number)
         self.stdout.write(f"{'Would queue' if options['dry_run'] else 'Queued'} {len(batch)} pull requests")
-        if batch:
-            self.stdout.write(f"Resume with --after {batch[-1].id}")
+        if candidate_ids:
+            self.stdout.write(f"Resume with --after {candidate_ids[-1]}")

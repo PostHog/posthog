@@ -112,7 +112,7 @@ export interface annotationsModelActions {
         annotationData: AnnotationDataWithoutInsight
         annotationId: RawAnnotationType['id']
     }) => {
-        annotationId: RawAnnotationType[]
+        annotationId: RawAnnotationType['id']
         annotationData: AnnotationDataWithoutInsight
     }
     updateAnnotationFailure: (
@@ -125,13 +125,13 @@ export interface annotationsModelActions {
     updateAnnotationSuccess: (
         rawAnnotations: void,
         payload?: {
-            annotationId: RawAnnotationType[]
+            annotationId: RawAnnotationType['id']
             annotationData: AnnotationDataWithoutInsight
         }
     ) => {
         rawAnnotations: void
         payload?: {
-            annotationId: RawAnnotationType[]
+            annotationId: RawAnnotationType['id']
             annotationData: AnnotationDataWithoutInsight
         }
     }

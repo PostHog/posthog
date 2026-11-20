@@ -14,7 +14,7 @@ from django.apps import apps
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from posthog.dataclasses import frozen
@@ -47,7 +47,7 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     run_account_property_segment_sync,
     run_account_property_source_sync,
 )
-from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun
+from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, CustomPropertyValue
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, saved_query_binding
@@ -111,6 +111,16 @@ def _apply_all_values(
 
 
 class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # A thread_sensitive=False call opens a second connection, which can't see this test's uncommitted rows.
+        same_thread = patch(
+            f"{_MODULE}.database_sync_to_async",
+            side_effect=lambda func, **_kwargs: sync_to_async(func, thread_sensitive=True),
+        )
+        same_thread.start()
+        self.addCleanup(same_thread.stop)
+
     def _create_source(
         self,
         *,
@@ -135,14 +145,14 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
             source_column=column,
         )
 
-    def _start_runs(self, source: CustomPropertySource) -> None:
+    def _start_runs(self, source: CustomPropertySource, job_id: str = "job-1") -> None:
         start_account_property_sync_runs(
             AccountPropertySyncRunContext(
                 team_id=source.team_id,
                 saved_query_id=str(source.saved_query_id),
-                job_id="job-1",
+                job_id=job_id,
             ),
-            workflow_id="stage-workflow-job-1",
+            workflow_id=f"stage-workflow-{job_id}",
             workflow_run_id="00000000-0000-4000-8000-000000000001",
         )
 
@@ -164,16 +174,19 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         self._stage_rows(fake, binding, [{"external_id": "acct-1", "plan": plan, "tier": "gold"}])
         return _ViewWithTwoSources(binding=binding, plan_source=plan_source, tier_source=tier_source)
 
-    def _stage_rows(self, fake: "_FakeS3", binding: WarehouseBinding, rows: list[dict[str, Any]]) -> None:
+    def _stage_rows(
+        self, fake: "_FakeS3", binding: WarehouseBinding, rows: list[dict[str, Any]], job_id: str = "job-1"
+    ) -> None:
         buffer = pa.BufferOutputStream()
         pq.write_table(pa.Table.from_pylist(rows), buffer)
-        path = f"{account_property_job_staged_prefix(self.team.id, binding, 'job-1')}/chunk-0.parquet"
+        path = f"{account_property_job_staged_prefix(self.team.id, binding, job_id)}/chunk-0.parquet"
         async_to_sync(fake._pipe_file)(path, buffer.getvalue().to_pybytes())
 
     def _fanout_boundaries(self, fake: "_FakeS3") -> ExitStack:
         stack = ExitStack()
         stack.enter_context(_fake_s3_patch(fake))
         stack.enter_context(patch(f"{_MODULE}.get_s3_client", return_value=fake))
+        stack.enter_context(patch(f"{_MODULE}._segment_external_ids", return_value=frozenset(_ACCOUNT_IDS)))
         stack.enter_context(patch(f"{_MODULE}._matching_account_ids", side_effect=_match_known_accounts))
         stack.enter_context(patch(f"{_MODULE}._apply_source_values", side_effect=_apply_all_values))
         return stack
@@ -476,11 +489,47 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
         assert tracked_matches == {"tracked": tracked.id}
         assert ignored_matches == {"ignored": ignored.id}
 
+    def test_source_sync_diffs_only_keys_of_accounts_in_its_segment(self) -> None:
+        fake = _FakeS3()
+        source = self._create_source()
+        binding = saved_query_binding(str(source.saved_query_id))
+        create_account(team_id=self.team.id, external_id="tracked")
+        moved = create_account(team_id=self.team.id, external_id="ignored", ignored_at=datetime.now(UTC))
+        rows = [{"external_id": key, "plan": "enterprise"} for key in ("tracked", "ignored", "no-account")]
+
+        def sync(job_id: str) -> dict[str, int]:
+            self._start_runs(source, job_id)
+            self._stage_rows(fake, binding, rows, job_id)
+            with _fake_s3_patch(fake), patch(f"{_MODULE}.get_s3_client", return_value=fake):
+                return async_to_sync(run_account_property_source_sync)(
+                    team_id=self.team.id,
+                    binding=binding,
+                    job_id=job_id,
+                    segment=AccountPropertySyncSegment.TRACKED,
+                    source_id=str(source.id),
+                )
+
+        first_counts = sync("job-1")
+        repeat_counts = sync("job-2")
+        moved.ignored_at = None
+        moved.save(update_fields=["ignored_at"])
+        after_move_counts = sync("job-3")
+
+        one_write = {**_EMPTY_COUNTS, "rows_read": 3, "changed": 1, "matched": 1, "written": 1, "source_count": 1}
+        assert first_counts == one_write
+        assert repeat_counts == {**_EMPTY_COUNTS, "rows_read": 3, "source_count": 1}
+        assert after_move_counts == one_write
+        synced_accounts = CustomPropertyValue.objects.for_team(self.team.id).filter(
+            definition=source.definition, is_deleted=False
+        )
+        assert set(synced_accounts.values_list("account__external_id", flat=True)) == {"tracked", "ignored"}
+
     def test_value_hash_is_stable_for_equivalent_values(self) -> None:
         assert _value_hash({"a": 1, "b": [2, 3]}) == _value_hash({"b": [2, 3], "a": 1})
 
     def test_segment_sync_persists_source_run_counts(self) -> None:
         source = self._create_source()
+        create_account(team_id=self.team.id, external_id="acme")
         start_account_property_sync_runs(
             AccountPropertySyncRunContext(
                 team_id=self.team.id,
@@ -499,7 +548,6 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
             patch(f"{_MODULE}._enabled_sources", return_value=[source]),
             patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
             patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=batches),
-            patch(f"{_MODULE}._matching_account_ids", return_value={"acme": uuid4()}),
             patch(
                 f"{_MODULE}._apply_source_values",
                 return_value=AppliedSourceValues(written=1, hashes={"acme": "hash"}, failed=False),
@@ -740,6 +788,7 @@ async def test_each_staged_batch_is_shared_across_sources(source_columns: tuple[
         patch(f"{_MODULE}.finish_account_property_sync_runs"),
         patch(f"{_MODULE}.finalize_account_property_sync_runs"),
         patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=batches),
+        patch(f"{_MODULE}._segment_external_ids", return_value=frozenset({"org-1"})),
         patch(f"{_MODULE}._matching_account_ids", return_value={}),
         patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
         patch(f"{_MODULE}._mark_completed_and_maybe_cleanup", new=AsyncMock()),
@@ -773,6 +822,7 @@ async def test_sync_records_each_phase_duration(invalid_source_values: bool) -> 
         patch(f"{_MODULE}._enabled_sources", return_value=[source]),
         patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(return_value={})),
         patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=batches),
+        patch(f"{_MODULE}._segment_external_ids", return_value=frozenset({"org-1", "org-2"})),
         patch(f"{_MODULE}._matching_account_ids", return_value={"org-1": MagicMock(), "org-2": MagicMock()}),
         patch(
             f"{_MODULE}._apply_source_values",

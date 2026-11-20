@@ -71,7 +71,7 @@ A scheduled run attaches checks, then spot-checks a couple of settled fixes. A d
 
 ### Get oriented
 
-- `scout-scratchpad-search` (`text=inbox_validation`, `limit=100`) — what prior runs ruled out, and the reviewer and dedupe memory you keep.
+- `scout-scratchpad-search` (`text=inbox_validation`, list then read by key as your prompt's _Scratchpad keys_ section describes) — what prior runs ruled out, and the reviewer and dedupe memory you keep.
 - `scout-runs-list` (`skill_name=signals-scout-inbox-validation`, last 7d) — what prior runs covered.
 - `inbox-reports-list {"status": "resolved", "ordering": "-updated_at", "limit": 20}` — the watched surface. If the whole page is already covered and its oldest row is still inside the 14-day window, page with `offset` until you cross the window boundary — otherwise resolved report #21 silently ages out uncovered.
 
@@ -174,7 +174,8 @@ The checks are the queue now, so memory is only for what a check cannot hold: wh
 - key `spotcheck:inbox_validation:report-019e1a2b` — _"Spot-checked 2026-06-14: issue 0d4c... at 3 occ/day over the 48h after the merge (was 310 before). Held. Report's check also passed. Done — don't revisit."_
 - key `spotcheck-disagree:inbox_validation:report-019e1a2b` — _"Check passed on the rolled-up issue count; spot check found the child fingerprint still at 40 occ/day. Filed report <id>."_ Keep these; they are the record of where the checks are wrong.
 
-Keep the working set under the 100-row search cap: when entries pile up, `scout-scratchpad-forget` ones whose reports are older than ~30 days — they're cold backlog by then.
+A report is cold backlog about 30 days after it resolved, so when you write a `dedupe:`, `noise:`, or `spotcheck:` entry, set `expires_at` to that date and the entry leaves search on its own.
+Leave `expires_at` unset on `reviewer:` and `spotcheck-disagree:` entries, which stay useful.
 
 ### Decide
 
