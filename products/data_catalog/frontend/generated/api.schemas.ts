@@ -136,6 +136,11 @@ export interface CertificationCreateApi {
     proposed_status?: ProposedStatusEnumApi
 }
 
+export interface MetricAvailabilityApi {
+    /** Whether the project has any live metric, counted before per-table access checks. */
+    has_metrics: boolean
+}
+
 /**
  * * `user` - user
  * * `ai_generated` - ai_generated
@@ -1161,7 +1166,7 @@ export type DataCatalogMetricsListParams = {
      */
     offset?: number
     /**
-     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string
     /**

@@ -95,6 +95,31 @@ _INVALID_CREDENTIALS = (
     "The database rejected the username or password. Check the user and password for this source and try again."
 )
 
+# HTTP 530 isn't a real HTTP status — Cloudflare issues it, together with its own "error code"
+# in the body, when a host is proxied through a Cloudflare Tunnel (cloudflared) and the tunnel has
+# no live connection to the origin. Error 1033 is Cloudflare's own code for that case, not a
+# ClickHouse one (ClickHouse's own codes top out around 1002, reserved for wrapped external
+# exceptions). cloudflared drops and re-establishes its edge connections routinely (a deploy, a
+# network blip, an edge rebalance), so this is read the same as the bare 5xx gateway responses
+# below rather than assumed permanent — see get_retryable_errors.
+_CLOUDFLARE_TUNNEL_DOWN = (
+    "We reached a Cloudflare-proxied address for your ClickHouse host, but Cloudflare couldn't reach the origin "
+    "— its Tunnel (cloudflared) has no active connection. Check that the Cloudflare Tunnel on your ClickHouse "
+    "host is running and connected, then try again."
+)
+
+# clickhouse-connect reports a bare, body-less 407 the same way it does the bare 400/404 above
+# ("HTTP driver received HTTP status 407 (for url <url>)"). Our own egress proxy's SSRF refusal
+# is also a 407, but it always appends "server response: Egress proxying is denied ..." (see
+# _EGRESS_DENIED_PRIVATE_HOST below) — a bare 407 with no such body means some other service
+# answered on that host/port and demanded proxy credentials we have no way to supply, the same
+# "wrong service is listening there" shape as 400/404.
+_PROXY_AUTH_REQUIRED = (
+    "We reached your ClickHouse host but it returned a 407 (Proxy Authentication Required), so it isn't "
+    "serving the ClickHouse HTTP interface on that host/port — some other proxy or service answered instead. "
+    "Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it)."
+)
+
 # PostHog's egress proxy is the SSRF backstop for this source (see `_get_client`'s docstring):
 # it independently re-resolves the configured host on every connection and refuses one that
 # answers with a private/internal address, even if the host passed this source's own DNS check
@@ -153,6 +178,10 @@ ClickHouseErrors: dict[str, str] = {
     # tunnel) rejected the request before it reached the server. Same cause as 404, different
     # status code some proxies use instead.
     "received http status 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    # Matching "(for url" right after the code catches only the bare, body-less 407 — the
+    # egress-proxy-deny 407 always has ", server response: Egress proxying is denied ..." between
+    # the code and "(for url" instead, so it never matches this key. See `_PROXY_AUTH_REQUIRED`.
+    "received http status 407 (for url": _PROXY_AUTH_REQUIRED,
     # `_get_client` raises this when the host answers 2xx with a body that isn't a
     # ClickHouse response (a proxy/LB page, or a different service on the host/port).
     "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
@@ -168,6 +197,8 @@ ClickHouseErrors: dict[str, str] = {
     "received http status 502": _TEMPORARILY_UNAVAILABLE,
     "received http status 503": _TEMPORARILY_UNAVAILABLE,
     "received http status 504": _TEMPORARILY_UNAVAILABLE,
+    # See _CLOUDFLARE_TUNNEL_DOWN above.
+    "error code: 1033": _CLOUDFLARE_TUNNEL_DOWN,
     # PostHog's egress proxy denied the host as resolving to a private/internal address (see
     # `_EGRESS_DENIED_PRIVATE_HOST`'s definition for why this is deterministic).
     "egress proxying is denied": _EGRESS_DENIED_PRIVATE_HOST,
@@ -416,6 +447,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # sets. A bare 400 means a proxy, WAF, or tunnel in front of ClickHouse rejected the
             # request before it reached the server, so retrying replays the identical failure.
             "received HTTP status 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # Bare, body-less 407 — matched the same way as validate_credentials's
+            # ClickHouseErrors entry above (see _PROXY_AUTH_REQUIRED and the comment there for why
+            # "(for url" right after the code keeps this distinct from the egress-proxy-deny 407
+            # below, which always carries a "server response: Egress proxying is denied" body).
+            "received HTTP status 407 (for url": _PROXY_AUTH_REQUIRED,
             # `_get_client` wraps the driver's construction-time probe failure ("too many
             # values to unpack") into this message when the host answers 2xx with a body that
             # isn't a ClickHouse response. The endpoint isn't serving the ClickHouse HTTP
@@ -519,6 +555,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "received HTTP status 502",
             "received HTTP status 503",
             "received HTTP status 504",
+            # Cloudflare's bare HTTP 530 "Argo Tunnel error" (see _CLOUDFLARE_TUNNEL_DOWN) — the
+            # Cloudflare Tunnel in front of the host dropped its connection to the origin.
+            # cloudflared reconnects on its own, often within seconds, so this gets the same
+            # treatment as the bare 5xx gateway responses above rather than disabling the sync.
+            "error code: 1033",
             # urllib3 raises this when the source drops the connection mid-transfer while
             # `get_rows` is iterating `query_arrow_stream` — the byte count varies, but the
             # "Connection broken: IncompleteRead" wording is stable. Unlike the connect-time

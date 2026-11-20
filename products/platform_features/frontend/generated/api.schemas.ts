@@ -94,7 +94,10 @@ export type OrganizationApiMetadata = { [key: string]: string }
 
 export interface OrganizationApi {
     readonly id: string
-    /** @maxLength 64 */
+    /**
+     * Name of the organization.
+     * @maxLength 64
+     */
     name: string
     /** @pattern ^[-a-zA-Z0-9_]+$ */
     readonly slug: string
@@ -220,7 +223,10 @@ export type PatchedOrganizationApiMetadata = { [key: string]: string }
 
 export interface PatchedOrganizationApi {
     readonly id?: string
-    /** @maxLength 64 */
+    /**
+     * Name of the organization.
+     * @maxLength 64
+     */
     name?: string
     /** @pattern ^[-a-zA-Z0-9_]+$ */
     readonly slug?: string
@@ -1690,6 +1696,8 @@ export type ActivityLogListParams = {
      * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `SandboxEnvironment` - SandboxEnvironment
+     * * `SandboxCustomImage` - SandboxCustomImage
      * * `StamphogRepoConfig` - StamphogRepoConfig
      * * `ReviewRepository` - ReviewRepository
      * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -1813,6 +1821,8 @@ export const ActivityLogListScope = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
@@ -1923,6 +1933,8 @@ export const ActivityLogListScope = {
  * * `DataWarehouseJoin` - DataWarehouseJoin
  * * `Billing` - Billing
  * * `Loop` - Loop
+ * * `SandboxEnvironment` - SandboxEnvironment
+ * * `SandboxCustomImage` - SandboxCustomImage
  * * `StamphogRepoConfig` - StamphogRepoConfig
  * * `ReviewRepository` - ReviewRepository
  * * `ReviewProjectSettings` - ReviewProjectSettings
@@ -2034,6 +2046,8 @@ export const ActivityLogListScopesItem = {
     DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
+    SandboxEnvironment: 'SandboxEnvironment',
+    SandboxCustomImage: 'SandboxCustomImage',
     StamphogRepoConfig: 'StamphogRepoConfig',
     ReviewRepository: 'ReviewRepository',
     ReviewProjectSettings: 'ReviewProjectSettings',
@@ -2059,7 +2073,7 @@ export type AdvancedActivityLogsListParams = {
      */
     detail_filters?: string
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string
     /**
@@ -2122,7 +2136,7 @@ export type AdvancedActivityLogsListParams = {
      */
     search_text?: string
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string
     /**

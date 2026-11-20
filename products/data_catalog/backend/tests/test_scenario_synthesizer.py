@@ -1,0 +1,149 @@
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Callable
+
+from parameterized import parameterized
+
+from products.data_catalog.evals import scenario_synthesizer as pack
+
+
+@parameterized.expand(
+    [
+        ("wau_spike", pack.build_wau_spike),
+        ("wau_bot_spike", pack.build_wau_bot_spike),
+        ("share_drop_flag", pack.build_share_drop_flag),
+        ("share_dau", pack.build_share_dau),
+        ("mcp_tool_shipped", pack.build_mcp_tool_shipped),
+        ("revenue_rep_outlier", pack.build_revenue_rep_outlier),
+        ("slack_export", pack.build_slack_export),
+    ]
+)
+def test_needles_are_deterministic(_name: str, build: Callable[[], object]) -> None:
+    assert build() == build()
+
+
+def test_planted_people_carry_the_pack_token_and_a_reserved_domain() -> None:
+    persons = (
+        pack.build_wau_spike().persons
+        + pack.build_wau_bot_spike().persons
+        + pack.build_share_drop_flag().events.persons
+        + pack.build_mcp_tool_shipped().persons
+        + pack.build_share_dau().persons
+    )
+    assert all(pack.PACK_TOKEN in person.distinct_id for person in persons)
+    assert all(person.email.endswith(f"@{pack.PACK_EMAIL_DOMAIN}") for person in persons if person.email)
+    assert all(pack.PACK_TOKEN in deal.rep_email for deal in pack.build_revenue_rep_outlier().deals)
+
+
+def test_wau_spikes_stay_inside_their_window() -> None:
+    campaign = pack.build_wau_spike()
+    landings = [event for event in campaign.events if event.properties.get("utm_source") == pack.CAMPAIGN_UTM_SOURCE]
+    assert {event.days_ago for event in landings} == set(pack.WAU_SPIKE_DAYS_AGO)
+    assert len({event.distinct_id for event in landings}) == pack.WAU_SPIKE_PERSON_COUNT
+    assert min(event.days_ago for event in campaign.events) >= pack.WAU_SPIKE_LAST_RETURN_DAYS_AGO
+    # Campaign users without the web SDK properties read as scripted accounts, not as campaign traffic.
+    assert all(event.properties["$lib"] == "web" for event in campaign.events)
+    initial = pack.initial_person_properties(campaign.events)
+    assert len(initial) == pack.WAU_SPIKE_PERSON_COUNT
+    for properties in initial.values():
+        assert properties["$initial_utm_source"] == pack.CAMPAIGN_UTM_SOURCE
+        assert properties["$initial_pathname"] == pack.CAMPAIGN_PATH
+        assert properties["$initial_referring_domain"] == pack.CAMPAIGN_REFERRING_DOMAIN
+
+    bots = pack.build_wau_bot_spike()
+    assert {event.days_ago for event in bots.events} <= set(pack.WAU_SPIKE_DAYS_AGO)
+    assert len({event.distinct_id for event in bots.events}) == pack.WAU_BOT_DISTINCT_ID_COUNT
+    assert {event.event for event in bots.events} == {"$pageview"}
+    assert {event.properties["$browser"] for event in bots.events} == {pack.WAU_BOT_BROWSER}
+
+
+def test_flat_wau_holds_weekly_actives_level_on_a_growing_base() -> None:
+    days = 100
+    daily_active: list[set[str]] = [
+        {f"user-{index}" for index in range(1_100 - 9 * day) if (index + day) % 3 == 0} for day in range(days)
+    ]
+    needle = pack.build_flat_wau(daily_active, latest_minute=600)
+    for event in needle.events:
+        daily_active[event.days_ago].add(event.distinct_id)
+    weekly = pack.rolling_weekly_actives(daily_active)
+    # The first week of data has windows that reach past its start, so only full windows count.
+    changes = [abs(weekly[day] / weekly[day + 7] - 1) for day in range(days - 14)]
+    assert max(changes) <= 0.02
+    assert all(event.minute_of_day < 600 for event in needle.events if event.days_ago == 0)
+
+
+def test_share_dau_has_the_same_sharers_every_day() -> None:
+    sharers_by_day = Counter(event.days_ago for event in pack.build_share_dau().events)
+    assert sharers_by_day == dict.fromkeys(range(1, pack.SHARE_DAU_WINDOW_DAYS + 1), pack.SHARE_DAU_DAILY_SHARERS)
+
+
+def test_share_drop_flag_stops_only_the_blocked_cohort() -> None:
+    needle = pack.build_share_drop_flag()
+    exposures = {
+        event.distinct_id: event.properties["$feature_flag_response"]
+        for event in needle.events.events
+        if event.event == "$feature_flag_called"
+    }
+    window = range(pack.SHARE_EXPOSURE_TO_DAYS_AGO, pack.SHARE_BLOCK_FROM_DAYS_AGO + 1)
+    shares_in_window = Counter(
+        exposures[event.distinct_id]
+        for event in needle.events.events
+        if event.event == pack.SHARE_EVENT and event.days_ago in window
+    )
+    shares_before = Counter(
+        exposures[event.distinct_id]
+        for event in needle.events.events
+        if event.event == pack.SHARE_EVENT and event.days_ago > pack.SHARE_BLOCK_FROM_DAYS_AGO
+    )
+    assert shares_in_window[pack.SHARE_FLAG_BLOCKED_VARIANT] == 0
+    assert shares_before[pack.SHARE_FLAG_BLOCKED_VARIANT] > 0
+    assert shares_in_window[pack.SHARE_FLAG_CONTROL_VARIANT] > 0
+    # The blocked cohort must dominate the baseline, or the total would not visibly drop.
+    assert shares_before[pack.SHARE_FLAG_BLOCKED_VARIANT] > 4 * shares_before[pack.SHARE_FLAG_CONTROL_VARIANT]
+
+
+def test_revenue_outlier_and_its_duplicate_decide_the_ranking() -> None:
+    outlier = pack.build_revenue_rep_outlier()
+    amounts = sorted({deal.amount_usd for deal in outlier.deals}, reverse=True)
+    assert amounts[0] == round(pack.CRM_OUTLIER_FACTOR * amounts[1], 2)
+    assert Counter(deal.deal_id for deal in outlier.deals)[outlier.outlier_deal_id] == 2
+    assert outlier.top_reps_with_outlier[0] == pack.CRM_OUTLIER_REP_NAME
+    assert pack.CRM_OUTLIER_REP_NAME not in outlier.top_reps_without_outlier
+
+
+def test_mcp_export_tool_ships_mid_window_and_correlates_with_share() -> None:
+    events = pack.build_mcp_tool_shipped().events
+    export_days = [event.days_ago for event in events if event.properties["tool_name"] == pack.MCP_EXPORT_TOOL]
+    assert max(export_days) == pack.MCP_EXPORT_FIRST_SEEN_DAYS_AGO
+
+    sessions: dict[str, Counter[str]] = {}
+    for event in events:
+        sessions.setdefault(event.properties["$session_id"], Counter())[event.properties["tool_name"]] += 1
+    with_export = [tools[pack.MCP_SHARE_TOOL] for tools in sessions.values() if tools[pack.MCP_EXPORT_TOOL]]
+    without_export = [tools[pack.MCP_SHARE_TOOL] for tools in sessions.values() if not tools[pack.MCP_EXPORT_TOOL]]
+    assert sum(with_export) / len(with_export) == 3 * sum(without_export) / len(without_export)
+
+
+def test_slack_export_holds_one_pretax_note() -> None:
+    texts = [row[3] for row in pack.build_slack_export().table.rows]
+    assert texts.count(pack.SLACK_PRETAX_TEXT) == 1
+    assert sum("pre-tax" in text for text in texts) == 1
+
+
+@parameterized.expand(
+    [
+        ("first_day", 20, 20, 0.0),
+        ("last_day", 20, 1, 0.25),
+        ("midway", 21, 11, 0.125),
+        # A one-day window has no growth to spread, so it starts at the end share.
+        ("one_day_window", 1, 1, 0.25),
+    ]
+)
+def test_adoption_share_grows_linearly_to_the_end_share(
+    _name: str, first_seen_days_ago: int, days_ago: int, expected_share: float
+) -> None:
+    spec = pack.AdoptionSpec(
+        event="previewed_file", first_seen_days_ago=first_seen_days_ago, start_share=0.0, end_share=0.25
+    )
+    assert spec.share_on(days_ago) == expected_share

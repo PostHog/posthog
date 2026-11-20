@@ -9,6 +9,7 @@ import { RunKind } from '../intake/message'
 import { CDP_INTAKE_DLQ_OUTPUT } from '../outputs/outputs'
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
+import { EncryptedFields } from '../utils/encryption-utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Bounded so that a Postgres outage stalls the partition and restarts the pod, which redelivers the batch. The pool
@@ -36,6 +37,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
     private kafkaConsumer: KafkaConsumerInterface
     private cyclotron: CyclotronV2Manager
     private deadLetters: CdpDeadLetterService
+    private stateOpener: EncryptedFields
 
     constructor(
         config: PluginsServerConfig,
@@ -45,6 +47,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
         super(config, deps)
         const { topicKey, groupId } = TOPICS[kind]
         this.name = `CdpIntakeConsumer(${kind})`
+        this.stateOpener = new EncryptedFields(config.CDP_SEALED_STATE_KEYS)
         // Set rather than inherited from KAFKA_CONSUMER_AUTO_OFFSET_RESET, because a new group on `latest` would skip
         // every accepted run produced before its first assignment.
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic: config[topicKey] }, {
@@ -56,7 +59,6 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
         this.cyclotron = new CyclotronV2Manager({
             pool: {
                 dbUrl: config.CYCLOTRON_NODE_DATABASE_URL,
-                statementTimeoutMs: ATTEMPT_TIMEOUT_MS,
                 connectionTimeoutMs: ATTEMPT_TIMEOUT_MS,
             },
             depthLimit: config.CYCLOTRON_SHARD_DEPTH_LIMIT,
@@ -77,6 +79,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
                 deadLetters: this.deadLetters,
                 invocationResults: this.invocationResultsService.invocationResultsRowsService,
                 emailStatus: this.invocationResultsService.emailStatusService,
+                stateOpener: this.stateOpener,
             },
             { kind: this.kind, claimRetry: CLAIM_RETRY }
         )

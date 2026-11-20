@@ -8,6 +8,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import type { OperationRoute } from './operationFilters'
 import {
     DEFAULT_DATE_RANGE,
     DEFAULT_ORDER_BY,
@@ -124,7 +125,8 @@ const OPERATION_CONTEXT_ITEM: AttachedContextItem = {
         'The user has a single tracing operation open. The tracing_operation item names the service_name, the ' +
         'span name and the date range on screen. Requests about "this operation" mean spans with that name in ' +
         'that service: scope query-apm-spans and the aggregate tools with serviceNames and a span-type name ' +
-        'filter, and use apm-spans-duration-histogram or apm-spans-latency-heatmap for its latency distribution.',
+        'filter (plus a span_attribute filter on route.attribute = route.value when the item has a route, since ' +
+        'the name is then only an HTTP method shared by every route), and use apm-spans-duration-histogram or apm-spans-latency-heatmap for its latency distribution.',
 }
 
 /**
@@ -134,7 +136,8 @@ const OPERATION_CONTEXT_ITEM: AttachedContextItem = {
 export function buildTracingOperationAgentContext(
     serviceName: string,
     spanName: string,
-    dateRange: DateRange
+    dateRange: DateRange,
+    route: OperationRoute | null = null
 ): AttachedContextItem[] {
     return [
         PREAMBLE_CONTEXT_ITEM,
@@ -144,7 +147,12 @@ export function buildTracingOperationAgentContext(
             type: 'tracing_operation',
             hidden: true,
             dismissGroup: OPERATION_DISMISS_GROUP,
-            value: JSON.stringify({ service_name: serviceName, name: spanName, dateRange }),
+            value: JSON.stringify({
+                service_name: serviceName,
+                name: spanName,
+                dateRange,
+                ...(route ? { route } : {}),
+            }),
         },
     ]
 }

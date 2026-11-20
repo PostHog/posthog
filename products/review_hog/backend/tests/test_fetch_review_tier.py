@@ -168,11 +168,12 @@ class TestFetchDecidesTheTier(BaseTest):
 
     @parameterized.expand(
         [
-            ("devex_owned_file_with_flag", "team-devex", True, False, "open", True),
-            ("flag_off", "team-devex", False, False, "open", False),
-            ("file_of_another_team", "team-surveys", True, False, "open", False),
-            ("coordinated_turn", "team-devex", True, True, "open", False),
-            ("skipped_turn_on_a_closed_pr", "team-devex", True, False, "closed", False),
+            ("devex_owned_file_with_flag", "team-devex", True, False, "open", True, True),
+            ("flag_off_routes_a_control", "team-devex", False, False, "open", False, True),
+            ("file_of_another_team", "team-surveys", True, False, "open", False, False),
+            ("coordinated_turn", "team-devex", True, True, "open", False, False),
+            ("skipped_turn_on_a_closed_pr", "team-devex", True, False, "closed", False, False),
+            ("owners_yaml_that_does_not_parse", None, True, False, "open", False, False),
         ]
     )
     @patch(f"{_MODULE}.resolve_path_owners")
@@ -184,11 +185,12 @@ class TestFetchDecidesTheTier(BaseTest):
     def test_fetch_adds_the_devex_lens_only_to_a_routed_pr_on_separate_sessions(
         self,
         _name: str,
-        owner: str,
+        owner: str | None,
         flag_on: bool,
         coordinator_on: bool,
         state: str,
         expected: bool,
+        expected_routed: bool,
         mock_fetcher: MagicMock,
         _auth: MagicMock,
         _kill_switch: MagicMock,
@@ -196,10 +198,15 @@ class TestFetchDecidesTheTier(BaseTest):
         devex_flag: MagicMock,
         path_owners: MagicMock,
     ) -> None:
+        # An ownership error must cost the turn only its optional lens session, and a flag-off turn must still
+        # record its route, or the trial has no matched control group.
         devex_flag.return_value = flag_on
-        path_owners.return_value = PathOwnership(
-            team_by_path={"ci.yml": owner, "app.py": "team-surveys"}, registry={}, resolved=True
-        )
+        if owner is None:
+            path_owners.side_effect = ValueError("owners.yaml: unknown key")
+        else:
+            path_owners.return_value = PathOwnership(
+                team_by_path={"ci.yml": owner, "app.py": "team-surveys"}, registry={}, resolved=True
+            )
         coordinator_flag.return_value = coordinator_on
         mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
             pr_metadata=_pr_metadata().model_copy(update={"state": state}),
@@ -222,7 +229,7 @@ class TestFetchDecidesTheTier(BaseTest):
             )
         )
 
-        assert meta.devex_lens is expected
+        assert (meta.devex_lens, meta.devex_lens_routed) == (expected, expected_routed)
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
         assert snapshot is not None and snapshot.devex_lens_files == (["ci.yml"] if expected else [])
 

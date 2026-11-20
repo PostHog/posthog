@@ -1,9 +1,18 @@
+from unittest.mock import patch
+
+from django.contrib.auth.hashers import check_password
+
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.scim.auth import SCIMBearerTokenAuthentication, generate_scim_token
 from posthog.api.scim.user import PostHogSCIMUser
-from posthog.api.scim.utils import get_scim_base_url
+from posthog.api.scim.utils import (
+    disable_scim_for_config,
+    enable_scim_for_config,
+    get_scim_base_url,
+    regenerate_scim_token_for_config,
+)
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -11,6 +20,7 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.models.utils import hash_key_value
 from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.role import Role
@@ -196,17 +206,173 @@ class TestSCIMAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            (resource, ip, expected)
+            (slugged, resource, ip, expected)
+            for slugged in (True, False)
             for resource in ("Users", "Groups")
             for ip, expected in (("203.0.113.7", status.HTTP_200_OK), ("198.51.100.7", status.HTTP_403_FORBIDDEN))
         ]
     )
-    def test_scim_organization_ip_policy(self, resource: str, ip: str, expected: int) -> None:
+    def test_scim_organization_ip_policy(self, slugged: bool, resource: str, ip: str, expected: int) -> None:
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
         self.client.logout()
         self.client.credentials(**self.scim_headers)
-        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/{resource}", REMOTE_ADDR=ip)
+        assert (
+            self.client.get(f"/scim/v2/{self.config.scim_slug}/Users", REMOTE_ADDR="203.0.113.7").status_code
+            == status.HTTP_200_OK
+        )
+        base_url = f"/scim/v2/{self.config.scim_slug}" if slugged else "/scim/v2"
+        response = self.client.get(f"{base_url}/{resource}", REMOTE_ADDR=ip)
         assert response.status_code == expected
+
+    @parameterized.expand([(None,), ("stale-digest",)])
+    def test_slug_free_url_resolves_tenant_from_token(self, initial_digest: str | None) -> None:
+        self.config.scim_token_digest = initial_digest
+        self.config.save(update_fields=["scim_token_digest"])
+        self.client.credentials(**self.scim_headers)
+        assert self.client.get(f"/scim/v2/{self.config.scim_slug}/Users").status_code == status.HTTP_200_OK
+
+        self.config.refresh_from_db()
+        assert self.config.scim_token_digest == hash_key_value(self.plain_token)
+
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["totalResults"] >= 1
+
+    @parameterized.expand(["regenerate", "disable"])
+    def test_digest_backfill_does_not_overwrite_concurrent_token_change(self, action: str) -> None:
+        replacement_token: str | None = None
+
+        def verify_and_change_token(token: str, hashed_token: str) -> bool:
+            nonlocal replacement_token
+            valid = check_password(token, hashed_token)
+            if action == "regenerate":
+                replacement_token = regenerate_scim_token_for_config(self.config)
+            else:
+                disable_scim_for_config(self.config)
+            return valid
+
+        self.client.credentials(**self.scim_headers)
+        with patch("posthog.api.scim.auth.check_password", side_effect=verify_and_change_token):
+            self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")
+
+        self.config.refresh_from_db()
+        assert self.config.scim_token_digest == (hash_key_value(replacement_token) if replacement_token else None)
+        assert self.client.get("/scim/v2/Users").status_code == status.HTTP_403_FORBIDDEN
+        if replacement_token:
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {replacement_token}")
+            assert self.client.get("/scim/v2/Users").status_code == status.HTTP_200_OK
+
+    def test_slug_free_tokens_select_their_own_organization(self) -> None:
+        other_user = self._create_user_in_other_org()
+        other_org = other_user.organizations.get()
+        other_org.available_product_features = self.organization.available_product_features
+        other_org.save(update_fields=["available_product_features"])
+        other_domain = OrganizationDomain.objects.create(
+            organization=other_org, domain="other.example.com", verified_at="2024-01-01T00:00:00Z"
+        )
+        other_config = IdentityProviderConfig.objects.create(organization=other_org)
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=other_domain, identity_provider_config=other_config
+        )
+        other_token = enable_scim_for_config(other_config)
+        self.client.credentials(**self.scim_headers)
+        assert self.client.get(f"/scim/v2/{self.config.scim_slug}/Users").status_code == status.HTTP_200_OK
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {other_token}")
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_200_OK
+        assert {user["id"] for user in response.json()["Resources"]} == {str(other_user.id)}
+
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_200_OK
+        assert str(self.user.id) in {user["id"] for user in response.json()["Resources"]}
+        assert str(other_user.id) not in {user["id"] for user in response.json()["Resources"]}
+
+    def test_slug_free_detail_routes(self):
+        # Detail routes have four segments too, so the tenant has to come from the matched route:
+        # parsing `/scim/v2/Users/42` by position would resolve the slug "Users".
+        self.client.credentials(**self.scim_headers)
+        self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")  # backfills the digest
+
+        user_url = f"/scim/v2/Users/{self.user.id}"
+        response = self.client.get(user_url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(self.user.id)
+
+        response = self.client.patch(
+            user_url,
+            {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{"op": "replace", "path": "name.givenName", "value": "Renamed"}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.first_name == "Renamed"
+
+        response = self.client.post(
+            "/scim/v2/Groups",
+            {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                "displayName": "Slugless",
+                "members": [],
+            },
+            content_type="application/scim+json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        group_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/scim/v2/Groups/{group_id}",
+            {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{"op": "replace", "path": "displayName", "value": "Renamed"}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert Role.objects.get(id=group_id).name == "Renamed"
+
+    def test_slug_free_url_rejects_config_without_digest(self):
+        # No slug and no digest leaves no way to name the tenant. Fail closed instead of scanning
+        # every config's salted hash.
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_slug_free_url_rejects_invalid_token(self):
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token")
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_slug_free_url_requires_token(self):
+        response = self.client.get("/scim/v2/Users")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_slug_free_discovery_endpoints(self):
+        self.client.credentials(**self.scim_headers)
+        self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")  # backfills the digest
+        for resource in ("ServiceProviderConfig", "ResourceTypes", "Schemas"):
+            response = self.client.get(f"/scim/v2/{resource}")
+            assert response.status_code == status.HTTP_200_OK, resource
+
+    def test_token_lifecycle_keeps_digest_in_sync(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+
+        plain = enable_scim_for_config(config)
+        config.refresh_from_db()
+        assert config.scim_token_digest == hash_key_value(plain)
+
+        regenerated = regenerate_scim_token_for_config(config)
+        config.refresh_from_db()
+        assert config.scim_token_digest == hash_key_value(regenerated)
+        assert config.scim_token_digest != hash_key_value(plain)
+
+        disable_scim_for_config(config)
+        config.refresh_from_db()
+        assert config.scim_token_digest is None
 
     def test_scim_groups_endpoint(self):
         """Test that SCIM Groups endpoint works with valid license"""
@@ -229,12 +395,16 @@ class TestSCIMAPI(APILicensedTest):
         )
         return other_user
 
-    @parameterized.expand(["get", "put", "patch", "delete"])
-    def test_scim_user_detail_rejects_cross_tenant_access(self, method: str):
+    @parameterized.expand(
+        [(method, slugged) for method in ("get", "put", "patch", "delete") for slugged in (True, False)]
+    )
+    def test_scim_user_detail_rejects_cross_tenant_access(self, method: str, slugged: bool) -> None:
         other_user = self._create_user_in_other_org()
         self.client.credentials(**self.scim_headers)
 
-        url = f"/scim/v2/{self.config.scim_slug}/Users/{other_user.id}"
+        assert self.client.get(f"/scim/v2/{self.config.scim_slug}/Users").status_code == status.HTTP_200_OK
+        base_url = f"/scim/v2/{self.config.scim_slug}" if slugged else "/scim/v2"
+        url = f"{base_url}/Users/{other_user.id}"
 
         if method == "get":
             response = self.client.get(url)
@@ -277,12 +447,16 @@ class TestSCIMAPI(APILicensedTest):
         )
         return other_role
 
-    @parameterized.expand(["get", "put", "patch", "delete"])
-    def test_scim_group_detail_rejects_cross_tenant_access(self, method: str):
+    @parameterized.expand(
+        [(method, slugged) for method in ("get", "put", "patch", "delete") for slugged in (True, False)]
+    )
+    def test_scim_group_detail_rejects_cross_tenant_access(self, method: str, slugged: bool) -> None:
         other_role = self._create_group_in_other_org()
         self.client.credentials(**self.scim_headers)
 
-        url = f"/scim/v2/{self.config.scim_slug}/Groups/{other_role.id}"
+        assert self.client.get(f"/scim/v2/{self.config.scim_slug}/Users").status_code == status.HTTP_200_OK
+        base_url = f"/scim/v2/{self.config.scim_slug}" if slugged else "/scim/v2"
+        url = f"{base_url}/Groups/{other_role.id}"
 
         if method == "get":
             response = self.client.get(url)

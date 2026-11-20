@@ -1,9 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
@@ -13,9 +15,11 @@ import type {
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import {
     alertsDestinationsCreate,
+    alertsDestinationsCustomizeCreate,
     alertsDestinationsDeleteCreate,
     alertsDestinationsList,
     alertsDestinationsPagerdutyCreate,
+    alertsDestinationsResetCreate,
     alertsDestinationsWebhookCreate,
     alertsPagerdutyAvailabilityRetrieve,
     alertsTestDeliveryCreate,
@@ -58,6 +62,7 @@ export interface alertNotificationLogicValues {
     integrationsLoading: boolean // integrationsLogic
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentProjectId: number | null // projectLogic
+    changingMessageDestinationKeys: Set<string>
     destinations: AlertDestinationListItemApi[]
     destinationsLoading: boolean
     integrationsFailed: boolean
@@ -102,6 +107,9 @@ export interface alertNotificationLogicActions {
     createPendingDestinations: (alertId: string) => {
         alertId: string
     }
+    customizeDestination: (destination: AlertDestinationListItemApi) => {
+        destination: AlertDestinationListItemApi
+    }
     deleteDestination: (destination: AlertDestinationListItemApi) => {
         destination: AlertDestinationListItemApi
     }
@@ -138,6 +146,9 @@ export interface alertNotificationLogicActions {
     removePendingNotification: (index: number) => {
         index: number
     }
+    resetDestinationMessage: (destination: AlertDestinationListItemApi) => {
+        destination: AlertDestinationListItemApi
+    }
     sendTestDelivery: () => any
     sendTestDeliveryFailure: (
         error: string,
@@ -152,6 +163,13 @@ export interface alertNotificationLogicActions {
     ) => {
         testDeliveryResult: AlertTestDeliveryResponseApi
         payload?: any
+    }
+    setChangingMessageDestinationKey: (
+        key: string,
+        changing: boolean
+    ) => {
+        changing: boolean
+        key: string
     }
     setPagerDutyRegion: (pagerDutyRegion: AlertPagerDutyRegion) => {
         pagerDutyRegion: AlertPagerDutyRegion
@@ -197,6 +215,11 @@ export type alertNotificationLogicType = MakeLogicType<
     alertNotificationLogicMeta
 >
 
+/** Identifies a listed destination: by its HogFunctions while it has any, else by its platform row. */
+export function destinationKey(destination: AlertDestinationListItemApi): string {
+    return destination.hog_function_ids.length ? destination.hog_function_ids.join(',') : String(destination.id)
+}
+
 export const alertNotificationLogic = kea<alertNotificationLogicType>([
     path(['lib', 'components', 'Alerts', 'alertNotificationLogic']),
     props({} as AlertNotificationLogicProps),
@@ -213,6 +236,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         clearPendingNotifications: true,
         setPendingNotifications: (notifications: PendingAlertNotification[]) => ({ notifications }),
         deleteDestination: (destination: AlertDestinationListItemApi) => ({ destination }),
+        customizeDestination: (destination: AlertDestinationListItemApi) => ({ destination }),
+        resetDestinationMessage: (destination: AlertDestinationListItemApi) => ({ destination }),
+        setChangingMessageDestinationKey: (key: string, changing: boolean) => ({ key, changing }),
         createPendingDestinations: (alertId: string) => ({ alertId }),
         setSelectedType: (selectedType: AlertNotificationType) => ({ selectedType }),
         setSelectedSlackIntegrationId: (selectedSlackIntegrationId: number | null) => ({
@@ -226,6 +252,13 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
     }),
 
     reducers({
+        changingMessageDestinationKeys: [
+            new Set<string>(),
+            {
+                setChangingMessageDestinationKey: (state, { key, changing }) =>
+                    changing ? new Set([...state, key]) : new Set([...state].filter((x) => x !== key)),
+            },
+        ],
         pendingNotifications: [
             [] as PendingAlertNotification[],
             {
@@ -408,6 +441,55 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             } catch (error) {
                 console.error('Failed to remove alert destination', error)
                 lemonToast.error("Couldn't remove the destination. Try again.")
+            }
+            actions.loadDestinations()
+        },
+
+        customizeDestination: async ({ destination }) => {
+            if (!props.alertId || values.currentProjectId === null) {
+                return
+            }
+            const key = destinationKey(destination)
+            actions.setChangingMessageDestinationKey(key, true)
+            try {
+                const { hog_function_ids } = await alertsDestinationsCustomizeCreate(
+                    String(values.currentProjectId),
+                    props.alertId,
+                    destination.hog_function_ids.length
+                        ? { hog_function_ids: destination.hog_function_ids }
+                        : { destination_id: String(destination.id) }
+                )
+                // The editor opens in a new tab, so the alert being edited here stays open.
+                lemonToast.success('Ready to customize. Open the editor to change the message.', {
+                    button: {
+                        label: 'Edit message',
+                        action: () => window.open(urls.hogFunction(hog_function_ids[0]), '_blank'),
+                    },
+                })
+            } catch (error) {
+                const detail = (error as ApiError | undefined)?.detail
+                lemonToast.error(`Couldn't customize the destination. ${detail ?? 'Try again.'}`)
+            } finally {
+                actions.setChangingMessageDestinationKey(key, false)
+            }
+            actions.loadDestinations()
+        },
+        resetDestinationMessage: async ({ destination }) => {
+            if (!props.alertId || values.currentProjectId === null) {
+                return
+            }
+            const key = destinationKey(destination)
+            actions.setChangingMessageDestinationKey(key, true)
+            try {
+                await alertsDestinationsResetCreate(String(values.currentProjectId), props.alertId, {
+                    hog_function_ids: destination.hog_function_ids,
+                })
+                lemonToast.success('This destination sends the standard message again.')
+            } catch (error) {
+                const detail = (error as ApiError | undefined)?.detail
+                lemonToast.error(`Couldn't reset the message. ${detail ?? 'Try again.'}`)
+            } finally {
+                actions.setChangingMessageDestinationKey(key, false)
             }
             actions.loadDestinations()
         },

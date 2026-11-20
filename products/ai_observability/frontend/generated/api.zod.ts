@@ -367,6 +367,67 @@ export const AiObservabilityTracesAvailabilityCreateBody = /* @__PURE__ */ zod.o
 })
 
 /**
+ * The person each trace on a page ran for, labeled by the project's display name properties.
+ */
+export const aiObservabilityTracesPeopleCreateBodyTraceIdsMax = 100
+
+export const AiObservabilityTracesPeopleCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aiObservabilityTracesPeopleCreateBodyTraceIdsMax)
+        .describe(
+            'The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.'
+        ),
+    earliest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            'The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention.'
+        ),
+    latest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe("The latest createdAt of the rows on the page. It can't be before earliest_created_at."),
+})
+
+/**
+ * The input and output previews of a page of traces: the user's message each trace answered and its answer.
+ */
+export const aiObservabilityTracesPreviewsCreateBodyTraceIdsMax = 100
+
+export const AiObservabilityTracesPreviewsCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aiObservabilityTracesPreviewsCreateBodyTraceIdsMax)
+        .describe(
+            'The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.'
+        ),
+})
+
+/**
+ * The sentiment of each trace on a page, from its sentiment evaluation results.
+ */
+export const aiObservabilityTracesSentimentCreateBodyTraceIdsMax = 100
+
+export const AiObservabilityTracesSentimentCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(aiObservabilityTracesSentimentCreateBodyTraceIdsMax)
+        .describe(
+            'The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.'
+        ),
+    earliest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe(
+            'The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention.'
+        ),
+    latest_created_at: zod.iso
+        .datetime({ offset: true })
+        .describe("The latest createdAt of the rows on the page. It can't be before earliest_created_at."),
+})
+
+/**
  * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
 export const datasetItemsCreateBodyClientItemIdMax = 255
@@ -2252,6 +2313,13 @@ export const EvaluationsTestOnSampleCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe("What a preview samples from: the unsaved evaluation's conditions and target.")
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const LlmAnalyticsClusteringConfigSetEnabledCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Enable or disable automated clustering for this project.'),
+})
 
 /**
  * Team-level clustering configuration (event filters for automated pipelines).

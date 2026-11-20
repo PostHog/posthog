@@ -29,7 +29,10 @@ from psycopg import sql
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from products.managed_warehouse.backend.facade import team_state as team_state_facade
-from products.warehouse_sources.backend.facade.duckgres import duckgres_data_imports_table_name_for_version
+from products.warehouse_sources.backend.facade.duckgres import (
+    duckgres_data_imports_table_name_for_version,
+    sanitize_duckgres_identifier,
+)
 
 if TYPE_CHECKING:
     from clickhouse_driver import Client
@@ -507,23 +510,16 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
         conn.close()
 
 
-_IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
-
-
 def sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     """Normalize identifiers so they are safe for DuckDB (lowercase alnum + underscores).
 
     Non-alphanumeric runs are collapsed into a single underscore.
     If the result is empty, ``default_prefix`` is used as the identifier.
     If the result starts with a digit, ``default_prefix`` is prepended.
-    Truncated to 63 characters (DuckDB identifier limit).
+    A result over 63 characters (DuckDB identifier limit) keeps a prefix and ends with a hash of ``raw``,
+    so two long names that share their first 63 characters stay distinct.
     """
-    cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
-    if not cleaned:
-        cleaned = default_prefix
-    if cleaned[0].isdigit():
-        cleaned = f"{default_prefix}_{cleaned}"
-    return cleaned[:63]
+    return sanitize_duckgres_identifier(raw, default_prefix=default_prefix)
 
 
 def validate_duckgres_identifier(identifier: str) -> None:
@@ -570,6 +566,11 @@ def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
         schema.normalized_name,
         team_state_facade.data_imports_table_naming_version(schema.team_id),
     )
+
+
+def duckgres_data_modeling_table_name(normalized_name: str) -> str:
+    """The table a model is written to and read from on the duckgres shadow path."""
+    return sanitize_ducklake_identifier(normalized_name, default_prefix="model")
 
 
 def duckgres_data_modeling_schema(team_id: int) -> str:
@@ -716,6 +717,7 @@ __all__ = [
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",
+    "duckgres_data_modeling_table_name",
     "ducklake_data_modeling_schema",
     "ducklake_data_modeling_table_name",
     "escape",

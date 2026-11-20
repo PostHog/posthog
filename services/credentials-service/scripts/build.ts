@@ -5,7 +5,6 @@ await build({
     entryPoints: {
         'credentials-service': 'src/index.ts',
         'credentials-service-migrate': 'src/migrate.ts',
-        'credentials-service-maintenance': 'src/maintenance.ts',
     },
     bundle: true,
     platform: 'node',

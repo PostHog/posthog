@@ -10,7 +10,7 @@ from prometheus_client import Counter
 from posthog.api.utils import ServiceRequest
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.approvals.backend.actions.registry import get_action

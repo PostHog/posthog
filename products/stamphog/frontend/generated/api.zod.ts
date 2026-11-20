@@ -10,11 +10,11 @@
 import * as zod from 'zod'
 
 /**
- * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
+ * Per-repository auto-approval settings: enable or disable review, GitHub App installation, policy overrides.
  */
-export const stamphogRepoConfigsCreateBodyRoutingForkLabelsMaxOne = 50
+export const codeReviewApprovalsRepositoriesCreateBodyRoutingForkLabelsMaxOne = 50
 
-export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
+export const CodeReviewApprovalsRepositoriesCreateBody = /* @__PURE__ */ zod
     .object({
         provider: zod
             .string()
@@ -25,7 +25,10 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
         repository: zod
             .string()
             .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
-        enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether auto-approval actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
             .optional()
@@ -43,13 +46,13 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
             .describe("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
         routing_mode: zod
             .enum(['off', 'always', 'fallback'])
-            .describe('\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve')
+            .describe('\* `off` - Off\n\* `always` - Always\n\* `fallback` - When auto-approval does not approve')
             .optional()
             .describe(
-                "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.\n\n\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve"
+                "When auto-approval requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when auto-approval does not approve, where an approval requests only the owners of sensitive and new paths.\n\n\* `off` - Off\n\* `always` - Always\n\* `fallback` - When auto-approval does not approve"
             ),
         routing_fork_labels: zod
-            .record(zod.string(), zod.string().max(stamphogRepoConfigsCreateBodyRoutingForkLabelsMaxOne))
+            .record(zod.string(), zod.string().max(codeReviewApprovalsRepositoriesCreateBodyRoutingForkLabelsMaxOne))
             .optional()
             .describe(
                 "On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label."
@@ -58,7 +61,7 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
+                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
     })
     .describe(
@@ -66,11 +69,11 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
+ * Per-repository auto-approval settings: enable or disable review, GitHub App installation, policy overrides.
  */
-export const stamphogRepoConfigsUpdateBodyRoutingForkLabelsMaxOne = 50
+export const codeReviewApprovalsRepositoriesUpdateBodyRoutingForkLabelsMaxOne = 50
 
-export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
+export const CodeReviewApprovalsRepositoriesUpdateBody = /* @__PURE__ */ zod
     .object({
         provider: zod
             .string()
@@ -81,7 +84,10 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
         repository: zod
             .string()
             .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
-        enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether auto-approval actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
             .optional()
@@ -99,13 +105,13 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
             .describe("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
         routing_mode: zod
             .enum(['off', 'always', 'fallback'])
-            .describe('\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve')
+            .describe('\* `off` - Off\n\* `always` - Always\n\* `fallback` - When auto-approval does not approve')
             .optional()
             .describe(
-                "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.\n\n\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve"
+                "When auto-approval requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when auto-approval does not approve, where an approval requests only the owners of sensitive and new paths.\n\n\* `off` - Off\n\* `always` - Always\n\* `fallback` - When auto-approval does not approve"
             ),
         routing_fork_labels: zod
-            .record(zod.string(), zod.string().max(stamphogRepoConfigsUpdateBodyRoutingForkLabelsMaxOne))
+            .record(zod.string(), zod.string().max(codeReviewApprovalsRepositoriesUpdateBodyRoutingForkLabelsMaxOne))
             .optional()
             .describe(
                 "On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label."
@@ -114,7 +120,7 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
+                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
     })
     .describe(
@@ -122,11 +128,11 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
+ * Per-repository auto-approval settings: enable or disable review, GitHub App installation, policy overrides.
  */
-export const stamphogRepoConfigsPartialUpdateBodyRoutingForkLabelsMaxOne = 50
+export const codeReviewApprovalsRepositoriesPartialUpdateBodyRoutingForkLabelsMaxOne = 50
 
-export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
+export const CodeReviewApprovalsRepositoriesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         provider: zod
             .string()
@@ -138,7 +144,10 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
-        enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether auto-approval actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
             .optional()
@@ -156,13 +165,16 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .describe("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
         routing_mode: zod
             .enum(['off', 'always', 'fallback'])
-            .describe('\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve')
+            .describe('\* `off` - Off\n\* `always` - Always\n\* `fallback` - When auto-approval does not approve')
             .optional()
             .describe(
-                "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when stamphog does not approve, where an approval requests only the owners of sensitive and new paths.\n\n\* `off` - Off\n\* `always` - Always\n\* `fallback` - When stamphog does not approve"
+                "When auto-approval requests reviews from the code owners in the repository's owners.yaml: 'off' (the default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' only when auto-approval does not approve, where an approval requests only the owners of sensitive and new paths.\n\n\* `off` - Off\n\* `always` - Always\n\* `fallback` - When auto-approval does not approve"
             ),
         routing_fork_labels: zod
-            .record(zod.string(), zod.string().max(stamphogRepoConfigsPartialUpdateBodyRoutingForkLabelsMaxOne))
+            .record(
+                zod.string(),
+                zod.string().max(codeReviewApprovalsRepositoriesPartialUpdateBodyRoutingForkLabelsMaxOne)
+            )
             .optional()
             .describe(
                 "On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label."
@@ -171,7 +183,7 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
+                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent auto-approval review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
     })
     .describe(
@@ -179,9 +191,9 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Turn reviews on for a repository from the project's connected GitHub installations. Creates the repo config, or turns an existing one back on. Needs the editor level on stamphog.
+ * Turn reviews on for a repository from the project's connected GitHub installations. Creates the repo config, or turns an existing one back on. Needs the editor level on code review auto-approval.
  */
-export const StamphogRepoConfigsAddRepositoryCreateBody = /* @__PURE__ */ zod
+export const CodeReviewApprovalsRepositoriesAddRepositoryCreateBody = /* @__PURE__ */ zod
     .object({
         repository: zod
             .string()
@@ -192,15 +204,15 @@ export const StamphogRepoConfigsAddRepositoryCreateBody = /* @__PURE__ */ zod
     .describe('Request body for turning reviews on for a repository from a connected installation.')
 
 /**
- * Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.
+ * Per-repository auto-approval settings: enable or disable review, GitHub App installation, policy overrides.
  */
-export const stamphogRepoConfigsSyncInstallationCreateBodyInstallationIdDefault = ``
+export const codeReviewApprovalsRepositoriesSyncInstallationCreateBodyInstallationIdDefault = ``
 
-export const StamphogRepoConfigsSyncInstallationCreateBody = /* @__PURE__ */ zod
+export const CodeReviewApprovalsRepositoriesSyncInstallationCreateBody = /* @__PURE__ */ zod
     .object({
         installation_id: zod
             .string()
-            .default(stamphogRepoConfigsSyncInstallationCreateBodyInstallationIdDefault)
+            .default(codeReviewApprovalsRepositoriesSyncInstallationCreateBodyInstallationIdDefault)
             .describe(
                 "GitHub App installation ID from the fresh-install Setup URL redirect. Optional: absent or blank means discover the caller's installations from the OAuth code instead (authorize-first flow). The id is not trusted on its own — ownership is always proven via the code."
             ),
@@ -220,16 +232,16 @@ export const StamphogRepoConfigsSyncInstallationCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
+ * History of auto-approval review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
 
-export const StamphogReviewRunsCreateBody = /* @__PURE__ */ zod
+export const CodeReviewApprovalsRunsCreateBody = /* @__PURE__ */ zod
     .object({
         repository: zod
             .string()
             .describe(
-                "Full name of the GitHub repository, e.g. 'PostHog\/posthog'. It must be connected and enabled in Stamphog."
+                "Full name of the GitHub repository, e.g. 'PostHog\/posthog'. It must be connected and enabled for auto-approval."
             ),
         pr_number: zod.number().min(1).describe('Pull request number on GitHub.'),
     })
-    .describe('Request body for asking stamphog to review one pull request.')
+    .describe('Request body for asking auto-approval to review one pull request.')

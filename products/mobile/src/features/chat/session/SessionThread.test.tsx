@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native'
 import * as Clipboard from 'expo-clipboard'
 import type { ReactElement } from 'react'
-import { ActivityIndicator, ScrollView } from 'react-native'
+import { ActivityIndicator, Linking, ScrollView, Text, View } from 'react-native'
 import { setAnalyticsClient } from '@/lib/analytics'
 
 import * as markdown from '../ChatMarkdown'
+import * as visualizations from '../ChatVisualization'
 import { SessionThread } from './SessionThread'
 import type { Session, SessionThreadItem, SessionToolInvocation } from './types'
 
@@ -51,6 +52,24 @@ function session(overrides: Partial<Session> = {}): Session {
         dismissNotice: () => undefined,
         ...overrides,
     }
+}
+
+function captureAnimationFrames(): () => void {
+    const frames = new Map<number, Parameters<typeof requestAnimationFrame>[0]>()
+    let id = 0
+    jest.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) => {
+        frames.set(++id, callback)
+        return id
+    })
+    jest.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation((frame) => {
+        if (typeof frame === 'number') frames.delete(frame)
+    })
+    return () =>
+        act(() => {
+            const ready = [...frames.values()]
+            frames.clear()
+            for (const callback of ready) callback(0)
+        })
 }
 
 const EDITING: SessionToolInvocation = {
@@ -106,6 +125,28 @@ describe('SessionThread', () => {
         expect(screen.queryByText(/NaN|Invalid Date/)).toBeNull()
     })
 
+    test('keeps the conversation project when opening a link from collapsed thoughts', () => {
+        const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
+        render(
+            <SessionThread
+                session={session({
+                    items: [
+                        {
+                            kind: 'thought',
+                            id: 'thought-link',
+                            text: '[Dashboard](/dashboard/123)',
+                            projectUrl: 'https://app.example.com/project/42',
+                            complete: true,
+                        },
+                    ],
+                })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+        fireEvent.press(screen.getByLabelText('Thought for a moment'))
+        fireEvent.press(screen.getByText('Dashboard'))
+        expect(open).toHaveBeenCalledWith('https://app.example.com/project/42/dashboard/123')
+    })
     const capture = jest.fn()
 
     beforeEach(() => {
@@ -139,6 +180,105 @@ describe('SessionThread', () => {
         )
         expect(JSON.stringify(capture.mock.calls)).not.toContain('SELECT 1')
     })
+
+    test.each(['assistant', 'visualization'] as const)(
+        'copies updated notebook text from its final %s item',
+        async (kind) => {
+            const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
+            jest.spyOn(visualizations, 'ChatVisualization').mockImplementation(({ children }) => <>{children}</>)
+            const thread = (copyText: string): ReactElement => {
+                const item: SessionThreadItem =
+                    kind === 'assistant'
+                        ? { kind, id: 'notebook', text: 'View notebook', complete: true, copyText }
+                        : { kind, id: 'notebook', title: 'Draft notebook chart', copyText }
+                return <SessionThread session={session({ items: [item] })} onRetryHistory={jest.fn()} />
+            }
+            const view = render(thread('Original report'))
+            view.rerender(thread('# Updated report\n\n[View chart](https://example.com/chart)'))
+            await act(async () => fireEvent.press(screen.getByLabelText('Copy message text')))
+            expect(copy).toHaveBeenCalledWith('# Updated report\n\n[View chart](https://example.com/chart)')
+        }
+    )
+
+    test('renders visualization items between the surrounding messages', () => {
+        jest.spyOn(visualizations, 'ChatVisualization').mockImplementation(({ title }) => (
+            <Text testID="inline-chart-preview">{title}</Text>
+        ))
+        render(
+            <SessionThread
+                session={session({
+                    items: [
+                        { kind: 'user', id: 'question', text: 'Show the event trend' },
+                        {
+                            kind: 'visualization',
+                            id: 'chart',
+                            title: 'Daily events',
+                            query: { kind: 'TrendsQuery' },
+                            result: [],
+                        },
+                        { kind: 'assistant', id: 'answer', text: 'The trend is steady.', complete: true },
+                    ],
+                })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+
+        expect(screen.getByTestId('inline-chart-preview')).toHaveTextContent('Daily events')
+        expect(screen.getByText('Show the event trend')).toBeTruthy()
+        expect(screen.getByText('The trend is steady.')).toBeTruthy()
+    })
+
+    test.each(['sandbox', 'langgraph'] as const)(
+        'rates a completed %s chart reply without a chart copy button',
+        (runtime) => {
+            jest.spyOn(visualizations, 'ChatVisualization').mockImplementation(({ title, children }) => (
+                <View>
+                    <Text>{title}</Text>
+                    {children}
+                </View>
+            ))
+            const items: SessionThreadItem[] = [
+                { kind: 'user', id: 'question', text: '' },
+                { kind: 'assistant', id: 'intro', text: 'Here is the trend.', complete: true, traceId: 'chart-trace' },
+                {
+                    kind: 'visualization',
+                    id: 'chart',
+                    title: 'Daily events',
+                    query: { kind: 'TrendsQuery' },
+                    traceId: 'chart-trace',
+                },
+            ]
+            const feedbackContext = { sessionId: 'chart-task', runtime }
+            const view = render(
+                <SessionThread
+                    session={session({ items, phase: 'working' })}
+                    onRetryHistory={jest.fn()}
+                    feedbackContext={feedbackContext}
+                />
+            )
+            expect(screen.queryByLabelText('Good answer')).toBeNull()
+
+            view.rerender(
+                <SessionThread
+                    session={session({
+                        items: [
+                            ...items,
+                            ...(runtime === 'sandbox'
+                                ? [{ kind: 'turn_end' as const, id: 'end', traceId: 'chart-trace', runId: 'chart-run' }]
+                                : []),
+                        ],
+                    })}
+                    onRetryHistory={jest.fn()}
+                    feedbackContext={feedbackContext}
+                />
+            )
+
+            expect(screen.getAllByLabelText('Good answer')).toHaveLength(1)
+            expect(screen.getAllByLabelText('Bad answer')).toHaveLength(1)
+            expect(screen.queryByTestId('chat-copy-message')).toBeNull()
+            expect(screen.getByText('Daily events')).toBeTruthy()
+        }
+    )
 
     test.each(['sandbox', 'langgraph'] as const)('shows one set of actions per %s reply', async (runtime) => {
         const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
@@ -266,9 +406,112 @@ describe('SessionThread', () => {
     })
 
     test.each([
+        ['idle', 'completed'],
+        ['idle', 'failed'],
+        ['idle', 'cancelled'],
+        ['reconnecting', 'in_progress'],
+    ] as const)('stops activity spinners when the session is %s and the run is %s', (phase, runStatus) => {
+        const view = render(
+            <SessionThread
+                session={session({ items: TWO_GROUPS, invocations: INVOCATIONS, phase: 'working' })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+        expect(screen.getByLabelText('Edit Legend.tsx')).toBeTruthy()
+        expect(screen.UNSAFE_queryAllByType(ActivityIndicator).length).toBeGreaterThan(0)
+
+        view.rerender(
+            <SessionThread
+                session={session({ items: TWO_GROUPS, invocations: INVOCATIONS, phase, runStatus })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+
+        expect(screen.getByLabelText('Edited a file')).toBeTruthy()
+        expect(screen.UNSAFE_queryByType(ActivityIndicator)).toBeNull()
+        fireEvent.press(screen.getByLabelText('Edited a file'))
+        expect(screen.getByTestId('session-tool-c3')).toHaveTextContent(/Pass the series name to the legend/)
+        expect(capture).toHaveBeenCalledWith(
+            'mobile_chat_activity_expanded',
+            expect.objectContaining({ running: false })
+        )
+    })
+
+    test('keeps expanded activity details in view while more messages arrive', () => {
+        const nextFrame = captureAnimationFrames()
+        const scrollToEnd = jest.spyOn(ScrollView.prototype, 'scrollToEnd')
+        render(
+            <SessionThread
+                session={session({ items: TWO_GROUPS, invocations: INVOCATIONS, phase: 'working' })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+        const thread = screen.getByTestId('session-thread')
+        fireEvent(thread, 'contentSizeChange', 400, 1800)
+        fireEvent(thread, 'layout', { nativeEvent: { layout: { height: 500 } } })
+        expect(scrollToEnd).not.toHaveBeenCalled()
+        nextFrame()
+        expect(scrollToEnd).toHaveBeenCalledTimes(1)
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: false })
+        scrollToEnd.mockClear()
+        fireEvent(thread, 'layout', { nativeEvent: { layout: { height: 500 } } })
+        nextFrame()
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: false })
+        scrollToEnd.mockClear()
+
+        fireEvent(thread, 'layout', { nativeEvent: { layout: { height: 400 } } })
+        fireEvent.press(screen.getByLabelText('Ran 1 command, read a file'))
+        fireEvent(thread, 'contentSizeChange', 400, 2000)
+        fireEvent(thread, 'layout', { nativeEvent: { layout: { height: 400 } } })
+        nextFrame()
+        expect(screen.getByTestId('session-tool-c1')).toBeTruthy()
+        expect(scrollToEnd).not.toHaveBeenCalled()
+        fireEvent.press(screen.getByLabelText('Ran 1 command, read a file'))
+        fireEvent(thread, 'contentSizeChange', 400, 1800)
+        nextFrame()
+        expect(scrollToEnd).not.toHaveBeenCalled()
+
+        fireEvent(thread, 'scrollBeginDrag')
+        fireEvent(thread, 'scrollEndDrag', {
+            nativeEvent: {
+                contentOffset: { y: 1300 },
+                contentSize: { height: 1800 },
+                layoutMeasurement: { height: 500 },
+            },
+        })
+        fireEvent(thread, 'contentSizeChange', 400, 1900)
+        nextFrame()
+        expect(scrollToEnd).toHaveBeenCalledWith({ animated: true })
+    })
+
+    test.each(['turn_end', 'user'] as const)('keeps earlier activity settled after a %s boundary', (kind) => {
+        render(
+            <SessionThread
+                session={session({
+                    items: [
+                        ...TWO_GROUPS,
+                        kind === 'user'
+                            ? { kind: 'user', id: 'next-user', text: 'Try a different approach' }
+                            : { kind: 'turn_end', id: 'ended-turn' },
+                        { kind: 'thought', id: 'current-thought', text: 'Checking another approach', complete: false },
+                    ],
+                    invocations: INVOCATIONS,
+                    phase: 'working',
+                })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+
+        expect(screen.getByLabelText('Edited a file')).toBeTruthy()
+        expect(screen.queryByLabelText('Edit Legend.tsx')).toBeNull()
+        expect(screen.getAllByLabelText('Thinking…').length).toBeGreaterThan(0)
+    })
+
+    test.each([
         ['above newer messages', 200],
         ['at the bottom', 1300],
     ])('preserves the viewport when toggling a notice %s', (_name, offset) => {
+        const nextFrame = captureAnimationFrames()
         const scrollToEnd = jest.spyOn(ScrollView.prototype, 'scrollToEnd')
         const items: SessionThreadItem[] = [
             { kind: 'notice', id: 'n1', text: 'The background review finished.', tone: 'completed' },
@@ -280,8 +523,10 @@ describe('SessionThread', () => {
             nativeEvent: { lines: [{ text: 'First line' }, { text: 'Second line' }, { text: 'Third line' }] },
         })
         fireEvent(thread, 'contentSizeChange', 400, 1800)
+        nextFrame()
         expect(scrollToEnd).toHaveBeenLastCalledWith({ animated: false })
         fireEvent(thread, 'contentSizeChange', 400, 1850)
+        nextFrame()
         expect(scrollToEnd).toHaveBeenLastCalledWith({ animated: true })
         scrollToEnd.mockClear()
 
@@ -298,6 +543,7 @@ describe('SessionThread', () => {
         fireEvent.press(screen.getByText('Show less'))
         fireEvent(thread, 'contentSizeChange', 400, 1800)
         fireEvent(thread, 'contentSizeChange', 400, 1850)
+        nextFrame()
         expect(scrollToEnd).not.toHaveBeenCalled()
 
         fireEvent(thread, 'scrollBeginDrag')
@@ -309,6 +555,7 @@ describe('SessionThread', () => {
             },
         })
         fireEvent(thread, 'contentSizeChange', 400, 1900)
+        nextFrame()
         expect(scrollToEnd).toHaveBeenCalledTimes(1)
         expect(scrollToEnd).toHaveBeenCalledWith({ animated: true })
     })

@@ -76,13 +76,19 @@ class TestRequestUntaggedQuestionConfirmation(TestCase):
 
     @parameterized.expand(
         [
-            ("auto answers", UntaggedFollowupMode.AUTO, False, False),
-            ("never stays quiet", UntaggedFollowupMode.NEVER, True, False),
-            ("ask offers privately", UntaggedFollowupMode.ASK, True, True),
-            ("unset offers privately", None, True, True),
+            (
+                "auto answers",
+                UntaggedFollowupMode.AUTO,
+                False,
+                False,
+                ["slack app unprompted answer started automatically"],
+            ),
+            ("never stays quiet", UntaggedFollowupMode.NEVER, True, False, []),
+            ("ask offers privately", UntaggedFollowupMode.ASK, True, True, []),
+            ("unset offers privately", None, True, True, []),
         ]
     )
-    def test_the_authors_mode_decides(self, _name, user_mode, expect_stop, expect_prompt):
+    def test_the_authors_mode_decides(self, _name, user_mode, expect_stop, expect_prompt, expect_events):
         if user_mode is not None:
             SlackSettings.objects.create(
                 slack_workspace_id="T_WS", slack_user_id="U_ALICE", untagged_question_mode=user_mode
@@ -90,11 +96,13 @@ class TestRequestUntaggedQuestionConfirmation(TestCase):
         with (
             patch("products.slack_app.backend.api._post_untagged_question_prompt", return_value=True) as mock_prompt,
             patch(f"{MODULE}.channel_is_ext_shared", return_value=False),
+            patch("products.slack_app.backend.analytics.ph_background_capture") as capture_factory,
         ):
             stop = request_untagged_question_confirmation_activity(self.inputs)
 
         assert stop is expect_stop
         assert mock_prompt.called is expect_prompt
+        assert [c.kwargs["event"] for c in capture_factory.return_value.call_args_list] == expect_events
 
     def test_auto_stays_quiet_in_a_channel_shared_since_the_webhook(self):
         SlackSettings.objects.create(

@@ -1,0 +1,412 @@
+from __future__ import annotations
+
+import re
+import json
+from ipaddress import IPv4Address
+from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
+from uuid import uuid4
+
+from django.conf import settings
+
+import modal
+from modal.exception import NotFoundError, SandboxFilesystemNotFoundError
+from modal.stream_type import StreamType
+
+from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+from products.tasks.backend.logic.services.sandbox import (
+    SandboxConfig,
+    SandboxTemplate,
+    get_sandbox_class_for_run_backend,
+)
+
+if TYPE_CHECKING:
+    from modal.sandbox import SidecarContainer
+
+
+CAPABILITY_PATH = "/run/posthog/egress-capability"
+RELAY_NAME = "egress-relay"
+
+_PROBE = """
+import concurrent.futures, http.client, json, sys
+from collections import Counter
+from pathlib import Path
+def request(_):
+    connection = http.client.HTTPConnection(sys.argv[3], 8080, timeout=10)
+    try:
+        token = Path(sys.argv[4]).read_text()
+        connection.request("GET", "/v1/probe", headers={"Authorization": "Bearer " + token})
+        response = connection.getresponse()
+        response.read(1024)
+        return response.status
+    except (OSError, http.client.HTTPException):
+        return 0
+    finally:
+        connection.close()
+with concurrent.futures.ThreadPoolExecutor(max_workers=int(sys.argv[2])) as executor:
+    print(json.dumps(dict(Counter(executor.map(request, range(int(sys.argv[1])))))))
+"""
+
+_WAIT_READY = """
+import time, urllib.request
+deadline = time.monotonic() + 20
+while True:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise SystemExit(1)
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:9090/readyz", timeout=min(1, remaining)) as response:
+            if response.status == 204:
+                break
+    except OSError:
+        pass
+    time.sleep(min(.2, max(0, deadline - time.monotonic())))
+"""
+
+_PREPARE_IDENTITY = """
+import fcntl, os, subprocess, sys
+from pathlib import Path
+os.umask(0o077)
+directory = Path(sys.argv[1])
+directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+with (directory / "identity.lock").open("w") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    key = directory / "relay-key.pem"
+    csr = directory / "relay.csr"
+    for destination, command in (
+        (key, ["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"]),
+        (csr, ["openssl", "req", "-new", "-key", str(key), "-subj", "/CN=agent-egress-probe"]),
+    ):
+        if not destination.exists():
+            temporary = destination.with_suffix(".tmp")
+            subprocess.run(command + ["-out", str(temporary)], check=True, stderr=subprocess.DEVNULL)
+            temporary.chmod(0o600)
+            temporary.replace(destination)
+"""
+
+_START_RELAY = """
+import fcntl, os, sys
+from pathlib import Path
+directory = Path(sys.argv[1])
+lock = (directory / "relay.lock").open("w")
+try:
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit(0)
+os.set_inheritable(lock.fileno(), True)
+with (directory / "relay.stderr").open("a") as errors:
+    os.dup2(errors.fileno(), 2)
+os.execv(sys.argv[2], sys.argv[2:])
+"""
+
+
+class ModalEgressProbe:
+    def __init__(
+        self,
+        sandbox: ModalSandbox,
+        sidecar: SidecarContainer,
+        endpoint: str,
+        ttl_seconds: int,
+        relay_name: str = RELAY_NAME,
+    ) -> None:
+        self.sandbox = sandbox
+        self.sidecar = sidecar
+        self.endpoint = endpoint
+        self.ttl_seconds = ttl_seconds
+        self.relay_name = relay_name
+        self.capability_path = CAPABILITY_PATH if relay_name == RELAY_NAME else f"{CAPABILITY_PATH}.{relay_name}"
+
+    @staticmethod
+    def _sandbox_class() -> type[ModalSandbox]:
+        if not (settings.DEBUG or settings.TEST) or str(settings.SANDBOX_PROVIDER).upper() != "MODAL_DOCKER":
+            raise RuntimeError("Egress probes require the local MODAL_DOCKER provider")
+        sandbox_class = get_sandbox_class_for_run_backend("modal")
+        if not issubclass(sandbox_class, ModalSandbox):
+            raise RuntimeError("Egress probes require Modal")
+        return sandbox_class
+
+    @staticmethod
+    def _execute(container: modal.Sandbox | SidecarContainer, *args: str, timeout: int = 30) -> str:
+        process = container.exec(*args, timeout=timeout, stderr=StreamType.DEVNULL)
+        output = process.stdout.read()
+        process.wait()
+        if process.returncode:
+            raise RuntimeError("Egress probe control command failed")
+        return output
+
+    @staticmethod
+    def _destination(endpoint: str, ttl_seconds: int, dev_proxy_ipv4: str | None) -> tuple[str, IPv4Address | None]:
+        target = urlsplit(endpoint)
+        if (
+            target.scheme != "https"
+            or not target.hostname
+            or target.netloc != target.netloc.lower()
+            or not re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", target.hostname)
+            or target.username is not None
+            or target.password is not None
+            or target.path not in ("", "/")
+            or target.query
+            or target.fragment
+            or not 60 <= ttl_seconds <= 1800
+        ):
+            raise ValueError("Invalid egress probe endpoint or lifetime")
+        target_port = target.port or 443
+        if target_port != 443 and dev_proxy_ipv4 is None:
+            raise ValueError("Domain-restricted egress requires port 443")
+        proxy_ip = IPv4Address(dev_proxy_ipv4) if dev_proxy_ipv4 is not None else None
+        if proxy_ip is not None and not proxy_ip.is_global:
+            raise ValueError("The development proxy address must be a public IPv4 address")
+        return target.hostname, proxy_ip
+
+    @classmethod
+    def _prepare_sidecar(
+        cls,
+        sandbox: ModalSandbox,
+        *,
+        relay_name: str,
+        relay_image_id: str,
+        endpoint: str,
+        ttl_seconds: int,
+        hostname: str,
+        proxy_ip: IPv4Address | None,
+    ) -> ModalEgressProbe:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", relay_name):
+            raise ValueError("Invalid egress relay name")
+        try:
+            sidecar = sandbox._sandbox._experimental_sidecars.get(name=relay_name, include_terminated=True)
+        except NotFoundError:
+            sidecar = sandbox._sandbox._experimental_sidecars.create(
+                "sleep",
+                "infinity",
+                name=relay_name,
+                image=modal.Image.from_id(relay_image_id),
+                outbound_cidr_allowlist=[f"{proxy_ip}/32"] if proxy_ip else None,
+                outbound_domain_allowlist=[hostname] if proxy_ip is None else None,
+                experimental_memory_reserve_consume_mib=1024,
+            )
+        if sidecar.poll() is not None:
+            raise ValueError("The egress relay has ended")
+        instance = cls(sandbox, sidecar, endpoint.rstrip("/"), ttl_seconds, relay_name)
+        instance._execute(sidecar, "python3", "-c", _PREPARE_IDENTITY, "/run/egress")
+        if proxy_ip is not None:
+            instance._execute(
+                sidecar,
+                "python3",
+                "-c",
+                "from pathlib import Path; import sys; p=Path('/etc/hosts'); "
+                "entry=sys.argv[1]+' '+sys.argv[2]; content=p.read_text(); "
+                "p.write_text(content+'\\n'+entry+'\\n') if entry not in content.splitlines() else None",
+                str(proxy_ip),
+                hostname,
+            )
+        return instance
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        name: str,
+        relay_image_id: str,
+        endpoint: str,
+        ttl_seconds: int = 900,
+        dev_proxy_ipv4: str | None = None,
+    ) -> ModalEgressProbe:
+        sandbox_class = cls._sandbox_class()
+        hostname, proxy_ip = cls._destination(endpoint, ttl_seconds, dev_proxy_ipv4)
+        config = SandboxConfig(
+            name=name,
+            template=SandboxTemplate.SLIM_BASE,
+            vm_runtime=True,
+            agent_egress_probe=True,
+            memory_gb=2,
+            cpu_cores=1,
+            ttl_seconds=ttl_seconds,
+            metadata={"purpose": "agent-egress-probe"},
+        )
+        try:
+            existing = modal.Sandbox.from_name(sandbox_class.DEFAULT_APP_NAME, name, include_terminated=True)
+        except NotFoundError:
+            sandbox = sandbox_class.create(config)
+        else:
+            if existing.poll() is not None:
+                raise ValueError("The egress sandbox has ended")
+            sandbox = sandbox_class(existing, config)
+        return cls._prepare_sidecar(
+            sandbox,
+            relay_name=RELAY_NAME,
+            relay_image_id=relay_image_id,
+            endpoint=endpoint,
+            ttl_seconds=ttl_seconds,
+            hostname=hostname,
+            proxy_ip=proxy_ip,
+        )
+
+    @classmethod
+    def attach(
+        cls,
+        *,
+        sandbox_id: str,
+        relay_name: str,
+        relay_image_id: str,
+        endpoint: str,
+        ttl_seconds: int,
+        dev_proxy_ipv4: str | None = None,
+    ) -> ModalEgressProbe:
+        sandbox_class = cls._sandbox_class()
+        hostname, proxy_ip = cls._destination(endpoint, ttl_seconds, dev_proxy_ipv4)
+        raw = modal.Sandbox.from_id(sandbox_id)
+        if raw.poll() is not None:
+            raise ValueError("The egress sandbox has ended")
+        return cls._prepare_sidecar(
+            sandbox_class(raw, SandboxConfig(name=sandbox_id)),
+            relay_name=relay_name,
+            relay_image_id=relay_image_id,
+            endpoint=endpoint,
+            ttl_seconds=ttl_seconds,
+            hostname=hostname,
+            proxy_ip=proxy_ip,
+        )
+
+    def certificate_request(self) -> str:
+        return self.sidecar.filesystem.read_text("/run/egress/relay.csr")
+
+    @classmethod
+    def connect(
+        cls,
+        *,
+        sandbox_id: str,
+        sidecar_id: str,
+        endpoint: str,
+        ttl_seconds: int,
+        relay_name: str = RELAY_NAME,
+    ) -> ModalEgressProbe:
+        sandbox_class = cls._sandbox_class()
+        try:
+            raw = modal.Sandbox.from_id(sandbox_id)
+            if raw.poll() is not None:
+                raise ValueError("The egress sandbox has ended")
+            sandbox = sandbox_class(raw, SandboxConfig(name=sandbox_id))
+            sidecar = raw._experimental_sidecars.get(name=relay_name, include_terminated=True)
+            if sidecar.object_id != sidecar_id or sidecar.poll() is not None:
+                raise ValueError("The egress relay has ended or been replaced")
+        except NotFoundError:
+            raise ValueError("The egress sandbox or relay no longer exists") from None
+        return cls(sandbox, sidecar, endpoint, ttl_seconds, relay_name)
+
+    def start_relay(self, *, certificate: str, server_ca: str) -> None:
+        self.sidecar.filesystem.write_text(certificate, "/run/egress/relay.pem")
+        self.sidecar.filesystem.write_text(server_ca, "/run/egress/server-ca.pem")
+        configuration = {
+            "endpoint": self.endpoint,
+            "listen_address": "0.0.0.0:8080",
+            "admin_address": "127.0.0.1:9090",
+            "certificate_file": "/run/egress/relay.pem",
+            "private_key_file": "/run/egress/relay-key.pem",
+            "server_ca_file": "/run/egress/server-ca.pem",
+            "request_timeout_seconds": 20,
+            "shutdown_timeout_seconds": 5,
+        }
+        self.sidecar.filesystem.write_text(json.dumps(configuration), "/run/egress/relay.json")
+        self.sidecar.exec(
+            "python3",
+            "-c",
+            _START_RELAY,
+            "/run/egress",
+            "/usr/local/bin/egress-relay",
+            "-config",
+            "/run/egress/relay.json",
+            timeout=self.ttl_seconds,
+            stdout=StreamType.DEVNULL,
+            stderr=StreamType.DEVNULL,
+        )
+        self._execute(self.sidecar, "python3", "-c", _WAIT_READY, timeout=30)
+
+    def publish_capability(self, token: str) -> None:
+        guest = self.sandbox._sandbox
+        self._execute(guest, "mkdir", "-m", "0700", "-p", "/run/posthog")
+        temporary = f"{self.capability_path}.{uuid4().hex}"
+        guest.filesystem.write_text(token, temporary)
+        self._execute(
+            guest,
+            "python3",
+            "-c",
+            "import os,sys; os.chmod(sys.argv[1],0o600); os.replace(sys.argv[1],sys.argv[2])",
+            temporary,
+            self.capability_path,
+        )
+
+    def probe(self, *, count: int = 1, concurrency: int = 1) -> dict[int, int]:
+        if not 1 <= count <= 1000 or not 1 <= concurrency <= 32:
+            raise ValueError("Probe count must be 1 to 1000 and concurrency 1 to 32")
+        output = self._execute(
+            self.sandbox._sandbox,
+            "python3",
+            "-c",
+            _PROBE,
+            str(count),
+            str(concurrency),
+            self.relay_name,
+            self.capability_path,
+            timeout=120,
+        )
+        try:
+            result = json.loads(output)
+        except ValueError:
+            raise RuntimeError("Invalid egress probe response") from None
+        if not isinstance(result, dict) or not all(
+            isinstance(status, str)
+            and status.isascii()
+            and status.isdecimal()
+            and str(int(status)) == status
+            and (int(status) == 0 or 100 <= int(status) <= 599)
+            and type(total) is int
+            and total > 0
+            for status, total in result.items()
+        ):
+            raise RuntimeError("Invalid egress probe response")
+        if sum(result.values()) != count:
+            raise RuntimeError("Incomplete egress probe response")
+        return {int(status): total for status, total in result.items()}
+
+    @classmethod
+    def close_named(cls, name: str) -> None:
+        sandbox_class = cls._sandbox_class()
+        try:
+            sandbox = modal.Sandbox.from_name(sandbox_class.DEFAULT_APP_NAME, name, include_terminated=True)
+            if sandbox.poll() is None:
+                sandbox.terminate()
+        except NotFoundError:
+            return
+
+    @classmethod
+    def close_sandbox(cls, sandbox_id: str) -> None:
+        cls._sandbox_class()
+        try:
+            sandbox = modal.Sandbox.from_id(sandbox_id)
+            if sandbox.poll() is None:
+                sandbox.terminate()
+        except NotFoundError:
+            return
+
+    @classmethod
+    def close_relay(cls, sandbox_id: str, relay_name: str) -> None:
+        cls._sandbox_class()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", relay_name):
+            raise ValueError("Invalid egress relay name")
+        try:
+            sandbox = modal.Sandbox.from_id(sandbox_id)
+            if sandbox.poll() is not None:
+                return
+            try:
+                sidecar = sandbox._experimental_sidecars.get(name=relay_name, include_terminated=True)
+                if sidecar.poll() is None:
+                    sidecar.terminate()
+            except NotFoundError:
+                pass
+            capability_path = CAPABILITY_PATH if relay_name == RELAY_NAME else f"{CAPABILITY_PATH}.{relay_name}"
+            try:
+                sandbox.filesystem.remove(capability_path)
+            except SandboxFilesystemNotFoundError:
+                pass
+        except NotFoundError:
+            return

@@ -117,6 +117,8 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
+    # The Trends runner returns a calendar heatmap as one aggregated value with an empty `data` list.
+    ChartDisplayType.CALENDAR_HEATMAP,
 }
 
 
@@ -191,7 +193,7 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
     (alert_check_offset), so alerts that share an interval do not all run at its start.
 
     every 15 minutes alerts -> 1 to 3 minutes after each quarter hour
-    hourly alerts -> 2 to 13 minutes after each hour
+    hourly alerts -> 2 to 57 minutes after each hour
     daily alerts -> in the 1am hour of the team's timezone
     weekly alerts -> in the 3am hour on Monday, in the team's timezone
     monthly alerts -> in the 4am hour on the first day of the month, in the team's timezone

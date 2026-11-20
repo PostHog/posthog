@@ -167,6 +167,15 @@ if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
     hogli doctor:zombies --yes || true
 fi
 
+# Arm `hogli watch`, which stops the local ClickHouse once this stack is gone and nothing uses it.
+# It never stops ClickHouse while phrocs runs. One watcher runs per machine; a second one exits.
+# `9<&-` keeps this script's lock on $LOCK_FILE out of the long-lived child. POSTHOG_WATCH=0 opts out.
+if [[ "${POSTHOG_WATCH:-1}" != "0" ]] && command -v hogli &>/dev/null; then
+    mkdir -p "$HOME/.cache/posthog"
+    hogli watch 9<&- >>"$HOME/.cache/posthog/watch.log" 2>&1 &
+    disown
+fi
+
 # Repair git housekeeping. On a partial clone git never consolidates its own pack
 # files. A maintenance run killed by sleep or reboot also leaves a lock, which
 # disables every scheduled task without a message. Reading the state is cheap and

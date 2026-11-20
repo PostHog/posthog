@@ -20,7 +20,7 @@ class TestSleekplanSourceSchemas:
     def setup_method(self) -> None:
         self.source = SleekplanSource()
 
-    @parameterized.expand(["Users", "Posts", "Comments", "Votes", "Updates"])
+    @parameterized.expand(["Users", "Posts", "Comments", "Votes", "Updates", "Groups", "GroupMembers", "Documents"])
     def test_endpoints_without_a_server_side_filter_are_full_refresh_only(self, name: str) -> None:
         # Sleekplan only documents `date_start`/`date_end` on the survey endpoints; advertising
         # incremental anywhere else would page the whole collection and call it a delta.

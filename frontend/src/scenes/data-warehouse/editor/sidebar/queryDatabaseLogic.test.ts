@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { IconDocument } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -25,6 +27,7 @@ import { getSidebarPropertyDefinitionTarget } from 'products/data_warehouse/fron
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
+import { MaterializedViewIcon } from './MaterializedViewIcon'
 import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
@@ -721,6 +724,35 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
+    it('marks only materialized saved views with the materialized view icon', async () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+        await expectLogic(viewsLogic).toFinishAllListeners()
+        viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
+            [
+                ['orders_plain', false],
+                ['orders_stored', true],
+            ].map(([name, isMaterialized]) => ({
+                id: name,
+                name,
+                status: 'Completed',
+                is_materialized: isMaterialized,
+                columns: [],
+                managed_viewset_kind: null,
+            })) as unknown as DataWarehouseSavedQuery[]
+        )
+
+        const iconTypeByView = Object.fromEntries(
+            logic.values.displayedTreeData
+                .find((item) => item.name === 'Views')!
+                .children!.map((item) => [item.name, (item.icon as JSX.Element).type])
+        )
+        expect(iconTypeByView).toEqual({ orders_plain: IconDocument, orders_stored: MaterializedViewIcon })
+        logic.unmount()
+    })
+
     it('combines status search tokens with names and clears them when locating a table', async () => {
         initKeaTests()
         const logic = queryDatabaseLogic()
@@ -797,7 +829,8 @@ describe('queryDatabaseLogic', () => {
         const logic = queryDatabaseLogic()
         logic.mount()
 
-        expect(logic.values.treeData.find((item) => item.id === 'metrics')).toBeUndefined()
+        const loadingMetrics = logic.values.treeData.find((item) => item.id === 'metrics')!
+        expect(loadingMetrics.children!.map((item) => item.type)).toEqual(Array(3).fill('loading-indicator'))
         await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsSuccess'])
 
         const metrics = logic.values.treeData.find((item) => item.id === 'metrics')!

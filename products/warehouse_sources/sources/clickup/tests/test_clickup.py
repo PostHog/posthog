@@ -5,6 +5,7 @@ import pytest
 
 from products.warehouse_sources.sources.clickup._config import ClickUpSourceConfig
 from products.warehouse_sources.sources.clickup.clickup import (
+    TASK_COMMENTS_PAGE_SIZE,
     TIME_ENTRIES_HISTORY_FLOOR,
     TIME_IN_STATUS_BATCH_SIZE,
     ClickUpResumeConfig,
@@ -267,6 +268,89 @@ class TestListChildren:
         assert [(row["_list_id"], row["id"]) for row in result.rows] == [("l2", "cf2")]
 
 
+class TestSpaceTags:
+    def test_stamps_each_tag_with_its_space(self) -> None:
+        result = _driver().run(
+            "space_tags",
+            [
+                ScriptedResponse(json={"spaces": [{"id": "s1"}, {"id": 702}]}),
+                ScriptedResponse(json={"tags": [{"name": "bug", "tag_fg": "#000000"}]}),
+                ScriptedResponse(json={"tags": [{"name": "bug", "tag_fg": "#ffffff"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        # The same tag name in two spaces must stay two rows under the (_space_id, name) key.
+        assert [(row["_space_id"], row["name"]) for row in result.rows] == [("s1", "bug"), ("702", "bug")]
+        assert all("_spaces_id" not in row for row in result.rows)
+        assert result.paths[1:] == ["/api/v2/space/s1/tag", "/api/v2/space/702/tag"]
+
+
+class TestTaskChildren:
+    TASKS = {"tasks": [{"id": "t1"}, {"id": "t2"}]}
+
+    def _comments(self, start: int, count: int) -> dict[str, Any]:
+        return {
+            "comments": [
+                {"id": f"c{start + i}", "date": str(1567785250202 - (start + i) * 1000), "comment_text": "hi"}
+                for i in range(count)
+            ]
+        }
+
+    def test_task_members_skip_a_deleted_task_and_carry_the_task_id(self) -> None:
+        result = _driver().run(
+            "task_members",
+            [
+                ScriptedResponse(json=self.TASKS),
+                ScriptedResponse(status=404, json={"err": "Task not found"}),
+                ScriptedResponse(json={"members": [{"id": 812, "username": "Sam Example"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["_task_id"], row["id"]) for row in result.rows] == [("t2", 812)]
+        assert result.paths[1:] == ["/api/v2/task/t1/member", "/api/v2/task/t2/member"]
+
+    def test_comments_page_backwards_from_the_last_comment(self) -> None:
+        first_page = self._comments(0, TASK_COMMENTS_PAGE_SIZE)
+        last = first_page["comments"][-1]
+        result = _driver().run(
+            "task_comments",
+            [
+                ScriptedResponse(json=self.TASKS),
+                ScriptedResponse(json=first_page),
+                ScriptedResponse(json=self._comments(TASK_COMMENTS_PAGE_SIZE, 3)),
+                ScriptedResponse(json={"comments": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == ["/api/v2/task/t1/comment"] * 2 + ["/api/v2/task/t2/comment"]
+        # The cursor is the raw epoch-millisecond date, not the ISO value written to the row.
+        assert result.requests[2].param("start") == last["date"]
+        assert result.requests[2].param("start_id") == last["id"]
+        assert result.requests[3].param("start") is None
+        assert len(result.rows) == TASK_COMMENTS_PAGE_SIZE + 3
+        assert {row["_task_id"] for row in result.rows} == {"t1"}
+        assert result.rows[0]["date"] == "2019-09-06T15:54:10.202000+00:00"
+
+    def test_comment_walk_stops_when_the_cursor_does_not_move(self) -> None:
+        full_page = self._comments(0, TASK_COMMENTS_PAGE_SIZE)
+        result = _driver().run(
+            "task_comments",
+            [
+                ScriptedResponse(json={"tasks": [{"id": "t1"}]}),
+                ScriptedResponse(json=full_page),
+                ScriptedResponse(json=full_page),
+            ],
+        )
+
+        # An API that ignores the reference comment would otherwise return the same page forever.
+        assert result.raised is None
+        assert len(result.requests) == 3
+        assert len(result.rows) == TASK_COMMENTS_PAGE_SIZE * 2
+
+
 class TestClickUpSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
@@ -281,6 +365,7 @@ class TestClickUpSourceResponse:
                 "goals": [],
                 "data": [],
                 "fields": [],
+                "custom_items": [],
             }
         )
         result = _driver().run(endpoint, always(answer))

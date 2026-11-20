@@ -99,10 +99,6 @@ app.config_from_object("django.conf:settings", namespace="CELERY")
 # Load task modules from all registered Django app configs.
 app.autodiscover_tasks()
 
-# Make sure Redis doesn't add too many connections
-# https://stackoverflow.com/questions/47106592/redis-connections-not-being-released-after-celery-task-is-complete
-app.conf.broker_pool_limit = 0
-
 task_timings: dict[str, float] = {}
 
 
@@ -341,6 +337,15 @@ def on_worker_process_shutdown(**kwargs) -> None:
                 logger.warning("posthoganalytics_metrics_flush_timed_out")
     except Exception:
         logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
+
+    # Billiard ends a recycled child with os._exit, which skips the atexit flush of the process-lifetime capture clients.
+    from posthog.ph_client import flush_background_capture  # noqa: PLC0415 — keep the SDK off the celery import path
+
+    capture_flush = threading.Thread(
+        target=flush_background_capture, name="posthoganalytics-capture-flush", daemon=True
+    )
+    capture_flush.start()
+    capture_flush.join(timeout=_ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS)
 
 
 # Set up clickhouse query instrumentation

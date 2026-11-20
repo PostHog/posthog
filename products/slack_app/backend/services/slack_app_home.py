@@ -36,10 +36,16 @@ from posthog.templatetags.posthog_assets import absolute_asset_url
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_byos_enabled,
+    is_slack_app_link_search_scopes_enabled,
+    is_slack_app_oauth_enabled,
+)
 from products.slack_app.backend.logic.daily_focus import (
+    DailyFocusAccess,
     cached_zone,
     can_run_daily_focus,
+    daily_focus_access,
     parse_clock,
     resolve_daily_focus,
     set_daily_focus_time,
@@ -93,7 +99,11 @@ from products.slack_app.backend.services.slack_user_info import (
     find_member_by_cached_slack_email,
     is_slack_workspace_admin,
 )
-from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
+from products.slack_app.backend.services.slack_user_oauth import (
+    build_invite_url,
+    find_linked_posthog_user,
+    linked_user_token,
+)
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
     get_team_workspace_integration,
@@ -402,6 +412,8 @@ class AccountState:
     enabled: bool = False
     linked_email: str | None = None
     link_url: str | None = None
+    # Set when the link cannot read the person's messages and a new link would ask Slack for that.
+    relink_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -842,7 +854,7 @@ def _linked_accounts_section_blocks(
         rows.extend(
             _account_row(
                 _posthog_account_text(account_state),
-                _posthog_account_button(account_state),
+                _posthog_account_buttons(account_state),
                 connected=bool(account_state.linked_email),
             )
         )
@@ -850,7 +862,7 @@ def _linked_accounts_section_blocks(
         rows.extend(
             _account_row(
                 _github_account_text(github_state),
-                _github_account_button(github_state),
+                [button] if (button := _github_account_button(github_state)) else [],
                 connected=github_state.credentials_usable and bool(github_state.accounts),
             )
         )
@@ -859,7 +871,7 @@ def _linked_accounts_section_blocks(
     return [_home_heading("Linked accounts", "user-round"), *rows] if rows else []
 
 
-def _account_row(text: str, button: dict | None, *, connected: bool) -> list[dict]:
+def _account_row(text: str, buttons: list[dict], *, connected: bool) -> list[dict]:
     title, _, detail = text.partition("\n")
     elements = [_home_image("todo_done", "Connected")] if connected else []
     elements.append({"type": "mrkdwn", "text": detail})
@@ -867,43 +879,62 @@ def _account_row(text: str, button: dict | None, *, connected: bool) -> list[dic
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
         {"type": "context", "elements": elements},
     ]
-    if button:
-        blocks.append({"type": "actions", "elements": [button]})
+    if buttons:
+        blocks.append({"type": "actions", "elements": buttons})
     return blocks
 
 
 def _posthog_account_text(account_state: AccountState) -> str:
     if account_state.linked_email:
-        return f"*PostHog*\nConnected as {escape_slack_mrkdwn(account_state.linked_email)}"
+        text = f"*PostHog*\nConnected as {escape_slack_mrkdwn(account_state.linked_email)}"
+        if account_state.relink_url:
+            text += ". This link is missing permissions added since you connected. Link again to get them."
+        return text
     return "*PostHog*\nNot connected. Link your Slack identity so @PostHog knows it's you without matching on email."
 
 
-def _posthog_account_button(account_state: AccountState) -> dict | None:
+def _posthog_account_buttons(account_state: AccountState) -> list[dict]:
     if account_state.linked_email:
-        return {
-            "type": "button",
-            "action_id": ACTION_UNLINK_ACCOUNT,
-            "text": {"type": "plain_text", "text": "Disconnect", "emoji": True},
-            "confirm": {
-                "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        "@PostHog will fall back to matching your Slack email against PostHog users until you link "
-                        "again. PostHog tasks also lose the Slack access that came with the link."
-                    ),
+        buttons = [_relink_button(account_state.relink_url)] if account_state.relink_url else []
+        return [
+            *buttons,
+            {
+                "type": "button",
+                "action_id": ACTION_UNLINK_ACCOUNT,
+                "text": {"type": "plain_text", "text": "Disconnect", "emoji": True},
+                "confirm": {
+                    "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            "@PostHog will fall back to matching your Slack email against PostHog users until you link "
+                            "again. PostHog tasks also lose the Slack access that came with the link."
+                        ),
+                    },
+                    "confirm": {"type": "plain_text", "text": "Disconnect"},
+                    "deny": {"type": "plain_text", "text": "Cancel"},
                 },
-                "confirm": {"type": "plain_text", "text": "Disconnect"},
-                "deny": {"type": "plain_text", "text": "Cancel"},
             },
-        }
+        ]
     if not account_state.link_url:
-        return None
+        return []
+    return [
+        {
+            "type": "button",
+            "action_id": ACTION_CONNECT_ACCOUNT,
+            "url": account_state.link_url,
+            "text": {"type": "plain_text", "text": "Connect to PostHog", "emoji": True},
+            "style": "primary",
+        }
+    ]
+
+
+def _relink_button(url: str) -> dict:
     return {
         "type": "button",
         "action_id": ACTION_CONNECT_ACCOUNT,
-        "url": account_state.link_url,
-        "text": {"type": "plain_text", "text": "Connect to PostHog", "emoji": True},
+        "url": url,
+        "text": {"type": "plain_text", "text": "Link again"},
         "style": "primary",
     }
 
@@ -1015,6 +1046,18 @@ def _feature_tips_section_blocks(enabled: bool) -> list[dict]:
 
 
 def _daily_focus_section_blocks(state: DailyFocusHomeState) -> list[dict]:
+    if state.relink_url:
+        return [
+            _home_heading("Daily work focus", "calendar-clock"),
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Your linked account can't read your messages. Link again to turn on the daily work focus.",
+                },
+            },
+            {"type": "actions", "elements": [_relink_button(state.relink_url)]},
+        ]
     option = {
         "text": {"type": "mrkdwn", "text": "*Send me a daily work focus*"},
         "description": {"type": "mrkdwn", "text": "Every workday at the time you pick."},
@@ -2594,10 +2637,21 @@ def _resolve_account_state(integration: WorkspaceIntegration, slack_user_id: str
 
     linked_user = linked_posthog_user(integration, slack_user_id)
     if linked_user is not None:
-        return AccountState(enabled=True, linked_email=linked_user.email)
+        token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
+        needs_relink = (
+            token is not None
+            and "search:read.public" not in token.scopes
+            and is_slack_app_link_search_scopes_enabled(integration, linked_user.distinct_id)
+        )
+        relink_url = _invite_url(integration, slack_user_id) if needs_relink else None
+        return AccountState(enabled=True, linked_email=linked_user.email, relink_url=relink_url)
+    return AccountState(enabled=True, linked_email=None, link_url=_invite_url(integration, slack_user_id))
 
+
+def _invite_url(integration: WorkspaceIntegration, slack_user_id: str) -> str | None:
+    slack_team_id = integration.integration_id
     try:
-        link_url = build_invite_url(
+        return build_invite_url(
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
             posthog_team_id=integration.team_id,
@@ -2610,8 +2664,7 @@ def _resolve_account_state(integration: WorkspaceIntegration, slack_user_id: str
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
-        link_url = None
-    return AccountState(enabled=True, linked_email=None, link_url=link_url)
+        return None
 
 
 @dataclass(frozen=True)
@@ -2620,14 +2673,21 @@ class DailyFocusHomeState:
     at: time
     # Empty until the person's Slack profile is cached with a timezone.
     zone: str
+    # Set when the controls are replaced by a prompt to link again, because the link cannot read messages.
+    relink_url: str | None = None
 
 
 def _resolve_daily_focus_state(integration: WorkspaceIntegration, slack_user_id: str) -> DailyFocusHomeState | None:
     """None when the daily work focus cannot run for the person. Reads the cached timezone, so the Home render makes
     no Slack call."""
-    if not can_run_daily_focus(integration, slack_user_id):
+    access = daily_focus_access(integration, slack_user_id)
+    if access is DailyFocusAccess.NONE:
         return None
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
+    if access is DailyFocusAccess.RELINK:
+        return DailyFocusHomeState(
+            enabled=False, at=daily.at, zone="", relink_url=_invite_url(integration, slack_user_id)
+        )
     zone = cached_zone(integration.id, slack_user_id)
     return DailyFocusHomeState(enabled=bool(daily.enabled), at=daily.at, zone=zone.key if zone else "")
 

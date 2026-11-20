@@ -121,7 +121,7 @@ const EmptyTab = ({ senders }: { senders: Record<string, unknown>[] }): JSX.Elem
 
 const emptyStateParameters = {
     featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE],
-    testOptions: { waitForSelector: '[data-attr="send-from-code-snippet"]', snapshotBrowsers: [] },
+    testOptions: { waitForSelector: '[data-attr="send-from-code-copy-agent-prompt"]', snapshotBrowsers: [] },
 }
 
 export const EmptyWithoutDomain: StoryFn = () => <EmptyTab senders={[]} />

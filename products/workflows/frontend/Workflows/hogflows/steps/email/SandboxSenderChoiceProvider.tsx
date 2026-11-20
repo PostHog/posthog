@@ -48,7 +48,7 @@ export function SandboxSenderChoiceProvider({
             <LemonModal
                 isOpen={!!pendingSwitch}
                 onClose={cancelSwitch}
-                title="Switch to the sandbox sender?"
+                title="Switch to the PostHog test sender?"
                 footer={
                     <>
                         <LemonButton type="secondary" onClick={cancelSwitch}>
@@ -64,7 +64,7 @@ export function SandboxSenderChoiceProvider({
                     </>
                 }
             >
-                <p>The sandbox sender doesn't support these settings, so this step loses them:</p>
+                <p>The PostHog test sender doesn't support these settings, so this step loses them:</p>
                 <ul className="list-disc pl-6">
                     {pendingSwitch?.droppedSettings.map((setting) => (
                         <li key={setting}>{DROPPED_SETTING_LABELS[setting]}</li>

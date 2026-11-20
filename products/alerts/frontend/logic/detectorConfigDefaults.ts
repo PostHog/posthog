@@ -1,4 +1,9 @@
-import { AlertCalculationInterval, SingleDetectorConfig, ZScoreDetectorConfig } from '~/queries/schema/schema-general'
+import {
+    AlertCalculationInterval,
+    LLMDetectorModel,
+    SingleDetectorConfig,
+    ZScoreDetectorConfig,
+} from '~/queries/schema/schema-general'
 
 export const DEFAULT_ANOMALY_DETECTION_THRESHOLD = 0.95
 
@@ -27,6 +32,14 @@ export function getDefaultZScoreDetectorConfig(window: number): ZScoreDetectorCo
         window,
         preprocessing: { diffs_n: 1 },
     }
+}
+
+/** The backend uses this model when an AI detector config names none. */
+export const DEFAULT_LLM_DETECTOR_MODEL: LLMDetectorModel = 'claude-haiku-5-5'
+
+export const LLM_DETECTOR_MODEL_LABELS: Record<LLMDetectorModel, string> = {
+    'claude-haiku-5-5': 'Claude Haiku 5.5',
+    'gpt-6-luna': 'GPT-6 Luna',
 }
 
 export function getDefaultLLMDetectorConfig(): SingleDetectorConfig {

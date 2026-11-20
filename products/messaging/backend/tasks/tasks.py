@@ -5,6 +5,7 @@ from celery import shared_task
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
+from products.messaging.backend.provider_imports.runs import close_stale_runs
 from products.messaging.backend.services.code_email_source import RETRIED_OUTCOMES, detect_code_email_source
 from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
 
@@ -35,3 +36,9 @@ def detect_code_email_source_task(team_id: int, key_id: str, attempt: int = 1) -
     detection = detect_code_email_source(team_id, UUID(key_id), attempt=attempt)
     if detection is not None and attempt == 1 and detection.outcome in RETRIED_OUTCOMES:
         detect_code_email_source_task.apply_async(args=(team_id, key_id, 2), countdown=SOURCE_DETECTION_RETRY_SECONDS)
+
+
+@shared_task(ignore_result=True, name="products.messaging.backend.tasks.close_stale_provider_import_runs")
+def close_stale_provider_import_runs() -> None:
+    """End import runs whose workflow is gone, so a vendor key never outlives its run."""
+    close_stale_runs()

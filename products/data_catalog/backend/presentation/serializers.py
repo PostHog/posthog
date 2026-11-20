@@ -737,6 +737,12 @@ class MetricUsageSerializer(serializers.Serializer):
     )
 
 
+class MetricAvailabilitySerializer(serializers.Serializer):
+    has_metrics = serializers.BooleanField(
+        help_text="Whether the project has any live metric, counted before per-table access checks."
+    )
+
+
 class PendingReviewCountsSerializer(serializers.Serializer):
     metrics = serializers.IntegerField(help_text="Proposed metrics you can see that wait for approval.")
     relationships = serializers.IntegerField(help_text="Proposed joins that wait to be accepted or rejected.")

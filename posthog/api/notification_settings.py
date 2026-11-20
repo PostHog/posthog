@@ -6,7 +6,7 @@ from rest_framework import serializers
 
 from posthog.models import User
 from posthog.models.organization_notification_lock import GovernedSetting, notification_locks_for_users
-from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
+from posthog.models.user import Notifications
 
 from products.notifications.backend.facade.api import NotificationType
 
@@ -66,10 +66,7 @@ def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
 
 
 def validate_notification_settings(instance: User, notification_settings: Notifications) -> Notifications:
-    current_settings = {
-        **NOTIFICATION_DEFAULTS,
-        **(instance.partial_notification_settings or {}),
-    }
+    current_settings: dict[str, Any] = dict(instance.notification_settings)
 
     _reject_locked_notification_settings(instance, notification_settings, current_settings)
 
@@ -154,5 +151,11 @@ def validate_notification_settings(instance: User, notification_settings: Notifi
                     code="invalid_input",
                 )
             current_settings[key] = value
+
+    # Older mobile clients expose one switch for both chat and loop notifications.
+    if "mobile_push_tasks_enabled" in notification_settings:
+        for feature_key in ("mobile_push_chat_enabled", "mobile_push_loops_enabled"):
+            if feature_key not in notification_settings:
+                current_settings[feature_key] = notification_settings["mobile_push_tasks_enabled"]
 
     return cast(Notifications, current_settings)
