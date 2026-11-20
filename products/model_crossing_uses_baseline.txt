@@ -245,7 +245,6 @@ django.JsonResponse products.tasks.backend.facade.agent_proxy.agent_proxy_callba
 django.Model products.access_control.backend.facade.object_names.DisplayModel.__init__ facade-accepts(model) 1
 django.Model products.access_control.backend.facade.object_names.model_has_field facade-accepts(model) 1
 django.Model products.access_control.backend.facade.object_names.resources_with_object_access_controls facade-returns 1
-django.Model products.access_control.backend.facade.resolution_preview.object_models facade-returns 1
 django.Model products.access_control.backend.facade.subject_access_control.SubjectAccessControl.inherited_access_for_object facade-accepts(obj) 1
 django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.access_level_for_object facade-accepts(obj) 1
 django.Model products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object facade-accepts(obj) 1

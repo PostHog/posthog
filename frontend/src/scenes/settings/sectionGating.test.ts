@@ -4,22 +4,22 @@ import { findUnavailableSection } from './sectionGating'
 
 const section = (id: SettingSectionId, overrides: Partial<SettingSection> = {}): SettingSection => ({
     id,
-    title: 'Access resolution preview',
+    title: 'OAuth applications',
     level: 'organization',
     settings: [],
     ...overrides,
 })
 
 describe('findUnavailableSection', () => {
-    const gatedSection = section('organization-access-resolution', {
-        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
-        unavailableFallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
+    const gatedSection = section('organization-oauth-apps', {
+        flag: 'AUDIT_LOGS_ACCESS',
+        unavailableFallback: { sectionId: 'organization-details', label: 'Go to organization settings' },
     })
 
     it('explains a section the feature flag hides', () => {
         expect(
             findUnavailableSection({
-                sectionId: 'organization-access-resolution',
+                sectionId: 'organization-oauth-apps',
                 visibleSections: [],
                 allSections: [gatedSection],
                 gatesResolved: true,
@@ -27,17 +27,17 @@ describe('findUnavailableSection', () => {
                 isAdminOrOwner: true,
             })
         ).toEqual({
-            id: 'organization-access-resolution',
-            title: 'Access resolution preview',
+            id: 'organization-oauth-apps',
+            title: 'OAuth applications',
             reason: 'not-enabled',
-            fallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
+            fallback: { sectionId: 'organization-details', label: 'Go to organization settings' },
         })
     })
 
     it('explains a section only admins can open', () => {
         expect(
             findUnavailableSection({
-                sectionId: 'organization-access-resolution',
+                sectionId: 'organization-oauth-apps',
                 visibleSections: [],
                 allSections: [gatedSection],
                 gatesResolved: true,
@@ -50,7 +50,7 @@ describe('findUnavailableSection', () => {
     it('waits for the flags and the membership level before it calls a section admin-only', () => {
         expect(
             findUnavailableSection({
-                sectionId: 'organization-access-resolution',
+                sectionId: 'organization-oauth-apps',
                 visibleSections: [],
                 allSections: [gatedSection],
                 gatesResolved: false,
@@ -61,7 +61,7 @@ describe('findUnavailableSection', () => {
     })
 
     it.each([
-        ['the section is visible', 'organization-access-resolution' as SettingSectionId, [gatedSection]],
+        ['the section is visible', 'organization-oauth-apps' as SettingSectionId, [gatedSection]],
         ['the section does not exist', 'organization-security' as SettingSectionId, []],
         ['no section is requested', null, []],
     ])('returns nothing when %s', (_name, sectionId, visibleSections) => {
@@ -82,7 +82,7 @@ describe('findUnavailableSection', () => {
             findUnavailableSection({
                 sectionId: 'project-replay',
                 visibleSections: [],
-                allSections: [section('environment-replay', { flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW' })],
+                allSections: [section('environment-replay', { flag: 'AUDIT_LOGS_ACCESS' })],
                 gatesResolved: true,
                 doesMatchFlags: () => false,
                 isAdminOrOwner: true,
