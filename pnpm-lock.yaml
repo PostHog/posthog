@@ -74,8 +74,8 @@ catalogs:
       specifier: ^1.0.0
       version: 1.0.0
     kea-forms:
-      specifier: ^3.2.0
-      version: 3.2.0
+      specifier: ^3.3.0
+      version: 3.3.0
     kea-loaders:
       specifier: ^3.1.1
       version: 3.1.1
@@ -203,7 +203,7 @@ overrides:
   '@tiptap/extension-text-style': 3.20.6
   '@tiptap/extension-underline': 3.20.6
 
-packageExtensionsChecksum: sha256-N2iuOLa9FD59g4kAt/8hcbSPIXi4vCCG6uA2lRXRpiM=
+packageExtensionsChecksum: sha256-wOwi4EVguFmbkkv8D1GDm5bt/OobT/9WaVlbcY3mB8o=
 
 patchedDependencies:
   '@base-ui/react@1.9.0': e0be9f964398f2e05b65153968c757a2869a3c5ddc6c2d3a32bf3140a4a8b34f
@@ -1167,7 +1167,7 @@ importers:
         version: 1.0.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -1515,8 +1515,8 @@ importers:
         specifier: ^16.0.0
         version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
       kea-typegen:
-        specifier: 3.9.0
-        version: 3.9.0(supports-color@10.2.2)
+        specifier: 4.1.0
+        version: 4.1.0(supports-color@10.2.2)
       less:
         specifier: ^4.9.1
         version: 4.9.1(supports-color@10.2.2)
@@ -2493,7 +2493,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -2587,7 +2587,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -2665,7 +2665,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -2726,7 +2726,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -2799,7 +2799,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-router:
         specifier: 'catalog:'
         version: 3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -2886,7 +2886,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -2933,7 +2933,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3015,7 +3015,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3408,7 +3408,7 @@ importers:
         version: 1.0.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3468,7 +3468,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3590,7 +3590,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3654,7 +3654,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3706,7 +3706,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3763,7 +3763,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3832,7 +3832,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -3881,7 +3881,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4021,7 +4021,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4247,7 +4247,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4341,7 +4341,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4432,7 +4432,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4496,7 +4496,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4589,7 +4589,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4631,7 +4631,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4682,7 +4682,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4898,7 +4898,7 @@ importers:
         version: 1.0.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -5099,7 +5099,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -5224,7 +5224,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -5282,7 +5282,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -5381,7 +5381,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -5439,7 +5439,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -5607,7 +5607,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -5819,7 +5819,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -5964,7 +5964,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -6064,7 +6064,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -6247,7 +6247,7 @@ importers:
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-forms:
         specifier: 'catalog:'
-        version: 3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+        version: 3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -10217,6 +10217,111 @@ packages:
 
   '@juggle/resize-observer@3.4.0':
     resolution: {integrity: sha512-dfLbk+PwWvFzSxwk3n5ySL0hfBog779o8h68wK/7/APo/7cgyWp5jcXockbxdk5kFRkbeXWm4Fbi9FrdN381sA==}
+
+  '@keajs/kea-typegen-aix-ppc64@4.1.0':
+    resolution: {integrity: sha512-KCEw1vp6XucBArGxlsg8OPNbBrlKb1UkdkZ8VHcAlAM369idh29NxHjaWkGL96qL7iZE7rb8IlMD5tmCQRSI2A==}
+    cpu: [ppc64]
+    os: [aix]
+
+  '@keajs/kea-typegen-android-arm64@4.1.0':
+    resolution: {integrity: sha512-/Md8ksGgx53tmYazwhnB4IBckKivzytAU4cSlmgG+aFzKUUPe8fBMlyRJ0ovMrMyKkLDuUG1NL5fWAqD9o0k7g==}
+    cpu: [arm64]
+    os: [android]
+
+  '@keajs/kea-typegen-darwin-arm64@4.1.0':
+    resolution: {integrity: sha512-7pxrKsNqjO6CxPTu6qkrLA25AjJHrYTNs5EqSZaL0Z6JXRIr/DokU7MqkEJi6tOiao2TS/OMoG2vEBszWpqMDw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@keajs/kea-typegen-darwin-x64@4.1.0':
+    resolution: {integrity: sha512-NK06CYtr3V66SeQ//feEeCGxXo8cYSVzk0HDMceUX1I1ho1+CsDEIuvyrG91XqHZ867Q8qqGbEyjOYpYIE/Vow==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@keajs/kea-typegen-freebsd-arm64@4.1.0':
+    resolution: {integrity: sha512-E/glkleHlaZThIpEATVWjM4aAhH8DprWBGn7iVGHOu+TLZvlkgpn1naVACWsy9+mSgt2y4DYDj8GtlCuUZkmFg==}
+    cpu: [arm64]
+    os: [freebsd]
+
+  '@keajs/kea-typegen-freebsd-x64@4.1.0':
+    resolution: {integrity: sha512-JQ+38JPdxBwofwPiC73p1mt7oGsk447XA28vjWArB51KD29abr0Xwp91sPD6zzGNEasPXYVS/akyLP1H67CWmg==}
+    cpu: [x64]
+    os: [freebsd]
+
+  '@keajs/kea-typegen-linux-arm64@4.1.0':
+    resolution: {integrity: sha512-px5ZnOQwaWp2tvpyMy+ONWM+QZHuh2spmORSbQK55ZSOkHdEB0+I31cTe0uoKRFmvYqDYDKsAnyaYZbY0hEOcQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@keajs/kea-typegen-linux-arm@4.1.0':
+    resolution: {integrity: sha512-t36cc7LqeVkHHyyozDetRVrwiUv4axqFOSl2vk1ohYZWmvye7l/Py5JyUoA2l7sJFDIXiUgKNwh7oIHDXB08sA==}
+    cpu: [arm]
+    os: [linux]
+
+  '@keajs/kea-typegen-linux-loong64@4.1.0':
+    resolution: {integrity: sha512-eti6xtEFoYfb1ppWnEjFyhJ+B4qgxGJVHDZ1XG+58VfuGWGaxaHYDhCi505OBc7BzAhCVs6CTRoNXZVXD/APiQ==}
+    cpu: [loong64]
+    os: [linux]
+
+  '@keajs/kea-typegen-linux-mips64el@4.1.0':
+    resolution: {integrity: sha512-AjjNSM51Z8+6MWJ/Prn4z0AM9ec/3zq3wlWc3457VRYURzdTdaTuX7fWMiwupU7BzRzOawR8MXzc8VAtNjrB/A==}
+    cpu: [mips64el]
+    os: [linux]
+
+  '@keajs/kea-typegen-linux-ppc64@4.1.0':
+    resolution: {integrity: sha512-FIQbRrYiDVjeihvguLZYBcJ0x7uiD3WCtffoeI2PM40vK8HVbaN4xhARf4VuKv8fhhDm1fX/nHuxD5WLuxNfMA==}
+    cpu: [ppc64]
+    os: [linux]
+
+  '@keajs/kea-typegen-linux-riscv64@4.1.0':
+    resolution: {integrity: sha512-r2Z9GulDA0CaMYt16eCDeQA6GfKaRjO2HIyf1Na/11v7+aUdiGwIxFKbGELRJwPZBsWvb8a33okGEcCGRh1laQ==}
+    cpu: [riscv64]
+    os: [linux]
+
+  '@keajs/kea-typegen-linux-s390x@4.1.0':
+    resolution: {integrity: sha512-SHjozlVlhOjoX6O4trGKxtupZ+ySGmIEGTYumwZJwrOZiBQlYISbFF8nE1iTBh4mxRm1r1U62lkBm83mNMCrWA==}
+    cpu: [s390x]
+    os: [linux]
+
+  '@keajs/kea-typegen-linux-x64@4.1.0':
+    resolution: {integrity: sha512-pWIN9/GfMpLZvgvWckLzqIcnpTjwlm7pP2UfpVlaMlEKgDetiyUUbETmlB7AhOmUsQwQhUZDRPODFyRecc+MTA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@keajs/kea-typegen-netbsd-arm64@4.1.0':
+    resolution: {integrity: sha512-fAS9/9txRbvL2ZyW1vryKCS/rW0Q4QHL8IipZP/RK3UkK1AtQYWzR4BsXh4Fd1ggyNUf2H6HNpl92fcJ3X4xJA==}
+    cpu: [arm64]
+    os: [netbsd]
+
+  '@keajs/kea-typegen-netbsd-x64@4.1.0':
+    resolution: {integrity: sha512-2h1yI/YTx0jvgFwdryzZ+br7UAcb6S/abi/sNvk1A58DkiL83MJHZOKZe+2KIOSK/07cJfY1NntDPn4YOpcoHQ==}
+    cpu: [x64]
+    os: [netbsd]
+
+  '@keajs/kea-typegen-openbsd-arm64@4.1.0':
+    resolution: {integrity: sha512-T/Qoi4ZCZj3C2+nmBag/Dk9gX/ml3Pdmmk8wcNXFqYVZrYTqY12jtqBYGESL4y+DVbN4dUkafl0tjVAovlA7/w==}
+    cpu: [arm64]
+    os: [openbsd]
+
+  '@keajs/kea-typegen-openbsd-x64@4.1.0':
+    resolution: {integrity: sha512-S+tzC+LHIRFUzWx/dulM+U/IE/A4Il/jYUwHxc/VYsmUChsqHeSCN4zJHb8vQAiveSZQhs97e/6BHkR7d/l5mA==}
+    cpu: [x64]
+    os: [openbsd]
+
+  '@keajs/kea-typegen-sunos-x64@4.1.0':
+    resolution: {integrity: sha512-o97cqV6ow+L5qjjIGjc7fN2CN2TKZ8m+/QwxPPXf9z6uVjNOMOWMhDCpiyWtqUB0fF/oClYyLtlfsbimgQHSEA==}
+    cpu: [x64]
+    os: [sunos]
+
+  '@keajs/kea-typegen-win32-arm64@4.1.0':
+    resolution: {integrity: sha512-MX+I5X9nzQd5GCNwMUGw8AkWdTaoN80UvpRYpmGIOw9+SkKNlHnnaQpoRivB6sdOL7QPP4UmfAr0tup5YD6xoQ==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@keajs/kea-typegen-win32-x64@4.1.0':
+    resolution: {integrity: sha512-Hp2e7K6sjJJ6f+xmfP7WiWaP99DjsTMb3tNWPFnLggZyFskv2xEd+XLn1dn7fVWsL/g0eUDygfJnJrUavlSeSw==}
+    cpu: [x64]
+    os: [win32]
 
   '@kwsites/file-exists@1.1.1':
     resolution: {integrity: sha512-m9/5YGR18lIwxSFDwfE3oA7bWuq9kdau6ugN4H2rJeyhFQZcG9AgSHkQtSD15a8WvTgfz9aikZMrKPHvbpqFiw==}
@@ -19910,8 +20015,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea-forms@3.2.0:
-    resolution: {integrity: sha512-R/ECGx6FxOZ2TEJv2GcFNLcQJePUK5Qd4Km81rN/7lBHd2hG4CAJglODVpcolWZ0RtcLcvMhHeTg/iqNz5pynw==}
+  kea-forms@3.3.0:
+    resolution: {integrity: sha512-LJhQTsE/UBgQwQDyQwq7fp4V6OTdVapEznwTAfffRgHZh6Xz9DdfNMp8MpetVn/zDBmCymAa8q2h4aLnJlAixA==}
     peerDependencies:
       kea: '>= 3.0.1'
 
@@ -19940,8 +20045,8 @@ packages:
     peerDependencies:
       kea: '>= 3'
 
-  kea-typegen@3.9.0:
-    resolution: {integrity: sha512-4JawOzXLq+n0C2nMkXVeDyfd6ydxXJM+BrrpWllf7O3ZNicia5rH8FQvH//iS4lV5S+mcETQMZoP7JuIAsTF5g==}
+  kea-typegen@4.1.0:
+    resolution: {integrity: sha512-F+b3V2AtGxl9EFPW27wKxQRwCgFWGYwQS4RtKDqPaG4TunefnOeK8A4eVihqhwZXhN0LV95kqiX0Za6983PH9Q==}
     hasBin: true
 
   kea-waitfor@0.2.1:
@@ -30128,6 +30233,69 @@ snapshots:
   '@jspm/core@2.1.0': {}
 
   '@juggle/resize-observer@3.4.0': {}
+
+  '@keajs/kea-typegen-aix-ppc64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-android-arm64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-darwin-arm64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-darwin-x64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-freebsd-arm64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-freebsd-x64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-linux-arm64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-linux-arm@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-linux-loong64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-linux-mips64el@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-linux-ppc64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-linux-riscv64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-linux-s390x@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-linux-x64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-netbsd-arm64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-netbsd-x64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-openbsd-arm64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-openbsd-x64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-sunos-x64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-win32-arm64@4.1.0':
+    optional: true
+
+  '@keajs/kea-typegen-win32-x64@4.1.0':
+    optional: true
 
   '@kwsites/file-exists@1.1.1(supports-color@10.2.2)':
     dependencies:
@@ -42035,7 +42203,7 @@ snapshots:
     dependencies:
       kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
 
-  kea-forms@3.2.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
+  kea-forms@3.3.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)):
     dependencies:
       kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       typescript: 5.9.3
@@ -42062,7 +42230,7 @@ snapshots:
       kea: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
       kea-waitfor: 0.2.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
 
-  kea-typegen@3.9.0(supports-color@10.2.2):
+  kea-typegen@4.1.0(supports-color@10.2.2):
     dependencies:
       '@babel/core': 7.29.7(supports-color@10.2.2)
       '@babel/preset-env': 7.29.7(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2)
@@ -42073,6 +42241,28 @@ snapshots:
       typescript: 5.9.3
       typescript-native: typescript@7.1.0-beta
       yargs: 16.2.0
+    optionalDependencies:
+      '@keajs/kea-typegen-aix-ppc64': 4.1.0
+      '@keajs/kea-typegen-android-arm64': 4.1.0
+      '@keajs/kea-typegen-darwin-arm64': 4.1.0
+      '@keajs/kea-typegen-darwin-x64': 4.1.0
+      '@keajs/kea-typegen-freebsd-arm64': 4.1.0
+      '@keajs/kea-typegen-freebsd-x64': 4.1.0
+      '@keajs/kea-typegen-linux-arm': 4.1.0
+      '@keajs/kea-typegen-linux-arm64': 4.1.0
+      '@keajs/kea-typegen-linux-loong64': 4.1.0
+      '@keajs/kea-typegen-linux-mips64el': 4.1.0
+      '@keajs/kea-typegen-linux-ppc64': 4.1.0
+      '@keajs/kea-typegen-linux-riscv64': 4.1.0
+      '@keajs/kea-typegen-linux-s390x': 4.1.0
+      '@keajs/kea-typegen-linux-x64': 4.1.0
+      '@keajs/kea-typegen-netbsd-arm64': 4.1.0
+      '@keajs/kea-typegen-netbsd-x64': 4.1.0
+      '@keajs/kea-typegen-openbsd-arm64': 4.1.0
+      '@keajs/kea-typegen-openbsd-x64': 4.1.0
+      '@keajs/kea-typegen-sunos-x64': 4.1.0
+      '@keajs/kea-typegen-win32-arm64': 4.1.0
+      '@keajs/kea-typegen-win32-x64': 4.1.0
     transitivePeerDependencies:
       - supports-color
 
