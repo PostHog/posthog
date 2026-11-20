@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
-import { Tabs, TabsContent } from '@posthog/quill'
+import { Tabs, TabsContent, Text } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -15,7 +15,7 @@ import { QuillReportMeasureStage } from './QuillReportMeasureStage'
 import { QuillReportPrimaryAction } from './QuillReportPrimaryAction'
 import { ReportExecuteStage } from './stages/ReportExecuteStage'
 import { ReportSpecStage } from './stages/ReportSpecStage'
-import { REPORT_STAGES, ReportStage, currentReportStage } from './stages/reportStages'
+import { REPORT_STAGE_QUESTION, ReportStage, availableReportStages, currentReportStage } from './stages/reportStages'
 import { ReportStageTabs } from './stages/ReportStageTabs'
 
 export interface QuillReportStageSlots {
@@ -27,7 +27,7 @@ export interface QuillReportStageSlots {
     executeNote?: ReactNode
 }
 
-/** The three stages of a report behind one switch. The report opens on the stage its work has reached. */
+/** The stages that apply to a report, behind one switch. The report opens on the stage its work has reached. */
 export function QuillReportStages({
     report,
     specDetails,
@@ -41,9 +41,8 @@ export function QuillReportStages({
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const { location, searchParams, hashParams } = useValues(router)
     // The stage in view is in the URL, so a shared link opens the same stage.
-    const stage: ReportStage = REPORT_STAGES.includes(searchParams.stage)
-        ? searchParams.stage
-        : currentReportStage(report)
+    const stages = availableReportStages(report)
+    const stage: ReportStage = stages.includes(searchParams.stage) ? searchParams.stage : currentReportStage(report)
     const stagedReport = metricsEnabled ? report : { ...report, metrics: undefined }
     const artefacts = reportArtefacts ?? []
 
@@ -61,13 +60,18 @@ export function QuillReportStages({
             }}
             className="gap-6"
         >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <ReportStageTabs report={report} />
-                <div className="flex flex-wrap items-center gap-1">
-                    {/* A report in the Measure stage waits on its checks, so it has no primary action. */}
-                    {currentReportStage(report) !== 'measure' && <QuillReportPrimaryAction report={report} />}
-                    <QuillReportAskButton reportId={report.id} />
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    {stages.length > 1 && <ReportStageTabs report={report} stages={stages} />}
+                    <div className="flex flex-wrap items-center gap-1">
+                        {/* A report in the Measure stage waits on its checks, so it has no primary action. */}
+                        {currentReportStage(report) !== 'measure' && <QuillReportPrimaryAction report={report} />}
+                        <QuillReportAskButton reportId={report.id} />
+                    </div>
                 </div>
+                <Text size="sm" variant="muted" render={<p className="m-0" />} data-attr="inbox-report-stage-question">
+                    {REPORT_STAGE_QUESTION[stage]}
+                </Text>
             </div>
             <QuillReportAskComposer reportId={report.id} />
             <TabsContent value="spec">
@@ -75,21 +79,25 @@ export function QuillReportStages({
                     {specDetails}
                 </ReportSpecStage>
             </TabsContent>
-            <TabsContent value="execute">
-                <ReportExecuteStage
-                    report={report}
-                    artefacts={artefacts}
-                    selectedPullRequest={selectedPullRequest}
-                    note={executeNote}
-                >
-                    {executeDetails}
-                </ReportExecuteStage>
-            </TabsContent>
-            <TabsContent value="measure">
-                <QuillReportMeasureStage report={stagedReport} checks={reportChecks ?? []}>
-                    {measureDetails}
-                </QuillReportMeasureStage>
-            </TabsContent>
+            {stages.includes('execute') && (
+                <TabsContent value="execute">
+                    <ReportExecuteStage
+                        report={report}
+                        artefacts={artefacts}
+                        selectedPullRequest={selectedPullRequest}
+                        note={executeNote}
+                    >
+                        {executeDetails}
+                    </ReportExecuteStage>
+                </TabsContent>
+            )}
+            {stages.includes('measure') && (
+                <TabsContent value="measure">
+                    <QuillReportMeasureStage report={stagedReport} checks={reportChecks ?? []}>
+                        {measureDetails}
+                    </QuillReportMeasureStage>
+                </TabsContent>
+            )}
         </Tabs>
     )
 }
