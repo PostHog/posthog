@@ -6,7 +6,7 @@ import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
 import type { ResidentBacklog, ResidentRows } from '../backlog/backlog'
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
-import type { FollowUpAnswer, InvariantResult, JournalEntry } from './judge'
+import type { FollowUpAnswer, IntakeAnswer, InvariantResult, JournalEntry } from './judge'
 
 export type JudgeEvidence = {
     journal: readonly JournalEntry[]
@@ -21,6 +21,28 @@ export type InvariantDefinition = Definition & {
 }
 
 const EVIDENCE_UNIT_IDS = 5
+
+export function crossedByOf(
+    journal: readonly JournalEntry[],
+    violations: readonly { unitId: string; count?: number }[],
+    allowed: number
+): string | undefined {
+    const offers = new Map(journal.map(({ unitId, offeredAt, step }) => [unitId, { offeredAt, step: step ?? 0 }]))
+    const offerOf = (unitId: string): { offeredAt: number; step: number } =>
+        offers.get(unitId) ?? { offeredAt: Infinity, step: Infinity }
+    const earlier = (a: string, b: string): number =>
+        offerOf(a).offeredAt - offerOf(b).offeredAt || offerOf(a).step - offerOf(b).step
+    let seen = 0
+    for (const { unitId, count = 1 } of [...violations].sort((a, b) => earlier(a.unitId, b.unitId))) {
+        seen += count
+        if (seen > allowed) {
+            return unitId
+        }
+    }
+    return undefined
+}
+
+const crossing = (crossedBy: string | undefined): { crossedBy?: string } => (crossedBy ? { crossedBy } : {})
 
 export const deliveryKey = (unitId: string, actionId: string): string => `${unitId}/${actionId}`
 
@@ -82,6 +104,7 @@ export const atLeastOnce: InvariantDefinition = {
                         : `the last of ${first.records.length} attempts was answered ${first.records.at(-1)!.status}`
                 }`,
             unitIds: [...new Set(missed.map(({ unitId }) => unitId))].slice(0, EVIDENCE_UNIT_IDS),
+            ...crossing(crossedByOf(journal, missed, 0)),
         }
     },
 }
@@ -95,7 +118,7 @@ const plural = (count: number, noun: string): string => `${count} ${noun}${count
 export const duplicateSends: InvariantDefinition = {
     name: 'duplicate_sends',
     params: z.object({}).strict(),
-    check: ({ truth, janitorResets }, gate) => {
+    check: ({ journal, truth, janitorResets }, gate) => {
         const duplicated = [...recordsByDelivery(truth).values()]
             .map((records) => ({
                 record: records[0],
@@ -112,17 +135,27 @@ export const duplicateSends: InvariantDefinition = {
             violation:
                 first && `${first.record.unitId} ${first.record.actionId}: accepted ${first.extra + 1} times; ${why}`,
             unitIds: firstUnitIds(duplicated.map(({ record }) => record.unitId)),
+            ...crossing(
+                crossedByOf(
+                    journal,
+                    duplicated.map(({ record, extra }) => ({ unitId: record.unitId, count: extra })),
+                    janitorResets + (gate ?? 0)
+                )
+            ),
         }
     },
 }
+
+type Refusal = JournalEntry & { answer: Extract<IntakeAnswer, { accepted: false }> }
+
+export const refusalsOf = (journal: readonly JournalEntry[]): Refusal[] =>
+    journal.flatMap((entry) => (entry.answer.accepted || entry.kind === 'event' ? [] : [entry as Refusal]))
 
 export const refusedAtIntake: InvariantDefinition = {
     name: 'refused_at_intake',
     params: z.object({}).strict(),
     check: ({ journal }, gate) => {
-        const refused = journal.flatMap(({ unitId, kind, answer }) =>
-            answer.accepted || kind === 'event' ? [] : [{ unitId, answer }]
-        )
+        const refused = refusalsOf(journal)
         const [first] = refused
         const reason = (answer: (typeof refused)[number]['answer']): string =>
             'transportError' in answer
@@ -133,6 +166,7 @@ export const refusedAtIntake: InvariantDefinition = {
             observed: refused.length,
             violation: first && `${first.unitId}: ${reason(first.answer)}`,
             unitIds: firstUnitIds(refused.map(({ unitId }) => unitId)),
+            ...crossing(crossedByOf(journal, refused, gate ?? 0)),
         }
     },
 }

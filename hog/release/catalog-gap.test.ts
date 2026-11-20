@@ -159,6 +159,15 @@ describe('catalog gaps', () => {
             {},
         ],
         [
+            'a generated schema a hand-written tool imports through an escaped specifier, below a commented-out import',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, HogFlowsPartialUpdateParams: 'a new flow' }),
+                [HAND_WRITTEN_TOOL]: `// import { WorkflowsGet } from '@/generated/workflows/api'\nimport { HogFlowsPartialUpdateParams } from '@\\u002fgenerated/workflows/api'\n`,
+            },
+            {},
+        ],
+        [
             'a module dropped from the registry spread while its import stays',
             [REGISTRY],
             { [REGISTRY]: registry('actions', 'workflows').replace('\n    ...workflows,', '') },
@@ -217,6 +226,24 @@ describe('catalog gaps', () => {
             {},
         ],
         [
+            'a generated schema a hand-written tool imports with import type',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, HogFlowsPartialUpdateParams: 'a new flow' }),
+                [HAND_WRITTEN_TOOL]: lifecycleTool('HogFlowsPartialUpdateParams').replace('import {', 'import type {'),
+            },
+            {},
+        ],
+        [
+            'a generated schema a hand-written tool imports only as a type binding',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, HogFlowsPartialUpdateParams: 'a new flow' }),
+                [HAND_WRITTEN_TOOL]: lifecycleTool('type HogFlowsPartialUpdateParams'),
+            },
+            {},
+        ],
+        [
             'a registered module whose tools the catalog carries',
             [REGISTRY],
             { [REGISTRY]: registry('actions') },
@@ -244,29 +271,31 @@ describe('catalog gaps', () => {
         expect(result.reasons.map((reason) => reason.file)).toEqual(changed)
     })
 
-    test('counts a schema change a hand-written tool reads through a second specifier for the same file', () => {
-        const odd = '@/generated//workflows/api'
-        const result = findCatalogGaps({
-            changed: [SHARED_SCHEMAS],
-            compiled: {
-                files: new Set([SHARED_SCHEMAS, HAND_WRITTEN_TOOL]),
-                importers: new Map([[SHARED_SCHEMAS, new Set([HAND_WRITTEN_TOOL])]]),
-                specifiers: new Map([
-                    [SHARED_SCHEMAS, new Map([[HAND_WRITTEN_TOOL, ['@/generated/workflows/api', odd]]])],
-                ]),
-            },
-            readBase: (path) => ({ ...MODULES })[path],
-            readHead: (path) =>
-                ({
-                    [CATALOG_TOOLS_JSON]: CATALOG,
-                    ...MODULES,
-                    [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, HogFlowsPartialUpdateParams: 'a new flow' }),
-                    [HAND_WRITTEN_TOOL]: `import { WorkflowsGet } from '@/generated/workflows/api'\nimport { HogFlowsPartialUpdateParams } from '${odd}'\n`,
-                })[path],
-        })
+    test.each(['@/generated//workflows/api', '@/generated/./workflows/api'])(
+        'counts a schema change a hand-written tool reads through a second specifier for the same file, %s',
+        (odd) => {
+            const result = findCatalogGaps({
+                changed: [SHARED_SCHEMAS],
+                compiled: {
+                    files: new Set([SHARED_SCHEMAS, HAND_WRITTEN_TOOL]),
+                    importers: new Map([[SHARED_SCHEMAS, new Set([HAND_WRITTEN_TOOL])]]),
+                    specifiers: new Map([
+                        [SHARED_SCHEMAS, new Map([[HAND_WRITTEN_TOOL, ['@/generated/workflows/api', odd]]])],
+                    ]),
+                },
+                readBase: (path) => ({ ...MODULES })[path],
+                readHead: (path) =>
+                    ({
+                        [CATALOG_TOOLS_JSON]: CATALOG,
+                        ...MODULES,
+                        [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, HogFlowsPartialUpdateParams: 'a new flow' }),
+                        [HAND_WRITTEN_TOOL]: `import { WorkflowsGet } from '@/generated/workflows/api'\nimport { HogFlowsPartialUpdateParams } from '${odd}'\n`,
+                    })[path],
+            })
 
-        expect(result.reasons.map((reason) => reason.file)).toEqual([SHARED_SCHEMAS])
-    })
+            expect(result.reasons.map((reason) => reason.file)).toEqual([SHARED_SCHEMAS])
+        }
+    )
 
     test('counts a schema change read by a tool the catalog build drops, though the tool list names it', () => {
         const result = findCatalogGaps({

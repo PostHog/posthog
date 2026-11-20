@@ -103,12 +103,12 @@ export interface snapshotDataLogicActions {
         errorObject?: any
     }
     loadSnapshotSourcesSuccess: (
-        snapshotSources: SessionRecordingSnapshotSource[],
+        snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[],
         payload?: {
             breakpointLength: number | undefined
         }
     ) => {
-        snapshotSources: SessionRecordingSnapshotSource[]
+        snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[]
         payload?: {
             breakpointLength: number | undefined
         }
@@ -117,7 +117,7 @@ export interface snapshotDataLogicActions {
         value: true
     }
     loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]) => {
-        sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+        sources: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
     }
     loadSnapshotsForSourceFailure: (
         error: string,
@@ -129,28 +129,34 @@ export interface snapshotDataLogicActions {
     loadSnapshotsForSourceSuccess: (
         snapshotsForSource:
             | {
-                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  source: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>
                   sources?: undefined
               }
             | {
                   source?: undefined
-                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+                  sources: Pick<
+                      import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                      'blob_key' | 'source'
+                  >[]
               },
         payload?: {
-            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+            sources: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
         }
     ) => {
         snapshotsForSource:
             | {
-                  source: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>
+                  source: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>
                   sources?: undefined
               }
             | {
                   source?: undefined
-                  sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+                  sources: Pick<
+                      import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                      'blob_key' | 'source'
+                  >[]
               }
         payload?: {
-            sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
+            sources: Pick<import('@posthog/replay-shared').SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
         }
     }
     maybeStartPolling: () => {
@@ -175,7 +181,7 @@ export interface snapshotDataLogicActions {
         token: string | null
     }
     setSnapshots: (snapshots: RecordingSnapshot[]) => {
-        snapshots: RecordingSnapshot[]
+        snapshots: import('@posthog/replay-shared').RecordingSnapshot[]
     }
     setTargetTimestamp: (
         timestamp: number | null,
@@ -214,23 +220,15 @@ export interface snapshotDataLogicMeta {
             snapshotsForSourceLoading: boolean,
             storeVersion: number
         ) => boolean
-        snapshotsLoaded: (
-            snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null
-        ) => boolean
+        snapshotsLoaded: (snapshotSources: SessionRecordingSnapshotSource[] | null) => boolean
         isLoadingSnapshots: (
             loadingSources: Pick<
-                import('@posthog/replay-shared').SessionRecordingSnapshotSource,
+                SessionRecordingSnapshotSource,
                 'blob_key' | 'end_timestamp' | 'source' | 'start_timestamp'
             >[]
         ) => boolean
-        allSourcesLoaded: (
-            snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null,
-            storeVersion: number
-        ) => boolean
-        storeVersion: (
-            storeUpdateCount: number,
-            snapshotSources: import('@posthog/replay-shared').SessionRecordingSnapshotSource[] | null
-        ) => number
+        allSourcesLoaded: (snapshotSources: SessionRecordingSnapshotSource[] | null, storeVersion: number) => boolean
+        storeVersion: (storeUpdateCount: number, snapshotSources: SessionRecordingSnapshotSource[] | null) => number
         snapshotStore: (storeVersion: number) => SnapshotStore
         sourceLoadingStates: (storeVersion: number) => SourceLoadingState[]
         recordingDeletedError: (

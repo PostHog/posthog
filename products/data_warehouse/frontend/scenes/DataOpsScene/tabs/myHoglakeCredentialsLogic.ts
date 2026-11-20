@@ -40,7 +40,7 @@ export interface myHoglakeCredentialsLogicValues {
 export interface myHoglakeCredentialsLogicActions {
     createCredential: (params: { name: string; scope: HoglakeCredentialScope; teamIds: number[] }) => {
         name: string
-        scope: HoglakeCredentialScopeEnumApi
+        scope: HoglakeCredentialScope
         teamIds: number[]
     }
     loadMyHoglakeCredentials: () => any

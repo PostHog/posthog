@@ -21,9 +21,11 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { ApiConfig } from 'lib/api'
 import { serializeNode } from 'lib/components/MarkdownNotebook/markdown'
+import type { JSONContent } from 'lib/components/RichContentEditor/types'
 import { uuid } from 'lib/utils/dom'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
+import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import { notebookRunLogic } from 'scenes/notebooks/Notebook/notebookRunLogic'
 import type { NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 import { urls } from 'scenes/urls'
@@ -95,12 +97,12 @@ export interface notebookAppLogicActions {
     } // notebookNodeStalenessLogic
     nodeRunFinished: (
         nodeId: string,
-        status: import('scenes/notebooks/Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus,
-        content: null | import('lib/components/RichContentEditor/types').JSONContent
+        status: NotebookNodeRunTerminalStatus,
+        content: JSONContent | null
     ) => {
-        content: null | import('lib/components/RichContentEditor/types').JSONContent
+        content: JSONContent | null
         nodeId: string
-        status: import('scenes/notebooks/Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus
+        status: NotebookNodeRunTerminalStatus
     } // notebookNodeStalenessLogic
     runFinished: (run: NotebookRunStatusResponseApi) => {
         run: NotebookRunStatusResponseApi
