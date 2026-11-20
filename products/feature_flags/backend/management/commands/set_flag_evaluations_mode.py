@@ -7,7 +7,7 @@ created after an instant, or every organization, less an optional exclude list.
 The command writes the organizations in chunks and commits each chunk in its own transaction.
 Without --allow-downgrade a write only raises a mode, so a run that fails partway resumes when it
 runs again. --write-changed-ids appends the ids of each committed chunk's changed organizations to
-a file, and a rollback passes that file to --organization-ids-file.
+a file. A rollback passes that file to --organization-ids-file.
 
 On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams that it
 copies to flag_evaluations.
@@ -35,7 +35,7 @@ from products.feature_flags.backend.flag_evaluations_mode import (
     FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
     UnknownIdsError,
-    check_organization_ids_exist,
+    find_unknown_organization_ids,
     select_organization_ids,
     set_organizations_flag_evaluations_mode,
 )
@@ -71,10 +71,6 @@ def _read_ids_file(path: Path) -> list[UUID]:
     except OSError as error:
         raise CommandError(f"Cannot read {path}: {error}") from error
     return ids
-
-
-def _unique(ids: Iterable[UUID]) -> list[UUID]:
-    return list(dict.fromkeys(ids))
 
 
 def _sync(file: TextIO) -> None:
@@ -182,7 +178,7 @@ class Command(BaseCommand):
         exclude_path: Path | None = options["exclude_organization_ids_file"]
         if exclude_path is not None:
             excluded_ids = set(
-                self._known(_unique(_read_ids_file(exclude_path)), skip_unknown=skip_unknown, source=str(exclude_path))
+                self._known(_read_ids_file(exclude_path), skip_unknown=skip_unknown, source=str(exclude_path))
             )
             selected_count = len(organization_ids)
             organization_ids = [
@@ -270,20 +266,18 @@ class Command(BaseCommand):
             return select_organization_ids(created_after=options["created_after"])
         ids_file: Path | None = options["organization_ids_file"]
         if ids_file is None:
-            return self._known(
-                _unique(options["organization_ids"]), skip_unknown=skip_unknown, source="--organization-id"
-            )
-        return self._known(_unique(_read_ids_file(ids_file)), skip_unknown=skip_unknown, source=str(ids_file))
+            return self._known(options["organization_ids"], skip_unknown=skip_unknown, source="--organization-id")
+        return self._known(_read_ids_file(ids_file), skip_unknown=skip_unknown, source=str(ids_file))
 
-    def _known(self, organization_ids: list[UUID], *, skip_unknown: bool, source: str) -> list[UUID]:
-        try:
-            check_organization_ids_exist(organization_ids)
-        except UnknownIdsError as error:
-            if not skip_unknown:
-                raise CommandError(str(error)) from error
-            self.stdout.write(f"Skipping {len(error.missing_ids)} unknown organization id(s) in {source}.")
-            return [organization_id for organization_id in organization_ids if organization_id not in error.missing_ids]
-        return organization_ids
+    def _known(self, organization_ids: Iterable[UUID], *, skip_unknown: bool, source: str) -> list[UUID]:
+        """The given ids, once each and in order, less those that match no organization when skip_unknown is set."""
+        unique_ids = list(dict.fromkeys(organization_ids))
+        if not (missing_ids := find_unknown_organization_ids(unique_ids)):
+            return unique_ids
+        if not skip_unknown:
+            raise CommandError(str(UnknownIdsError("organization", missing_ids)))
+        self.stdout.write(f"Skipping {len(missing_ids)} unknown organization id(s) in {source}.")
+        return [organization_id for organization_id in unique_ids if organization_id not in missing_ids]
 
     def _open_changed_ids_file(self, path: Path | None) -> AbstractContextManager[TextIO | None]:
         if path is None:

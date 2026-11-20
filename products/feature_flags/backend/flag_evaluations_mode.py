@@ -55,7 +55,6 @@ class OrganizationModeChange:
 class UnknownIdsError(Exception):
     def __init__(self, label: str, missing_ids: Collection[object]) -> None:
         super().__init__(f"Unknown {label} id(s): {', '.join(sorted(map(str, missing_ids)))}")
-        self.missing_ids = set(missing_ids)
 
 
 def select_organization_ids(*, created_after: datetime | None = None) -> list[UUID]:
@@ -78,14 +77,13 @@ def get_organizations(organization_ids: Collection[UUID]) -> list[Organization]:
     return organizations
 
 
-def check_organization_ids_exist(organization_ids: Collection[UUID]) -> None:
-    """Raises UnknownIdsError like get_organizations, and loads only ids, in batches, so it stays cheap for a
-    list of hundreds of thousands of ids."""
+def find_unknown_organization_ids(organization_ids: Collection[UUID]) -> set[UUID]:
+    """The ids that match no organization. It loads only ids, in batches, so a list of hundreds of thousands of
+    ids stays cheap."""
     missing_ids: set[UUID] = set()
     for batch in batched(organization_ids, ID_LOOKUP_BATCH_SIZE, strict=False):
         missing_ids |= set(batch) - set(Organization.objects.filter(id__in=batch).values_list("id", flat=True))
-    if missing_ids:
-        raise UnknownIdsError("organization", missing_ids)
+    return missing_ids
 
 
 def get_organizations_of_teams(team_ids: Collection[int]) -> list[Organization]:
@@ -134,7 +132,7 @@ def set_organizations_flag_evaluations_mode(
     table.
 
     The reads and the write take one statement each for the whole list. Only the experiments count
-    runs once per organization, and `count_experiments=False` skips it and reports 0.
+    runs once per organization. `count_experiments=False` skips it and reports 0.
 
     Opens no transaction. A caller that must apply the whole list or none of it wraps the call.
     """
