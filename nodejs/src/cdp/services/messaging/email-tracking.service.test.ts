@@ -283,6 +283,11 @@ describe('EmailTrackingService', () => {
                     `<a href="https://example.com" title="Note setting='one ses:tags="phl:0">Bob's</a>`,
                 ],
                 [
+                    'a non-breaking space inside an unquoted value, before a quote',
+                    `<a href="https://example.com" title=a\u00a0b='c>Bob's</a>`,
+                    `<a href="https://example.com" title=a\u00a0b='c ses:tags="phl:0">Bob's</a>`,
+                ],
+                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',

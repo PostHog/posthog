@@ -36,7 +36,7 @@ import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tr
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 
 const OPENING_TAG =
-    /^<a\b(?:[\s/]+(?![\s/])|[^\s/>][^\s/>=]*(?![^\s/>=])(?:\s*=\s*(?!\s)(?:"[^"]*"|'[^']*'|(?:[^\s>"'][^\s>]*)?(?![^\s>]))|(?!\s*=)))*>/i
+    /^<a\b(?:[\t\n\f\r /]+(?![\t\n\f\r /])|[^\t\n\f\r />][^\t\n\f\r />=]*(?![^\t\n\f\r />=])(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?![\t\n\f\r ])(?:"[^"]*"|'[^']*'|(?:[^\t\n\f\r >"'][^\t\n\f\r >]*)?(?![^\t\n\f\r >]))|(?![\t\n\f\r ]*=)))*>/i
 const OPENING_TAG_PLAIN_CUT = /^<a\b[^>]*>/i
 
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
