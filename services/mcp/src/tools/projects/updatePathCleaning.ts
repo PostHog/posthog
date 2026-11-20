@@ -1,4 +1,3 @@
-import { RE2JS } from 're2js'
 import type { z } from 'zod'
 
 import { wrapError } from '@/lib/errors'
@@ -58,100 +57,10 @@ export function renumber(rules: PathCleaningRule[]): StoredPathCleaningRule[] {
     return rules.map((rule, index) => ({ ...rule, order: index }))
 }
 
-// RE2 copies a `{n}` operand n times, so a short pattern can compile slowly enough to block the event loop.
-const MAX_PROGRAM_SIZE = 1000
-// replaceAll searches again after every match, so preview cost can grow with path length squared.
-const PREVIEW_WORK_BUDGET = 20_000_000
-
-const COUNTED_REPEAT = /\{(\d+)(?:,(\d*))?\}/y
-const GROUP_PREFIX = /\(\?(?:P?<[^>]*>|[a-zA-Z-]*:?)/y
-
-function estimateProgramSize(regex: string): number {
-    const frames = [{ size: 0, last: 0, capturing: false }]
-    let i = 0
-    while (i < regex.length) {
-        const char = regex[i]!
-        COUNTED_REPEAT.lastIndex = i
-        const repeat = COUNTED_REPEAT.exec(regex)
-        if (repeat) {
-            const [text, min, max] = repeat
-            const count = max === undefined ? Number(min) : max === '' ? Number(min) + 1 : Number(max)
-            const frame = frames[frames.length - 1]!
-            frame.size += frame.last * (count - 1)
-            frame.last *= count
-            i += text.length
-            continue
-        }
-        if (char === '(') {
-            GROUP_PREFIX.lastIndex = i
-            const groupPrefix = GROUP_PREFIX.exec(regex)?.[0] ?? '('
-            frames.push({ size: 0, last: 0, capturing: groupPrefix === '(' || groupPrefix.endsWith('>') })
-            i += groupPrefix.length
-            continue
-        }
-        if ('*+?|'.includes(char)) {
-            frames[frames.length - 1]!.size++
-            i++
-            continue
-        }
-        let atom = 1
-        let next = i + 1
-        if (char === ')' && frames.length > 1) {
-            const group = frames.pop()!
-            atom = group.size + (group.capturing ? 2 : 0)
-        } else if (char === '\\' && regex[i + 1] === 'Q') {
-            const end = regex.indexOf('\\E', i)
-            next = end === -1 ? regex.length : end + 2
-            atom = next - i
-        } else if (char === '\\') {
-            next = i + 2
-            if ('xpP'.includes(regex[i + 1] ?? '') && regex[next] === '{') {
-                next = regex.indexOf('}', next) + 1 || regex.length
-            }
-        } else if (char === '[') {
-            next = i + 1
-            if (regex[next] === '^') {
-                next++
-            }
-            if (regex[next] === ']') {
-                next++
-            }
-            while (next < regex.length && regex[next] !== ']') {
-                next += regex[next] === '\\' ? 2 : 1
-            }
-            next++
-        }
-        const frame = frames[frames.length - 1]!
-        frame.size += atom
-        frame.last = atom
-        i = next
-    }
-    return frames.reduce((sum, frame) => sum + frame.size, 0)
-}
-
-function compilePathCleaningRegex(regex: string): RE2JS {
-    if (estimateProgramSize(regex) > MAX_PROGRAM_SIZE) {
-        throw new Error('pattern is too complex')
-    }
-    const compiled = RE2JS.compile(regex)
-    if (compiled.programSize() > MAX_PROGRAM_SIZE) {
-        throw new Error('pattern is too complex')
-    }
-    return compiled
-}
-
-function assertValidRegex(regex: string): void {
-    try {
-        compilePathCleaningRegex(regex)
-    } catch (error) {
-        throw new Error(`Invalid regex "${regex}": ${(error as Error).message}`)
-    }
-}
-
 /**
  * Apply the ordered operations to a copy of the current rules, returning the new list and a
  * human-readable change log. Throws with an actionable message on any invalid operation
- * (unknown target alias, bad regex, non-permutation reorder) so nothing is half-applied.
+ * (unknown or ambiguous target alias, non-permutation reorder) so nothing is half-applied.
  */
 export function applyOperations(
     current: PathCleaningRule[],
@@ -186,13 +95,11 @@ export function applyOperations(
     for (const op of operations) {
         switch (op.action) {
             case 'append': {
-                assertValidRegex(op.regex)
                 rules.push({ alias: op.alias, regex: op.regex })
                 changes.push(`Appended "${op.alias}" (${op.regex}) — runs last`)
                 break
             }
             case 'insert': {
-                assertValidRegex(op.regex)
                 const index = Math.min(op.index, rules.length)
                 rules.splice(index, 0, { alias: op.alias, regex: op.regex })
                 changes.push(`Inserted "${op.alias}" (${op.regex}) at position ${index}`)
@@ -200,9 +107,6 @@ export function applyOperations(
             }
             case 'replace': {
                 const index = resolveSingle(op.target_alias, 'replace')
-                if (op.regex !== undefined) {
-                    assertValidRegex(op.regex)
-                }
                 const previous = rules[index]!
                 const next = { alias: op.alias ?? previous.alias, regex: op.regex ?? previous.regex }
                 rules[index] = next
@@ -254,93 +158,55 @@ export function applyOperations(
     return { rules, changes }
 }
 
-/**
- * Expand an alias against one regex match, so the preview substitutes capture groups the same way
- * the real query does. The alias is re2 replacement syntax: `\0` is the whole match, `\1` to `\9`
- * are capture groups, `\\` is a literal backslash, and everything else is literal.
- *
- * Expanding against the match here, rather than translating to a `$1`-style replacement string,
- * keeps three re2 rules JavaScript would otherwise break: `$` stays literal, `\10` is group 1
- * followed by `0` rather than group 10, and an unfilled group substitutes as empty.
- */
-export function expandAlias(alias: string, groups: (string | undefined)[]): string {
-    let out = ''
-    for (let i = 0; i < alias.length; i++) {
-        const char = alias[i]
-        if (char !== '\\') {
-            out += char
-            continue
-        }
-        const next = alias[i + 1]
-        if (next === '\\') {
-            out += '\\'
-            i++
-        } else if (next !== undefined && next >= '0' && next <= '9') {
-            out += groups[Number(next)] ?? ''
-            i++
-        } else {
-            out += '\\'
-        }
-    }
-    return out
+type PreviewQuery = { query: string; values: Record<string, string | string[]> }
+
+/** Mirrors `apply_path_cleaning`: one `replaceRegexpAll` per rule, in array order, each feeding the next. */
+function cleanedPathExpression(rules: PathCleaningRule[], prefix: string, values: PreviewQuery['values']): string {
+    return rules.reduce((expression, rule, index) => {
+        values[`${prefix}_regex_${index}`] = rule.regex
+        values[`${prefix}_alias_${index}`] = rule.alias
+        return `replaceRegexpAll(${expression}, {${prefix}_regex_${index}}, {${prefix}_alias_${index}})`
+    }, 'path')
 }
 
-type CompiledRule = { alias: string; re: RE2JS }
-
-function compileForPreview(rules: PathCleaningRule[]): CompiledRule[] {
-    return rules.flatMap((rule) => {
-        try {
-            return [{ alias: rule.alias, re: compilePathCleaningRegex(rule.regex) }]
-        } catch {
-            // Stored rules skipped this tool's validation, so a rule RE2 refuses is left out of the preview.
-            return []
-        }
-    })
-}
-
-/** Chain a path through every rule in order, mirroring ClickHouse `replaceRegexpAll` per rule. */
-function applyChain(path: string, rules: CompiledRule[], spend: (work: number) => void): string {
-    let out = path
-    for (const { alias, re } of rules) {
-        const input = out
-        const cost = re.programSize() * (re.groupCount() + 1)
-        spend(input.length * cost)
-        out = re.matcher(input).replaceAll((match: string, ...rest: unknown[]): string => {
-            // Replacer arguments run (match, p1…pN, offset, whole string, named groups?). A group
-            // the pattern didn't fill arrives as undefined, so the first number is the offset and
-            // marks where the capture values stop.
-            const offsetIndex = rest.findIndex((arg) => typeof arg === 'number')
-            const offset = rest[offsetIndex] as number
-            const captures = rest.slice(0, offsetIndex) as (string | undefined)[]
-            const replacement = expandAlias(alias, [match, ...captures])
-            spend((input.length - offset - match.length) * cost + replacement.length)
-            return replacement
-        })
-    }
-    return out
-}
-
-function buildSamplePreview(
+function buildSamplePreviewQuery(
     before: PathCleaningRule[],
     after: PathCleaningRule[],
     samplePaths: string[]
-): SamplePreview[] {
-    const compiledBefore = compileForPreview(before)
-    const compiledAfter = compileForPreview(after)
-    let budget = PREVIEW_WORK_BUDGET
-    const spend = (work: number): void => {
-        budget -= work
-        if (budget < 0) {
-            throw new Error(
-                'The sample preview is too expensive for these rules and paths. Retry with fewer or shorter sample_paths.'
-            )
-        }
+): PreviewQuery {
+    const values: PreviewQuery['values'] = { sample_paths: samplePaths }
+    const beforeExpression = cleanedPathExpression(before, 'before', values)
+    const afterExpression = cleanedPathExpression(after, 'after', values)
+    return {
+        query: `SELECT arrayMap(path -> ${beforeExpression}, {sample_paths}), arrayMap(path -> ${afterExpression}, {sample_paths})`,
+        values,
     }
-    return samplePaths.map((path) => ({
-        path,
-        before: applyChain(path, compiledBefore, spend),
-        after: applyChain(path, compiledAfter, spend),
-    }))
+}
+
+async function buildSamplePreview(
+    context: Context,
+    projectId: string,
+    before: PathCleaningRule[],
+    after: PathCleaningRule[],
+    samplePaths: string[]
+): Promise<SamplePreview[]> {
+    const result = await context.api.insights({ projectId }).query({
+        query: { kind: 'HogQLQuery', ...buildSamplePreviewQuery(before, after, samplePaths) },
+    })
+    if (!result.success) {
+        throw wrapError(
+            `The sample_paths preview failed to run (${result.error.message}). Check that every regex is valid re2, or retry without sample_paths.`,
+            result.error
+        )
+    }
+    const [cleanedBefore, cleanedAfter] = ((result.data.results as unknown[][] | undefined)?.[0] ?? []) as [
+        string[]?,
+        string[]?,
+    ]
+    if (cleanedBefore?.length !== samplePaths.length || cleanedAfter?.length !== samplePaths.length) {
+        throw new Error('The sample_paths preview returned an unexpected result. Retry without sample_paths.')
+    }
+    return samplePaths.map((path, index) => ({ path, before: cleanedBefore[index]!, after: cleanedAfter[index]! }))
 }
 
 export const updatePathCleaningHandler: ToolBase<typeof schema, Result>['handler'] = async (
@@ -366,7 +232,7 @@ export const updatePathCleaningHandler: ToolBase<typeof schema, Result>['handler
     const resultingRules = renumber(rules)
 
     const samplePreview = params.sample_paths?.length
-        ? buildSamplePreview(currentRules, rules, params.sample_paths)
+        ? await buildSamplePreview(context, projectId, currentRules, rules, params.sample_paths)
         : undefined
 
     const settingsUrl = `${context.api.getProjectBaseUrl(projectId)}/settings/project#path-cleaning`

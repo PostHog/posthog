@@ -877,12 +877,14 @@ export const PropertyDefinitionUpdateSchema = z.object({
 
 const PathCleaningAliasField = z
     .string()
+    .max(1000)
     .describe(
         'The replacement for the matched path, e.g. "/users/<id>/profile". Default to angle-bracket placeholders (<id>, <uuid>, <slug>) by convention. An empty string is valid: it deletes the matched text (e.g. to strip a "?page=N" fragment). The alias can also reference a regex capture group with ClickHouse replaceRegexpAll syntax ("\\1" to "\\9" for a group, "\\0" for the whole match), but a rule with capture groups is roughly 3x more expensive per row, so only use one when it collapses several near-identical rules into one.'
     )
 const PathCleaningRegexField = z
     .string()
     .min(1)
+    .max(1000)
     .describe(
         'A re2 pattern matched against the path, e.g. "/users/\\\\d+/profile". No need to escape "/". Anchor with ^ / $ when you mean it.'
     )
@@ -953,7 +955,7 @@ export const PathCleaningRulesUpdateSchema = z.object({
         .max(25)
         .optional()
         .describe(
-            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the resulting rule set rewrites each one. Matched with re2, like the backend. Use execute-sql with replaceRegexpAll to confirm edge cases.'
+            'Optional real paths (e.g. "/users/123/profile") to preview against, up to 25. The response shows how the current and resulting rule sets rewrite each one, computed in ClickHouse with replaceRegexpAll exactly as path cleaning runs. The preview needs the query:read scope.'
         ),
     confirm: z
         .boolean()

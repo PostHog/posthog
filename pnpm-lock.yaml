@@ -6457,9 +6457,6 @@ importers:
       prosemirror-transform:
         specifier: ^1.10.4
         version: 1.10.4
-      re2js:
-        specifier: ^2.9.1
-        version: 2.10.0
       undici:
         specifier: ^8.12.3
         version: 8.12.3
@@ -22496,10 +22493,6 @@ packages:
 
   re2js@0.4.3:
     resolution: {integrity: sha512-EuNmh7jurhHEE8Ge/lBo9JuMLb3qf866Xjjfyovw3wPc7+hlqDkZq4LwhrCQMEI+ARWfrKrHozEndzlpNT0WDg==}
-
-  re2js@2.10.0:
-    resolution: {integrity: sha512-/P6FNnLbHjXJMRF1dPoZoVTyHvFcuVhbDpzml9DPMlbeErYlZ18GueAaG9GhYhAm/9AN7i7Y6crmDrLX0DeJ4Q==}
-    engines: {node: '>=20.0.0'}
 
   react-base16-styling@0.10.0:
     resolution: {integrity: sha512-H1k2eFB6M45OaiRru3PBXkuCcn2qNmx+gzLb4a9IPMR7tMH8oBRXU5jGbPDYG1Hz+82d88ED0vjR8BmqU3pQdg==}
@@ -45165,8 +45158,6 @@ snapshots:
       node-gyp: 13.1.0
 
   re2js@0.4.3: {}
-
-  re2js@2.10.0: {}
 
   react-base16-styling@0.10.0:
     dependencies:

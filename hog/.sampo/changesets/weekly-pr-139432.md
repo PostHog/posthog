@@ -2,4 +2,4 @@
 npm/hog: patch
 ---
 
-fix(mcp): preview path cleaning rules with a linear-time regex engine
+fix(mcp): run the path cleaning sample preview in ClickHouse
