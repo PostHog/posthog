@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native'
 import * as Clipboard from 'expo-clipboard'
 
+import { useChatDictation } from '../useChatDictation'
 import { useChatDraft } from '../useChatDraft'
 import { ClassicChatScreen } from './ClassicChatScreen'
 import { classicHistory, EMPTY_CLASSIC_STATE } from './classicMessages'
@@ -34,6 +35,7 @@ jest.mock('../ChatHeader', () => {
 jest.mock('../chatSheetEvents', () => ({
     useChatSheetEvents: () => ({ countSent: jest.fn(), countNewChat: jest.fn() }),
 }))
+jest.mock('../useChatDictation', () => ({ useChatDictation: jest.fn() }))
 jest.mock('../useChatDraft', () => ({ useChatDraft: jest.fn() }))
 jest.mock('./useClassicChat', () => ({ useClassicChat: jest.fn() }))
 
@@ -81,6 +83,62 @@ function formScreen(): React.ReactElement {
         />
     )
 }
+
+beforeEach(() => {
+    jest.mocked(useChatDictation).mockReturnValue({
+        available: false,
+        phase: 'idle',
+        preview: '',
+        error: null,
+        toggle: jest.fn(),
+        cancel: jest.fn(),
+        isActive: () => false,
+    })
+})
+
+test('disables the send control during dictation and only sends the editable draft on explicit submission', async () => {
+    const chat = formChat([])
+    chat.form = null
+    chat.send = jest.fn(async () => true)
+    jest.mocked(useClassicChat).mockReturnValue(chat)
+
+    const draft = {
+        draft: { text: '', reportIds: [] },
+        ready: true,
+        appendText: jest.fn(),
+        beginSend: jest.fn(async () => async () => undefined),
+    }
+    jest.mocked(useChatDraft).mockReturnValue(draft as unknown as ReturnType<typeof useChatDraft>)
+    const dictation: ReturnType<typeof useChatDictation> = {
+        available: true,
+        phase: 'finishing',
+        preview: 'Explain signups',
+        error: null,
+        toggle: jest.fn(),
+        cancel: jest.fn(),
+        isActive: () => dictation.phase !== 'idle',
+    }
+    jest.mocked(useChatDictation).mockReturnValue(dictation)
+    const view = render(formScreen())
+    const buttons = within(screen.getByTestId('chat-composer-actions')).getAllByRole('button')
+    expect(buttons.map((button) => button.props.accessibilityLabel)).toEqual(['Finishing dictation', 'Send'])
+    expect(screen.getByLabelText('Finishing dictation')).toBeDisabled()
+    expect(screen.getByTestId('chat-send')).toBeDisabled()
+    expect(screen.getByTestId('chat-dictation-preview')).toHaveTextContent('Explain signups')
+
+    jest.mocked(useChatDictation).mock.lastCall?.[0].onTranscript('Explain signups')
+    expect(draft.appendText).toHaveBeenCalledWith('Explain signups')
+    expect(chat.send).not.toHaveBeenCalled()
+
+    draft.draft.text = 'Explain signups'
+    dictation.phase = 'idle'
+    dictation.preview = ''
+    view.rerender(formScreen())
+    await act(async () => fireEvent.press(screen.getByTestId('chat-send')))
+    expect(chat.send).toHaveBeenCalledWith('Explain signups', expect.any(Function))
+    fireEvent.press(screen.getByRole('button', { name: 'New chat' }))
+    expect(dictation.cancel).toHaveBeenCalled()
+})
 
 describe('classic chat draft recovery', () => {
     test.each([false, true])(

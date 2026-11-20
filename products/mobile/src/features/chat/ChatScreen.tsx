@@ -1,5 +1,5 @@
 import { BlurTargetView } from 'expo-blur'
-import { usePathname } from 'expo-router'
+import { useIsFocused, usePathname } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { TextInputInstance, ViewInstance } from 'react-native'
 import { Keyboard, ScrollView, View } from 'react-native'
@@ -67,6 +67,7 @@ import { SessionDecisionPanel } from './session/SessionDecisionPanel'
 import { SessionThread } from './session/SessionThread'
 import { type SessionOptions, useSession } from './session/useSession'
 import type { ChatContext } from './types'
+import { useChatDictation } from './useChatDictation'
 import { useChatDraft } from './useChatDraft'
 
 /** The Discuss shape and the context block name each attached report, so the list stays short. */
@@ -146,21 +147,11 @@ export function ChatScreen({
         )
         return () => setViewedNotificationTask(null)
     }, [visible, pathname, demo, scope, userUuid, session.taskId])
-    const close = useCallback((): void => {
-        queueEpoch.current++
-        conversationEpoch.current++
-        setVisible(false)
-        onBack()
-    }, [onBack])
+    const focused = useIsFocused()
     const accountScope = useAuthStore((state) =>
         JSON.stringify([state.host, state.projectId, state.user?.uuid, sessionGeneration()])
     )
     const openedScope = useRef(accountScope)
-    useEffect(() => {
-        if (accountScope !== openedScope.current) {
-            close()
-        }
-    }, [accountScope, close])
     const [draftReportId, setDraftReportId] = useState(() =>
         initialReportId && isReportId(initialReportId, demo) ? initialReportId : undefined
     )
@@ -291,6 +282,28 @@ export function ChatScreen({
     // A message sent before the stored history loads would land in a thread the person cannot see yet.
     const composerReady = composerDraft.ready && !composerDraft.queuePending && historyStatus === 'idle'
     const ready = composerReady && !preparing && !session.isSending
+    const dictationDisabled =
+        !focused || !visible || !composerDraft.ready || historyStatus !== 'idle' || session.decision !== undefined
+    const dictation = useChatDictation({
+        onTranscript: composerDraft.appendText,
+        draftText: text,
+        scopeKey: JSON.stringify([accountScope, draftTaskId, draftReportId, session.taskId]),
+        disabled: dictationDisabled,
+    })
+    const dictating = dictation.phase !== 'idle'
+    const cancelDictation = dictation.cancel
+    const close = useCallback((): void => {
+        cancelDictation()
+        queueEpoch.current++
+        conversationEpoch.current++
+        setVisible(false)
+        onBack()
+    }, [cancelDictation, onBack])
+    useEffect(() => {
+        if (accountScope !== openedScope.current) {
+            close()
+        }
+    }, [accountScope, close])
     const gate: SendGate = {
         phase: session.phase,
         sending: session.isSending || preparing || isDelivering,
@@ -298,7 +311,7 @@ export function ChatScreen({
     }
     const queueing = shouldQueue(gate, queue)
     // Queueing needs no network, but the device write must finish before the composer can submit again.
-    const canSend = text.trim().length > 0 && (queueing ? composerReady : ready)
+    const canSend = text.trim().length > 0 && (queueing ? composerReady : ready) && !dictating
     const sendNow = sendNowState({
         ...gate,
         // A direct send only starts while the run is idle. Its promise can outlast the start, such as a demo reply
@@ -516,7 +529,7 @@ export function ChatScreen({
     }
     const send = (): void => {
         const message = text.trim()
-        if (!message || !composerReady) {
+        if (!message || !composerReady || dictating || dictation.isActive()) {
             return
         }
         if (queueing || preparingSend.current) {
@@ -567,6 +580,7 @@ export function ChatScreen({
     }
     const startNewChat = (): void => {
         if (newChatDisabledReason || (!draftTaskId && (preparingSend.current || delivering.current))) return
+        dictation.cancel()
         sheetEvents.countNewChat()
         queueEpoch.current++
         conversationEpoch.current++
@@ -724,6 +738,8 @@ export function ChatScreen({
                                                 <MentionPopover items={mentionItems} now={now} onPick={pickMention} />
                                             ) : null}
                                             <Composer
+                                                dictation={dictation}
+                                                dictationDisabled={dictationDisabled}
                                                 compact={compact}
                                                 ref={inputRef}
                                                 text={text}
