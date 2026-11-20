@@ -38,8 +38,9 @@ const FEEDBACK_CHANNEL = '#team-context-and-mcp'
 // The name a team uses under `notifications:` in owners.yaml to redirect or silence this report.
 const OWNERS_PRODUCER = 'mcp_tool_health'
 
-// The inbox the team reports go to, and a personal API key with inbox:write, project:read and
-// organization:read, limited to the organization since roles are an organization endpoint. The
+// The inbox the team reports go to, and a personal API key with inbox:write, project:read,
+// organization:read and organization_member:read, limited to the organization since roles and
+// members are organization endpoints. The
 // key's owner files every report, so they need the inbox-reports-create-mcp flag.
 const SIGNALS_PROJECT_ID = process.env.SIGNALS_PROJECT_ID || ''
 const SIGNALS_API_KEY = process.env.SIGNALS_API_KEY || ''
@@ -348,12 +349,24 @@ function roleMembers(roles, owner) {
     return (role?.members ?? []).map((member) => member.user?.uuid).filter(Boolean)
 }
 
-async function fetchRoles() {
-    const get = (path, label) =>
-        requestPosthog(`${HOST}${path}`, { headers: { Authorization: `Bearer ${SIGNALS_API_KEY}` } }, label)
-    const project = await get(`/api/projects/${SIGNALS_PROJECT_ID}/`, 'signals project')
-    const roles = await get(`/api/organizations/${project.organization}/roles/?limit=500`, 'organization roles')
-    return roles.results
+const signalsGet = (path) =>
+    requestPosthog(`${HOST}${path}`, { headers: { Authorization: `Bearer ${SIGNALS_API_KEY}` } }, path)
+
+// Roles still list deactivated users, and the report API rejects a whole report that names one, so
+// reviewers are limited to the organization's active members.
+async function fetchReviewerDirectory(projectId = SIGNALS_PROJECT_ID, get = signalsGet) {
+    const project = await get(`/api/projects/${projectId}/`)
+    const roles = await get(`/api/organizations/${project.organization}/roles/?limit=500`)
+    const active = new Set()
+    let page = `/api/organizations/${project.organization}/members/?limit=500`
+    while (page) {
+        const members = await get(page)
+        for (const member of members.results) {
+            active.add(member.user.uuid)
+        }
+        page = members.next ? new URL(members.next).pathname + new URL(members.next).search : null
+    }
+    return (owner) => roleMembers(roles.results, owner).filter((uuid) => active.has(uuid))
 }
 
 function fileInboxReport(body) {
@@ -368,7 +381,9 @@ function fileInboxReport(body) {
     )
 }
 
-// One team's failure, at either step, must not keep the teams behind it from their reports.
+// One team's failure, at either step, must not keep the teams behind it from their reports. A team
+// whose members can't be read is left unfiled, since a re-run replays a filed report unchanged and
+// could never add its reviewers.
 async function fileTeamSignals(
     teams,
     { now, deadline = Date.now() + SIGNALS_BUDGET_MS, membersOf, file = fileInboxReport }
@@ -379,14 +394,11 @@ async function fileTeamSignals(
             console.warn(`signals delivery budget spent - ${team.owner} and later teams were not filed`)
             break
         }
-        const uuids = await membersOf(team.owner).catch((err) => {
-            console.warn(`members of ${team.owner} unreadable, filing without reviewers: ${err.message}`)
-            return []
-        })
-        if (uuids.length === 0) {
-            console.warn(`no role members found for ${team.owner}, filing without reviewers`)
-        }
         try {
+            const uuids = await membersOf(team.owner)
+            if (uuids.length === 0) {
+                console.warn(`no active role members found for ${team.owner}, filing without reviewers`)
+            }
             const result = await file(signalReport(now, team, uuids))
             console.info(
                 `${team.owner}: inbox report ${result.report_id} (${result.report_status ?? result.skipped_reason})`
@@ -443,10 +455,10 @@ async function main() {
         console.warn('SIGNALS_PROJECT_ID / SIGNALS_API_KEY not set - skipping team signals reports.')
         return
     }
-    let roles
+    let directory
     const filed = await fileTeamSignals(signalTeams, {
         now,
-        membersOf: async (owner) => roleMembers(await (roles ??= fetchRoles()), owner),
+        membersOf: async (owner) => (await (directory ??= fetchReviewerDirectory()))(owner),
     })
     console.info(`Filed ${filed.length}/${signalTeams.length} team signals report(s).`)
     // Every team is still attempted, but any team left without a report fails the run. A re-run that
@@ -466,6 +478,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 export {
     definitionPathFor,
     fetchFailingTools,
+    fetchReviewerDirectory,
     fileTeamSignals,
     HANDWRITTEN_TOOL_PATH,
     MAX_SIGNAL_REVIEWERS,

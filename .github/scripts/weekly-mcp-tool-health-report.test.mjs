@@ -4,6 +4,7 @@ import { describe, it } from 'node:test'
 import {
     definitionPathFor,
     fetchFailingTools,
+    fetchReviewerDirectory,
     fileTeamSignals,
     HANDWRITTEN_TOOL_PATH,
     MAX_SIGNAL_REVIEWERS,
@@ -214,19 +215,25 @@ describe('weekly MCP tool health report', () => {
             assert.deepEqual(signalReport(NOW, SURVEYS, []).tags, ['mcp-tool-health', 'team-surveys'])
         })
 
-        it('files a team report without reviewers when its members cannot be read', async () => {
-            const filed = []
-            await fileTeamSignals([SURVEYS], {
+        it('files nothing for a team whose members cannot be read, so a re-run can still route it', async () => {
+            const reports = await fileTeamSignals([SURVEYS], {
                 now: NOW,
                 membersOf: async () => {
                     throw new Error('403')
                 },
-                file: async (body) => {
-                    filed.push(body)
-                    return { report_id: 'r1' }
-                },
+                file: async () => ({ report_id: 'r1' }),
             })
-            assert.equal(filed[0].suggested_reviewers, undefined)
+            assert.deepEqual(reports, [])
+        })
+
+        it('leaves deactivated role members out of the reviewers', async () => {
+            const pages = {
+                '/api/projects/2/': { organization: 'org' },
+                '/api/organizations/org/roles/?limit=500': { results: [role('Team Surveys', 'active', 'gone')] },
+                '/api/organizations/org/members/?limit=500': { results: [{ user: { uuid: 'active' } }], next: null },
+            }
+            const membersOf = await fetchReviewerDirectory('2', async (url) => pages[url])
+            assert.deepEqual(membersOf('team-surveys'), ['active'])
         })
 
         it('starts no team once the delivery deadline has passed', async () => {

@@ -15,10 +15,10 @@ name: Weekly MCP tool health report
 #   - secrets.SLACK_DEVEX_BOT_TOKEN: the existing DevEx Slack bot.
 # Team inbox reports additionally need:
 #   - vars.MCP_TOOL_HEALTH_SIGNALS_PROJECT_ID: the PostHog project whose inbox receives them.
-#   - secrets.MCP_TOOL_HEALTH_SIGNALS_API_KEY: a personal API key with inbox:write, project:read and
-#     organization:read, owned by a person the inbox-reports-create-mcp flag is on for. The read
-#     scopes find each team's role members to suggest as reviewers, and roles are an organization
-#     endpoint, so the key is limited to the organization rather than to a project.
+#   - secrets.MCP_TOOL_HEALTH_SIGNALS_API_KEY: a personal API key with inbox:write, project:read,
+#     organization:read and organization_member:read, owned by a person the inbox-reports-create-mcp
+#     flag is on for. The read scopes find each team's active role members to suggest as reviewers,
+#     and roles and members are organization endpoints, so the key is limited to the organization.
 
 on:
     schedule:
