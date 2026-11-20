@@ -783,16 +783,18 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
         self.assertEqual(len(still_cached), 1)
 
     @parameterized.expand([("organization_read", "_organization_deactivated"), ("team_lookup", "_team_for_credential")])
-    def test_reproject_organization_task_clears_a_credential_it_cannot_verify(self, _name, failing_read):
-        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
-        project_gateway_credential(credential)
+    def test_reproject_organization_task_clears_every_credential_it_cannot_verify(self, _name, failing_read):
+        credentials = [self._make_secret_key([GATEWAY_SCOPE])[0] for _ in range(5)]
+        for credential in credentials:
+            project_gateway_credential(credential)
         Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
 
         with patch.object(gateway_credential_cache, failing_read, side_effect=OperationalError("primary down")):
             with self.assertRaises(OperationalError):
                 reproject_organization_gateway_credentials_task(str(self.organization.pk))
 
-        self.assertIsNone(self._read_blob(credential_hash(credential)))
+        still_cached = [c for c in credentials if self._read_blob(credential_hash(c)) is not None]
+        self.assertEqual(still_cached, [])
 
     def test_reproject_organization_task_sweeps_live_oauth_tokens_newest_first(self):
         expiring_soon = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=1)
