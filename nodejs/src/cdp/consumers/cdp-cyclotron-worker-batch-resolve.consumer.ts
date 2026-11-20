@@ -326,7 +326,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             logger.info('📝', `${this.name} - audience snapshot ready for batch ${state.batchJobId}`, {
                 audienceSize: response.audience_size,
             })
-            this.emitSkippedTestAccountFiltersLog(state, response.skipped_test_account_filters ?? [])
+            this.emitSkippedTestAccountFiltersLog(
+                state,
+                Array.isArray(response.skipped_test_account_filters) ? response.skipped_test_account_filters : []
+            )
             await job.reschedule({
                 scheduledAt: new Date(),
                 state: serializeResolverState({

@@ -637,6 +637,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
         })
 
         it.each([
+            [undefined, []],
             [[], []],
             [['$host'], ['This run left out 1 test account filter that only applies to events, not people: $host']],
             [
