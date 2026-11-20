@@ -2,6 +2,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -22,7 +23,9 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import (
     ImportCredentialsInvalid,
@@ -46,6 +49,7 @@ from products.messaging.backend.tests.fake_sendgrid import (
     SECOND_ACCOUNT_KEY,
     FakeSendGridServer,
     FakeSendGridState,
+    _Handler,
 )
 
 ALL_STEPS = [spec.key for spec in SendGridImportProvider.steps]
@@ -197,6 +201,114 @@ class TestSendGridImport(BaseTest):
         assert senders["Acme <hello@example.com>"]["notes"] == []
         assert run.progress["senders"]["counts"] == {"ready": 1, "needs_setup": 1}
 
+    def test_templates_import_the_active_version_and_never_send(self) -> None:
+        run = self._run(["templates"])
+
+        templates = {row.key: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
+        assert set(templates) == {
+            "d-1111111111111111111111111111aaaa",
+            "d-2222222222222222222222222222bbbb",
+            "33333333-3333-4333-8333-333333333333",
+            "d-4444444444444444444444444444dddd",
+        }
+        receipt = templates["d-1111111111111111111111111111aaaa"]
+        email = receipt.content["email"]
+        assert receipt.transactional_hog_flow_id is None
+        assert receipt.content["templating"] == "liquid"
+        assert email["subject"] == (
+            'Your order {{ variables.order.id | join: "," | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" }}'
+        )
+        assert "Old" not in email["html"]
+        # The receipt uses formatDate, so its body stays as text for a person to rewrite.
+        assert "{{ unsubscribe_url }}" not in email["html"]
+        assert "variables.preheader" not in email["html"]
+        assert '"first_name": "Ada"' in receipt.description
+        assert templates["d-4444444444444444444444444444dddd"].content["email"]["html"] == "<p>Newest</p>"
+
+        items = {item["label"]: item for item in run.progress["templates"]["items"]}
+        assert any("Old draft" in note for note in items["Order receipt"]["notes"])
+        assert any("this template's tags" in note for note in items["Order receipt"]["notes"])
+        assert any("this template's tags" in note for note in items["Přivítání 🦔"]["notes"])
+        assert any("design editor" in note for note in items["Přivítání 🦔"]["notes"])
+        assert any("no version" in note for note in items["Empty template"]["notes"])
+        assert run.progress["templates"]["counts"]["no_version"] == 1
+
+    def test_a_key_a_code_email_sends_under_is_left_to_it(self) -> None:
+        key = "sendgrid-design-eeeeeeee-0000-4000-8000-000000000001"
+        TransactionalEmailKey.objects.for_team(self.team.id).create(team=self.team, key=key, hog_flow_id=uuid4())
+
+        self._run(["designs"])
+
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key=key).exists()
+
+    @parameterized.expand(
+        [
+            (
+                "liquid_in_reply_to",
+                "hello@example.com",
+                "{{person.properties.b}}@example.com",
+                "hello@example.com",
+                '{{ "{{" }}person.properties.b}}@example.com',
+            ),
+            (
+                "liquid_in_from",
+                "{{person.properties.code}}@example.com",
+                "",
+                '{{ "{{" }}person.properties.code}}@example.com',
+                "",
+            ),
+            (
+                "reply_to_is_the_from_address",
+                "hello@example.com",
+                "hello@example.com",
+                "hello@example.com",
+                "hello@example.com",
+            ),
+        ]
+    )
+    def test_designs_and_single_sends_become_templates_with_notes(
+        self, _name: str, from_email: str, reply_to: str, expected_from: str, expected_reply_to: str
+    ) -> None:
+        IntegrationManager.email.credentials.create(
+            self.team.id,
+            external_id=from_email,
+            config={"email": from_email, "domain": "example.com", "verified": True, "name": "Acme"},
+            sensitive_config={},
+            created_by_id=self.user.id,
+        )
+        sender = self.state.account["verified_senders"][0]
+        sender.update(from_name="{{ person.properties.a }}", from_email=from_email, reply_to=reply_to)
+        run = self._run(["suppression_groups", "designs", "single_sends"])
+
+        templates = {row.name: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
+        assert templates["Newsletter design"].key == "sendgrid-design-eeeeeeee-0000-4000-8000-000000000001"
+        scheduled = templates["November news"]
+        assert scheduled.content["email"]["from"]["integrationId"]
+        assert scheduled.content["email"]["from"]["email"] == expected_from
+        assert scheduled.content["email"]["from"]["name"] == '{{ "{{" }} person.properties.a }}'
+        assert scheduled.content["email"].get("replyTo", "") == expected_reply_to
+        assert str(scheduled.message_category_id) == str(
+            MessageCategory.objects.get(team_id=self.team.id, key="sendgrid_101").id
+        )
+        assert (
+            templates["From a design"].content["email"]["html"] == "<p>News</p>{% raw %}{{{unsubscribe}}{% endraw %}}"
+        )
+        items = {item["label"]: item for item in run.progress["single_sends"]["items"]}
+        assert any("still scheduled" in note for note in items["November news"]["notes"])
+        assert any("first_name" in note for note in items["November news"]["notes"])
+        assert any("A/B test" in note for note in items["From a design"]["notes"])
+        assert any("example.com/leave" in note for note in items["From a design"]["notes"])
+
+    def test_a_single_send_takes_its_own_sender_not_the_first_one_listed(self) -> None:
+        self.state.account["single_sends"][0]["email_config"]["sender_id"] = 8
+
+        run = self._run(["single_sends"])
+
+        items = {item["label"]: item for item in run.progress["single_sends"]["items"]}
+        notes = " ".join(items["November news"]["notes"])
+        assert "new@example.org" in notes
+        assert "hello@example.com" not in notes
+
     def test_senders_domains_and_lists_are_listed_with_what_to_do(self) -> None:
         run = self._run(["lists", "senders", "domains"])
 
@@ -209,6 +321,15 @@ class TestSendGridImport(BaseTest):
         assert any("feedback subdomain" in note for note in domains["mail.example.org"]["notes"])
         assert run.progress["domains"]["imported"] == 0
 
+    def test_something_deleted_mid_import_does_not_fail_the_step(self) -> None:
+        self.state.account["single_sends"][1]["email_config"]["design_id"] = "deleted-design"
+        with patch.object(_Handler, "_version", return_value=(404, {"errors": [{"message": "not found"}]}, {})):
+            run = self._run(["templates", "single_sends"])
+
+        assert run.status == "completed"
+        assert run.progress["templates"]["counts"]["no_version"] == 5
+        assert "From a design" in MessageTemplate.objects.filter(team_id=self.team.id).values_list("name", flat=True)
+
     def test_requests_match_the_documented_endpoints_and_headers(self) -> None:
         self._run()
 
@@ -216,6 +337,9 @@ class TestSendGridImport(BaseTest):
             assert request["authorization"] == f"Bearer {FULL_KEY}"
             assert request["accept"] == "application/json"
             assert request["region"] == "global"
+        templates = next(r for r in self.state.requests if r["path"] == "/v3/templates")
+        assert templates["query"]["generations"] == "legacy,dynamic"
+        assert templates["query"]["page_size"] == "200"
         bounces = next(r for r in self.state.requests if r["path"] == "/v3/suppression/bounces")
         assert bounces["query"]["limit"] == "500"
         assert "end_time" in bounces["query"]
@@ -223,7 +347,7 @@ class TestSendGridImport(BaseTest):
     @parameterized.expand(
         [
             ("wrong_key", "SG.nope", ["suppressions"], "SendGrid rejected this API key"),
-            ("too_few_scopes", NARROW_KEY, ["suppressions", "domains"], "whitelabel.read"),
+            ("too_few_scopes", NARROW_KEY, ["suppressions", "templates"], "templates.read, templates.versions.read"),
             ("no_scopes", NO_SCOPE_KEY, ["domains"], "whitelabel.read"),
         ]
     )
@@ -239,11 +363,11 @@ class TestSendGridImport(BaseTest):
         assert self._run(["suppressions"], NARROW_KEY).status == "completed"
 
     def test_a_scope_lost_during_the_run_names_what_it_cannot_read(self) -> None:
-        run = self._start(["domains"])
-        self.state.failures["/v3/whitelabel/domains"] = [403]
+        run = self._start(["templates"])
+        self.state.failures["/v3/templates"] = [403]
 
-        with self.assertRaisesRegex(ImportCredentialsInvalid, "/v3/whitelabel/domains"):
-            runs.run_step(self.team.id, run.id, "domains", attempt=1)
+        with self.assertRaisesRegex(ImportCredentialsInvalid, "/v3/templates"):
+            runs.run_step(self.team.id, run.id, "templates", attempt=1)
 
     def test_a_group_too_large_for_one_import_stops_the_step_without_retrying(self) -> None:
         run = self._start(["group_unsubscribes"])
@@ -438,6 +562,13 @@ class TestSendGridImport(BaseTest):
         deleted_category = MessageCategory.objects.get(team_id=self.team.id, key="sendgrid_102")
         deleted_category.deleted = True
         deleted_category.save()
+        edited = MessageTemplate.objects.get(team_id=self.team.id, key="d-1111111111111111111111111111aaaa")
+        edited.content["email"]["subject"] = "Edited here"
+        edited.save()
+        MessageTemplate.objects.filter(team_id=self.team.id, key="d-2222222222222222222222222222bbbb").update(
+            deleted=True
+        )
+        templates_before = MessageTemplate.objects.filter(team_id=self.team.id).count()
 
         run = self._run()
 
@@ -447,6 +578,10 @@ class TestSendGridImport(BaseTest):
         assert renamed.name == "News"
         deleted_category.refresh_from_db()
         assert deleted_category.deleted
+        edited.refresh_from_db()
+        assert edited.content["email"]["subject"] == "Edited here"
+        assert MessageTemplate.objects.filter(team_id=self.team.id).count() == templates_before
+        assert run.progress["templates"]["counts"]["already_present"] == 4
         assert run.status == "completed"
 
     def test_an_empty_account_completes_with_nothing_imported(self) -> None:
@@ -454,6 +589,7 @@ class TestSendGridImport(BaseTest):
 
         assert run.status == "completed"
         assert all(run.progress[step]["imported"] == 0 for step in ALL_STEPS)
+        assert not MessageTemplate.objects.filter(team_id=self.team.id).exists()
 
     def test_next_page_links_never_receive_the_key(self) -> None:
         self.state.next_url_host = "https://evil.example.com"
@@ -475,6 +611,7 @@ class TestSendGridKeys(SimpleTestCase):
         per_list = {"suppression.bounces.read", "suppression.invalid_emails.read", "suppression.spam_reports.read"}
         assert missing_scopes(per_list, ["suppressions"]) == ["suppression.read"]
         assert missing_scopes({"asm.groups.read"}, ["group_unsubscribes"]) == ["suppression.read"]
+        assert missing_scopes({"marketing.read"}, ["single_sends"]) == ["design_library.read"]
 
     @parameterized.expand([("seconds_left", "37", 37.0), ("unix_time", "1700000060", 60.0)])
     def test_rate_limit_reset_reads_both_header_formats(self, _name: str, header: str, expected: float) -> None:

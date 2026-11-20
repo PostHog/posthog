@@ -9,6 +9,7 @@ import { getDefaultConfig } from '~/common/config/config'
 import { TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile } from './schema'
+import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
@@ -17,7 +18,7 @@ export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 
-export type LoadOptions = { profilePath?: string }
+export type LoadOptions = { profilePath?: string; target?: Target }
 
 export class CardError extends Error {
     constructor(
@@ -155,7 +156,7 @@ export function readProfile(file: string): ProfileRead {
 }
 
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
-    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath))
+    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options.target)
 }
 
 export function loadText(label: string, { card, profile }: { card: string; profile: string }): LoadedCard {
@@ -166,7 +167,12 @@ export function loadText(label: string, { card, profile }: { card: string; profi
     )
 }
 
-function check(cardPath: string, read: Read, profileFor: (card: Card) => ProfileRead): LoadedCard {
+function check(
+    cardPath: string,
+    read: Read,
+    profileFor: (card: Card) => ProfileRead,
+    target: Target = 'local'
+): LoadedCard {
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
     }
@@ -182,7 +188,12 @@ function check(cardPath: string, read: Read, profileFor: (card: Card) => Profile
         ...checkNames(card, DEFINITIONS),
         ...checkSuppression(card),
         ...checkIntakeVerdict(card),
-        ...('profile' in loaded ? checkProfile(card, loaded.profile, DEFINITIONS, defaults) : loaded.problems),
+        ...('profile' in loaded
+            ? [
+                  ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
+                  ...targetProblems(card, loaded.profile, target),
+              ]
+            : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {
         throw new CardError(cardPath, problems)

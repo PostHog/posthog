@@ -1,6 +1,16 @@
+import json
+
+from unittest.mock import patch
+
+from django.test import override_settings
+
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
+from products.batch_exports.backend.custom_events_schema import build_events_query_schema
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestBatchExportActivityLogging(ActivityLogTestHelper):
@@ -133,6 +143,39 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             self.assertTrue(len(changes) > 0)
         finally:
             activity_storage.clear_user()
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_batch_export_schema_changes_are_logged_without_the_restrictions_they_were_saved_with(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+        from posthog.models.activity_logging.utils import activity_storage
+
+        schemas = []
+        for restricted in (["secret"], ["secret", "ssn"]):
+            with patch(
+                "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+                return_value={
+                    RestrictedProperty(name=name, property_type=PropertyDefinition.Type.EVENT) for name in restricted
+                },
+            ):
+                schemas.append(build_events_query_schema(self.team.pk, None, "SELECT properties AS props FROM events"))
+        activity_storage.set_user(self.user)
+        try:
+            batch_export = self.create_batch_export(name="Custom Schema Export")
+            for schema in schemas:
+                self.update_batch_export(batch_export["id"], {"schema": schema})
+        finally:
+            activity_storage.clear_user()
+
+        schema_changes: list[dict] = []
+        for activity_log in ActivityLog.objects.filter(
+            scope="BatchExport", activity="updated", item_id=batch_export["id"]
+        ):
+            assert activity_log.detail is not None
+            schema_changes.extend(change for change in activity_log.detail["changes"] if change["field"] == "schema")
+        assert len(schema_changes) == 2
+        assert all(change["after"]["hogql_query"] == schemas[0]["hogql_query"] for change in schema_changes)
+        assert "secret" not in json.dumps(schema_changes)
+        assert "ssn" not in json.dumps(schema_changes)
 
     def test_batch_export_signal_handler_delete(self):
         from posthog.models.activity_logging.activity_log import ActivityLog

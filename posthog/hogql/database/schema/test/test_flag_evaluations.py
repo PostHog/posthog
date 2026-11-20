@@ -48,7 +48,7 @@ from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.schema.flag_evaluations import join_persons_to_flag_evaluations
 from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params, resolve_data_warehouse_join
-from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
@@ -1219,7 +1219,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "SELECT count() FROM events JOIN (SELECT distinct_id, event FROM events) AS calls "
             f"ON events.distinct_id = calls.distinct_id WHERE {FLAG_CALL_CONJUNCTS}"
         )
-        with self.assertRaisesRegex(ResolutionError, "Ambiguous query"):
+        with self.assertRaisesRegex(QueryError, "Ambiguous query"):
             self._query_events(query)
 
     @parameterized.expand(

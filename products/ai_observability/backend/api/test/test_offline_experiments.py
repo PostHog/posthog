@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -15,6 +16,7 @@ from rest_framework import status
 from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.routers import SimpleRouter
 
+from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Project, User
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -84,6 +86,293 @@ class TestOfflineExperimentsAPI(APIBaseTest):
 
     def _experiment_body(self) -> dict[str, object]:
         return {"id": str(uuid4()), "name": "Answer quality", "started_at": timezone.now().isoformat()}
+
+    def _mutable_run(self, *, include_item_payload: bool = True) -> tuple[str, str, str, dict]:
+        self._authenticate("session")
+        experiment = self._experiment_body()
+        self.assertEqual(self.client.post(self._endpoint(), experiment).status_code, 201)
+        exp_id, item_id = str(experiment["id"]), str(uuid4())
+        source = ScoreDefinition.objects.create(team=self.team, name="Accurate", kind="boolean")
+        version = source.create_new_version(config={}, created_by=None)
+        composite = ScoreDefinition.objects.create(
+            team=self.team, name="Total", kind="numeric", calculation="composite"
+        )
+        computed_version = composite.create_new_version(
+            config={"min": 0, "max": 1},
+            created_by=None,
+            composition={
+                "expression": "number(accurate)",
+                "inputs": [{"alias": "accurate", "scorer_version_id": str(version.id)}],
+            },
+        )
+        item: dict[str, object] = {"id": item_id}
+        if include_item_payload:
+            item["payload"] = {"input": "A"}
+        body = {
+            "items": [item],
+            "results": [
+                {"item_id": item_id, "scorer_version_id": str(version.id), "status": "error", "error_code": "timeout"},
+                {"item_id": item_id, "scorer_version_id": str(computed_version.id), "calculate": True},
+            ],
+        }
+        response = self.client.post(self._endpoint(exp_id, "upload"), body)
+        self.assertEqual(response.status_code, 200, response.data)
+        return exp_id, item_id, str(response.data["results"][0]["id"]), body
+
+    def test_update_closed_score_recomputes_composite_and_preserves_upload_receipt(self) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        close = self.client.post(self._endpoint(exp_id, "complete"), {})
+        self.assertEqual(close.status_code, 200)
+        url = self._endpoint(exp_id, f"results/{result_id}")
+        item_url = self._endpoint(exp_id, f"items/{item_id}")
+        before_score_edit = self.client.get(item_url).data["revision"]
+        change = {"revision": 0, "status": "ok", "value": True}
+        self.assertEqual(self.client.patch(url, change).data, {"revision": 1})
+        self.assertEqual(self.client.delete(f"{item_url}?revision={before_score_edit}").status_code, 409)
+        self.assertEqual(self.client.patch(url, change).status_code, 409)
+        results_url = self._endpoint(exp_id, f"items/{item_id}/results")
+        read = self.client.get(results_url).data["results"]
+        self.assertTrue(all(row["is_stale"] is False for row in read))
+        self.assertEqual(
+            {row["scorer"]["name"]: (row["status"], row["value"]) for row in read},
+            {"Accurate": ("ok", True), "Total": ("ok", 1.0)},
+        )
+        payload_url = self._endpoint(exp_id, f"items/{item_id}/payload")
+        item_revision = self.client.get(item_url).data["revision"]
+        edit = self.client.patch(payload_url, {"revision": item_revision, "payload": {"input": "B"}})
+        self.assertEqual(edit.status_code, 200)
+        experiment = OfflineExperiment.objects.for_team(self.team.id).get(pk=exp_id)
+        last_edit = experiment.updated_at
+        self.assertEqual(self.client.patch(url, {"revision": 1, "error_code": None}).data, {"revision": 1})
+        self.assertEqual(self.client.get(results_url).data["results"], [{**row, "is_stale": True} for row in read])
+        self.assertEqual(self.client.get(item_url).data["revision"], edit.data["revision"])
+        experiment.refresh_from_db()
+        self.assertEqual(experiment.updated_at, last_edit)
+
+        composite = next(row for row in read if row["input_result_ids"])
+        self.assertEqual(
+            self.client.patch(
+                self._endpoint(exp_id, f"results/{composite['id']}"), {"revision": 1, "value": 0}
+            ).status_code,
+            400,
+        )
+        retry = self.client.post(self._endpoint(exp_id, "upload"), body)
+        self.assertEqual(
+            [(r["status"], r["created"]) for r in retry.data["results"]], [("error", False), ("error", False)]
+        )
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [1]
+        )
+        self.assertEqual(self.client.delete(f"{url}?revision=1").status_code, 204)
+        self.assertEqual(self.client.get(self._endpoint(exp_id, f"items/{item_id}/results")).data["count"], 0)
+        self.assertEqual(
+            self.client.post(self._endpoint(exp_id, "complete"), {}).data["accepted_result_count"],
+            close.data["accepted_result_count"],
+        )
+
+    def test_error_code_correction_preserves_score_times_after_an_item_edit(self) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        results_url = self._endpoint(exp_id, f"items/{item_id}/results")
+        before = {row["id"]: row for row in self.client.get(results_url).data["results"]}
+        item_payload_url = self._endpoint(exp_id, f"items/{item_id}/payload")
+        self.assertEqual(
+            self.client.patch(item_payload_url, {"revision": 0, "payload": {"input": "B"}}).status_code, 200
+        )
+
+        result_url = self._endpoint(exp_id, f"results/{result_id}")
+        self.assertEqual(
+            self.client.patch(result_url, {"revision": 0, "error_code": "invalid_input"}).data, {"revision": 1}
+        )
+        after = {row["id"]: row for row in self.client.get(results_url).data["results"]}
+        self.assertTrue(after[result_id]["is_stale"])
+        self.assertEqual(after[result_id]["score_updated_at"], before[result_id]["score_updated_at"])
+        self.assertEqual(after[result_id]["error_code"], "invalid_input")
+        composite_id = next(key for key in before if key != result_id)
+        self.assertEqual(after[composite_id], {**before[composite_id], "is_stale": True})
+        retry = self.client.post(self._endpoint(exp_id, "upload"), body)
+        self.assertEqual(retry.data["results"][0]["error_code"], "timeout")
+
+    def test_score_and_payload_patches_validate_the_stored_outcome(self) -> None:
+        exp_id, _, result_id, _ = self._mutable_run()
+        result_url = self._endpoint(exp_id, f"results/{result_id}")
+        invalid_score = self.client.patch(result_url, {"revision": 0, "value": True})
+        self.assertEqual((invalid_score.status_code, invalid_score.data["attr"]), (400, "value"))
+
+        change = self.client.patch(result_url, {"revision": 0, "status": "ok", "value": True})
+        self.assertEqual(change.data, {"revision": 1})
+        invalid_code = self.client.patch(result_url, {"revision": 1, "error_code": "timeout"})
+        self.assertEqual((invalid_code.status_code, invalid_code.data["attr"]), (400, "error_code"))
+        invalid_payload = self.client.patch(
+            self._endpoint(exp_id, f"results/{result_id}/payload"),
+            {"revision": 1, "payload": {"error_message": "Timed out"}},
+        )
+        self.assertEqual((invalid_payload.status_code, invalid_payload.data["attr"]), (400, "payload"))
+
+    @parameterized.expand(["item", "result"])
+    def test_only_direct_api_can_delete_and_reupload_counts_as_new_while_open(self, target: str) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        key = f"items/{item_id}" if target == "item" else f"results/{result_id}"
+        url = self._endpoint(exp_id, key) + "?revision=0"
+        self._authenticate("personal_key", ["evaluation:write", "llm_analytics:read"])
+        self.assertEqual(self.client.delete(url, HTTP_USER_AGENT=MCP_USER_AGENT_MARKER).status_code, 403)
+        self.assertEqual(self.client.delete(url).status_code, 204)
+        self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
+        self.assertEqual(self.client.post(self._endpoint(exp_id, "upload"), body).status_code, 403)
+        self._authenticate("project_key")
+        upload = self._endpoint(exp_id, "upload")
+        recreated = self.client.post(upload, body)
+        self.assertEqual(recreated.status_code, 200, recreated.data)
+        self.assertEqual(recreated.data["items"][0]["created"], target == "item")
+        self.assertEqual([row["created"] for row in recreated.data["results"]], [True, True])
+        retry = self.client.post(upload, body)
+        self.assertEqual([row["created"] for row in retry.data["results"]], [False, False])
+        self.assertEqual(
+            list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [1, 1]
+        )
+
+    def test_recreated_item_rejects_mutations_for_the_deleted_item(self) -> None:
+        exp_id, item_id, _, body = self._mutable_run()
+        item_url = self._endpoint(exp_id, f"items/{item_id}")
+        first_revision = self.client.get(item_url).data["revision"]
+        edit = self.client.patch(item_url, {"revision": first_revision, "trial": "second"})
+        self.assertEqual(edit.status_code, 200)
+        delete_url = f"{item_url}?revision={edit.data['revision']}"
+        self.assertEqual(self.client.delete(delete_url).status_code, 204)
+        self.assertEqual(self.client.post(self._endpoint(exp_id, "upload"), body).status_code, 200)
+
+        self.assertEqual(self.client.delete(delete_url).status_code, 409)
+        self.assertEqual(self.client.patch(item_url, {"revision": first_revision, "trial": "old"}).status_code, 409)
+        replacement = self.client.get(item_url).data
+        self.assertIsNone(replacement["trial"])
+        self.assertEqual(
+            self.client.patch(item_url, {"revision": replacement["revision"], "trial": "new"}).status_code, 200
+        )
+
+    def test_payload_update_uses_original_deadline_and_cannot_restore_deleted_data(self) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        url = self._endpoint(exp_id, f"items/{item_id}/payload")
+        original = self.client.get(url).data
+        self.assertEqual(self.client.patch(url, {"revision": 0, "payload": {"output": None}}).data, {"revision": 1})
+        updated = self.client.get(url).data
+        self.assertEqual(updated["data"], {"input": "A", "output": None})
+        self.assertEqual(updated["payload_expires_at"], original["payload_expires_at"])
+        item_url = self._endpoint(exp_id, f"items/{item_id}")
+        self.assertIsNotNone(self.client.get(item_url).data["content_updated_at"])
+        self.assertEqual(self.client.patch(item_url, {"revision": 1, "trial": "second"}).data, {"revision": 2})
+        self.assertEqual(self.client.delete(f"{url}?revision=2").status_code, 204)
+        self.assertEqual(self.client.get(url).data["data"], None)
+        self.assertEqual(self.client.post(self._endpoint(exp_id, "upload"), body).status_code, 200)
+        self.assertEqual(self.client.patch(url, {"revision": 3, "payload": {"input": "B"}}).status_code, 409)
+        result = OfflineEvaluationResult.objects.for_team(self.team.id).get(pk=result_id)
+        payload_url = self._endpoint(exp_id, f"results/{result_id}/payload")
+        self.assertEqual(
+            self.client.patch(payload_url, {"revision": 0, "payload": {"reasoning": "Late addition"}}).data,
+            {"revision": 1},
+        )
+        self.assertEqual(self.client.delete(f"{item_url}?revision=3").status_code, 409)
+        with patch("products.ai_observability.backend.offline_evaluation_mutations.timezone") as clock:
+            clock.now.return_value = result.accepted_at + timedelta(days=30)
+            self.assertEqual(
+                self.client.patch(payload_url, {"revision": 1, "payload": {"reasoning": "Overdue"}}).status_code, 409
+            )
+
+    def test_deleted_composite_keeps_its_input_and_cannot_be_reuploaded_after_close(self) -> None:
+        exp_id, item_id, _, body = self._mutable_run()
+        composite = OfflineEvaluationResult.objects.for_team(self.team.id).get(input_result_ids__isnull=False)
+        url = self._endpoint(exp_id, f"results/{composite.pk}") + "?revision=0"
+        self.assertEqual(self.client.delete(url).status_code, 204)
+        self.assertEqual(self.client.get(self._endpoint(exp_id, f"items/{item_id}/results")).data["count"], 1)
+        upload = self._endpoint(exp_id, "upload")
+        self.assertEqual(self.client.post(upload, {"results": body["results"][:1]}).status_code, 200)
+        self.assertEqual(self.client.post(self._endpoint(exp_id, "complete"), {}).data["accepted_result_count"], 1)
+        self.assertEqual(self.client.post(upload, body).data["code"], "experiment_closed")
+
+    @parameterized.expand([("items", "input"), ("results", "reasoning")])
+    def test_deleting_an_absent_payload_preserves_its_first_write(self, resource: str, field: str) -> None:
+        exp_id, item_id, result_id, _ = self._mutable_run(include_item_payload=False)
+        owner_id = item_id if resource == "items" else result_id
+        url = self._endpoint(exp_id, f"{resource}/{owner_id}/payload")
+        before = self.client.get(url).data
+        self.assertEqual(before["payload_state"], "not_provided")
+        response = self.client.delete(f"{url}?revision={before['revision']}")
+        self.assertEqual((response.status_code, response.data["code"]), (409, "payload_unavailable"))
+        self.assertEqual(self.client.get(url).data, before)
+        response = self.client.patch(url, {"revision": before["revision"], "payload": {field: "first"}})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get(url).data["data"], {field: "first"})
+
+    def test_first_delete_from_a_legacy_closed_experiment_preserves_both_counts(self) -> None:
+        exp_id, item_id, _, _ = self._mutable_run()
+        OfflineExperiment.objects.for_team(self.team.id).filter(pk=exp_id).update(
+            status=OfflineExperiment.Status.COMPLETED, finished_at=timezone.now()
+        )
+        self.assertEqual(
+            self.client.delete(self._endpoint(exp_id, f"items/{item_id}") + "?revision=0").status_code, 204
+        )
+        receipt = self.client.post(self._endpoint(exp_id, "complete"), {})
+        self.assertEqual(receipt.status_code, 200)
+        self.assertEqual((receipt.data["accepted_item_count"], receipt.data["accepted_result_count"]), (1, 2))
+
+    @parameterized.expand([("viewer", ["evaluation:write", "llm_analytics:read"]), ("editor", ["evaluation:write"])])
+    def test_mutations_require_an_editor_and_result_read_scope(self, role: str, scopes: list[str]) -> None:
+        exp_id, item_id, result_id, _ = self._mutable_run()
+        self._authenticate("personal_key", scopes, user=self._evaluation_member(role).user)
+        item_url = self._endpoint(exp_id, f"items/{item_id}")
+        result_url = self._endpoint(exp_id, f"results/{result_id}")
+        self.assertEqual(self.client.patch(result_url, {"revision": 0, "error_code": "failed"}).status_code, 403)
+        self.assertEqual(self.client.delete(f"{item_url}?revision=0").status_code, 403)
+        response = self.client.patch(item_url, {"revision": 0, "trial": "second"})
+        self.assertEqual(response.status_code, 200 if role == "editor" else 403)
+
+    def test_mutating_a_source_requires_access_to_affected_composite(self) -> None:
+        exp_id, item_id, result_id, _ = self._mutable_run()
+        member = self._evaluation_member()
+        composite = ScoreDefinition.objects.get(team=self.team, calculation="composite")
+        AccessControl.objects.create(
+            team=self.team, resource="llm_analytics", access_level="viewer", organization_member=member
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=str(composite.pk),
+            access_level="none",
+            organization_member=member,
+        )
+        self._authenticate("personal_key", ["evaluation:write", "llm_analytics:read"], user=member.user)
+        self.assertEqual(
+            self.client.patch(
+                self._endpoint(exp_id, f"results/{result_id}"), {"revision": 0, "value": True, "status": "ok"}
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.delete(self._endpoint(exp_id, f"items/{item_id}") + "?revision=0").status_code, 404
+        )
+        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 2)
+
+    def test_composite_from_updated_input_requires_read_access_on_upload_and_replay(self) -> None:
+        exp_id, item_id, result_id, body = self._mutable_run()
+        result_url = self._endpoint(exp_id, f"results/{result_id}")
+        self.assertEqual(self.client.patch(result_url, {"revision": 0, "status": "ok", "value": True}).status_code, 200)
+        composite = ScoreDefinition.objects.get(team=self.team, calculation="composite")
+        assert composite.current_version is not None
+        version = composite.create_new_version(
+            config={"min": 0, "max": 1}, created_by=None, composition=composite.current_version.composition
+        )
+        batch = {
+            "results": [
+                body["results"][0],
+                {"calculate": True, "item_id": item_id, "scorer_version_id": str(version.pk)},
+            ]
+        }
+        url = self._endpoint(exp_id, "upload")
+        self._authenticate("personal_key")
+        self.assertEqual(self.client.post(url, batch).status_code, 403)
+        self._authenticate("session")
+        self.assertEqual(self.client.post(url, batch).status_code, 200)
+        self._authenticate("project_key")
+        self.assertEqual(self.client.post(url, batch).status_code, 403)
+        self.assertEqual(self.client.post(url, body).status_code, 200)
 
     def _evaluation_member(self, access_level: str = "editor") -> OrganizationMembership:
         member = User.objects.create_and_join(self.organization, "eval-member@example.com", "test-password")
@@ -201,6 +490,8 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             {"item_id": item_id, "scorer_version_id": source["scorer_version_id"], "status": "ok", "value": value}
             for source, value in zip(inputs, [0.9, True, ["good"]])
         )
+        evaluated_at = "2026-01-01T10:00:00Z"
+        results[-1]["evaluated_at"] = evaluated_at
         body = {"items": [{"id": item_id}], "results": results}
         upload_url = self._endpoint(str(experiment["id"]), "upload")
         if input_delivery != "same_upload":
@@ -268,6 +559,7 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(set(derived), set(composites))
         for version_id, value in zip(composites, [0.9, True, ["accept"], None]):
             self.assertEqual(derived[version_id]["value"], value)
+            self.assertEqual(derived[version_id]["score_updated_at"], evaluated_at)
             self.assertEqual(set(derived[version_id]["input_result_ids"]), source_ids)
             self.assertEqual(len(derived[version_id]["scorer"]["composition"]["inputs"]), 3)
         summaries = self.client.get(self._endpoint(str(experiment["id"]), "scorer_summaries"))
@@ -819,6 +1111,19 @@ class TestOfflineExperimentValidationErrors(SimpleTestCase):
 
 
 class TestOfflineExperimentActionSchemas(SimpleTestCase):
+    def test_patch_requires_revision_and_payload_for_payload_routes(self) -> None:
+        router = SimpleRouter()
+        router.register("offline_experiments", OfflineExperimentViewSet, basename="offline_experiments")
+        schema = SchemaGenerator(patterns=router.urls).get_schema(request=None, public=True)
+        for resource in ["items/{item_id}", "results/{result_id}"]:
+            for suffix, required in [("", ["revision"]), ("/payload", ["payload", "revision"])]:
+                path = f"/offline_experiments/{{id}}/{resource}{suffix}/"
+                with self.subTest(path=path):
+                    body = schema["paths"][path]["patch"]["requestBody"]
+                    self.assertTrue(body["required"])
+                    ref = body["content"]["application/json"]["schema"]["$ref"]
+                    self.assertCountEqual(schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["required"], required)
+
     def test_read_pages_are_object_envelopes_instead_of_arrays_of_pages(self) -> None:
         router = SimpleRouter()
         router.register("offline_experiments", OfflineExperimentViewSet, basename="offline_experiments")

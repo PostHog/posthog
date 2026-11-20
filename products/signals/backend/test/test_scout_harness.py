@@ -79,6 +79,7 @@ from products.signals.backend.scout_harness.prompt import (
     _EXTERNAL_MCP_LISTING_CAP,
     _REPORT_CHARTS,
     HARNESS_PROMPT_VERSION,
+    MEMORY_UPKEEP_SCOUT,
     _checkout_section,
     build_run_prompt,
 )
@@ -92,6 +93,7 @@ from products.signals.backend.scout_harness.runner import (
     _create_run_row,
     _failure_streak_runs_in_window,
     _inbox_reports_search_available,
+    _memory_upkeep_has_written,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -498,6 +500,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             github_read_access=github_read_access,
             business_knowledge_maintained=business_knowledge_maintained,
             project_has_governed_metrics=True,
+            memory_upkeep_has_written=True,
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
@@ -508,6 +511,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             prompt.index(heading)
             for heading in (
                 "# Governed metrics",
+                "# Memory upkeep",
                 "# External MCP servers",
                 "# Write access",
                 "# Your checkout",
@@ -564,6 +568,19 @@ class TestPromptCacheablePrefix(SimpleTestCase):
         assert ("activity-summary-search" in prompt) is rendered
         if rendered:
             assert prompt.index("# Find people who read the work") > prompt.index("# Output format")
+
+
+class TestMemoryUpkeepCheck(SimpleTestCase):
+    def test_a_failed_check_resolves_false(self) -> None:
+        with (
+            patch(
+                "products.signals.backend.scout_harness.runner.has_live_entry_created_by",
+                side_effect=RuntimeError("database unavailable"),
+            ),
+            patch("products.signals.backend.scout_harness.runner.capture_exception") as capture,
+        ):
+            assert _memory_upkeep_has_written(MagicMock()) is False
+        capture.assert_called_once()
 
 
 class TestActivitySummarySearchAvailability(SimpleTestCase):
@@ -1358,6 +1375,7 @@ class TestPromptBuilder(BaseTest):
         # and the decision to spend a run validating it belongs to the scout, not the harness.
         assert "Follow up on your own past work" in prompt
         assert "followup:<your-skill-name>:<entity>" in prompt
+        assert "`key_prefix=followup:<your-skill-name>:`" in prompt
         assert "You decide when a run becomes a validation run" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
@@ -1465,18 +1483,47 @@ class TestPromptBuilder(BaseTest):
 
     @parameterized.expand(
         [
-            ("signal_channel", []),
-            ("report_channel", ["emit_report", "edit_report"]),
+            (
+                f"{section}_{channel}",
+                allowed_tools,
+                check,
+                heading,
+                present,
+                absent,
+            )
+            for channel, allowed_tools in (("signal_channel", []), ("report_channel", ["emit_report", "edit_report"]))
+            for section, check, heading, present, absent in (
+                (
+                    "catalog",
+                    "project_has_governed_metrics",
+                    "# Governed metrics",
+                    "data-catalog-metric-run",
+                    ["data-catalog-metric-run", "metric-list", "information_schema.metrics"],
+                ),
+                (
+                    "memory_upkeep",
+                    "memory_upkeep_has_written",
+                    "# Memory upkeep",
+                    "dream:digest:<skill-name>",
+                    ["signals-scout-dreaming", "dream:digest:", "learned:"],
+                ),
+            )
         ]
     )
-    def test_catalog_text_renders_only_for_a_project_with_governed_metrics(
-        self, name: str, allowed_tools: list[str]
+    def test_usage_gated_section_renders_only_where_its_check_passed(
+        self,
+        name: str,
+        allowed_tools: list[str],
+        check: str,
+        heading: str,
+        present: str,
+        absent: list[str],
     ) -> None:
-        skill_name = f"signals-scout-catalog-{name}"
+        skill_name = f"signals-scout-gated-{name.replace('_', '-')}"
         LLMSkill.objects.create(
             team=self.team,
             name=skill_name,
-            description="Catalog scout",
+            description="Gated scout",
             body="watch",
             allowed_tools=allowed_tools,
         )
@@ -1487,18 +1534,32 @@ class TestPromptBuilder(BaseTest):
             "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
         }
 
-        nudged = build_run_prompt(loaded, **kwargs, project_has_governed_metrics=True)
-        assert "# Governed metrics" in nudged
-        assert "data-catalog-metric-run" in nudged
+        nudged = build_run_prompt(loaded, **{**kwargs, check: True})
+        assert heading in nudged
+        assert present in nudged
 
         for unused in (
             build_run_prompt(loaded, **kwargs),
-            build_run_prompt(loaded, **kwargs, project_has_governed_metrics=False),
+            build_run_prompt(loaded, **{**kwargs, check: False}),
         ):
-            assert "# Governed metrics" not in unused
-            assert "data-catalog-metric-run" not in unused
-            assert "metric-list" not in unused
-            assert "information_schema.metrics" not in unused
+            assert heading not in unused
+            for marker in absent:
+                assert marker not in unused
+
+    def test_memory_upkeep_section_is_not_shown_to_the_upkeep_scout_itself(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team, name=MEMORY_UPKEEP_SCOUT, description="Upkeep scout", body="tidy", allowed_tools=[]
+        )
+
+        prompt = build_run_prompt(
+            load_skill_for_run(self.team, MEMORY_UPKEEP_SCOUT),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            memory_upkeep_has_written=True,
+        )
+
+        assert "# Memory upkeep" not in prompt
 
     @parameterized.expand(
         [
