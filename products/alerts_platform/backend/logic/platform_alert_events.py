@@ -56,6 +56,9 @@ logger = structlog.get_logger(__name__)
 CONFIGURATION_ROW_ALERT_ID: Final = UUID(int=0)
 
 
+LEGACY_KEY_PREFIX: Final = "legacy:"
+
+
 @frozen
 class PlatformAlertEventRow:
     """One check, as the history table stores it.
@@ -677,16 +680,17 @@ def _microseconds(moment: datetime) -> str:
 # matching check, so one query answers both the page and the count a paginated list needs.
 _NOTABLE_CHECKS_SQL = f"""
 SELECT occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms,
-       error_message, grouping_key, count() OVER () AS total
+       error_message, grouping_key, source_detail, count() OVER () AS total
 FROM (
     SELECT alert_id, evaluation_key, occurred_at, previous_state, state, value, condition_snapshot,
-           query_duration_ms, error_message, grouping_key
+           query_duration_ms, error_message, grouping_key, source_detail,
+           startsWith(evaluation_key, %(legacy_prefix)s) AS is_copy
     FROM {PLATFORM_ALERT_EVENTS_TABLE}
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
       AND (%(all_groups)s OR grouping_key = '')
       AND {CHECKS_ONLY}
-      AND occurred_at >= %(since)s
+      AND (occurred_at >= %(since)s OR (%(copies_before)s AND is_copy))
       AND (previous_state != state OR error_message != '')
     ORDER BY alert_id, occurred_at, evaluation_key
     LIMIT 1 BY alert_id, evaluation_key
@@ -697,12 +701,20 @@ LIMIT %(limit)s
 
 
 def notable_checks(
-    team_id: int, configuration_id: UUID, *, since: datetime, limit: int, all_groups: bool = False
+    team_id: int,
+    configuration_id: UUID,
+    *,
+    since: datetime,
+    limit: int,
+    all_groups: bool = False,
+    copies_before: bool = False,
 ) -> PlatformCheckEventPage:
     """The newest `limit` checks since `since` that moved the configuration's state or failed.
 
     A check that confirmed the state it found is left out, because a source that lists events
     shows what changed. Only the ungrouped instance is read unless `all_groups`, as in `history`.
+    With `copies_before`, the checks copied from the source's own history are read from before
+    `since` too.
 
     Raises on a ClickHouse failure, because only the caller knows what it can show instead.
     """
@@ -715,6 +727,8 @@ def notable_checks(
             "since": since,
             "limit": limit,
             "all_groups": all_groups,
+            "copies_before": copies_before,
+            "legacy_prefix": LEGACY_KEY_PREFIX,
         },
         team_id=team_id,
         settings=_READ_BUDGET,
@@ -732,8 +746,9 @@ def notable_checks(
                 query_duration_ms=query_duration_ms,
                 error_message=error_message or None,
                 grouping_key=grouping_key,
+                source_detail=_snapshot(source_detail),
             )
-            for occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms, error_message, grouping_key, _ in rows
+            for occurred_at, evaluation_key, previous_state, state, value, condition_snapshot, query_duration_ms, error_message, grouping_key, source_detail, _ in rows
         ),
         total=rows[0][-1] if rows else 0,
     )

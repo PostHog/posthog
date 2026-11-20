@@ -515,6 +515,7 @@ class PlatformCheckEvent:
     error_message: str | None
     # The group the check moved. Empty for an alert that does not group.
     grouping_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -605,6 +606,8 @@ class LegacyAlertHistory:
 
     entries: tuple[LegacyHistoryEntry, ...]
     left_out: dict[str, int] = field(default_factory=dict)
+    # False when the source shows only the platform's checks since the cutover, not its parallel run.
+    platform_checks_replace_source: bool = True
 
 
 @frozen

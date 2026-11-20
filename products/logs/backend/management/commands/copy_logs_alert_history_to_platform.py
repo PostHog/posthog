@@ -3,9 +3,9 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from products.alerts_platform.backend.facade.api import copy_legacy_histories
-from products.alerts_platform.backend.facade.contracts import LegacyAlertHistory, SourceKind
+from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.created_at_backfill_command import add_copy_backfill_arguments
-from products.logs.backend.legacy_history_copy import control_history, team_alert_ids
+from products.logs.backend.legacy_history_copy import legacy_history, team_alert_ids
 
 SOURCE = SourceKind.LOGS
 
@@ -13,8 +13,8 @@ SOURCE = SourceKind.LOGS
 class Command(BaseCommand):
     help = (
         "Copy each logs alert's control-plane history (enable, disable, snooze, unsnooze, reset, threshold "
-        "change, handback) from LogsAlertEvent into the alerts platform's history, skipping what the platform "
-        "already holds. Writes nothing without --apply."
+        "change, handback) and its checks from before the cutover from LogsAlertEvent into the alerts "
+        "platform's history, skipping what the platform already holds. Writes nothing without --apply."
     )
 
     def add_arguments(self, parser: Any) -> None:
@@ -29,7 +29,7 @@ class Command(BaseCommand):
             source_kind=SOURCE,
             team_ids=options["team_ids"],
             alert_ids=team_alert_ids,
-            legacy_history=lambda team_id, alert_id: LegacyAlertHistory(entries=control_history(team_id, alert_id)),
+            legacy_history=legacy_history,
             apply=apply,
         )
         for line in run.report(SOURCE, applied=apply, unfinished_only=options["check"]):

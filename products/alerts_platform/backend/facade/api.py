@@ -520,14 +520,17 @@ def last_check_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> di
 
 
 def notable_checks_by_public_id(
-    *, team_id: int, public_id: UUID, since: datetime, limit: int
+    *, team_id: int, public_id: UUID, since: datetime, limit: int, copies_before: bool = False
 ) -> PlatformCheckEventPage | None:
     """The newest `limit` checks since `since` that moved a named alert's state or failed, with
-    their total, or None when the platform does not own the alert.
+    their total, or None when the platform does not own the alert. With `copies_before`, the checks
+    copied from the source's own history are read from before `since` too.
 
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
-    return platform_reads.notable_checks_by_public_id(team_id=team_id, public_id=public_id, since=since, limit=limit)
+    return platform_reads.notable_checks_by_public_id(
+        team_id=team_id, public_id=public_id, since=since, limit=limit, copies_before=copies_before
+    )
 
 
 def control_changes_by_public_id(

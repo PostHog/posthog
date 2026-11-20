@@ -39,6 +39,7 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic.platform_alert_events import (
     CHECKS_ONLY,
     CONFIGURATION_ROW_ALERT_ID,
+    LEGACY_KEY_PREFIX,
     PlatformAlertEventRow,
     insert_backfilled_events,
 )
@@ -47,8 +48,6 @@ from products.alerts_platform.backend.models import PlatformAlert, PlatformAlert
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
 logger = structlog.get_logger(__name__)
-
-LEGACY_KEY_PREFIX: Final = "legacy:"
 
 _PLATFORM_CONTROL_KINDS: Final = tuple(kind.value for kind in ControlChangeKind if kind.recorded_by_platform)
 
@@ -106,11 +105,13 @@ def _copy_state(configuration: PlatformAlertConfiguration) -> _CopyState:
     )
 
 
-def _covered(entry: LegacyHistoryEntry, state: _CopyState) -> bool:
+def _covered(entry: LegacyHistoryEntry, state: _CopyState, *, platform_checks_replace_source: bool) -> bool:
     if isinstance(entry.kind, ControlChangeKind):
         if not entry.kind.recorded_by_platform:
             return False
         oldest = state.oldest_control_at
+    elif not platform_checks_replace_source:
+        return False
     else:
         oldest = state.oldest_check_at
     return oldest is not None and entry.occurred_at >= oldest
@@ -134,7 +135,11 @@ def copy_team_histories(
             for alert_id in alert_ids(team_id):
                 history = legacy_history(team_id, alert_id)
                 result = copy_legacy_history_by_public_id(
-                    team_id=team_id, public_id=alert_id, entries=history.entries, apply=apply
+                    team_id=team_id,
+                    public_id=alert_id,
+                    entries=history.entries,
+                    apply=apply,
+                    platform_checks_replace_source=history.platform_checks_replace_source,
                 )
                 if result is None:
                     continue
@@ -161,7 +166,12 @@ def copy_team_histories(
 
 
 def copy_legacy_history_by_public_id(
-    *, team_id: int, public_id: UUID, entries: Sequence[LegacyHistoryEntry], apply: bool
+    *,
+    team_id: int,
+    public_id: UUID,
+    entries: Sequence[LegacyHistoryEntry],
+    apply: bool,
+    platform_checks_replace_source: bool = True,
 ) -> LegacyHistoryCopy | None:
     configuration = (
         PlatformAlertConfiguration.objects.for_team(team_id)
@@ -170,11 +180,17 @@ def copy_legacy_history_by_public_id(
     )
     if configuration is None:
         return None
-    return copy_legacy_history(configuration, entries, apply=apply)
+    return copy_legacy_history(
+        configuration, entries, apply=apply, platform_checks_replace_source=platform_checks_replace_source
+    )
 
 
 def copy_legacy_history(
-    configuration: PlatformAlertConfiguration, entries: Sequence[LegacyHistoryEntry], *, apply: bool
+    configuration: PlatformAlertConfiguration,
+    entries: Sequence[LegacyHistoryEntry],
+    *,
+    apply: bool,
+    platform_checks_replace_source: bool = True,
 ) -> LegacyHistoryCopy:
     """Copies the entries the platform holds neither as a copy nor as its own row into its history.
 
@@ -187,7 +203,7 @@ def copy_legacy_history(
     for entry in entries:
         if legacy_evaluation_key(entry.legacy_id) in state.copied_keys:
             already_copied += 1
-        elif _covered(entry, state):
+        elif _covered(entry, state, platform_checks_replace_source=platform_checks_replace_source):
             covered += 1
         else:
             pending.append(entry)

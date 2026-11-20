@@ -1687,9 +1687,20 @@ def _with_platform_history(
     logs_events = events
     if reads_checks:
         logs_events = logs_events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at)
+    # The platform holds a check from before the cutover only as a copy of a logs row, so the copies
+    # are read once the logs rows are gone, as for handbacks.
+    copies_before = (
+        reads_checks and not events.filter(kind=LogsAlertEvent.Kind.CHECK, created_at__lt=cutover_at).exists()
+    )
     checks = (
         _read_platform_history(
-            lambda: platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
+            lambda: platform_check_rows(
+                team_id=alert.team_id,
+                alert_id=alert.id,
+                since=cutover_at,
+                limit=rows_needed,
+                copies_before=copies_before,
+            )
         )
         if reads_checks and cutover_at is not None
         else None
