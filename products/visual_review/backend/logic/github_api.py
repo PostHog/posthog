@@ -517,8 +517,12 @@ def file_blob_sha(repo: Repo, path: str, ref: str, priority: Priority = Priority
     if not isinstance(listing, list):
         raise errors.GitHubCommitError(f"The parent of {path} at {ref} is not a directory.")
     for entry in listing:
-        if entry.get("name") == name and entry.get("type") == "file":
-            return entry["sha"]
+        if not isinstance(entry, dict) or entry.get("name") != name or entry.get("type") != "file":
+            continue
+        blob_sha = entry.get("sha")
+        if not isinstance(blob_sha, str) or not blob_sha:
+            raise errors.GitHubCommitError(f"The listing of the directory of {path} at {ref} has no blob SHA for it.")
+        return blob_sha
     # A cut-off listing cannot prove that the file is absent.
     if len(listing) >= _MAX_DIRECTORY_ENTRIES:
         raise errors.GitHubCommitError(f"The directory of {path} at {ref} has too many entries to list.")

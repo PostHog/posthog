@@ -41,13 +41,14 @@ class _FakeBaselineFile:
         self.history: list[str] = []
         self.files: dict[str, dict] = {}
         self.priorities: set[Priority] = set()
+        self.integration = MagicMock()
+        # GitHub answers 404 for every read, as after a lost access.
+        self.missing = False
+        self.real_blob_lookup = False
+        self._real_file_blob_sha = github_api.file_blob_sha
         mocker.patch.object(github_api, "get_github_integration_for_repo", side_effect=self._integration)
         mocker.patch.object(github_api, "file_blob_sha", side_effect=self._file_blob_sha)
-        mocker.patch.object(
-            github_api,
-            "_fetch_baseline_file",
-            side_effect=lambda github, repo_full_name, file_path, ref: (self._file_at(ref), "blob"),
-        )
+        mocker.patch.object(github_api, "_fetch_baseline_file", side_effect=self._fetch_baseline_file)
 
     def commit(self, sha: str, hashes: dict[str, str] | None = None) -> None:
         self.history.append(sha)
@@ -58,13 +59,22 @@ class _FakeBaselineFile:
         reachable = self.history[: self.history.index(sha) + 1]
         return next(self.files[changed] for changed in reversed(reachable) if changed in self.files)
 
+    def _fetch_baseline_file(self, github, repo_full_name: str, file_path: str, ref: str) -> tuple[dict, str | None]:
+        if self.missing:
+            return {}, None
+        return self._file_at(ref), "blob"
+
     def _file_blob_sha(self, repo: Repo, path: str, ref: str, priority: Priority = Priority.CRITICAL) -> str:
         self.priorities.add(priority)
+        if self.real_blob_lookup:
+            return self._real_file_blob_sha(repo, path, ref, priority)
+        if self.missing:
+            return ""
         return hashlib.sha1(yaml.safe_dump(self._file_at(ref)).encode()).hexdigest()
 
     def _integration(self, repo: Repo, priority: Priority = Priority.CRITICAL) -> MagicMock:
         self.priorities.add(priority)
-        return MagicMock()
+        return self.integration
 
 
 def _repair(repo: Repo, *args: str) -> str:
@@ -209,6 +219,34 @@ class TestLedgerRepair:
 
         assert _repair_entries(repo) == expected_entries
         assert [ledger.ledger_at(repo.id, RunType.STORYBOOK, position) for position in range(len(file_at))] == file_at
+
+    def test_a_baseline_file_github_does_not_find_stops_the_repair(self, repo, baseline_file) -> None:
+        baseline_file.missing = True
+        entries_before = BaselineEntry.objects.filter(repo=repo).count()
+
+        for args in ((), ("--apply",)):
+            with pytest.raises(CommandError, match="did not find .* at position 0, commit s0"):
+                _repair(repo, *args)
+
+        assert BaselineEntry.objects.filter(repo=repo).count() == entries_before
+
+    @pytest.mark.parametrize(
+        ("path", "listing"),
+        [
+            pytest.param("../snapshots.yml", [], id="dot_segment_in_the_path"),
+            pytest.param("frontend/snapshots.yml", {"message": "not a listing"}, id="malformed_listing"),
+        ],
+    )
+    def test_a_bad_path_or_listing_ends_as_a_repair_error(self, repo, baseline_file, path, listing) -> None:
+        repo.baseline_file_paths = {RunType.STORYBOOK: path}
+        repo.save()
+        baseline_file.real_blob_lookup = True
+        baseline_file.integration.api_request.return_value = MagicMock(
+            status_code=200, json=MagicMock(return_value=listing)
+        )
+
+        with pytest.raises(CommandError, match="could not be read"):
+            _repair(repo)
 
     def test_a_second_apply_plans_nothing(self, repo) -> None:
         _repair(repo, "--apply")

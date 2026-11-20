@@ -12,11 +12,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from django.db import transaction
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+
+if TYPE_CHECKING:
+    from posthog.models.integration import GitHubIntegration
 
 from ..db import WRITER_DB
 from ..facade.contracts import BaselineLedgerRepair, BaselineLedgerRepairEntry
@@ -92,6 +96,30 @@ def _newest_resolved_commit(repo: Repo) -> BaselineCommit:
     return commit
 
 
+def _blob_sha_at(repo: Repo, path: str, position: int, commit_sha: str) -> str:
+    """The file's blob SHA at the commit. A missing file stops the repair.
+
+    GitHub answers 404 for a lost access, a moved repo and a rewritten history too, so a missing
+    file is never read as an empty baseline. That would make the repair remove every identifier.
+    """
+    blob_sha = github_api.file_blob_sha(repo, path, commit_sha, Priority.BATCH)
+    if not blob_sha:
+        raise errors.BaselineRepairError(
+            f"GitHub did not find {path} at position {position}, commit {commit_sha}. Nothing was written."
+        )
+    return blob_sha
+
+
+def _file_at(repo: Repo, github: GitHubIntegration, run_type: str, position: int, commit_sha: str) -> dict[str, str]:
+    """The verified file at the commit. A missing file stops the repair, for the reason `_blob_sha_at` gives."""
+    hashes = baselines._read_baselines_at_ref(repo, github, run_type, commit_sha)
+    if hashes is None:
+        raise errors.BaselineRepairError(
+            f"GitHub did not return the baseline file at position {position}, commit {commit_sha}. Nothing was written."
+        )
+    return hashes
+
+
 def _read_baseline_file_history(
     repo: Repo, run_type: str, on_progress: ProgressCallback | None
 ) -> _BaselineFileHistory:
@@ -112,14 +140,14 @@ def _read_baseline_file_history(
     )
 
     github = github_api.get_github_integration_for_repo(repo, Priority.BATCH)
-    at_seed = baselines._resolve_baselines_at_ref(repo, github, run_type, seed.commit_sha)
-    previous_blob = github_api.file_blob_sha(repo, path, seed.commit_sha, Priority.BATCH)
+    previous_blob = _blob_sha_at(repo, path, 0, seed.commit_sha)
+    at_seed = _file_at(repo, github, run_type, 0, seed.commit_sha)
     previous = at_seed
     changes: dict[int, dict[str, str]] = {}
     for read_count, commit in enumerate(commits, start=1):
-        blob = github_api.file_blob_sha(repo, path, commit.commit_sha, Priority.BATCH)
+        blob = _blob_sha_at(repo, path, commit.position, commit.commit_sha)
         if blob != previous_blob:
-            current = baselines._resolve_baselines_at_ref(repo, github, run_type, commit.commit_sha)
+            current = _file_at(repo, github, run_type, commit.position, commit.commit_sha)
             changes[commit.position] = {
                 identifier: current.get(identifier, "") for identifier in _drift(previous, current)
             }
@@ -219,7 +247,7 @@ def _mismatches(repo: Repo, run_type: str, plan: BaselineLedgerRepair) -> tuple[
 
     mismatches: list[str] = []
     for commit_sha, entries in entries_by_commit.items():
-        file_hashes = baselines._resolve_baselines_at_ref(repo, github, run_type, commit_sha)
+        file_hashes = _file_at(repo, github, run_type, entries[0].position, commit_sha)
         for entry in entries:
             in_file = file_hashes.get(entry.identifier, "")
             if in_file == entry.content_hash:
@@ -247,6 +275,9 @@ def _read_and_plan(repo: Repo, run_type: str, on_progress: ProgressCallback | No
         raise errors.BaselineRepairError(
             "GitHub or the egress budget refused a read of the baseline file history. Try again later."
         ) from e
+    # A configured path with a dot segment raises ValueError before any request is sent.
+    except (errors.GitHubCommitError, ValueError) as e:
+        raise errors.BaselineRepairError(f"The baseline file history could not be read: {e}") from e
 
 
 def plan_repair(repo: Repo, run_type: str, on_progress: ProgressCallback | None = None) -> BaselineLedgerRepair:
