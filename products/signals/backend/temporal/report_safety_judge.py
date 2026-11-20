@@ -1,8 +1,12 @@
 import re
 import json
+import uuid
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Optional
+
+from django.utils import timezone
 
 import structlog
 import temporalio
@@ -17,7 +21,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.ml_inference.backend.facade.contracts import JsonValue
 from products.signals.backend.artefact_schemas import SafetyJudgment
-from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.spend import report_triggering_signal
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
@@ -252,6 +256,49 @@ class SafetyJudgeInput:
 class SafetyJudgeOutput:
     safe: bool
     explanation: Optional[str]
+
+
+def suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | None:
+    """Wrap the report's suggested prompts as one `SignalData` so the judge sees them too.
+
+    These carry further than a chart's text does: a reader clicks one and its wording is handed
+    straight to an agent run with the report as context, so an injected instruction here is executed
+    rather than merely read. Returns None when there are none, so a report without them produces a
+    judge prompt byte-identical to before.
+    """
+    if not suggested_prompts:
+        return None
+    # The label is part of the content because the judge's rendering shows source product/type but
+    # not `source_id` — without it the judge reads an action prompt ("add the null check and open a
+    # PR") as an anonymous signal containing instructions directed at an agent, which its system
+    # prompt treats as an injection marker, and benign action suggestions get reports suppressed.
+    # The system prompt (`REPORT_SAFETY_JUDGE_SYSTEM_PROMPT`) tells the judge what this label means.
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content="Suggested prompts (each is a request a reader can click to send to the coding agent):\n\n"
+        + "\n\n".join(suggested_prompts),
+        source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value,
+        source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value,
+        source_id="report_suggested_prompts",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
+async def judge_suggested_prompts(
+    *, team_id: int, report_id: str, suggested_prompts: Sequence[str]
+) -> SafetyJudgeResponse:
+    """Run the safety judge over a suggested-prompt set on its own.
+
+    The pipeline judges a report's input signals before research runs, and research writes its
+    prompts after that, so they need their own pass before they are stored. Raises
+    `LLMRefusalError` when the safety model refuses, so the caller decides what a refusal costs.
+    """
+    prompts_signal = suggested_prompts_signal(suggested_prompts)
+    if prompts_signal is None:
+        return SafetyJudgeResponse(choice=True, explanation="")
+    return await judge_report_safety(team_id=team_id, signals=[prompts_signal], report_id=report_id)
 
 
 @temporalio.activity.defn
