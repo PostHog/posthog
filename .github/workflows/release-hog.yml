@@ -178,6 +178,8 @@ jobs:
             bump: ${{ steps.gap.outputs.bump }}
             changeset: ${{ steps.changeset.outputs.changeset }}
             release-path-gaps: ${{ steps.release-path-gaps.outputs.paths }}
+            # The release tag the analysis compared with.
+            tag: ${{ steps.base.outputs.tag }}
         steps:
             # The whole tree, so the check below can tell when the release build's sparse checkout misses a
             # compiled file, and the history back to the last release.
@@ -596,17 +598,26 @@ jobs:
             # Written into this checkout only. sampo consumes it below, and the guard on the files the
             # release changes accepts it because a consumed changeset leaves nothing behind, or moves to
             # hog/.sampo/prerelease/ while the version is a prerelease.
+            # The gap job compared its commit with the release tag it had. A release that published since
+            # then already shipped part of that, so the changeset is dropped, and the next run compares with
+            # the new tag.
             - name: Add the changeset for compiled changes
               id: compiled-changeset
               if: needs.gap.outputs.needed == 'true'
               env:
                   BUMP: ${{ needs.gap.outputs.bump }}
                   CHANGESET: ${{ needs.gap.outputs.changeset }}
+                  GAP_TAG: ${{ needs.gap.outputs.tag }}
               run: |
                   set -euo pipefail
                   if [ "$BUMP" != patch ] && [ "$BUMP" != minor ]; then
                       echo "::error::The gap job returned an unexpected bump, $BUMP"
                       exit 1
+                  fi
+                  tag="hog/v$(jq -r '.version' hog/package.json)"
+                  if [ "$tag" != "$GAP_TAG" ]; then
+                      echo "::notice::The gap job compared with $GAP_TAG, but master is now at $tag, so its changeset is dropped. The next run compares with $tag."
+                      exit 0
                   fi
                   # A release that consumes every changeset leaves no file, so git drops the folder.
                   mkdir -p hog/.sampo/changesets
