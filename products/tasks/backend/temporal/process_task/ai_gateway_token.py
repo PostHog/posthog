@@ -12,7 +12,7 @@ import time
 import random
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack
 
 from django.conf import settings
 
@@ -388,32 +388,20 @@ def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" 
 CaptureMode = Literal["none", "content_none"]
 
 
-def mint_scoped_token(
-    *,
-    ai_product: str,
-    team_id: int,
-    user: str | None = None,
-    allowed_models: list[str] | None = None,
-    limit_tier: str | None = None,
-    capture_mode: CaptureMode | None = None,
-    expires_in_seconds: int | None = None,
-    gateway_config: "AIGatewayConfig | None" = None,
-    raise_on_failure: bool = False,
-    run_id: str | None = None,
-) -> str | None:
+class ScopedTokenOptions(TypedDict, total=False):
+    user: str | None
+    allowed_models: list[str] | None
+    limit_tier: str | None
+    capture_mode: CaptureMode | None
+    expires_in_seconds: int | None
+    gateway_config: "AIGatewayConfig | None"
+    raise_on_failure: bool
+    run_id: str | None
+
+
+def mint_scoped_token(*, ai_product: str, team_id: int, **options: Unpack[ScopedTokenOptions]) -> str | None:
     """The token of `mint_scoped_token_grant`, for callers that never read its expiry."""
-    grant = mint_scoped_token_grant(
-        ai_product=ai_product,
-        team_id=team_id,
-        user=user,
-        allowed_models=allowed_models,
-        limit_tier=limit_tier,
-        capture_mode=capture_mode,
-        expires_in_seconds=expires_in_seconds,
-        gateway_config=gateway_config,
-        raise_on_failure=raise_on_failure,
-        run_id=run_id,
-    )
+    grant = mint_scoped_token_grant(ai_product=ai_product, team_id=team_id, **options)
     return grant.token if grant is not None else None
 
 
