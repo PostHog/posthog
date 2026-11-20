@@ -1288,7 +1288,7 @@ Note: Automox publishes six separate Scalar specs at /api/docs/specs/\*.json (co
 
 ## Autumn — gaps
 
-Today (9): `Coupons`, `Customers`, `Entities`, `Events`, `FeatureGrants`, `Features`, `Invoices`, `Licenses`, `Plans`
+Today (13): `BalanceLedger`, `Balances`, `Coupons`, `Customers`, `Entities`, `Events`, `FeatureGrants`, `Features`, `Invoices`, `Licenses`, `Plans`, `Purchases`, `Subscriptions`
 
 Diffed against: <https://docs.useautumn.com/llms.txt>
 
@@ -1298,10 +1298,10 @@ Note: Every list endpoint in the API reference is already synced: listCustomers,
 
 Re-audited 2026-11-19 against: <https://docs.useautumn.com/llms.txt>
 
-- [ ] `Subscriptions (POST /v1/subscriptions.list)` — flat list of recurring plans and add-ons across customers with status, for MRR and churn work (high)
-- [ ] `Balances (POST /v1/balances.list)` — one row per grant of feature balance across customers, live or expired, for usage and credit analysis (high)
-- [ ] `Purchases (POST /v1/purchases.list)` — one-off plan purchases across customers, live or expired (medium)
-- [ ] `Balance ledger (POST /v1/balances.list_ledger)` — history of balance changes per customer and feature, with reason and before and after values; needs a customer and feature per request (medium)
+- [x] `Subscriptions (POST /v1/subscriptions.list)` — flat list of recurring plans and add-ons across customers with status, for MRR and churn work (high)
+- [x] `Balances (POST /v1/balances.list)` — one row per grant of feature balance across customers, live or expired, for usage and credit analysis (high)
+- [x] `Purchases (POST /v1/purchases.list)` — one-off plan purchases across customers, live or expired (medium)
+- [x] `Balance ledger (POST /v1/balances.list_ledger)` — history of balance changes per customer and feature, with reason and before and after values; needs a customer and feature per request (medium)
 - [ ] `License assignments (POST /v1/licenses.list_assignments)` — which entities hold each license seat; needs a customer per request (low)
 - [ ] `Referral programs (POST /v1/referral_programs.list)` — configured referral programs, a small lookup table (low)
 
