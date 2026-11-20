@@ -872,9 +872,17 @@ def _flag_key_column_read(
     `$feature_flag` writes the row back without the key and with an empty `flag_key`. The JSON read returns that text on
     the first kind of row and NULL on the second, so `nullIf(flag_key, '')` reads the same value without loading the
     whole `properties` blob. Unlike a materialized column, 'null' stays a value, because here it can only name a flag.
+    As with a materialized column, the blob read stays when the query disables materialization, and when a restriction
+    overlaps the key, because the printer masks only the blob read.
     """
     table_type = _unwrap_to_table_type(field_type)
-    if node.keys != ["$feature_flag"] or table_type is None or not isinstance(table_type.table, FlagEvaluationsTable):
+    if (
+        node.keys != ["$feature_flag"]
+        or table_type is None
+        or not isinstance(table_type.table, FlagEvaluationsTable)
+        or context.modifiers.materializationMode == "disabled"
+        or property_path_overlaps_restriction("$feature_flag", field_type.table_type, context)
+    ):
         return None
     field = field_type.resolve_database_field(context)
     if not isinstance(field, DatabaseField) or field.name != "properties":
