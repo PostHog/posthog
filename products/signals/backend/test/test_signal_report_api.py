@@ -5664,26 +5664,41 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
         response = self._associate(report, {"task_id": str(task.id)})
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_reports_list_filters_by_task_id(self):
-        report = self._create_report()
-        other_report = self._create_report()
+    @parameterized.expand(
+        [
+            ("all_associations", True, "", {"claimed", "implemented"}),
+            ("pr_targets_drop_claim_beside_other_report", True, "&pr_targets=true", {"implemented"}),
+            ("pr_targets_keep_sole_claim", False, "&pr_targets=true", {"claimed"}),
+        ]
+    )
+    def test_reports_list_filters_by_task_id(self, _name, with_implementation, extra_params, expected):
+        reports = {"claimed": self._create_report(), "implemented": self._create_report()}
+        self._create_report()
         task = self._create_task()
         append_task_run_artefact(
             team_id=self.team.id,
-            report_id=str(report.id),
+            report_id=str(reports["claimed"].id),
             product="tasks",
             type="agent_run",
             task_id=str(task.id),
         )
+        if with_implementation:
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(reports["implemented"].id),
+                product="signals",
+                type=TASK_RUN_TYPE_IMPLEMENTATION,
+                task_id=str(task.id),
+            )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}{extra_params}")
         assert response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in response.json()["results"]}
-        assert ids == {str(report.id)}
-        assert str(other_report.id) not in ids
+        assert ids == {str(reports[name].id) for name in expected}
 
-    def test_reports_list_rejects_malformed_task_id(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id=not-a-uuid")
+    @parameterized.expand([("malformed_task_id", "task_id=not-a-uuid"), ("pr_targets_without_task", "pr_targets=true")])
+    def test_reports_list_rejects_bad_task_filter(self, _name, query):
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
