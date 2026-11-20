@@ -5,8 +5,8 @@ the organizations that existed before that setting changed: a list of ids, every
 created after an instant, or every organization, less an optional exclude list.
 
 The command writes the organizations in chunks and commits each chunk in its own transaction.
-Without --allow-downgrade a write only raises a mode, so a run that fails partway resumes when it
-runs again. --write-changed-ids appends the ids of each committed chunk's changed organizations to
+A run skips organizations already at --mode, so a run that fails partway resumes when it runs
+again. --write-changed-ids appends the ids of each committed chunk's changed organizations to
 a file. A rollback passes that file to --organization-ids-file.
 
 On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams that it
@@ -140,7 +140,7 @@ class Command(BaseCommand):
             type=Path,
             help=(
                 "Append the ids of the organizations that the run changed to this file, one per line. Each chunk "
-                "writes its ids before it commits and removes them again when it fails. A rerun with the same path "
+                "writes its ids before it commits and removes them again when it fails before the commit. A rerun with the same path "
                 "appends the ids it changes. Refused with --dry-run."
             ),
         )
@@ -210,6 +210,7 @@ class Command(BaseCommand):
                     .order_by("created_at", "id")
                 )
                 chunk_start = changed_ids_file.tell() if changed_ids_file is not None else 0
+                committing = False
                 try:
                     with transaction.atomic():
                         changes = set_organizations_flag_evaluations_mode(
@@ -227,8 +228,12 @@ class Command(BaseCommand):
                                 f"{change.organization_id}\n" for change in changes if change.changed
                             )
                             _sync(changed_ids_file)
+                        # An exception after this line comes from the commit, and the server may have applied
+                        # the commit. The ids then stay in the file. A listed id that the run did not move does
+                        # no harm. A lost id would leave its organization out of a rollback.
+                        committing = True
                 except BaseException:
-                    if changed_ids_file is not None:
+                    if changed_ids_file is not None and not committing:
                         changed_ids_file.truncate(chunk_start)
                         _sync(changed_ids_file)
                     raise
