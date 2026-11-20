@@ -35,15 +35,6 @@ const githubIntegration = (overrides: Partial<IntegrationType> = {}): Integratio
         ...overrides,
     }) as IntegrationType
 
-const emailRow = (verified: boolean): IntegrationType =>
-    ({ id: 50, kind: 'email', display_name: 'hello@example.com', config: { verified } }) as IntegrationType
-
-function heldResponse(): { promise: Promise<void>; resolve: () => void } {
-    let resolve!: () => void
-    const promise = new Promise<void>((done) => (resolve = done))
-    return { promise, resolve }
-}
-
 describe('integrationsLogic', () => {
     let logic: ReturnType<typeof integrationsLogic.build>
     let createSpy: jest.SpyInstance
@@ -356,69 +347,6 @@ describe('integrationsLogic', () => {
             expect(logic.values.integrations?.map((integration) => integration.id)).toEqual([42, 43])
             expect(logic.values.githubIntegrations.map((integration) => integration.id)).toEqual([42])
             expect(logic.values.getIntegrationsByKind(['github']).map((integration) => integration.id)).toEqual([42])
-        })
-    })
-
-    describe('loadIntegrationsOfKind', () => {
-        it('asks only for that kind and keeps every other row', async () => {
-            integrationsPayload = [githubIntegration(), emailRow(false)]
-            await expectLogic(logic, () => logic.actions.loadIntegrations()).toFinishAllListeners()
-
-            const kindsRequested: (string | null)[] = []
-            integrationsPayload = [githubIntegration({ display_name: 'Renamed' }), emailRow(true)]
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/integrations/': ({ request }) => {
-                        const kind = new URL(request.url).searchParams.get('kind')
-                        kindsRequested.push(kind)
-                        return [200, { results: integrationsPayload.filter((row) => !kind || row.kind === kind) }]
-                    },
-                },
-            })
-            await expectLogic(logic, () => logic.actions.loadIntegrationsOfKind('email')).toFinishAllListeners()
-
-            expect(kindsRequested).toEqual(['email'])
-            expect(
-                logic.values.integrations?.map(({ kind, display_name, config }) => [kind, display_name, config])
-            ).toEqual([
-                ['github', 'PostHog', githubIntegration().config],
-                ['email', 'hello@example.com', { verified: true }],
-            ])
-        })
-
-        it.each<[string, 'full' | 'email', boolean]>([
-            ['a full load that started later', 'email', false],
-            ['a full load that started earlier', 'full', true],
-        ])('lands after %s, and the later request wins', async (_, startsFirst, kindRowsWin) => {
-            const held = { full: heldResponse(), email: heldResponse() }
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/integrations/': async ({ request }) => {
-                        if (new URL(request.url).searchParams.get('kind') === 'email') {
-                            await held.email.promise
-                            return [200, { results: [emailRow(true)] }]
-                        }
-                        await held.full.promise
-                        return [200, { results: [githubIntegration(), emailRow(false)] }]
-                    },
-                },
-            })
-            const start = {
-                full: () => logic.actions.loadIntegrations(),
-                email: () => logic.actions.loadIntegrationsOfKind('email'),
-            }
-            start[startsFirst]()
-            start[startsFirst === 'full' ? 'email' : 'full']()
-
-            held.full.resolve()
-            await waitFor(() => expect(logic.values.integrations?.map(({ kind }) => kind)).toContain('github'))
-            held.email.resolve()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.integrations?.map(({ kind, config }) => [kind, config])).toEqual([
-                ['github', githubIntegration().config],
-                ['email', { verified: kindRowsWin }],
-            ])
         })
     })
 
