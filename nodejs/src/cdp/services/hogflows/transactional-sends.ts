@@ -197,6 +197,18 @@ export type TransactionalSendsDeps = {
     refuseSandboxSends: (teamId: number, recipients: string[]) => Promise<(SandboxCodeSendRefusal | null)[]>
 }
 
+export type KeyedTransactionalEmailRequest = TransactionalEmailRequest & { idempotency_key: string }
+
+export type BatchAcceptance =
+    | { refused: TransactionalSendRefusal | 'deadline_exceeded' }
+    | { results: TransactionalSendResult[] }
+
+type BatchChecks = { refusal: TransactionalSendRefusal | null; recipientRefusals: (TransactionalSendRefusal | null)[] }
+
+// The id a keyed send's run gets, which a refusal names too, so the caller can read the send's status by it.
+export const transactionalEmailRunId = (teamId: number, idempotencyKey: string): string =>
+    keyedRunId(teamId, RUN_SCOPE, idempotencyKey)
+
 export type SendFiles = {
     shape: FilesWorkflowShape | null
     sizeMessageBodies: (
@@ -427,6 +439,129 @@ export class TransactionalSends {
             replyFields: attachmentTotals,
             senderKind,
         }
+    }
+
+    // Suppression and the MX check are left to the email worker, which records a skipped send in the status read.
+    async acceptBatch(
+        team: Team,
+        hogFlow: HogFlow,
+        requests: KeyedTransactionalEmailRequest[],
+        stages: TransactionalEmailStageTimer,
+        sender: CodeSendSender,
+        publishBy: number
+    ): Promise<BatchAcceptance> {
+        if (sender.kind === 'refused') {
+            return { refused: sender.refusal }
+        }
+        const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
+        stages.start('checks')
+        const checks = await this.withinRefusalBudget(
+            team.id,
+            hogFlow,
+            () => this.batchChecks(team.id, hogFlow, senderKind, requests),
+            (quotaLimited): BatchChecks => ({
+                refusal: quotaLimited ? 'quota_limited' : null,
+                recipientRefusals: requests.map(() => null),
+            })
+        )
+        if (checks.refusal) {
+            return { refused: checks.refusal }
+        }
+
+        stages.start('build')
+        const runs = requests.map((request) => {
+            const invocation = this.buildInvocation(team, hogFlow, request, request.send, senderKind)
+            const fingerprint = transactionalEmailFingerprint(
+                this.deps.encryptedFields,
+                hogFlow.id,
+                request,
+                request.send,
+                null
+            )
+            invocation.id = transactionalEmailRunId(team.id, request.idempotency_key)
+            return { invocation, fingerprint }
+        })
+        stages.start('idempotency')
+        const recalled = await this.deps.runIntake.recallAllWithin(
+            runs.map(({ invocation, fingerprint }) => ({ runId: invocation.id, fingerprint: fingerprint.current })),
+            'transactional-email'
+        )
+        if (performance.now() > publishBy) {
+            return { refused: 'deadline_exceeded' }
+        }
+
+        stages.start('intake_produce')
+        const statusAt = new Date().toISOString()
+        const results = await Promise.all(
+            runs.map(async ({ invocation, fingerprint }, i): Promise<TransactionalSendResult> => {
+                const found = recalled[i]
+                if (found.status !== 'absent') {
+                    if (!claimedBySameRequest(fingerprint, found.claimedFingerprint)) {
+                        return { outcome: 'idempotency_key_reused' }
+                    }
+                    const stored = found.reply as QueuedReply | null
+                    return {
+                        outcome: 'replayed',
+                        invocationId: found.runId,
+                        scheduledAt: stored?.scheduledAt ?? null,
+                        replyFields: NO_ATTACHMENTS,
+                        senderKind: stored ? stored.senderKind : senderKind,
+                    }
+                }
+                const refusal = checks.recipientRefusals[i]
+                if (refusal) {
+                    return { outcome: refusal }
+                }
+                invocation.state.statusAt = statusAt
+                const reply: QueuedReply = { replayFields: NO_ATTACHMENTS, senderKind }
+                const produced = await this.deps.runIntake.produce({
+                    kind: 'transactional-email',
+                    invocation,
+                    claim: { fingerprint: fingerprint.current, reply },
+                })
+                return producedResult(produced, invocation.id, null, NO_ATTACHMENTS, senderKind)
+            })
+        )
+        return { results }
+    }
+
+    private async batchChecks(
+        teamId: number,
+        hogFlow: HogFlow,
+        senderKind: SenderKind | undefined,
+        requests: KeyedTransactionalEmailRequest[]
+    ): Promise<BatchChecks> {
+        const whole = (refusal: TransactionalSendRefusal): BatchChecks => ({ refusal, recipientRefusals: [] })
+        if (hogFlow.status !== 'active') {
+            return whole('not_sendable')
+        }
+        if (hogFlow.email_sending_paused_at) {
+            return whole('sending_paused')
+        }
+        const sandbox =
+            senderKind === 'email_sandbox'
+                ? this.deps.refuseSandboxSends(
+                      teamId,
+                      requests.map(({ to }) => to)
+                  )
+                : Promise.resolve(requests.map(() => null))
+        const suspension = this.deps.teamWorkflowsConfig.getEmailSendingSuspension(teamId)
+        const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
+        // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
+        for (const lookup of [sandbox, suspension, quota] as Promise<unknown>[]) {
+            lookup.catch(() => undefined)
+        }
+        const sandboxRefusals = await sandbox
+        if (sandboxRefusals.includes('sandbox_sender_unavailable')) {
+            return whole('sandbox_sender_unavailable')
+        }
+        if (await suspension) {
+            return whole('sending_suspended')
+        }
+        if ((await quota).isLimited) {
+            return whole('quota_limited')
+        }
+        return { refusal: null, recipientRefusals: sandboxRefusals }
     }
 
     private buildInvocation(
