@@ -2853,8 +2853,7 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert str(row.created_by_run_id) == str(named.id)
 
     def test_revisions_name_the_sandbox_run_and_survive_a_forget(self) -> None:
-        # A body `run_id` can name any run on the project, so the revision must name the run the
-        # token is bound to, or a scout could pin its overwrite on a sibling.
+        # A body `run_id` can name a sibling's run, so a revision must name the token's run instead.
         named = _make_run(self.team)
         sandbox_run = _make_run(self.team)
         _authenticate_as_scout(self, sandbox_task_id=sandbox_run.task_run.task_id)

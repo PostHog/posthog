@@ -4031,12 +4031,10 @@ class SignalScratchpadRevision(TeamScopedRootMixin, UUIDModel):
     # See SignalScoutConfig.all_teams for rationale: the janitor sweeps with no team scope set.
     all_teams = models.Manager()  # noqa: DJ012
 
-    # No single-column index: the key index below leads with team_id.
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
     )
     key = models.CharField(max_length=300)
-    # The entry's content and expiry before the change.
     content = models.TextField()
     expires_at = models.DateTimeField(null=True, blank=True)
     change = models.CharField(max_length=16, choices=Change.choices)

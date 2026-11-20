@@ -105,7 +105,6 @@ class ScratchpadRevision:
     change: str
     changed_at: str
     changed_by_run_id: str | None = None
-    # The run's skill name, or the `pipeline:*` identity when a report-pipeline stage made the change.
     changed_by_skill: str | None = None
     changed_by_run_url: str | None = None
 
@@ -122,7 +121,6 @@ class ScratchpadEntry:
     # stored `pipeline:*` identity when a report-pipeline stage wrote it and there is no run.
     created_by_skill: str | None = None
     created_by_run_url: str | None = None
-    # Earlier versions, newest first. Only an exact-key read with `include_revisions` fills it.
     revisions: list[ScratchpadRevision] | None = None
 
     def as_dict(self) -> dict[str, Any]:

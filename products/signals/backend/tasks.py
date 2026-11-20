@@ -1415,8 +1415,7 @@ def pause_inactive_signal_scouts() -> None:
 # searches; the grace keeps it readable through the `include_expired` audit path for two more weeks,
 # so a human can still see what the fleet remembered and when it lapsed before the row is gone.
 SCRATCHPAD_EXPIRY_GRACE_DAYS = 14
-# How long the state a write replaced or deleted stays readable, and how many earlier versions one key
-# keeps. Entries can hold 50,000 characters and some keys are rewritten on every run, so both bound it.
+# Some keys are rewritten on every run, so revisions are capped per key as well as by age.
 SCRATCHPAD_REVISION_RETENTION_DAYS = 14
 SCRATCHPAD_REVISIONS_PER_KEY = 10
 
