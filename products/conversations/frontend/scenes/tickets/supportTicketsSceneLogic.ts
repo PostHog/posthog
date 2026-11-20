@@ -373,7 +373,7 @@ export interface supportTicketsSceneLogicMeta {
         editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
         deletableSelectedTicketIds: (
             selectedTickets: Ticket[],
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => string[]
         bulkDeleteDisabledReason: (
             selectedTicketIds: string[],
