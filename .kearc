@@ -3,5 +3,6 @@
   "rootPath": "./frontend/src",
   "typesPath": "./frontend/src",
   "writePaths": true,
-  "inline": true
+  "inline": true,
+  "compiler": "go"
 }

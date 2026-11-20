@@ -9,8 +9,6 @@ Supabase calls PostHog's Send Email Hook for each auth email. The user does the 
 
 If the Supabase MCP server is connected, use it to read the project URL (step 4) and the logs (when a hook call fails). It has no tools for Auth settings. Leave the hook and the rate limit to the user even if you have other Supabase access, because those settings send every sign-up email.
 
-The tools are behind a beta flag. If `supabase-auth-emails-settings-get` isn't available, tell the user the feature isn't enabled for their project yet and stop.
-
 ## The setup
 
 1. **Read the current state.** Call `supabase-auth-emails-settings-get`. Keep the `hook_url`, the `email_types` list and the current `templates` mapping. If the project is already set up, change only what the user asked for.

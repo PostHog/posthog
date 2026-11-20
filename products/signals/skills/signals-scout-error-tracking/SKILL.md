@@ -128,7 +128,7 @@ When the issue is server-side, the stack trace usually names the failing activit
 Memory is a continuous activity. Write a scratchpad entry whenever you observe something a future error-tracking run should know. Encode the "category" in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, `reviewer:` — so future runs find it with a single `text=` search:
 
 - key `pattern:error_tracking:baseline` — _"Project's normal `$exception` baseline: ~50/day across ~30 distinct users. Anything materially above that is fresh."_
-- key `dedupe:error_tracking:019de34e` — _"Issue 019de34e — surfaced 2026-05-01 11:31–13:22Z, then quiet. If quiet next run, treat as already-surfaced; if firing, escalate."_
+- key `dedupe:error_tracking:019de34e` — _"Issue 019de34e — surfaced 2026-05-01 11:31–13:22Z, then quiet. If quiet next run, treat as already-surfaced; if firing, escalate."_ Set `expires_at` about 30 days past the last time the issue fired: an issue quiet that long that fires again is a regression worth a fresh look.
 - key `noise:error_tracking:ci-runner-timeoutexpired` — _"`TimeoutExpired` raised by the team's own CI runner is recurring noise — internal tooling, not user-facing."_
 - key `pattern:error_tracking:fetch_signals_for_report_activity` — _"Server activity `fetch_signals_for_report_activity` was a regression source on 2026-05-01 — if it appears in a fresh stack trace, double-check it's not the same root cause."_
 - key `report:error_tracking:019de34e` — the `report_id` of a report you authored for issue `019de34e`, so the next run edits it (`append_evidence` with the fresh window) instead of duplicating.

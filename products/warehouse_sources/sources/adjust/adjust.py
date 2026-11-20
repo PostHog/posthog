@@ -9,7 +9,13 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.adjust.settings import ADJUST_REPORTS, DEFAULT_LOOKBACK_DAYS, EVENTS_CATALOG
-from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    DEFAULT_RETRY,
+    BoundedRetry,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
+)
 
 ADJUST_API_HOST = "automate.adjust.com"
 BASE_URL = f"https://{ADJUST_API_HOST}/reports-service"
@@ -34,9 +40,23 @@ MAX_EVENT_METRICS_PER_REQUEST = 50
 # query string.
 _APP_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
+# During a Report Service incident, Adjust answers some requests with a 403 while the same token
+# keeps working on the requests around it. A 403 is non-retryable and disables the schema, so the
+# sync retries it first. The waits (0, 10 and 20 seconds) spread the tries past a short burst of
+# 403s. A 403 that persists through the retries is real lost access, and it still reaches
+# `_get_json` and disables the schema. The credential probe keeps the default policy so that a bad
+# token fails fast in the source setup form.
+SYNC_RETRY = BoundedRetry(
+    total=DEFAULT_RETRY.total,
+    backoff_factor=5,
+    status_forcelist=(403, *DEFAULT_RETRY.status_forcelist),
+    allowed_methods=DEFAULT_RETRY.allowed_methods,
+    raise_on_status=False,
+)
+
 
 class AdjustRetryableError(Exception):
-    """Transient upstream failure (429 / 5xx) that survived the tracked session's own retries."""
+    """Transient upstream failure (408 / 429 / 5xx) that survived the tracked session's own retries."""
 
     pass
 
@@ -58,8 +78,9 @@ def _today() -> date:
     return datetime.now(UTC).date()
 
 
-def _get_session(api_token: str) -> requests.Session:
+def _get_session(api_token: str, retry: BoundedRetry | None = None) -> requests.Session:
     return make_tracked_session(
+        retry=retry,
         headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
         redact_values=(api_token,),
         # The Bearer token rides in every request's default headers, so pin the session off
@@ -128,7 +149,9 @@ def _error_message(response: requests.Response) -> str:
 def _get_json(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    # 408 is a transient request timeout on Adjust's side; retry it like 429/5xx rather than
+    # treating it as a bad request the client sent.
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise AdjustRetryableError(f"Adjust API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
@@ -312,7 +335,7 @@ def validate_credentials(api_token: str, app_tokens: str | None = None) -> bool:
 
     response = _get_session(api_token).get(f"{REPORT_URL}?{urlencode(params)}", timeout=30)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise AdjustRetryableError(f"Adjust API error (retryable): status={response.status_code}")
     if response.status_code == 200:
         return True
@@ -367,7 +390,7 @@ def get_event_catalog(
     app_tokens: str | None,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    events = fetch_events(_get_session(api_token), parse_app_tokens(app_tokens), logger)
+    events = fetch_events(_get_session(api_token, SYNC_RETRY), parse_app_tokens(app_tokens), logger)
     if events:
         yield events
 
@@ -386,7 +409,7 @@ def get_rows(
 
     config = ADJUST_REPORTS[report]
     tokens = parse_app_tokens(app_tokens)
-    session = _get_session(api_token)
+    session = _get_session(api_token, SYNC_RETRY)
 
     event_names: dict[str, str | None] = {}
     metric_batches = [config.metrics]
@@ -412,7 +435,7 @@ def get_rows(
         windows = [window for window in windows if window[0].isoformat() >= resume.next_start_date]
         logger.debug(f"Adjust: resuming {report} from {resume.next_start_date}")
 
-    # The tracked session already retries 429 + transient 5xx honoring `Retry-After`, so there is
+    # The tracked session already retries 403, 429 and transient 5xx honoring `Retry-After`, so there is
     # deliberately no second retry layer here — anything that reaches us has already been retried,
     # and the Temporal activity retries the job.
     for index, (window_start, window_end) in enumerate(windows):

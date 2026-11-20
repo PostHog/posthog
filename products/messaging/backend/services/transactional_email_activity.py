@@ -1,4 +1,4 @@
-"""What the recipient of one transactional email did in the product around the send."""
+"""What the recipient of one email did in the product around the send."""
 
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -68,7 +68,14 @@ def get_transactional_email_activity(
     sent_at = next(
         (event.at for event in detail.timeline if event.kind == EmailLogEventKind.SENT), detail.entry.created_at
     )
-    if not detail.distinct_id:
+    return get_email_activity(team, user, detail.distinct_id, sent_at)
+
+
+def get_email_activity(
+    team: Team, user: User | None, distinct_id: str, sent_at: datetime
+) -> TransactionalEmailActivity:
+    """The events of the person behind `distinct_id` in the week before and after `sent_at`."""
+    if not distinct_id:
         return TransactionalEmailActivity(
             distinct_id="",
             sent_at=sent_at,
@@ -81,7 +88,7 @@ def get_transactional_email_activity(
 
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
     window = timedelta(days=ACTIVITY_WINDOW_DAYS)
-    recipient = _recipient_match(team.id, detail.distinct_id)
+    recipient = _recipient_match(team.id, distinct_id)
     before = _events(team, user, recipient, sent_at - window, sent_at, newest_first=True, limit=ACTIVITY_BEFORE_LIMIT)
     after = _events(team, user, recipient, sent_at, sent_at + window, newest_first=False, limit=ACTIVITY_AFTER_LIMIT)
     shown_before = list(reversed(before[:ACTIVITY_BEFORE_LIMIT]))
@@ -96,7 +103,7 @@ def get_transactional_email_activity(
         {event.session_id for event in shown_after if event.session_id} - shown_before_sessions,
     )
     return TransactionalEmailActivity(
-        distinct_id=detail.distinct_id,
+        distinct_id=distinct_id,
         sent_at=sent_at,
         before=shown_before,
         after=shown_after,

@@ -60,5 +60,8 @@ class RepoMergeAdapter:
                 requested_by=inputs.requested_by,
                 requested_by_user_id=inputs.requested_by_user_id,
                 docs_content_root=report.docs_content_root,
+                source_repository=report.repository,
+                source_commit_sha=report.commit_sha,
+                source_author_login=report.author_login,
             ),
         )

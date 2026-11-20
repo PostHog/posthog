@@ -23,11 +23,11 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     frozen,
     make_tracked_session,
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _REGION = re.compile(r"(?:af|ap|ca|cn|eu|il|me|mx|sa|us)-(?:gov-)?[a-z]+-\d+")
 # A name wildcard includes every status without seven separate status walks.
 ALL_JOBS_FILTER = [{"name": "JOB_NAME", "values": ["*"]}]
@@ -140,7 +140,7 @@ class AwsBatchClient:
 
 
 def normalize_row(item: dict[str, Any], region: str) -> dict[str, Any]:
-    row = {_CAMEL_BOUNDARY.sub("_", name).lower(): value for name, value in item.items()}
+    row = {camel_to_snake(name): value for name, value in item.items()}
     row["region"] = region
     for column in ("created_at", "started_at", "stopped_at", "scheduled_at"):
         if column in row and isinstance(row[column], int | float) and not isinstance(row[column], bool):
