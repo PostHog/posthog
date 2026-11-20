@@ -121,3 +121,8 @@ products/mobile/.gitignore
 products/mobile/app/** @PostHog/team-mobile-app
 products/desktop/apps/mobile/** @PostHog/team-mobile-app
 .github/workflows/*mobile*.yml @PostHog/team-mobile-app
+
+# The hog release approver check decides who may approve a release of the signed hog CLI. The release
+# workflow runs the copy from the last release tag, so a weakened copy merged here would govern every
+# later release, including ones its author could then approve. Growth owns hog; security owns the control.
+hog/release/check-approvers.sh @PostHog/team-growth @PostHog/team-security
