@@ -201,6 +201,7 @@ from products.dashboards.backend.presentation.widget_openapi_serializers import 
     WidgetCatalogResponseSerializer,
 )
 from products.dashboards.backend.run_insights_output import (
+    bound_error_message,
     bound_formatted_result,
     parse_max_result_chars,
     parse_tile_ids,
@@ -4445,6 +4446,9 @@ class DashboardsViewSet(
                     )
                     insight_data["result"] = formatted
                     used_chars += len(formatted)
+                if isinstance(insight_data.get("error"), str):
+                    insight_data["error"] = bound_error_message(insight_data["error"], used_chars)
+                    used_chars += len(insight_data["error"])
 
             tile_results.append(tile_data)
 
