@@ -18,7 +18,7 @@ export interface AlertOnThisMenuProps {
 }
 
 export function AlertOnThisMenu({ target, source, onCreateAlert }: AlertOnThisMenuProps): JSX.Element {
-    const scopeLabel = target.operation ?? target.serviceName
+    const scopeLabel = target.label ?? target.operation ?? target.serviceName
 
     return (
         <LemonMenu
