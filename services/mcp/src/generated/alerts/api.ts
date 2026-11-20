@@ -2869,7 +2869,7 @@ export const AlertsDestroyParams = () => zod.object({
 })
 
 /**
- * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned `id` identifies the destination.
  */
 export const AlertsDestinationsCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
@@ -2924,7 +2924,9 @@ export const AlertsDestinationsDeleteCreateBody = () => zod.object({
         .array(zod.string())
         .max(alertsDestinationsDeleteCreateBodyDestinationIdsMax)
         .optional()
-        .describe('Destination IDs from the destinations list, to delete with their HogFunctions.'),
+        .describe(
+            'Destination IDs from the destinations list or from creating the destination, to delete with their HogFunctions.'
+        ),
 })
 
 /**

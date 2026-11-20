@@ -94,7 +94,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, join_persons_to_flag_evaluations
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, follow_persons_on_events_mode
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -2626,9 +2626,8 @@ class Database(BaseModel):
                         join_table=database.get_table("persons"),
                         resolver=PERSONS,
                     )
-                    if database.has_table(["posthog", "flag_evaluations"]):
-                        join_persons_to_flag_evaluations(database)
 
+                follow_persons_on_events_mode(database, modifiers.personsOnEventsMode)
                 _add_error_tracking_fields(database)
 
         with timings.measure("session_table", emit_span=True):

@@ -7,31 +7,31 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team, User
 
 from .trace_queries import (
-    _NODE_COLUMNS,
+    NODE_COLUMNS,
     NODE_EVENT_NAMES,
     TraceNodeRow,
-    _ai_events,
-    _event_in,
-    _filter_conditions,
-    _read_trace,
-    _trace_node_row,
+    ai_events,
     canonical_uuid,
+    event_in,
+    filter_conditions,
+    read_trace,
+    trace_node_row,
 )
 
 
 def _nodes_query(event_uuids: Sequence[str]) -> ast.SelectQuery:
     return ast.SelectQuery(
-        select=[ast.Field(chain=[column]) for column in _NODE_COLUMNS],
-        select_from=_ai_events(),
+        select=[ast.Field(chain=[column]) for column in NODE_COLUMNS],
+        select_from=ai_events(),
         where=ast.And(
             exprs=[
-                _event_in(NODE_EVENT_NAMES),
+                event_in(NODE_EVENT_NAMES),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["uuid"]),
                     right=ast.Tuple(exprs=[ast.Constant(value=event_uuid) for event_uuid in event_uuids]),
                 ),
-                _filter_conditions(),
+                filter_conditions(),
             ]
         ),
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["uuid"])]),
@@ -56,7 +56,7 @@ def load_trace_nodes(
     event_uuids = list(dict.fromkeys(uuid for node_id in node_ids if (uuid := canonical_uuid(node_id)) is not None))
     if not event_uuids:
         return []
-    results = _read_trace(
+    results = read_trace(
         "ai_trace_nodes",
         lambda: _nodes_query(event_uuids),
         team,
@@ -66,5 +66,5 @@ def load_trace_nodes(
         widen_unhinted=False,
         workload=workload,
     )
-    rows = {row.uuid: row for row in map(_trace_node_row, results)}
+    rows = {row.uuid: row for row in map(trace_node_row, results)}
     return [rows[event_uuid] for event_uuid in event_uuids if event_uuid in rows]
