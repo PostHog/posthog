@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 
-import { CONVERSATIONS_LOGIC_KEY } from './SupportSettingsScene'
+import { CONVERSATIONS_LOGIC_KEY } from './supportSettingsSceneLogic'
 
 export type ChannelTabKey = 'widget' | 'email' | 'slack' | 'teams' | 'github' | 'api'
 

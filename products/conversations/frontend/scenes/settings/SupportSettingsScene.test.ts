@@ -4,6 +4,11 @@ describe('SupportSettingsScene', () => {
     test.each([
         ['no hash', {}, 'conversations-general'],
         ['a channel deep link without a section', { channel: 'email' }, 'conversations-channels'],
+        [
+            'a link that selects General with a channel',
+            { selectedSetting: 'conversations-general', channel: 'email' },
+            'conversations-channels',
+        ],
         ['the channels section', { selectedSetting: 'conversations-channels' }, 'conversations-channels'],
         [
             'a section with a leftover channel',

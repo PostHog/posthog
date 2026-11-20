@@ -9,8 +9,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ScenesTabs } from '../../components/ScenesTabs'
-
-export const CONVERSATIONS_LOGIC_KEY = 'conversationsSettings'
+import { CONVERSATIONS_LOGIC_KEY, supportSettingsSceneLogic } from './supportSettingsSceneLogic'
 
 const VALID_SETTING_IDS = new Set<SettingId>([
     'conversations-general',
@@ -26,17 +25,19 @@ const DEFAULT_SETTING_ID: SettingId = 'conversations-general'
 
 export function resolveSettingId(hashParams: Record<string, any>): SettingId {
     const candidate = hashParams.selectedSetting
-    if (typeof candidate === 'string' && VALID_SETTING_IDS.has(candidate as SettingId)) {
-        return candidate as SettingId
-    }
-    if (hashParams.channel) {
+    const hasNoSection = typeof candidate !== 'string' || !VALID_SETTING_IDS.has(candidate as SettingId)
+    if (hashParams.channel && (hasNoSection || candidate === DEFAULT_SETTING_ID)) {
         return 'conversations-channels'
+    }
+    if (!hasNoSection) {
+        return candidate as SettingId
     }
     return DEFAULT_SETTING_ID
 }
 
 export const scene: SceneExport = {
     component: SupportSettingsScene,
+    logic: supportSettingsSceneLogic,
     productKey: ProductKey.CONVERSATIONS,
 }
 
