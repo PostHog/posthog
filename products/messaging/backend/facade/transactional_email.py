@@ -30,6 +30,7 @@ from products.messaging.backend.services.transactional_email import (
     SENDER_ADDRESS_PATTERN,
     TransactionalEmailStage,
     check_transactional_update,
+    is_idempotency_key,
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
@@ -42,7 +43,7 @@ from products.messaging.backend.services.transactional_email import (
     sync_transactional_workflow,
     transactional_email_stage,
 )
-from products.messaging.backend.services.transactional_email_status import get_email_status
+from products.messaging.backend.services.transactional_email_status import get_email_status, keyed_message_id
 
 __all__ = [
     "PIPELINE_ADDRESS_PATTERN",
@@ -73,6 +74,8 @@ __all__ = [
     "TransactionalEmailStage",
     "check_transactional_update",
     "get_email_status",
+    "is_idempotency_key",
+    "keyed_message_id",
     "lock_transactional_workflow_id",
     "make_transactional",
     "observe_transactional_email_stage",

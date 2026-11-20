@@ -267,6 +267,11 @@ FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
+
+def is_idempotency_key(value: str) -> bool:
+    return IDEMPOTENCY_KEY_PATTERN.fullmatch(value) is not None
+
+
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
 TRANSACTIONAL_EMAIL_KEY_LOCK = "transactional-email-keys"
 

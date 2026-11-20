@@ -4,9 +4,10 @@ The send API writes `queued`, or `scheduled` for a send that waits for its time,
 `complained`. A row's version only grows as an email moves forward, so the row with the highest version is the status.
 """
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -22,6 +23,8 @@ from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETE
 _CLOCK_SKEW = timedelta(minutes=5)
 _RETENTION = timedelta(days=EMAIL_STATUS_RETENTION_DAYS)
 _CONSUMER_LAG = timedelta(hours=2)
+_KEYED_RUN_ID_NAMESPACE = UUID("c2b7f0a4-4c3e-4b8e-9d4f-6a1f3e5d2b90")
+_TRANSACTIONAL_EMAIL_RUN_SCOPE = "transactional-email"
 # Every row of a message carries the message's own created_at, so the window prunes to its partition.
 _EMAIL_STATUS_QUERY = f"""
 SELECT argMax(status, version), argMax(status_at, version), argMax(reason, version)
@@ -42,6 +45,7 @@ FROM {table}
 WHERE team_id = %(team_id)s
   AND message_id = %(message_id)s
   AND created_at >= %(start)s
+ORDER BY created_at DESC
 LIMIT 1
 """
 
@@ -53,6 +57,11 @@ def is_keyed_message_id(message_id: UUID) -> bool:
     minting 20,480 IDs within a single millisecond.
     """
     return message_id.version == 5
+
+
+def keyed_message_id(team_id: int, idempotency_key: str) -> UUID:
+    name = json.dumps([team_id, _TRANSACTIONAL_EMAIL_RUN_SCOPE, idempotency_key], separators=(",", ":"))
+    return uuid5(_KEYED_RUN_ID_NAMESPACE, name)
 
 
 # The events cluster has no email_status table, so a project that reads events_json still looks a send up here.
