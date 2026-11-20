@@ -4616,6 +4616,11 @@
                     "csv": false
                 },
                 {
+                    "param": "max_anomaly_rate",
+                    "key": "max_anomaly_rate",
+                    "csv": false
+                },
+                {
                     "param": "offset",
                     "key": "offset",
                     "csv": false

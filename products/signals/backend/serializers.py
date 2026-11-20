@@ -4990,6 +4990,21 @@ class GitHubRepositoryInaccessibleErrorSerializer(serializers.Serializer):
     )
 
 
+class GitHubInstallationUnavailableErrorSerializer(serializers.Serializer):
+    """Response when the team's GitHub App installation is suspended or uninstalled."""
+
+    code = serializers.CharField(
+        read_only=True, help_text="Stable code for a suspended or uninstalled GitHub App installation."
+    )
+    error = serializers.CharField(
+        read_only=True, help_text="What happened to the GitHub connection, and who can fix it."
+    )
+    remediation_url = serializers.CharField(
+        read_only=True,
+        help_text="Project integrations settings where a project admin can reconnect GitHub.",
+    )
+
+
 class PullRequestCiStatus(TextChoices):
     """Coarse rollup of a pull request's checks, as mapped from GitHub's status check rollup."""
 
