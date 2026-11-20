@@ -11,6 +11,7 @@ from posthog.llm.system_one import NoulAnswer, SystemOneResult
 
 from products.slack_app.backend.logic.onboarding.daily_summary import (
     RootRef,
+    build_workspace_index,
     pick_threads,
     summary_threads,
     thread_text,
@@ -67,7 +68,7 @@ def test_thread_text_keeps_the_root_and_the_tail_of_a_long_thread() -> None:
 
 
 @pytest.mark.django_db
-def test_the_workspace_index_is_read_once_a_day_and_holds_no_text(workspace_integration) -> None:
+def test_the_sweep_builds_the_index_once_and_the_runs_only_read_it(workspace_integration) -> None:
     cache.clear()
     workspace_integration.config = {"scope": "channels:read,channels:history"}
     workspace_integration.save()
@@ -117,6 +118,11 @@ def test_the_workspace_index_is_read_once_a_day_and_holds_no_text(workspace_inte
             "channels:history",
         }
         ranker.return_value.decide.side_effect = decide
+        # A run before the sweep built today's index reads no channel itself.
+        assert summary_threads(workspace_integration, SLACK_USER_ID, since=SINCE) == []
+        assert client.conversations_history.call_count == 0
+        assert build_workspace_index(workspace_integration) == 2
+        assert build_workspace_index(workspace_integration) == 2
         first = summary_threads(workspace_integration, SLACK_USER_ID, since=SINCE)
         second = summary_threads(workspace_integration, "U_SOMEONE_ELSE", since=SINCE)
 
@@ -124,7 +130,7 @@ def test_the_workspace_index_is_read_once_a_day_and_holds_no_text(workspace_inte
     assert [thread.text.split("\n")[0] for thread in first] == ["<@U_OTHER>: we are rolling back the release <@U_LEAD>"]
     assert first[0].involves_person is True and first[0].permalink == "https://example.slack.com/archives/C1/p1"
     assert second[0].involves_person is False
-    # The second person reuses the day's index: one channel list and one history read for the whole workspace.
+    # The second build and both runs reuse the day's index: one channel list and one history read for the workspace.
     assert client.conversations_list.call_count == 1
     assert client.conversations_history.call_count == 1
     assert ranker.return_value.decide.call_count == 1

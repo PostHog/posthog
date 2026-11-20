@@ -32,6 +32,15 @@ class SlackAppOnboardingInputs:
 
 
 @dataclass(frozen=True)
+class SlackAppDailySummaryIndexInputs:
+    integration_id: int
+    slack_team_id: str
+    # The people in this workspace whose daily run the sweep is about to start. The index is built when one of them
+    # gets the daily summary.
+    slack_user_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class SlackAppWorkFocusInputs:
     integration_id: int
     slack_team_id: str

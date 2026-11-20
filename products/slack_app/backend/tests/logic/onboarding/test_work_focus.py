@@ -522,7 +522,7 @@ def test_a_daily_run_opens_with_what_moved_in_the_shared_channels(
 
     with (
         patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True),
-        patch(f"{WORK_FOCUS}.is_slack_app_daily_summary_enabled", return_value=True),
+        patch(f"{WORK_FOCUS}.wants_summary", return_value=True),
         patch(f"{WORK_FOCUS}.summary_threads", return_value=[thread]) as threads,
         patch(f"{WORK_FOCUS}.SlackIntegration") as bot_integration,
         time_machine.travel(datetime(2026, 11, 9, 9, 0, tzinfo=UTC), tick=False),

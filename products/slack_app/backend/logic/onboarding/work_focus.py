@@ -30,10 +30,7 @@ from posthog.models.integration import SlackIntegration
 from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_daily_summary_enabled,
-    is_slack_app_daily_work_focus_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_daily_work_focus_enabled
 from products.slack_app.backend.logic.daily_focus import (
     daily_focus_footer_block,
     mark_daily_focus_sending,
@@ -44,11 +41,7 @@ from products.slack_app.backend.logic.daily_focus import (
 )
 from products.slack_app.backend.logic.onboarding.actions import WORK_FOCUS_START_ACTION_ID, WORK_FOCUS_TASK_ACTION_ID
 from products.slack_app.backend.logic.onboarding.checks import has_ai_approval
-from products.slack_app.backend.logic.onboarding.daily_summary import (
-    DailySummaryRateLimited,
-    SummaryThread,
-    summary_threads,
-)
+from products.slack_app.backend.logic.onboarding.daily_summary import SummaryThread, summary_threads, wants_summary
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, read_action_value
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
@@ -458,14 +451,7 @@ def _daily_privacy_line(since: datetime, zone: ZoneInfo, *, channels: bool = Fal
 def _daily_summary_threads(
     integration: WorkspaceIntegration, slack_user_id: str, *, since: datetime
 ) -> list[SummaryThread]:
-    if not is_slack_app_daily_summary_enabled(
-        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
-    ):
-        return []
-    try:
-        return summary_threads(integration, slack_user_id, since=since)
-    except DailySummaryRateLimited as error:
-        raise WorkFocusRateLimited from error
+    return summary_threads(integration, slack_user_id, since=since) if wants_summary(integration, slack_user_id) else []
 
 
 def _search_messages(

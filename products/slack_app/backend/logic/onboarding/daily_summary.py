@@ -1,9 +1,9 @@
 """Finds the threads that moved in the channels a person and the bot share, for the daily work focus.
 
-The bot reads each channel's root messages once a day for the whole workspace and has Jev score each root. Only ids,
-counts and scores wait in the cache for the other people in the workspace; no message content is stored. A person's
-run keeps the threads they are in, adds the best-scored others from their channels, and reads those few threads in
-full right before the writer sees them.
+The sweep has the bot read each channel's root messages once a day for the whole workspace, before any person's run
+starts, and has Jev score each root. Only ids, counts and scores wait in the cache for the people in the workspace;
+no message content is stored. A person's run keeps the threads they are in, adds the best-scored others from their
+channels, and reads those few threads in full right before the writer sees them.
 """
 
 import re
@@ -24,6 +24,8 @@ from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_on
 from posthog.models.integration import SlackIntegration
 from posthog.token_bucket import BucketDecision, Budget, consume
 
+from products.slack_app.backend.feature_flags import is_slack_app_daily_summary_enabled
+from products.slack_app.backend.services.slack_user_oauth import linked_posthog_distinct_id
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
@@ -37,7 +39,10 @@ PRIVATE_CHANNEL_SCOPES = frozenset({"groups:read", "groups:history"})
 INDEX_LOOKBACK = timedelta(days=3)
 CHANNELS_PER_WORKSPACE = 100
 ROOTS_PER_CHANNEL = 50
+# Jev scores the newest roots across the workspace. Older ones stay in the index for the threads a person is in.
+ROOTS_SCORED_PER_WORKSPACE = 400
 INDEX_TTL_SECONDS = 36 * 3600
+BUILD_LOCK_SECONDS = 300
 # The channel reads are tier 3 calls, about 50 a minute, shared by every person's run in the workspace.
 HISTORY_BUDGET = Budget(burst=60, per_hour=1200)
 
@@ -61,7 +66,7 @@ _MENTION = re.compile(r"<@(U[A-Z0-9]+)")
 
 
 class DailySummaryRateLimited(Exception):
-    """Raised before anything is read, so the run can retry later."""
+    """Raised before anything is read, so the build can retry later."""
 
 
 @frozen
@@ -95,14 +100,20 @@ class SummaryThread:
     permalink: str | None = None
 
 
+def wants_summary(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    return is_slack_app_daily_summary_enabled(
+        integration, linked_posthog_distinct_id(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
+    )
+
+
 def summary_threads(integration: WorkspaceIntegration, slack_user_id: str, *, since: datetime) -> list[SummaryThread]:
     """The threads to summarise for this person, each read in full, most relevant first. Empty when the bot cannot
-    read channels or nothing moved."""
+    read channels, the sweep built no index today, or nothing moved."""
     slack = SlackIntegration(integration)
     if slack.missing_scopes(CHANNEL_SCOPES):
         return []
     private = not slack.missing_scopes(PRIVATE_CHANNEL_SCOPES)
-    index = _workspace_index(integration, slack, private=private)
+    index = cached_index(integration)
     if not index:
         return []
     channels = _person_channels(slack, slack_user_id, private=private)
@@ -132,13 +143,28 @@ def pick_threads(roots: list[RootRef], slack_user_id: str, channels: set[str], *
     return (own + others)[:THREADS_PER_PERSON]
 
 
-def _workspace_index(integration: WorkspaceIntegration, slack: SlackIntegration, *, private: bool) -> list[RootRef]:
-    """The scored roots of every channel the bot is in, built once a day for the workspace and shared by every
-    person's run. Holds ids, counts and scores, never text."""
-    key = f"slack_app:daily_summary:index:{integration.integration_id}:{timezone.now().date().isoformat()}"
-    cached = cache.get(key)
-    if isinstance(cached, list):
-        return [RootRef(**item) for item in cached]
+def _index_key(integration: WorkspaceIntegration) -> str:
+    return f"slack_app:daily_summary:index:{integration.integration_id}:{timezone.now().date().isoformat()}"
+
+
+def cached_index(integration: WorkspaceIntegration) -> list[RootRef] | None:
+    cached = cache.get(_index_key(integration))
+    return [RootRef(**item) for item in cached] if isinstance(cached, list) else None
+
+
+def build_workspace_index(integration: WorkspaceIntegration) -> int:
+    """Reads and scores the roots of every channel the bot is in, once a day for the workspace, before the people in it
+    run. Holds ids, counts and scores, never text. Returns how many roots the index holds; a build that is already
+    done or under way today returns the cached count without reading Slack again."""
+    slack = SlackIntegration(integration)
+    if slack.missing_scopes(CHANNEL_SCOPES):
+        return 0
+    cached = cached_index(integration)
+    if cached is not None:
+        return len(cached)
+    if not cache.add(f"{_index_key(integration)}:lock", 1, BUILD_LOCK_SECONDS):
+        return 0
+    private = not slack.missing_scopes(PRIVATE_CHANNEL_SCOPES)
     channels = _bot_channels(slack, private=private)
     decision = consume(
         f"slack_app:daily_summary:history:{integration.integration_id}", HISTORY_BUDGET, cost=len(channels)
@@ -153,8 +179,8 @@ def _workspace_index(integration: WorkspaceIntegration, slack: SlackIntegration,
             roots.append(_root_ref(channel_id, message))
             texts.append(str(message.get("text") or "")[:ROOT_CHARS])
     roots = _scored(integration, roots, texts)
-    cache.set(key, [asdict(root) for root in roots], INDEX_TTL_SECONDS)
-    return roots
+    cache.set(_index_key(integration), [asdict(root) for root in roots], INDEX_TTL_SECONDS)
+    return len(roots)
 
 
 def _bot_channels(slack: SlackIntegration, *, private: bool) -> list[str]:
@@ -206,6 +232,9 @@ def _root_ref(channel_id: str, message: dict[str, Any]) -> RootRef:
 def _scored(integration: WorkspaceIntegration, roots: list[RootRef], texts: list[str]) -> list[RootRef]:
     if not roots:
         return []
+    newest = sorted(range(len(roots)), key=lambda index: roots[index].moved_at, reverse=True)[
+        :ROOTS_SCORED_PER_WORKSPACE
+    ]
     client = build_system_one_client(
         model=RANK_MODEL,
         ai_product="slack_app",
@@ -215,9 +244,8 @@ def _scored(integration: WorkspaceIntegration, roots: list[RootRef], texts: list
         privacy_mode=True,
     )
     scores = [0.0] * len(roots)
-    for start in range(0, len(roots), GATEWAY_MAX_QUESTIONS):
-        batch = range(start, min(start + GATEWAY_MAX_QUESTIONS, len(roots)))
-        keys = {f"r{index}": index for index in batch}
+    for start in range(0, len(newest), GATEWAY_MAX_QUESTIONS):
+        keys = {f"r{index}": index for index in newest[start : start + GATEWAY_MAX_QUESTIONS]}
         result = client.decide(
             state={
                 "roots": {
