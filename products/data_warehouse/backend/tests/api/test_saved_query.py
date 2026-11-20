@@ -327,10 +327,11 @@ class TestSavedQuery(APIBaseTest):
             ("team_rule", "flag_on", 200),
             ("own_rule", "flag_on", 403),
             ("own_rule", "flag_off_with_node", 403),
-            ("own_rule", "not_materialized", 200),
+            ("own_rule", "not_materialized", 403),
+            ("team_rule", "not_materialized", 200),
         ]
     )
-    def test_editing_a_materialized_view_checks_the_new_query(self, rule: str, state: str, expected: int) -> None:
+    def test_editing_a_view_query_checks_the_new_query(self, rule: str, state: str, expected: int) -> None:
         set_member_property_access(
             team=self.team,
             membership=self.organization_membership,
