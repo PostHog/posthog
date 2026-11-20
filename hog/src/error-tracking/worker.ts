@@ -80,7 +80,6 @@ const Prepared = z.object({
                 releaseId: z.string().nullable(),
                 contentHash: z.string(),
                 size: z.number(),
-                // Null in a dry run, which writes nothing.
                 path: z.string().nullable(),
             }),
         ])
@@ -201,8 +200,6 @@ export class Worker {
         return parseOrThrow(result, message.result, failure)
     }
 
-    // Which files discovery counts: bundles whose sourcemap exists, maps the Hermes compiler
-    // composed, and ProGuard mappings. Every answer needs the file's contents.
     async detect(files: DetectCandidate[], publicPathPrefix: string | undefined): Promise<Detected> {
         const asked = files.filter((file) => file.bundle || file.map || file.mapping)
         if (asked.length === 0) {
@@ -247,7 +244,6 @@ export class Worker {
         }
     }
 
-    // Records what the files of each pair hold, and answers one cleanup target for each pair.
     async fingerprint(ids: number[]): Promise<number[]> {
         if (ids.length === 0) {
             return []
@@ -261,8 +257,7 @@ export class Worker {
         }
     }
 
-    // Builds the symbol set of each pair and writes it into `folder`. The worker lets the pairs
-    // go, so this is the last request that names them. Without a folder nothing is written.
+    // The worker lets the pairs go, so this is the last request that names them.
     async prepare(ids: number[], mode: 'event' | 'symbol-set', folder: string | null): Promise<PreparedPair[]> {
         if (ids.length === 0) {
             return []
@@ -270,7 +265,6 @@ export class Worker {
         return (await this.call({ op: 'prepare', ids, mode, folder }, Prepared)).prepared
     }
 
-    // The stylesheets that have a sourcemap, or a reference to one that can't be read.
     async cssCandidates(files: string[], publicPathPrefix: string | undefined): Promise<CssCandidate[]> {
         if (files.length === 0) {
             return []
@@ -286,7 +280,6 @@ export class Worker {
         return this.call({ op: 'clean_up', targets, css, roots }, Cleaned)
     }
 
-    // Checks a ProGuard mapping and writes its symbol set to `out`. Without `out` nothing is written.
     async proguard(path: string, out: string | null): Promise<ProguardContainer> {
         return this.call({ op: 'proguard', path, out }, ProguardContainer)
     }

@@ -2,9 +2,6 @@ import { basename } from 'node:path'
 
 import { JsonObject, JsonParser, writeEntries, writeString, type JsonValue } from '../json'
 
-// What hog itself reads of JavaScript bundles and sourcemaps: which names count as bundles, and
-// the sourcemap fields the Hermes commands change. hog-worker does the rest.
-
 export const JS_EXTENSIONS = ['.js', '.mjs', '.cjs'] as const
 
 // `SourceMapContent`: three known fields, then every other key flattened into a sorted map.

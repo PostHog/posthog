@@ -197,8 +197,6 @@ export interface PreparedPairs {
 // first and wins when a second pair has the same id.
 const nativeFirst = ({ pair }: OwnedPair): number => (pair.chunkId === null && pair.sourceDebugId !== null ? 0 : 1)
 
-// One symbol set per chunk id, written by the worker into `folder`. A dry run passes no folder
-// and gets the sizes and content hashes only.
 export async function preparePairs(
     worker: Worker,
     pairs: OwnedPair[],

@@ -28,8 +28,7 @@ enum Kind {
     Css,
 }
 
-// A bundle and its map as they were when hog read them. Maps are hashed over their canonical
-// serialization, so the comparison holds across whitespace and key order.
+// Maps are hashed in canonical form, so the comparison holds across whitespace and key order.
 pub struct Target {
     source_path: PathBuf,
     map_path: PathBuf,
@@ -53,8 +52,7 @@ fn map_hash(map: &SourceMapContent) -> Result<String, String> {
     Ok(content_hash([canonical]))
 }
 
-// A stylesheet under the selected paths. `found` is None when its sourcemap reference can't be
-// read, which hog reports when it cleans up.
+// `found` is None when the sourcemap reference can't be read, which `clean_up` reports.
 pub struct CssCandidate {
     file: String,
     found: Option<CssFound>,
@@ -72,7 +70,6 @@ impl CssCandidate {
     }
 }
 
-// None for a stylesheet without a sourcemap, which needs no cleanup.
 pub fn css_candidate(file: &str, public_path_prefix: Option<&str>) -> Option<CssCandidate> {
     let find = || -> Result<Option<CssFound>, ()> {
         let source_path = dunce::canonicalize(file).map_err(|_| ())?;
@@ -101,8 +98,7 @@ pub fn css_candidate(file: &str, public_path_prefix: Option<&str>) -> Option<Css
 }
 
 // A stylesheet's map is cleaned up only when it resolves inside a selected path, so a stylesheet
-// can't make hog delete a file elsewhere. A JSON file that isn't a sourcemap is left alone.
-// Err is the warning hog shows.
+// can't make hog delete a file elsewhere. Err is the warning hog shows.
 pub fn css_target(candidate: &CssCandidate, roots: &[PathBuf]) -> Result<Option<Target>, String> {
     let Some(found) = &candidate.found else {
         return Err(format!(
@@ -176,7 +172,6 @@ fn is_js_blank(text: &str) -> bool {
     text.chars().all(is_js_whitespace)
 }
 
-// The last `/*# sourceMappingURL=... */` comment outside a string.
 fn css_reference_range(content: &str) -> Option<Range<usize>> {
     let bytes = content.as_bytes();
     let mut index = 0;
@@ -237,7 +232,6 @@ fn css_reference(content: &str) -> Option<&str> {
     )
 }
 
-// The whole line goes when the comment is alone on it. Otherwise only the comment does.
 fn css_removal_range(content: &str) -> Option<Range<usize>> {
     let comment = css_reference_range(content)?;
     let line_start = content[..comment.start]
@@ -256,8 +250,6 @@ fn css_removal_range(content: &str) -> Option<Range<usize>> {
     }
 }
 
-// The last real line of a bundle, skipping blank lines and the chunk and debug id comments, when
-// it is a `sourceMappingURL` comment: the whole line goes, newline included.
 fn js_reference_range(content: &str) -> Option<Range<usize>> {
     let mut line_start = 0;
     let mut lines = Vec::new();
@@ -347,7 +339,6 @@ fn missing_warning(target: &Target) -> String {
     )
 }
 
-// The content when it is still what hog read. Ok(None) leaves a warning.
 fn verified(
     target: &Target,
     bytes: Vec<u8>,

@@ -45,7 +45,6 @@ pub fn message(error: &io::Error, syscall: &str, path: &Path) -> String {
     format!("{error}, {syscall} '{}'", path.display())
 }
 
-// `EACCES: permission denied, rename '/build/a.map' -> '/build/a.map.bak'`.
 pub fn rename_message(error: &io::Error, from: &Path, to: &Path) -> String {
     format!("{} -> '{}'", message(error, "rename", from), to.display())
 }
