@@ -293,7 +293,14 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 completed_at=now - timedelta(minutes=minutes_ago),
                 metrics={"prediction_date": prediction_date, "per_model": {str(champion.pk): {"realized_auc": auc}}},
             )
-        live = AutoresearchTrainingRun.objects.create(pipeline=preliminary, status="running", iteration_budget=8)
+        live_task_id, live_task_run_id = uuid.uuid4(), uuid.uuid4()
+        live = AutoresearchTrainingRun.objects.create(
+            pipeline=preliminary,
+            status="running",
+            iteration_budget=8,
+            task_id=live_task_id,
+            task_run_id=live_task_run_id,
+        )
         for number, holdout, description in [(0, 0.72, "baseline"), (1, 0.69, "try fewer features")]:
             AutoresearchIteration.objects.create(
                 pipeline=preliminary,
@@ -339,6 +346,9 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 2,
                 [],
                 {
+                    "task_id": str(live_task_id),
+                    "task_run_id": str(live_task_run_id),
+                    "task_url": f"/tasks/{live_task_id}",
                     "iteration_budget": 8,
                     "experiment_count": 2,
                     "best_holdout_score": 0.72,
@@ -361,12 +371,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             pipeline=busy, training_run=busy_run, iteration_number=0, recipe_hash="b", recipe_snapshot={}, status="kept"
         )
         with CaptureQueriesContext(connection) as more_queries:
-            self.client.get(f"{self.base_url}/")
+            more_resp = self.client.get(f"{self.base_url}/")
 
         def autoresearch_queries(captured: CaptureQueriesContext) -> int:
             return sum('"autoresearch_' in q["sql"] for q in captured.captured_queries)
 
         assert autoresearch_queries(more_queries) == autoresearch_queries(queries)
+        busy_live = next(row for row in more_resp.json()["results"] if row["name"] == "Busy")["live_training_run"]
+        assert {k: busy_live[k] for k in ("task_id", "task_run_id", "task_url")} == {
+            "task_id": None,
+            "task_run_id": None,
+            "task_url": None,
+        }
         assert {name: row["coverage"] for name, row in by_name.items()} == {
             "Validated": coverage,
             "Preliminary": None,

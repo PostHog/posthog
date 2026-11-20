@@ -19,6 +19,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from google.genai import errors as genai_errors
 from parameterized import parameterized
 from pydantic import ValidationError as PydanticValidationError
+from structlog.testing import capture_logs
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError, CancelledError
@@ -70,6 +71,7 @@ from .evaluation_errors import (
 from .evaluation_event_io import GenerationNotFoundError, hydrate_event_reference
 from .evaluation_llm_judge import (
     BACKFILL_ACTIVITY_RETRY_POLICY,
+    LLM_JUDGE_RETRY_POLICY,
     NumericWithNAEvalResult,
     TransientJudgeError,
     _build_errored_trace_result,
@@ -1292,6 +1294,64 @@ def test_unmapped_provider_rejection_on_a_posthog_key_still_raises() -> None:
                 user_prompt="Hello!",
                 allows_na=False,
             )
+
+
+@pytest.mark.parametrize(
+    "attempt,backfill,exhausted",
+    [(1, False, False), (3, False, True), (3, True, False), (5, True, True)],
+)
+@pytest.mark.parametrize("provider,is_byok", [("openai", False), ("openai", True), ("openai_compatible", True)])
+@pytest.mark.parametrize("status", [500, 503])
+@override_settings(OPENAI_API_KEY="example-token")
+def test_provider_server_failures_are_reported_only_when_retries_end(
+    attempt: int, backfill: bool, exhausted: bool, provider: str, is_byok: bool, status: int
+) -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(
+        env.info,
+        attempt=attempt,
+        retry_policy=BACKFILL_ACTIVITY_RETRY_POLICY if backfill else LLM_JUDGE_RETRY_POLICY,
+        schedule_to_close_timeout=None,
+    )
+    key = (
+        MagicMock(
+            provider=provider,
+            encrypted_config={"api_key": "example-token", "base_url": "https://llm.example.com/v1"},
+        )
+        if is_byok
+        else None
+    )
+    with (
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "httpx.HTTPTransport.handle_request"
+            if provider == "openai"
+            else "httpx.AsyncHTTPTransport.handle_async_request",
+            return_value=httpx.Response(
+                status,
+                headers={"Content-Type": "application/json"},
+                stream=httpx.ByteStream(b'{"error": {"message": "Example provider is unavailable."}}'),
+            ),
+        ) as transport,
+        capture_logs() as logs,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider=provider, model="gpt-5-mini", provider_key=key, is_byok=is_byok
+        )
+        with pytest.raises(openai.InternalServerError if exhausted else TransientJudgeError) as raised:
+            env.run(
+                call_llm_judge,
+                evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+                backfill=backfill,
+            )
+
+    assert is_expected_activity_failure(raised.value) is (not exhausted)
+    assert any(log["event"] == "Unhandled error from LLM client" for log in logs) is exhausted
+    assert transport.call_count == 1
 
 
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():

@@ -14,6 +14,7 @@ import type {
     SignalScoutConfigApi as SignalScoutConfig,
 } from 'products/signals/frontend/generated/api.schemas'
 import { SignalScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import { SandboxCustomImagesListOriginProduct } from 'products/tasks/frontend/generated/api.schemas'
 import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 import type { ScoutSurface } from '../../../inboxAnalytics'
@@ -34,6 +35,7 @@ import {
     timeToDailyCron,
     weeklyCronToDayTime,
 } from '../../../utils/scoutRunsWindow'
+import { CustomImagePicker } from '../CustomImagePicker'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutPrecheckSection } from './ScoutPrecheckSection'
 import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
@@ -309,6 +311,16 @@ export function ScoutConfigForm({
                     />
                 </div>
             ) : null}
+            <CustomImagePicker
+                origin={SandboxCustomImagesListOriginProduct.SignalsScout}
+                value={config.custom_image_id ?? null}
+                onChange={(imageId) => onUpdate(config.id, { custom_image_id: imageId })}
+                label="Image"
+                description="The image this scout's runs start from."
+                defaultLabel="Project default"
+                disabledReason={updating ? 'Saving scout settings' : undefined}
+                dataAttr="scout-custom-image"
+            />
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Opt out of auto-pause</span>

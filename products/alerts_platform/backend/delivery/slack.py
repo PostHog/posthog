@@ -112,8 +112,13 @@ def blocks_for(message: AlertMessage) -> list[dict[str, Any]]:
     return blocks
 
 
+# Slack refuses the whole message for a picture it cannot show, and for a native chart it cannot
+# draw, so both are what the retry leaves out.
+_PICTURE_BLOCK_TYPES: Final = frozenset({"image", "data_visualization"})
+
+
 def _without_images(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [block for block in blocks if block.get("type") != "image"]
+    return [block for block in blocks if block.get("type") not in _PICTURE_BLOCK_TYPES]
 
 
 def content_for(*, team_id: int, message: AlertMessage) -> SlackMessageContent:
@@ -188,8 +193,10 @@ def _without_image_content(content: SlackMessageContent) -> SlackMessageContent:
 
 
 # Only codes a customer's own setup causes, each with what happened and what to change. The alert's
-# creator is told about these. A code a platform bug can also cause, such as `missing_scope` or
-# `channel_not_found`, stays a failure so the platform's alert still sees it.
+# creator is told about these. A code a platform bug can also cause, such as `missing_scope`, stays a
+# failure so the platform's alert still sees it. `channel_not_found` counts as the customer's, because
+# the destination sends to the channel id it stored, and Slack answers that code for a deleted channel
+# or a private channel the app is not in.
 _MISCONFIGURED_ERRORS: Final = {
     "not_in_channel": (
         "The PostHog app is not in this channel.",
@@ -198,6 +205,14 @@ _MISCONFIGURED_ERRORS: Final = {
     "account_inactive": (
         "The Slack connection is no longer active.",
         "Reconnect Slack in the project's integrations, or pick another destination for the alert.",
+    ),
+    "is_archived": (
+        "This channel is archived.",
+        "Unarchive the channel in Slack, or pick another channel for the alert.",
+    ),
+    "channel_not_found": (
+        "Slack can't find this channel. It was deleted, or it is private and the PostHog app is not in it.",
+        "Invite the app with /invite @PostHog in the channel, or pick another channel for the alert.",
     ),
 }
 

@@ -56,7 +56,9 @@ import type {
     SupabaseAuthEmailSettingsApi,
     TopicPreferencesApi,
     TransactionalEmailActivityApi,
+    TransactionalEmailImpactApi,
     TransactionalEmailLogDetailApi,
+    TransactionalEmailLogImpactRetrieveParams,
     TransactionalEmailLogListApi,
     TransactionalEmailLogListParams,
     TransactionalEmailLogResultsRetrieveParams,
@@ -66,6 +68,11 @@ import type {
     TransactionalEmailStatsApi,
     TransactionalEmailStatsOverTimeApi,
     WebhookUrlApi,
+    WorkflowEmailDetailApi,
+    WorkflowEmailListApi,
+    WorkflowEmailLogActivityRetrieveParams,
+    WorkflowEmailLogListParams,
+    WorkflowEmailLogRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -111,7 +118,7 @@ export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. Treat that 404 as `queued` and read again a few seconds later.
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. That 404 doesn't say whether the email went out yet, so read again a few seconds later.
  * @summary Get a transactional email's status
  */
 export const messagingEmailsRetrieve = async (
@@ -632,7 +639,7 @@ export const getMessagingProviderImportsListUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the most recent provider imports
@@ -652,7 +659,7 @@ export const getMessagingProviderImportsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -675,7 +682,7 @@ export const getMessagingProviderImportsRetrieveUrl = (projectId: string, id: st
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Get a provider import and its progress
@@ -696,7 +703,7 @@ export const getMessagingProviderImportsProvidersListUrl = (projectId: string) =
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io suppressions and global unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend and SendGrid suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the providers and what each can import
@@ -815,7 +822,7 @@ export const getMessagingSuppressionsBulkAddSuppressionsCreateUrl = (projectId: 
 }
 
 /**
- * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * Suppress every address in the list. An address that already has an entry keeps it, and a `bounce` also makes that entry block transactional email. Repeating a call is safe.
  * @summary Add multiple email addresses to the suppression list
  */
 export const messagingSuppressionsBulkAddSuppressionsCreate = async (
@@ -1255,6 +1262,40 @@ export const transactionalEmailLogActivityRetrieve = async (
     })
 }
 
+export const getTransactionalEmailLogImpactRetrieveUrl = (
+    projectId: string,
+    params: TransactionalEmailLogImpactRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/impact/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/impact/`
+}
+
+/**
+ * Count one email's sends that were sent, delivered, opened and clicked. With an event, also count the clicked sends whose person did it within a week of the click, against delivered sends nobody clicked.
+ * @summary Get how far a transactional email's sends got
+ */
+export const transactionalEmailLogImpactRetrieve = async (
+    projectId: string,
+    params: TransactionalEmailLogImpactRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailImpactApi> => {
+    return apiMutator<TransactionalEmailImpactApi>(getTransactionalEmailLogImpactRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTransactionalEmailLogResultsRetrieveUrl = (
     projectId: string,
     params: TransactionalEmailLogResultsRetrieveParams
@@ -1358,4 +1399,107 @@ export const transactionalEmailLogStatsOverTimeRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getWorkflowEmailLogListUrl = (projectId: string, params: WorkflowEmailLogListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_email_log/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_email_log/`
+}
+
+/**
+ * List the emails one workflow or broadcast sent, newest first. Sends are read from the workflow's run logs. The subject, the recipient's person, delivery, opens and clicks come from the `$workflows_email_*` events, which are only recorded while the project's engagement events setting is on.
+ * @summary List a workflow's email sends
+ */
+export const workflowEmailLogList = async (
+    projectId: string,
+    params: WorkflowEmailLogListParams,
+    options?: RequestInit
+): Promise<WorkflowEmailListApi> => {
+    return apiMutator<WorkflowEmailListApi>(getWorkflowEmailLogListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowEmailLogRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: WorkflowEmailLogRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_email_log/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_email_log/${id}/`
+}
+
+/**
+ * Get one email a workflow sent, with its delivery timeline. Sends are read from the workflow's run logs. The subject, the recipient's person, delivery, opens and clicks come from the `$workflows_email_*` events, which are only recorded while the project's engagement events setting is on.
+ * @summary Get a workflow email send
+ */
+export const workflowEmailLogRetrieve = async (
+    projectId: string,
+    id: string,
+    params: WorkflowEmailLogRetrieveParams,
+    options?: RequestInit
+): Promise<WorkflowEmailDetailApi> => {
+    return apiMutator<WorkflowEmailDetailApi>(getWorkflowEmailLogRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowEmailLogActivityRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: WorkflowEmailLogActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workflow_email_log/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workflow_email_log/${id}/activity/`
+}
+
+/**
+ * The recipient's events in the 7 days before and after one workflow email, with the sessions they belong to.
+ * @summary Get what a workflow email's recipient did around the send
+ */
+export const workflowEmailLogActivityRetrieve = async (
+    projectId: string,
+    id: string,
+    params: WorkflowEmailLogActivityRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailActivityApi> => {
+    return apiMutator<TransactionalEmailActivityApi>(getWorkflowEmailLogActivityRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
 }

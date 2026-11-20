@@ -9,7 +9,7 @@ export type ScopeObjectDoc = {
     actions: ('read' | 'write')[]
     docsUrl?: string
     organizationWide?: true
-    // Only an admin-driven path grants it (PRIVILEGED_SCOPES in posthog/scopes.py).
+    // Only an admin-driven path grants it (PRIVILEGED_SCOPES in posthog/scopes/exposure.py).
     privileged?: true
     // A scope that writing this object also needs, and why.
     writeRequires?: { scope: string; reason: string }
@@ -154,6 +154,22 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         description:
             'Canvases, the agent-built apps filed into channels, including their source, versions, publishing, and state.',
         group: 'Product analytics',
+        actions: ['read', 'write'],
+    },
+    code_review: {
+        name: 'PostHog Review',
+        plural: 'PostHog Review reviews',
+        description:
+            'PostHog Review code reviews of your pull requests, plus repository settings and per-user review choices.',
+        group: 'AI & context management tools',
+        actions: ['read', 'write'],
+    },
+    code_review_approval: {
+        name: 'Code review auto-approval',
+        plural: 'code review auto-approvals',
+        description:
+            'PostHog Review auto-approval of pull requests, with repository settings, review runs, routing, and digests.',
+        group: 'Developer experience',
         actions: ['read', 'write'],
     },
     cohort: {
@@ -709,14 +725,6 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/replay-vision',
     },
-    review_hog: {
-        name: 'PostHog Review',
-        plural: 'PostHog Review reviews',
-        description:
-            'PostHog Review code reviews of your pull requests, plus repository settings and per-user review choices.',
-        group: 'AI & context management tools',
-        actions: ['read', 'write'],
-    },
     session_recording: {
         name: 'Session recording',
         plural: 'session recordings',
@@ -759,14 +767,6 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         actions: ['read'],
         docsUrl: 'https://posthog.com/docs/self-driving/pricing',
     },
-    stamphog: {
-        name: 'Stamphog',
-        plural: 'stamphog',
-        description:
-            'Stamphog pull request approvals, including repository settings, review runs, reviewer routing, and digests.',
-        group: 'Developer experience',
-        actions: ['read', 'write'],
-    },
     streamlit_app: {
         name: 'Streamlit app',
         plural: 'Streamlit apps',
@@ -785,9 +785,9 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         docsUrl: 'https://posthog.com/docs/product-analytics/subscriptions',
     },
     support_ticket: {
-        name: 'Support ticket',
-        plural: 'support tickets',
-        description: 'Support tickets fetched through the external ticket API, used only by project secret API keys.',
+        name: 'External ticket API',
+        plural: 'tickets from the external ticket API',
+        description: 'Single tickets fetched through the external ticket API, for project secret API keys only.',
         group: 'Customers & support',
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/support',
@@ -822,8 +822,8 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         docsUrl: 'https://posthog.com/docs/tasks',
     },
     ticket: {
-        name: 'Ticket',
-        plural: 'tickets',
+        name: 'Support ticket',
+        plural: 'support tickets',
         description: 'Support tickets, including their messages, notes, status, assignment, saved views, and macros.',
         group: 'Customers & support',
         actions: ['read', 'write'],

@@ -161,6 +161,25 @@ const RECEIVERS: AlertReceiverApi[] = [
         route_count: 1,
         webhook_url: 'https://example.webhook.office.com',
     },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000403',
+        name: 'Infra on-call',
+        type: 'pagerduty',
+        enabled: true,
+        route_count: 0,
+        pagerduty_routing_key: '••••c3d4',
+        pagerduty_severity: 'critical',
+        pagerduty_region: 'us',
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000404',
+        name: 'Platform incidents',
+        type: 'incident_io',
+        enabled: true,
+        route_count: 0,
+        incident_io_alert_source_config_id: '01GW2G3V0S59R238FAHPDS1R66',
+        incident_io_secret: '••••a9f2',
+    },
 ]
 
 const ROUTES: AlertRouteApi[] = [

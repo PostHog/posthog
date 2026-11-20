@@ -476,7 +476,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
     // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, sourceSupportsCdc } = useValues(logic)
+    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, sourceSupportsCdc, source } = useValues(logic)
     const { loadSchemaIncrementalFields, loadSchema, loadSourceConfig } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)
@@ -668,6 +668,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                     <fieldset disabled={!!accessDisabledReason}>
                         <SyncMethodForm
                             ref={formRef}
+                            sourceType={source?.source_type}
                             hideFooter
                             onSaveDisabledReasonChange={setSaveDisabledReason}
                             saveButtonIsLoading={saving}
@@ -1098,16 +1099,18 @@ function ColumnsAndRowFiltersSection({
                                       ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
                                       : 'No columns discovered yet for this schema.'}
                             </span>
-                            <SchemaEditorAction schema={schema}>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    loading={refreshingSchemas}
-                                    onClick={() => refreshSchemas()}
-                                >
-                                    Pull new schemas
-                                </LemonButton>
-                            </SchemaEditorAction>
+                            {source?.supports_table_discovery !== false && (
+                                <SchemaEditorAction schema={schema}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={refreshingSchemas}
+                                        onClick={() => refreshSchemas()}
+                                    >
+                                        Pull new schemas
+                                    </LemonButton>
+                                </SchemaEditorAction>
+                            )}
                         </div>
                     ) : (
                         <>

@@ -5,7 +5,7 @@ import { LemonBanner, LemonButton, LemonTable, LemonTag, Link, Spinner } from '@
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { ReviewHogReviewsListScope, type ReviewRecentReviewApi } from './generated/api.schemas'
+import { CodeReviewReviewsListScope, type ReviewRecentReviewApi } from './generated/api.schemas'
 import { displayedReviewMode, reviewTitle, runningStageLabel } from './reviewDisplay'
 import { REVIEWS_PAGE_SIZE, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 import { ReviewModeTag } from './ReviewModeTag'
@@ -71,14 +71,14 @@ function ReviewsEmptyState(): JSX.Element {
             </div>
         )
     }
-    if (reviewsScope === ReviewHogReviewsListScope.Mine) {
+    if (reviewsScope === CodeReviewReviewsListScope.Mine) {
         return (
             <div className="flex flex-col items-center gap-2 py-4">
                 <span>No reviews of your pull requests or reviews you started yet.</span>
                 <LemonButton
                     type="secondary"
                     size="small"
-                    onClick={() => setReviewsScope(ReviewHogReviewsListScope.Everyone)}
+                    onClick={() => setReviewsScope(CodeReviewReviewsListScope.Everyone)}
                 >
                     Show everyone's reviews
                 </LemonButton>
@@ -151,7 +151,7 @@ export function ReviewsTable(): JSX.Element {
             dataIndex: 'repository',
             render: (_, review) => <span className="whitespace-nowrap font-mono text-xs">{review.repository}</span>,
         },
-        ...(reviewsScope === ReviewHogReviewsListScope.Everyone
+        ...(reviewsScope === CodeReviewReviewsListScope.Everyone
             ? [
                   {
                       title: 'Author',

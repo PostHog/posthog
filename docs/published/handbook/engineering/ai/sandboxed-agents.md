@@ -43,6 +43,21 @@ The chat history filters for PostHog AI, Slack, and Desktop show tasks created b
 These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
 When the user loads, the pending request uses the active filter and search term.
 
+### Provider rate limits
+
+Initial and resumed agent turns retry provider rate limits and capacity refusals up to four times.
+Without a provider hint, each retry uses a random delay between zero and an exponential ceiling of 15, 30, 60, then 120 seconds.
+A provider's `try again in` hint adds a minimum delay, capped at 60 seconds to leave room for jitter.
+The total delay stays below 120 seconds, including the hint.
+Canceling the turn interrupts the retry wait immediately.
+Other transient provider failures allow two retries with a five-second delay.
+Task spend limits and subscription usage limits do not trigger these retries.
+
+The turn retry log records the classification, attempt, and delay.
+The run's `state.upstream_turn_retry` stores the latest retry's `classification`, `attempt`, and `delay_ms`.
+This state remains available when a later retry succeeds.
+An exhausted rate-limit retry reports `upstream_rate_limited` as the error category.
+
 ### Stream recovery
 
 The shared agent thread reconnects automatically after temporary network failures.
@@ -104,6 +119,10 @@ The agent inside the sandbox gets:
 - **Code execution** capabilities within the sandbox
 
 ### Run system prompts
+
+Pull request footers link to an inbox report when the task has a report.
+Desktop attribution requires recorded `posthog_desktop` client provenance.
+Tasks with missing or unknown client provenance use generic PostHog branding without a Desktop source link.
 
 The run's `state.systemPrompt` is server-owned. Set it through trusted server-side run creation
 or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
@@ -176,6 +195,12 @@ Define a `TaskProfile` for your product in `products/your_product/backend/task_p
 with `origin_product="your_product"`.
 `products/autoresearch/backend/task_profiles.py` is a complete example.
 Give each kind of task its own profile key, such as `your_product.report`.
+
+A profile with `billing_product="background_agents"` runs on PostHog-funded inference.
+Its origin must be in `BACKGROUND_AGENTS_ORIGINS` in `products/tasks/backend/temporal/process_task/ai_gateway_token.py`
+and in `Task.SERVER_ONLY_ORIGIN_PRODUCTS`, so API callers cannot set it.
+Without the first entry the tasks worker refuses the run an AI gateway token, with the reason `no_background_agents_provenance`.
+`test_background_agents_profile_can_mint_a_gateway_token` in `products/tasks/backend/tests/test_profile_parity.py` fails until both entries exist.
 
 Register the profiles from your product's `AppConfig.ready()`:
 
@@ -467,6 +492,10 @@ They can:
 - Run tests, linters, and build tools
 - Create git branches and pull requests (commits must be signed — see below)
 - Execute arbitrary shell commands within the container
+
+Claude sessions use `applyFlagSettings()` at startup to set `attribution.pr` to an empty string and disable Claude Code's default footer in pull request descriptions.
+The agent keeps the PostHog attribution footer from its task instructions.
+The same call sets `attribution.commit` to an empty string, consistent with the task instructions that prohibit Claude's default commit trailer.
 
 ### Git commit signing
 

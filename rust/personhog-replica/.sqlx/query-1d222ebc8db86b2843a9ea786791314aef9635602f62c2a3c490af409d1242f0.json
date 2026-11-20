@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='delete_persons_batch_for_team_read_ids' */\n            SELECT id::bigint as \"id!\" FROM posthog_person\n            WHERE team_id = $1\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1d222ebc8db86b2843a9ea786791314aef9635602f62c2a3c490af409d1242f0"
+}

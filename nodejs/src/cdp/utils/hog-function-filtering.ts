@@ -356,12 +356,14 @@ export function convertToHogFunctionFilterGlobal(
 
 const HOG_FILTERING_TIMEOUT_MS = 100
 
-/** An action is a saved event filter, so only an events-only list can reject on the name; a null id admits all. */
+/** Mirrors the filter compiler: only an entry of type events with an id constrains the name. */
 export function rejectsEventName(filters: HogFunctionType['filters'], eventName: string): boolean {
     if (!filters?.events?.length || filters.actions?.length) {
         return false
     }
-    return !filters.events.some((eventFilter) => eventFilter.id === null || eventFilter.id === eventName)
+    return !filters.events.some(
+        (eventFilter) => eventFilter.type !== 'events' || eventFilter.id == null || eventFilter.id === eventName
+    )
 }
 
 export const filteredMetric = (source: { team_id: number; id: string }): MinimalAppMetric => ({

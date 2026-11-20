@@ -106,10 +106,12 @@ export function LinkedInAdsConversionRulePicker({
 
 export function LinkedInAdsAccountIdPicker({
     onChange,
-    value,
+    value: savedValue,
     integration,
     disabled,
 }: LinkedInAdsPickerProps): JSX.Element {
+    // integration_field inputs are not type-checked on save, so an API or MCP client can store this ID as a number.
+    const value = savedValue == null ? savedValue : String(savedValue)
     const { linkedInAdsAccounts, linkedInAdsAccountsLoading } = useValues(
         linkedInAdsIntegrationLogic({ id: integration.id })
     )

@@ -690,10 +690,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 // For new alerts alert.id is undefined, keying the logic as 'new' — using the server-returned ID would miss the queued state.
                 const notifLogic = alertNotificationLogic({ alertId: alert.id })
 
-                const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
-                    if (notifLogic.values.pendingNotifications.length > 0) {
-                        await notifLogic.asyncActions.createPendingDestinations(savedAlertId)
+                const flushPendingNotifications = async (savedAlertId: string): Promise<boolean> => {
+                    if (notifLogic.values.pendingNotifications.length === 0) {
+                        return false
                     }
+                    await notifLogic.asyncActions.createPendingDestinations(savedAlertId)
+                    return true
                 }
 
                 const existingAlertId = alert.id
@@ -745,6 +747,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (isNewAlert) {
                     posthog.capture('alert creation completed', {
                         ui_version: 'redesigned',
+                        detector_type: values.alertForm.detector_config?.type ?? null,
                     })
                 }
 
@@ -757,9 +760,16 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 // client-side bug, not a save failure. Capture it for investigation but don't surface it
                 // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
                 try {
-                    await flushPendingNotifications(updatedAlert.id)
+                    const addedDestinations = await flushPendingNotifications(updatedAlert.id)
                     hydrateAlertLogicFromSaveResponse(updatedAlert)
                     upsertToParent(updatedAlert)
+                    // The saved alert's destination_count predates the destinations just added.
+                    if (addedDestinations && props.insightVizDataLogicProps) {
+                        insightAlertsLogic({
+                            insightId: props.insightId,
+                            insightLogicProps: props.insightVizDataLogicProps,
+                        }).actions.loadAlerts()
+                    }
                     props.onEditSuccess(updatedAlert.id)
                 } catch (postSaveError) {
                     posthog.captureException(postSaveError)

@@ -84,6 +84,7 @@ from posthog.hogql_queries.query_failure_handling import budget_for_limit_contex
 from posthog.hogql_queries.query_runner import (
     SHARED_FORCE_BLOCKING_STALENESS_WINDOW,
     AnalyticsQueryRunner,
+    CacheKeyIgnoredField,
     ExecutionMode,
     QueryRunner,
     QueryRunnerWithHogQLContext,
@@ -905,6 +906,46 @@ class TestQueryRunner(BaseTest):
 
         assert tagged.get_cache_key() == untagged.get_cache_key()
 
+    @parameterized.expand(
+        [
+            ("always_ignored", CacheKeyIgnoredField(name="other_attr"), ["a"], ["b"], True),
+            (
+                "ignored_value_matches_unset",
+                CacheKeyIgnoredField(name="other_attr", when_value_in=(["a"],)),
+                ["a"],
+                None,
+                True,
+            ),
+            (
+                "other_value_keeps_its_own_key",
+                CacheKeyIgnoredField(name="other_attr", when_value_in=(["a"],)),
+                ["b"],
+                None,
+                False,
+            ),
+        ]
+    )
+    def test_cache_key_ignored_fields(
+        self,
+        _name: str,
+        ignored_field: CacheKeyIgnoredField,
+        first_value: list[str] | None,
+        second_value: list[str] | None,
+        shares_key: bool,
+    ) -> None:
+        class IgnoringQueryRunner(self.setup_test_query_runner_class()):  # type: ignore[misc]
+            cache_key_ignored_fields = (ignored_field,)
+
+        team = Team.objects.create(organization=self.organization)
+
+        def cache_key(value: list[str] | None) -> str:
+            query: dict[str, Any] = {"some_attr": "bla"}
+            if value is not None:
+                query["other_attr"] = value
+            return IgnoringQueryRunner(query=query, team=team).get_cache_key()
+
+        assert (cache_key(first_value) == cache_key(second_value)) is shares_key
+
     @override_settings(
         PERSON_ON_EVENTS_OVERRIDE=False,
         PERSON_ON_EVENTS_V2_OVERRIDE=False,
@@ -1174,6 +1215,32 @@ class TestQueryRunner(BaseTest):
         assert isinstance(response, TheTestCachedBasicQueryResponse)
         assert response.is_cached is False
         assert response.results[0] == ["row", 1, 2, 3]
+
+    @time_machine.travel("2023-02-04T13:37:42Z", tick=False)
+    def test_key_planned_before_the_user_is_set_does_not_serve_unrestricted_results(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        TestQueryRunner = self.setup_test_query_runner_class()
+        TestQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        )
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        runner.plan_cache_key()
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
+
+        assert isinstance(response, CacheMissResponse)
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -1905,7 +1972,7 @@ class TestSharedInsightsExecutionMode(BaseTest):
         assert mock_enqueue.call_args.kwargs["sharing_configuration_id"] == expected
 
     @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
-    def test_async_payload_pins_a_resolved_native_table(self, mock_enqueue: mock.MagicMock) -> None:
+    def test_async_payload_pins_the_resolved_events_table(self, mock_enqueue: mock.MagicMock) -> None:
         with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
             direct = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
             direct.query = direct.query.model_copy(update={"connectionId": "direct"})
@@ -1920,10 +1987,13 @@ class TestSharedInsightsExecutionMode(BaseTest):
             runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
             legacy = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
             legacy.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
+            legacy_worker = HogQLQueryRunner(query=mock_enqueue.call_args.kwargs["query_json"], team=self.team)
 
         assert worker.modifiers.useNewEventsSchema is True
         assert worker.get_cache_key() == runner.get_cache_key()
-        assert mock_enqueue.call_args.kwargs["query_json"] == legacy.query.model_dump()
+        assert legacy_worker.modifiers.useNewEventsSchema is False
+        assert legacy_worker.get_cache_key() == legacy.get_cache_key()
         assert legacy.get_cache_key() != runner.get_cache_key()
         assert "useNewEventsSchema" not in legacy.get_cache_payload()["hogql_modifiers"]
 
@@ -2053,6 +2123,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             ("_ticket_assignments", "ticket"),
             ("_ticket_assignee_roles", "ticket"),
             ("_task_public_channels", "task"),
+            ("_task_public_slack_tasks", "task"),
         ]
     )
     def test_hogql_query_runner_partitions_cache_on_access_control(self, table: str, scope: str) -> None:

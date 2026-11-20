@@ -59,7 +59,28 @@ function finitePlotSize(size: number): number {
     return isFinite(size) && size > 0 ? size : 0
 }
 
-export function buildDimensions(rect: SizeRect, margins: ChartMargins): ChartDimensions {
+// About 8 MB of RGBA per canvas. A larger budget gave no visible gain on dashboard charts at 3x zoom.
+const MAX_ZOOMED_CANVAS_PIXELS = 2_000_000
+
+/** Backing pixels per CSS pixel for a chart. Pinch-zoom raises `pagePixelRatio` above
+ *  `devicePixelRatio`, and the browser re-rasterises text at the zoomed scale but magnifies a canvas
+ *  bitmap. So a chart in view takes the page ratio, up to a pixel budget. A chart out of view keeps
+ *  `devicePixelRatio`, so zoom memory grows only with the charts in view. */
+export function rasterScale(
+    rect: SizeRect,
+    devicePixelRatio: number,
+    pagePixelRatio: number,
+    onScreen: boolean
+): number {
+    if (!onScreen || pagePixelRatio <= devicePixelRatio) {
+        return devicePixelRatio
+    }
+    const area = rect.width * rect.height
+    const budget = area > 0 ? Math.sqrt(MAX_ZOOMED_CANVAS_PIXELS / area) : devicePixelRatio
+    return Math.max(devicePixelRatio, Math.min(pagePixelRatio, budget))
+}
+
+export function buildDimensions(rect: SizeRect, margins: ChartMargins, pixelRatio?: number): ChartDimensions {
     return {
         width: rect.width,
         height: rect.height,
@@ -67,6 +88,7 @@ export function buildDimensions(rect: SizeRect, margins: ChartMargins): ChartDim
         plotTop: margins.top,
         plotWidth: finitePlotSize(rect.width - margins.left - margins.right),
         plotHeight: finitePlotSize(rect.height - margins.top - margins.bottom),
+        pixelRatio,
     }
 }
 
@@ -77,6 +99,7 @@ export function sameDimensions(a: ChartDimensions, b: ChartDimensions): boolean 
         a.plotLeft === b.plotLeft &&
         a.plotTop === b.plotTop &&
         a.plotWidth === b.plotWidth &&
-        a.plotHeight === b.plotHeight
+        a.plotHeight === b.plotHeight &&
+        a.pixelRatio === b.pixelRatio
     )
 }

@@ -1099,14 +1099,6 @@ class SandboxSnapshotDTO:
 
 
 @dataclass(frozen=True)
-class SignalReportPrUrlDTO:
-    """The PR URL produced by the latest task run for a signal report."""
-
-    report_id: str
-    pr_url: str
-
-
-@dataclass(frozen=True)
 class WarmTaskDTO:
     """The draft Task + warm Run birthed by a Code-app warm request."""
 
@@ -1152,6 +1144,7 @@ class ComputeQuotaDenialReason(StrEnum):
 class TaskPullRequest:
     url: str
     state: str
+    run_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

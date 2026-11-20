@@ -15,10 +15,12 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { ActorsQuery, DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPersonScopeFilter, PropertyFilterType } from '~/types'
 
+import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/components/RealtimeCohortAudienceNotice'
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
+import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
 import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
 import { broadcastWizardLogic, rateLimitedReachSentence } from '../broadcastWizardLogic'
@@ -193,17 +195,21 @@ function AudienceListModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
 
 export function BroadcastRecipientsStep(): JSX.Element {
     const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
-    const { audienceProperties, linkAudienceRejected, blastRadius, channel } = useValues(broadcastWizardLogic)
+    const { audienceProperties, linkAudienceRejected, blastRadius, channel, aiEmailDraftLoading } =
+        useValues(broadcastWizardLogic)
     // A realtime cohort has to be the audience's only condition.
     const realtimeCohortAlone = !!blastRadius?.realtime_cohort || !!blastRadius?.realtime_cohort_with_other_conditions
-    const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
+    const { setAudienceProperties, sendToEveryoneAfterRejectedLink, stayOnRecipients } =
+        useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { openListModal } = useActions(broadcastAudienceListLogic(props))
+    const { editableAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const [audienceListOpen, setAudienceListOpen] = useState(false)
 
     return (
         <div className="flex flex-col gap-2 @container">
             <BroadcastChannelPicker />
+            {aiEmailDraftLoading ? <AiEmailDraftStatus status="loading" /> : null}
             <div>
                 <h2 className="m-0 text-xl font-semibold">
                     Who should receive this {channel === 'push' ? 'notification' : 'email'}?
@@ -242,7 +248,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
             <AudienceListModal isOpen={audienceListOpen} onClose={() => setAudienceListOpen(false)} />
             <PropertyFilters
                 pageKey="broadcast-wizard-recipients"
-                propertyFilters={audienceProperties}
+                propertyFilters={editableAudience}
                 addText="Add condition"
                 allowNew={!realtimeCohortAlone}
                 orFiltering
@@ -250,7 +256,10 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 allowRelativeDateOptions
                 hideBehavioralCohorts={!cohortConditionsEnabled}
                 logicalRowDivider
-                onChange={(properties) => setAudienceProperties(properties)}
+                onChange={(properties) => {
+                    stayOnRecipients()
+                    setAudienceProperties(properties)
+                }}
                 taxonomicGroupTypes={[
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.Cohorts,
@@ -271,7 +280,10 @@ export function BroadcastRecipientsStep(): JSX.Element {
                         type="secondary"
                         size="small"
                         icon={<IconUpload />}
-                        onClick={openListModal}
+                        onClick={() => {
+                            stayOnRecipients()
+                            openListModal()
+                        }}
                         data-attr="broadcast-audience-add-list"
                     >
                         Upload a list

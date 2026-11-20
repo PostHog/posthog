@@ -1,4 +1,5 @@
 import { defineCommand } from '@/core/command'
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { escapeControls, Output } from '@/core/output'
 import { plural } from '@/core/text'
 import { findEndpoints, findInsightVariables } from '@/endpoints/api'
@@ -137,8 +138,8 @@ export default defineCommand({
         result.problems.length > 0 ||
         result.plan.some((item) => item.invalid) ||
         result.outcomes.some((outcome) => outcome.status === 'failed')
-            ? 1
-            : 0,
+            ? EXIT_FAILURE
+            : EXIT_SUCCESS,
 
     telemetry: ({ result }) => ({
         status: result.status,

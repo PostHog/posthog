@@ -3,7 +3,7 @@ import datetime
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import DEFAULT, patch
 
 from django.test import SimpleTestCase
 
@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.api.embedding_worker import EmbeddingResponse
 from posthog.clickhouse.client import sync_execute
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport
@@ -76,7 +77,7 @@ class TestReportSearchAPI(ClickhouseTestMixin, APIBaseTest):
                     "report",
                     EMBEDDING_RENDERING_TITLE_SUMMARY,
                     str(report.id),
-                    self.inserted_at,
+                    report.created_at,
                     at,
                     "a report",
                     json.dumps({"deleted": deleted}),
@@ -95,6 +96,8 @@ class TestReportSearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_a_report_matched_by_both_sides_outranks_one_matched_by_either(self) -> None:
         semantic_only = self._report("Purchases stall after the payment step")
+        semantic_only.created_at -= datetime.timedelta(days=10)
+        semantic_only.save(update_fields=["created_at"])
         self._embed(semantic_only, _vector(1.0, 0.0))
         both = self._report("Checkout button does nothing")
         self._embed(both, _vector(0.9, 0.2))
@@ -145,6 +148,20 @@ class TestReportSearchAPI(ClickhouseTestMixin, APIBaseTest):
         if expected_status == 200:
             assert response.json()["semantic_available"] is False
             assert [row["match_kinds"] for row in response.json()["results"]] == [["keyword"]]
+
+    def test_a_vector_read_refused_at_the_query_limit_still_returns_semantic_matches(self) -> None:
+        report = self._report("Purchases stall after the payment step")
+        self._embed(report, _vector(1.0, 0.0))
+
+        with (
+            patch(f"{SEARCH}.VECTOR_READ_RETRY_WAIT_S", (0, 0)),
+            patch(f"{SEARCH}.sync_execute", wraps=sync_execute, side_effect=[ClickHouseAtCapacity(), DEFAULT]),
+        ):
+            response = self._search(query="checkout")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["semantic_available"] is True
+        assert [row["id"] for row in response.json()["results"]] == [str(report.id)]
 
     def test_a_query_with_no_indexable_text_returns_semantic_matches_only(self) -> None:
         keyword_bait = self._report("Is it ok")

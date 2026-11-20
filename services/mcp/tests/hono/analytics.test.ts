@@ -45,6 +45,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             stateManager: {},
         } as any,
         useSingleExec: true,
+        splitWrites: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
         oauthClientId: undefined,
@@ -128,6 +129,21 @@ describe('Hono MCP analytics contexts', () => {
             expect(mockCapture).not.toHaveBeenCalled()
         }
     )
+
+    it.each([
+        { name: 'saved metrics', tools: ['metric-list'], metricCatalog: { hasMetrics: true }, expected: 'lookup' },
+        { name: 'no saved metrics', tools: ['metric-list'], metricCatalog: { hasMetrics: false }, expected: 'empty' },
+        { name: 'failed catalog read', tools: ['metric-list'], metricCatalog: undefined, expected: 'unknown' },
+        { name: 'no metric-list tool', tools: ['user-get'], metricCatalog: undefined, expected: undefined },
+    ])('records the metric catalog mode: $name', async ({ tools, metricCatalog, expected }) => {
+        await trackToolCall(
+            'user-get',
+            12,
+            false,
+            makeState({ allTools: tools.map((name) => ({ name })) as any, metricCatalog })
+        )
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.metric_catalog_mode).toBe(expected)
+    })
 
     it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
         // Guards against reintroducing the legacy dual-emit, which double-counted every call.
@@ -315,11 +331,16 @@ describe('Hono MCP analytics contexts', () => {
     it('drops preloaded app data from the captured result for every consumer', async () => {
         const appData = { rows: [{ value: 'widget-only-data' }] }
         await trackToolCall('render-ui', 12, false, makeState(), undefined, {
-            response: { content: [{ type: 'text', text: 'ok' }], _meta: { 'com.posthog.mcp/app_data': appData } },
+            response: {
+                content: [{ type: 'text', text: 'ok' }],
+                structuredContent: { tool_name: 'survey-get', 'com.posthog.mcp/app_data': appData },
+                _meta: { 'com.posthog.mcp/app_data': appData },
+            },
         })
 
         expect(mockCaptureToolCall.mock.calls[0]![0].response).toEqual({
             content: [{ type: 'text', text: 'ok' }],
+            structuredContent: { tool_name: 'survey-get' },
             _meta: {},
         })
     })
@@ -759,6 +780,19 @@ describe('Hono MCP analytics contexts', () => {
                 { command: 'call workflows-transactional-emails-list {"search":"jane@example.com"}' },
                 false,
             ],
+            ['a workflow email list', 'workflows-emails-list', { workflow_id: 'wf_1' }, false],
+            [
+                'one workflow email',
+                'workflows-email-get',
+                { invocation_id: '01a19f0e-9fd0-0001-a1d4-3a2b4579b763', action_id: 'welcome' },
+                false,
+            ],
+            [
+                'a workflow email recipient activity through exec',
+                'exec',
+                { command: 'call workflows-email-activity {"action_id":"welcome"}' },
+                false,
+            ],
             ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
             ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false],
             [
@@ -771,6 +805,21 @@ describe('Hono MCP analytics contexts', () => {
                 'preparing an email send',
                 'workflows-send-email-prepare',
                 { to: 'ada@example.com', html: '<a href="https://example.com/reset?t=1">Reset</a>' },
+                false,
+            ],
+            ['starting a provider import', 'provider-imports-create', { api_key: 're_key' }, false],
+            ['reading a provider import', 'provider-imports-get', { id: 'run' }, false],
+            ['listing provider imports', 'provider-imports-list', {}, false],
+            [
+                'reading a provider import through exec',
+                'exec',
+                { command: 'call provider-imports-get {"id":"run"}' },
+                false,
+            ],
+            [
+                'a provider import through exec',
+                'exec',
+                { command: 'call provider-imports-create {"provider":"resend","api_key":"re_key"}' },
                 false,
             ],
             ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],

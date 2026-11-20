@@ -45,6 +45,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     ChunkSetArtefact,
     DroppedFindingArtefact,
+    FindingOutcomeArtefact,
     PerspectiveResultArtefact,
     PerspectiveSelectionArtefact,
     PRSnapshotArtefact,
@@ -761,6 +762,34 @@ def load_dropped_findings(
         if isinstance(content, DroppedFindingArtefact) and content.finding.run_index == run_index:
             dropped.append(content)
     return dropped
+
+
+def load_finding_outcomes(*, team_id: int, report_id: str) -> dict[str, FindingOutcomeArtefact]:
+    """The report's decided finding outcomes, keyed by issue key. Empty until the PR merged and the sweep ran."""
+    rows = ReviewReportArtefact.objects.for_team(team_id).filter(
+        report_id=report_id, type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME
+    )
+    outcomes: dict[str, FindingOutcomeArtefact] = {}
+    for row in rows.order_by("created_at", "id"):
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable %s artefact %s: %s", row.type, row.id, e)
+            continue
+        assert isinstance(content, FindingOutcomeArtefact)
+        if content.issue_key in outcomes:
+            # An outcome is decided once: the persist is transactional and the resume path re-emits
+            # rather than re-deciding, so a second row for one finding means something re-decided it.
+            # Latest-wins would absorb that silently, and the two rows can disagree — say so instead.
+            logger.warning(
+                "Duplicate finding_outcome for %s on report %s (%s then %s); taking the latest",
+                content.issue_key,
+                report_id,
+                outcomes[content.issue_key].outcome,
+                content.outcome,
+            )
+        outcomes[content.issue_key] = content
+    return outcomes
 
 
 def persist_verdicts(

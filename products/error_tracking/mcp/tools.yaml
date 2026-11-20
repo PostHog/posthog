@@ -90,6 +90,26 @@ tools:
             also clears any auto-disable state so the rule is re-enabled. Broadening filters exempts more exception
             events from rate limiting, which can increase ingested (and billed) volume during error spikes — keep them
             scoped to the specific errors that must never be dropped.
+    error-tracking-external-issues-search:
+        operation: error_tracking_external_references_search_issues_retrieve
+        enabled: false
+        disabled_reason: Use the provider's MCP tools to find existing issues and pass their identifiers to the link tool.
+        scopes:
+            - error_tracking:read
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search external issues to link
+        description: >
+            Search a connected GitHub, GitLab, Linear, or Jira integration for existing issues that you can link to a
+            PostHog error tracking issue. Provide `integration_id` and optional `search` text that matches issue titles
+            or identifiers. Leave `search` blank to get recent issues. GitHub also requires `repository`, the bare
+            repository name without the owner, and returns issues only, not pull requests. Each result has an
+            `external_context` object. Send it unchanged to error-tracking-external-references-link. Use
+            integrations-list first to find the `integration_id` and kind, and integrations-github-repos-retrieve to
+            find GitHub repository names.
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
         enabled: true
@@ -102,19 +122,44 @@ tools:
         title: Create error tracking external reference
         description: >
             Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking
-            issue as an external reference. This tool does not link an existing external issue by URL or key. Provide
-            the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object
-            with provider-specific fields. Examples: Jira config {"project_key":"ENG","title":"Checkout
-            TypeError","description":"Stack trace and reproduction details"}; Linear config
-            {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace and reproduction details"};
-            GitHub config {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace and reproduction
-            details"}; GitLab config {"title":"Checkout TypeError","body":"Stack trace and reproduction details"}.
-            Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body};
-            linear -> {team_id, title, description}; jira -> {project_key, title, description}. Every kind also accepts
-            an optional `assignee` key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. Use
-            integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve,
-            integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific
-            IDs.
+            issue as an external reference. To link an issue or pull request that already exists, use
+            error-tracking-external-references-link instead. Provide the error tracking issue id as `issue`, the
+            connected integration as `integration_id`, and a `config` object with provider-specific fields. Examples:
+            Jira config {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace and reproduction
+            details"}; Linear config {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace and
+            reproduction details"}; GitHub config {"repository":"posthog","title":"Checkout TypeError","body":"Stack
+            trace and reproduction details"}; GitLab config {"title":"Checkout TypeError","body":"Stack trace and
+            reproduction details"}. Required `config` keys by integration kind: github -> {repository, title, body};
+            gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}.
+            Every kind also accepts an optional `assignee` key: a Linear user ID, a GitHub login, a GitLab user ID, or a
+            Jira account ID. Use integrations-list first to find the `integration_id` and kind; use
+            integrations-jira-projects-retrieve, integrations-linear-teams-retrieve, or
+            integrations-github-repos-retrieve when you need provider-specific IDs.
+    error-tracking-external-references-link:
+        operation: error_tracking_external_references_link_issue_create
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Link existing external issue or pull request
+        description: >
+            Link an existing GitHub issue or pull request, GitLab issue, Linear issue, or Jira issue to a PostHog error
+            tracking issue as an external reference. This tool does not create a provider issue. To create one, use
+            error-tracking-external-references-create. Provide the error tracking issue id as `issue`, the connected
+            integration as `integration_id`, and an `external_context` object that identifies the existing item.
+            Required `external_context` keys by integration kind: github -> {repository, number}; gitlab -> {issue_id};
+            linear -> {id}, the issue key such as ENG-123; jira -> {key}. For GitHub, `repository` is the bare
+            repository name without the owner. To link a GitHub pull request, add "resource_type":"pull_request", for
+            example {"repository":"posthog","number":123,"resource_type":"pull_request"}. Every kind also accepts an
+            optional `title` to show for the link. Use the provider's MCP tools to find an existing issue or pull
+            request, or ask the user for its identifier. Use integrations-list to find the `integration_id` and kind.
+            Call query-error-tracking-issue first and read `external_issues` to see the work that is already linked.
+            Linking the same item again returns the existing link. A link cannot be removed after you create it, so
+            confirm the item with the user when it is not clear. For Linear, linking also attaches a link to the PostHog
+            issue to the Linear issue.
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create
         enabled: true
@@ -265,6 +310,7 @@ tools:
             List the issue tags enabled for the project, with the key, label and description of each. Use a key with
             `error-tracking-issues-tag-partial-update` to apply that tag to an issue or remove it. The list is empty
             when the project does not have issue tags.
+        feature_flag: error-tracking-issue-tags
     error-tracking-issues-tag-partial-update:
         operation: error_tracking_issues_tag_partial_update
         enabled: true
@@ -286,6 +332,7 @@ tools:
                 required: true
             applied:
                 required: true
+        feature_flag: error-tracking-issue-tags
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
         enabled: true
@@ -313,6 +360,7 @@ tools:
             false when ingestion drops every exception the project sends, and the project-wide and per-issue exception
             rate limits, where each `*_rate_limit_value` is the maximum events ingested per bucket and each
             `*_rate_limit_bucket_size_minutes` is the bucket window. A null `*_rate_limit_value` means no limit is set.
+            Also returns `ai_issue_summaries_enabled`, which is true when the project has turned on AI issue summaries.
             Read these before updating so you can preserve the fields you don't intend to change.
     error-tracking-settings-update:
         operation: error_tracking_settings_update_settings_partial_update
@@ -333,7 +381,10 @@ tools:
             at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with
             the user before reducing it. Setting `ingestion_enabled` to false drops every exception the project sends,
             within about a minute, until it is set back to true. Only change it when the user explicitly asks to stop or
-            resume exception ingestion.
+            resume exception ingestion. Setting `ai_issue_summaries_enabled` to true makes PostHog write an AI summary
+            of each new issue, and each summary uses the organization's AI credits. Only change it when the user
+            explicitly asks to turn issue summaries on or off. Turning it on fails until the organization approves AI
+            data processing.
     error-tracking-severity-rules-create:
         operation: error_tracking_severity_rules_create
         enabled: true
@@ -486,6 +537,69 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
+    error-tracking-tag-rules-create:
+        operation: error_tracking_tag_rules_create
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking tag rule
+        description: >
+            Create a tag rule for the current project. Provide a `label` and at least one event property filter in
+            `filters`. When the first event of a new issue matches the filters, the issue gets the tag. Every matching
+            rule applies its own tag. Filters can use event properties only. Rules do not change existing issues. The
+            call fails with "Issue tags are off for this project." when the project does not have issue tags. A project
+            can have at most 100 tag rules.
+        feature_flag: error-tracking-issue-tags
+    error-tracking-tag-rules-delete:
+        operation: error_tracking_tag_rules_destroy
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete error tracking tag rule
+        description: >
+            Delete a tag rule by ID. This also removes the rule's tag from every issue that has it. Confirm with the
+            user before you delete a rule.
+        feature_flag: error-tracking-issue-tags
+    error-tracking-tag-rules-list:
+        operation: error_tracking_tag_rules_list
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking tag rules
+        description: >
+            List the tag rules of the current project, with the label, filters, key, version and disabled state of each.
+            Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its tag on one issue.
+            The call fails with "Issue tags are off for this project." when the project does not have issue tags.
+        feature_flag: error-tracking-issue-tags
+    error-tracking-tag-rules-update:
+        operation: error_tracking_tag_rules_partial_update
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update error tracking tag rule
+        description: >
+            Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep
+            their existing values. A new `label` shows at once on every issue that has the rule's tag. New filters apply
+            only to issues created after the update. When the new filters read the same event properties, issues that
+            already have the tag keep it. When they read different properties, the rule gets a new `key` and loses its
+            existing tags, so list the rules again to get the new key.
+        feature_flag: error-tracking-issue-tags
     query-error-tracking-issue:
         operation: error_tracking_query_issue_create
         enabled: true
