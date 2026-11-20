@@ -4,6 +4,7 @@ from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_BILLING_USAGE_RECORDS,
     KAFKA_COLUMNS_WITH_PARTITION,
     kafka_engine,
+    kafka_num_consumers,
 )
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_BILLING_USAGE_RECORDS
@@ -98,7 +99,7 @@ ENGINE = {
 def billing_usage_records_consumer_settings() -> str:
     if run_mode() is not RunMode.CLOUD_US:
         return ""
-    return ", kafka_num_consumers = 2, kafka_thread_per_consumer = 1"
+    return f", kafka_num_consumers = {kafka_num_consumers(2)}, kafka_thread_per_consumer = 1"
 
 
 def KAFKA_BILLING_USAGE_RECORDS_TABLE_SQL() -> str:
