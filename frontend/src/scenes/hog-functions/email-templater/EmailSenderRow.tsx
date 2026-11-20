@@ -86,8 +86,8 @@ export function EmailSenderRow(): JSX.Element {
                     <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
                         <span className="min-w-0 truncate">{sandboxSenderHint(sandbox)}</span>
                         {unverified.length > 0 ? (
-                            <span className="min-w-0 truncate text-warning">
-                                {`${unverified.join(', ')} ${unverified.length === 1 ? "isn't" : "aren't"} verified yet. This step sends from the test sender until a sender is verified.`}
+                            <span className="min-w-0 break-words text-warning">
+                                {`${unverified.join(', ')} ${unverified.length === 1 ? "isn't" : "aren't"} verified yet.`}
                             </span>
                         ) : null}
                     </div>
