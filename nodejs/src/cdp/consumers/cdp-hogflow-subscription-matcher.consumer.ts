@@ -20,6 +20,7 @@ import {
 } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -37,7 +38,7 @@ import {
 import { CdpInternalEventSchema } from '../schema'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import { createCyclotronPool } from '../services/cyclotron-v2/pg-pool'
-import { pinConversionGoal } from '../services/hogflows/conversion-watcher'
+import { MAX_CONVERSION_WINDOW_MINUTES, pinConversionGoal } from '../services/hogflows/conversion-watcher'
 import {
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
@@ -79,6 +80,24 @@ const WATCHER_TEAMS_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const WATCHER_TEAMS_REFRESH_RETRY_MS = 30_000
 // Covers how long a worker can keep running a flow version after it was replaced.
 const PINNED_GOAL_CACHE_LAG_MS = 60 * 60 * 1000
+// When the last successful goals read is older than this, every event of a team with goals is looked up.
+const PINNED_GOALS_MAX_READ_AGE_MS = 5 * 60 * 1000
+const PINNED_GOALS_FULL_READ_INTERVAL_MS = 60 * 60 * 1000
+const PINNED_GOALS_READ_OVERLAP_MS = 10 * 60 * 1000
+// A worker can start a run on a flow version for a while after the save that replaced it.
+const PINNED_GOALS_WINDOW_MARGIN_MS = 24 * 60 * 60 * 1000
+// After a flow change, its team looks up every event until the replica the goals are read from shows the change.
+// It does so for at least this long, even when the replica already shows the change.
+const PINNED_GOALS_CHANGE_MIN_MS = 2 * 60 * 1000
+// And at most this long, so a change that leaves no newer flow row behind (a delete) does not keep the team there.
+const PINNED_GOALS_CHANGE_MAX_MS = 15 * 60 * 1000
+// Django stamps the save on its own clock, before the reload signal reaches this pod. This margin absorbs the
+// difference between the two clocks.
+const PINNED_GOALS_CLOCK_SKEW_MS = 10_000
+// A read that takes longer stops holding up the rest of the tick, and no second read starts until it settles.
+const PINNED_GOALS_READ_TIMEOUT_MS = 20_000
+// Past this many goals, a team looks up every event rather than running each goal against it.
+const PINNED_GOALS_MAX_PER_TEAM = 500
 
 const counterHogflowMatcherCandidatesEvaluated = new Counter({
     name: 'cdp_hogflow_matcher_candidates_evaluated',
@@ -140,6 +159,11 @@ const gaugeHogflowMatcherTeamsWithWatchers = new Gauge({
     help: 'Teams admitted through the parse gate purely because they still have unexpired conversion watchers.',
 })
 
+const gaugeHogflowMatcherPinnedGoalsInUse = new Gauge({
+    name: 'cdp_hogflow_matcher_pinned_goals_in_use',
+    help: '1 while the goal lookups are gated on fresh conversion goals, 0 otherwise.',
+})
+
 const counterHogflowMatcherWatcherEventsSkipped = new Counter({
     name: 'cdp_hogflow_matcher_watcher_events_skipped',
     help: 'Events left out of the conversion_watchers lookup because no conversion goal of their team can match their name.',
@@ -178,6 +202,10 @@ type WakeSource = 'events' | 'person' | 'internal_events' | 'cohort_membership'
 
 type FilterFirstMode = 'off' | 'shadow' | 'on'
 
+// eventNames: every event name the goal can match, or null when it can match any.
+type PinnedGoalEntry = { functionId: string; goal: PinnedConversionGoal; key: string; eventNames: Set<string> | null }
+type PinnedGoalRow = { teamId: number; entry: PinnedGoalEntry }
+
 // Past this, the rest of a batch is looked up without the check, so slow or numerous filters cannot hold the batch.
 const FILTER_FIRST_BUDGET_MS = 50
 
@@ -187,11 +215,14 @@ function callsRandom(bytecode: unknown): boolean {
     return Array.isArray(bytecode) && (bytecode.includes('randomFloat') || bytecode.includes('generateUUIDv4'))
 }
 
-function parseFilterFirstMode(value: string): FilterFirstMode {
+function parseFilterFirstMode(
+    value: string,
+    setting = 'CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST'
+): FilterFirstMode {
     if (value === 'off' || value === 'shadow' || value === 'on') {
         return value
     }
-    throw new Error(`CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST must be off, shadow or on, got "${value}"`)
+    throw new Error(`${setting} must be off, shadow or on, got "${value}"`)
 }
 
 export const counterHogflowMatcherEventSkipped = new Counter({
@@ -313,6 +344,21 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private teamsWithChangedFlows: Map<number, { refreshNumber: number; at: number }> = new Map()
     private watcherRefreshNumber = 0
     private watcherRefreshedAt = 0
+    private pinnedGoalsMode: FilterFirstMode
+    private postgres: PostgresRouter
+    // Every goal a workflow has had live, read from workflows_hogflowconversiongoal, by row and by team.
+    private pinnedGoalRows: Map<string, PinnedGoalRow> = new Map()
+    private pinnedGoalsByTeam: Map<number, Map<string, PinnedGoalEntry>> = new Map()
+    private pinnedGoalsRead: Promise<void> | null = null
+    private teamsOverGoalCap: Set<number> = new Set()
+    private pinnedGoalsCursor = 0
+    private pinnedGoalsReadAt = 0
+    private pinnedGoalsFullReadAt = 0
+    // Team -> when one of its flows changed, until a goals read has covered the change.
+    private pinnedGoalChanges: Map<number, number> = new Map()
+    // "on" and the goals have been read once. From then on the full watcher scan no longer runs.
+    private usingPinnedGoals = false
+    private watcherRefreshInFlight = false
     // An events batch carries few events a flow can act on, so most lookups cost a query for little.
     private eventWakes: BatchCoalescer<HogFunctionInvocationGlobals>
     private eventArrivals = new WeakMap<HogFunctionInvocationGlobals, Date>()
@@ -321,13 +367,23 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         this.filterFirst = parseFilterFirstMode(config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_FILTER_FIRST)
+        this.postgres = deps.postgres
+        this.pinnedGoalsMode = parseFilterFirstMode(
+            config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS,
+            'CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS'
+        )
         this.eventWakes = new BatchCoalescer(
             (globals) => this.processBatch(globals, 'events', (g) => this.eventArrivals.get(g)),
             config.CDP_HOGFLOW_SUBSCRIPTION_MATCHER_EVENTS_COALESCE_MS,
             config.CONSUMER_MAX_BACKGROUND_TASKS
         )
         deps.pubSub.on<{ teamId: number }>('reload-hog-flows', ({ teamId }) => {
-            this.teamsWithChangedFlows.set(teamId, { refreshNumber: this.watcherRefreshNumber, at: Date.now() })
+            if (!this.usingPinnedGoals) {
+                this.teamsWithChangedFlows.set(teamId, { refreshNumber: this.watcherRefreshNumber, at: Date.now() })
+            }
+            if (this.pinnedGoalsMode !== 'off') {
+                this.pinnedGoalChanges.set(teamId, Date.now())
+            }
         })
         this.kafkaConsumer = createKafkaConsumer(
             {
@@ -457,29 +513,77 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // Claimed before the parked-job work and independently of it: a watcher's run may have
         // finished long ago, so gating this on the flow still having something parked would put back
         // exactly the blind spot watchers exist to remove. Only a goal flow's run writes a watcher.
+        const usePinnedGoals = this.usingPinnedGoals
+        const shadowPinnedGoals = !usePinnedGoals && this.pinnedGoalsMode !== 'off' && this.pinnedGoalsFresh()
         const goalFlowsByTeam = new Map<number, HogFlow[] | 'any'>()
+        const pinnedGoalsByTeam = new Map<number, PinnedGoalEntry[] | 'any'>()
         for (const teamId of teamIds) {
             const flows = hogFlowsByTeam[teamId] ?? []
-            if (this.mayHaveLiveWatchers(teamId) || flows.some(hasConversionGoal)) {
+            if (!(this.mayHaveLiveWatchers(teamId) || flows.some(hasConversionGoal))) {
+                continue
+            }
+            if (!usePinnedGoals) {
                 goalFlowsByTeam.set(teamId, this.goalFlowsForWatchers(teamId, flows))
             }
+            if (usePinnedGoals || shadowPinnedGoals) {
+                pinnedGoalsByTeam.set(teamId, this.pinnedGoalsForTeam(teamId, flows))
+            }
         }
-        const watcherGlobals = invocationGlobals.filter((globals) => {
-            const goalFlows = goalFlowsByTeam.get(globals.project.id)
-            return goalFlows === 'any' || goalFlows?.some((flow) => goalAdmitsEventName(flow, globals.event.event))
-        })
+        // Every event of a team with goals goes on to the check, which compares event names and runs the goals.
+        const watcherGlobals = usePinnedGoals
+            ? invocationGlobals.filter((globals) => pinnedGoalsByTeam.has(globals.project.id))
+            : invocationGlobals.filter((globals) => {
+                  const goalFlows = goalFlowsByTeam.get(globals.project.id)
+                  return (
+                      goalFlows === 'any' || goalFlows?.some((flow) => goalAdmitsEventName(flow, globals.event.event))
+                  )
+              })
         counterHogflowMatcherWatcherEventsSkipped.inc(
-            invocationGlobals.filter((globals) => goalFlowsByTeam.has(globals.project.id)).length -
-                watcherGlobals.length
+            invocationGlobals.filter((globals) =>
+                (usePinnedGoals ? pinnedGoalsByTeam : goalFlowsByTeam).has(globals.project.id)
+            ).length - watcherGlobals.length
         )
-        // Only the events stream is checked: a person change or a cohort change is judged against
-        // state the event does not carry, and internal events are too few to matter.
+        // Mirrors the claim below, which judges a watcher by its own pinned goal against the same globals: no
+        // pinned goal matching means no watcher can convert on this event.
+        const couldMeetPinnedGoal = (
+            globals: HogFunctionInvocationGlobals,
+            spent: () => boolean
+        ): boolean | Promise<boolean> => {
+            const entries = pinnedGoalsByTeam.get(globals.project.id)
+            return (
+                entries === 'any' ||
+                couldMatchPinnedGoals(entries ?? [], globals.event.event, filterGlobalsFor(globals), eventsOnly, spent)
+            )
+        }
+        // Only the events stream is checked against the flows: a person change or a cohort change is judged
+        // against state the event does not carry, and internal events are too few to matter.
         const filterFirst = source === 'events' ? this.filterFirst : 'off'
-        const watcherCheck = await this.checkFilters(filterFirst, 'watchers', watcherGlobals, (globals, spent) => {
-            const goalFlows = goalFlowsByTeam.get(globals.project.id)
-            // A live watcher can only hold the goal of its flow as cached, unless the team is 'any'.
-            return goalFlows === 'any' || couldConvert(goalFlows ?? [], filterGlobalsFor(globals), spent)
-        })
+        let watcherCheck
+        if (usePinnedGoals) {
+            watcherCheck = await this.checkFilters('on', 'watcher_goals', watcherGlobals, couldMeetPinnedGoal)
+        } else {
+            const flowCheck = await this.checkFilters(filterFirst, 'watchers', watcherGlobals, (globals, spent) => {
+                const goalFlows = goalFlowsByTeam.get(globals.project.id)
+                // A live watcher can only hold the goal of its flow as cached, unless the team is 'any'.
+                return goalFlows === 'any' || couldConvert(goalFlows ?? [], filterGlobalsFor(globals), spent)
+            })
+            watcherCheck = flowCheck
+            if (shadowPinnedGoals) {
+                const shadowCheck = await this.checkFilters(
+                    'shadow',
+                    'watcher_goals',
+                    flowCheck.lookup,
+                    couldMeetPinnedGoal
+                )
+                watcherCheck = {
+                    lookup: flowCheck.lookup,
+                    noteMatch: (globals: HogFunctionInvocationGlobals) => {
+                        flowCheck.noteMatch(globals)
+                        shadowCheck.noteMatch(globals)
+                    },
+                }
+            }
+        }
         if (watcherCheck.lookup.length > 0) {
             const conversionsCounted = await this.claimConversionWatchers(
                 indexBatch(watcherCheck.lookup),
@@ -654,7 +758,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // looks up all of them anyway, and noteMatch counts a match on an event that "on" would have skipped.
     private async checkFilters(
         mode: FilterFirstMode,
-        lookup: 'parked' | 'watchers',
+        lookup: 'parked' | 'watchers' | 'watcher_goals',
         invocationGlobals: HogFunctionInvocationGlobals[],
         // `spent` turns true once the batch is over budget; `passes` then answers true without evaluating.
         passes: (globals: HogFunctionInvocationGlobals, spent: () => boolean) => boolean | Promise<boolean>
@@ -1049,7 +1153,209 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     private mayHaveLiveWatchers(teamId: number): boolean {
+        if (this.usingPinnedGoals) {
+            return (
+                this.pinnedGoalsByTeam.has(teamId) ||
+                this.teamsOverGoalCap.has(teamId) ||
+                this.pinnedGoalChanges.has(teamId)
+            )
+        }
         return this.liveWatcherFlowsByTeam.has(teamId) || this.teamsWithChangedFlows.has(teamId)
+    }
+
+    // Every goal a watcher of the team can hold: each goal its workflows have had live, plus the current goals of
+    // its cached flows. 'any' while the goals may be missing one: after a flow change this pod has not read the
+    // goals since, or when the last read is too old.
+    private pinnedGoalsForTeam(teamId: number, flows: HogFlow[]): PinnedGoalEntry[] | 'any' {
+        if (!this.pinnedGoalsFresh() || this.pinnedGoalChanges.has(teamId)) {
+            return 'any'
+        }
+        if (this.teamsOverGoalCap.has(teamId)) {
+            return 'any'
+        }
+        const stored = this.pinnedGoalsByTeam.get(teamId)
+        const entries = [...(stored?.values() ?? [])]
+        for (const flow of flows.filter(hasConversionGoal)) {
+            const entry = currentGoalEntry(flow)
+            if (entry && !stored?.has(entry.key)) {
+                entries.push(entry)
+            }
+        }
+        return entries
+    }
+
+    private pinnedGoalsFresh(): boolean {
+        return Date.now() - this.pinnedGoalsReadAt < PINNED_GOALS_MAX_READ_AGE_MS
+    }
+
+    // Reads the goals stamped live since the last read, or every goal still within the longest conversion window
+    // once an hour, which drops older goals and deleted workflows. The overlap re-reads rows whose save committed
+    // after a later row's stamp.
+    private async refreshPinnedGoals(): Promise<void> {
+        const startedAt = Date.now()
+        const full = startedAt - this.pinnedGoalsFullReadAt >= PINNED_GOALS_FULL_READ_INTERVAL_MS
+        const windowStart = startedAt - MAX_CONVERSION_WINDOW_MINUTES * 60_000 - PINNED_GOALS_WINDOW_MARGIN_MS
+        const since = full ? windowStart : Math.max(windowStart, this.pinnedGoalsCursor - PINNED_GOALS_READ_OVERLAP_MS)
+        const result = await this.postgres.query<{
+            id: string
+            team_id: number
+            hog_flow_id: string
+            goal: PinnedConversionGoal
+            event_names: string[] | null
+            last_live_at: Date
+            created_at: Date
+        }>(
+            PostgresUse.COMMON_READ,
+            // One row past the cap is enough to know a team is over it, so no team can grow this read without bound.
+            `SELECT id, team_id, hog_flow_id, goal, event_names, last_live_at, created_at FROM (
+                 SELECT g.id, f.team_id, g.hog_flow_id, g.goal, g.event_names, g.last_live_at, g.created_at,
+                        row_number() OVER (PARTITION BY f.team_id ORDER BY g.last_live_at DESC) AS team_row
+                 FROM workflows_hogflowconversiongoal g
+                 JOIN posthog_hogflow f ON f.id = g.hog_flow_id
+                 WHERE g.last_live_at > $1 OR (g.created_at > $2 AND g.last_live_at > $3)
+             ) goals
+             WHERE team_row <= $4`,
+            // A backfilled goal is created now but stamped with its workflow's last change.
+            [
+                new Date(since),
+                new Date(full ? windowStart : since),
+                new Date(windowStart),
+                PINNED_GOALS_MAX_PER_TEAM + 1,
+            ],
+            'hogflowMatcherPinnedGoals'
+        )
+        const rows = full ? new Map<string, PinnedGoalRow>() : this.pinnedGoalRows
+        if (full) {
+            this.teamsOverGoalCap = new Set()
+        }
+        let cursor = full ? windowStart : this.pinnedGoalsCursor
+        for (const row of result.rows) {
+            cursor = Math.max(cursor, new Date(row.last_live_at).getTime(), new Date(row.created_at).getTime())
+            if (!row.goal || typeof row.goal !== 'object' || this.teamsOverGoalCap.has(row.team_id)) {
+                continue
+            }
+            rows.set(row.id, {
+                teamId: row.team_id,
+                entry: {
+                    functionId: row.hog_flow_id,
+                    goal: row.goal,
+                    key: stableStringify(row.goal),
+                    eventNames: Array.isArray(row.event_names) ? new Set(row.event_names) : null,
+                },
+            })
+        }
+        if (full || result.rows.length > 0) {
+            // A team over the cap looks up every event, so its goals are not kept.
+            const rowsPerTeam = new Map<number, number>()
+            for (const { teamId } of rows.values()) {
+                rowsPerTeam.set(teamId, (rowsPerTeam.get(teamId) ?? 0) + 1)
+            }
+            for (const [teamId, count] of rowsPerTeam) {
+                if (count > PINNED_GOALS_MAX_PER_TEAM) {
+                    this.teamsOverGoalCap.add(teamId)
+                }
+            }
+            for (const [id, { teamId }] of rows) {
+                if (this.teamsOverGoalCap.has(teamId)) {
+                    rows.delete(id)
+                }
+            }
+            const pinnedGoalsByTeam = new Map<number, Map<string, PinnedGoalEntry>>()
+            for (const { teamId, entry } of rows.values()) {
+                let entries = pinnedGoalsByTeam.get(teamId)
+                if (!entries) {
+                    entries = new Map()
+                    pinnedGoalsByTeam.set(teamId, entries)
+                }
+                const existing = entries.get(entry.key)
+                // Equal goals keep the version that matches any event name.
+                if (!existing || (existing.eventNames && entry.eventNames === null)) {
+                    entries.set(entry.key, entry)
+                }
+            }
+            this.pinnedGoalRows = rows
+            this.pinnedGoalsByTeam = pinnedGoalsByTeam
+        }
+        this.pinnedGoalsCursor = cursor
+        this.pinnedGoalsReadAt = startedAt
+        if (full) {
+            this.pinnedGoalsFullReadAt = startedAt
+        }
+        await this.expirePinnedGoalChanges(startedAt)
+    }
+
+    // A flow save commits its goals in the same transaction as the flow row, before the reload signal. Once the replica
+    // shows a flow save of the team from the signal's time, a goals read after that includes the save's goals.
+    private async expirePinnedGoalChanges(readStartedAt: number): Promise<void> {
+        const due = [...this.pinnedGoalChanges].filter(
+            ([, changedAt]) => readStartedAt - changedAt > PINNED_GOALS_CHANGE_MIN_MS
+        )
+        if (due.length === 0) {
+            return
+        }
+        const result = await this.postgres.query<{ team_id: number; updated_at: Date }>(
+            PostgresUse.COMMON_READ,
+            `SELECT team_id, MAX(updated_at) AS updated_at FROM posthog_hogflow WHERE team_id = ANY($1) GROUP BY team_id`,
+            [due.map(([teamId]) => teamId)],
+            'hogflowMatcherChangedTeams'
+        )
+        const replicatedAt = new Map(result.rows.map((row) => [row.team_id, new Date(row.updated_at).getTime()]))
+        for (const [teamId, changedAt] of due) {
+            const seen = replicatedAt.get(teamId)
+            if (
+                (seen !== undefined && seen >= changedAt - PINNED_GOALS_CLOCK_SKEW_MS) ||
+                readStartedAt - changedAt > PINNED_GOALS_CHANGE_MAX_MS
+            ) {
+                this.pinnedGoalChanges.delete(teamId)
+            }
+        }
+    }
+
+    // One tick of the watcher state. The goals are read every tick while they are on or in shadow. The full watcher
+    // scan stops once "on" has read the goals, and otherwise runs at most every WATCHER_TEAMS_REFRESH_INTERVAL_MS.
+    private async refreshWatcherState(): Promise<void> {
+        // A slow read must not stack another one on the next tick.
+        if (this.watcherRefreshInFlight) {
+            return
+        }
+        this.watcherRefreshInFlight = true
+        try {
+            await this.refreshWatcherStateOnce()
+        } finally {
+            this.watcherRefreshInFlight = false
+        }
+    }
+
+    private async refreshWatcherStateOnce(): Promise<void> {
+        if (this.pinnedGoalsMode !== 'off') {
+            if (!this.pinnedGoalsRead) {
+                this.pinnedGoalsRead = this.refreshPinnedGoals()
+                    .catch((err) => {
+                        logger.error('⚠️', 'Failed to read conversion goals', { err })
+                        captureException(err)
+                    })
+                    .finally(() => {
+                        this.pinnedGoalsRead = null
+                    })
+            }
+            let timer: NodeJS.Timeout | undefined
+            await Promise.race([
+                this.pinnedGoalsRead,
+                new Promise<void>((resolve) => {
+                    timer = setTimeout(resolve, PINNED_GOALS_READ_TIMEOUT_MS)
+                    timer.unref?.()
+                }),
+            ])
+            clearTimeout(timer)
+        }
+        this.usingPinnedGoals = this.pinnedGoalsMode === 'on' && this.pinnedGoalsReadAt > 0
+        gaugeHogflowMatcherPinnedGoalsInUse.set(this.usingPinnedGoals && this.pinnedGoalsFresh() ? 1 : 0)
+        if (this.usingPinnedGoals) {
+            this.teamsWithChangedFlows.clear()
+            gaugeHogflowMatcherTeamsWithWatchers.set(0)
+        } else if (Date.now() - this.watcherRefreshedAt >= WATCHER_TEAMS_REFRESH_INTERVAL_MS) {
+            await this.refreshTeamsWithLiveWatchers()
+        }
     }
 
     // The flows whose current goals cover every goal the team's live watchers pinned, or 'any' when a
@@ -1519,15 +1825,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // which would drop messages for teams whose only goal flow is paused. A failure here must not
         // stop the matcher starting: an empty set degrades the gate to its previous flow-only
         // behavior until a retry succeeds, which is milder than refusing to consume at all.
-        await this.refreshTeamsWithLiveWatchers().catch((err) => {
+        await this.refreshWatcherState().catch((err) => {
             logger.error('⚠️', 'Initial conversion-watcher team refresh failed; gating on flows alone', { err })
             captureException(err)
         })
         this.watcherTeamsRefreshTimer = setInterval(() => {
-            if (Date.now() - this.watcherRefreshedAt < WATCHER_TEAMS_REFRESH_INTERVAL_MS) {
-                return
-            }
-            void this.refreshTeamsWithLiveWatchers().catch((err) => {
+            void this.refreshWatcherState().catch((err) => {
                 logger.error('⚠️', 'Failed to refresh teams with live conversion watchers', { err })
                 captureException(err)
             })
@@ -1785,6 +2088,90 @@ async function couldConvert(flows: HogFlow[], filterGlobals: FilterGlobals, spen
         }
     }
     return false
+}
+
+// Whether the event meets any of the goals. Over budget, or for a goal that draws a random number, it answers
+// true so the watchers are looked up and judged the usual way.
+async function couldMatchPinnedGoals(
+    entries: PinnedGoalEntry[],
+    eventName: string,
+    filterGlobals: FilterGlobals,
+    eventsOnly: boolean,
+    spent: () => boolean
+): Promise<boolean> {
+    for (const entry of entries) {
+        if (spent()) {
+            return true
+        }
+        if (entry.eventNames && !entry.eventNames.has(eventName)) {
+            continue
+        }
+        if ([entry.goal.properties, ...(entry.goal.events ?? [])].some(callsRandom)) {
+            return true
+        }
+        const goal: PinnedConversionGoal = eventsOnly
+            ? { events: entry.goal.events?.filter((bytecode: unknown) => !readsPerson(bytecode)) }
+            : entry.goal
+        if (await matchesPinnedGoal(goal, filterGlobals, entry.functionId)) {
+            return true
+        }
+    }
+    return false
+}
+
+const currentGoalEntries = new WeakMap<HogFlow, PinnedGoalEntry | null>()
+
+function currentGoalEntry(flow: HogFlow): PinnedGoalEntry | null {
+    let entry = currentGoalEntries.get(flow)
+    if (entry === undefined) {
+        const goal = pinConversionGoal(flow)
+        entry = goal
+            ? { functionId: flow.id, goal, key: stableStringify(goal), eventNames: goalEventNames(flow) }
+            : null
+        currentGoalEntries.set(flow, entry)
+    }
+    return entry
+}
+
+// The names `rejectsEventName` lets through for the flow's goal, or null when any name passes. Mirrors
+// goal_event_names in products/workflows/backend/services/conversion_goals.py.
+function goalEventNames(flow: HogFlow): Set<string> | null {
+    if (flow.conversion?.filters?.length) {
+        return null
+    }
+    const names = new Set<string>()
+    for (const eventConfig of (flow.conversion?.events ?? []).filter(hasEventOrActionTarget)) {
+        // A run drops entries without bytecode when it saves its goal, so they cannot match any event.
+        const bytecode = eventConfig.filters?.bytecode
+        if (!Array.isArray(bytecode) || bytecode.length === 0) {
+            continue
+        }
+        if (eventConfig.filters?.actions?.length || !Array.isArray(eventConfig.filters?.events)) {
+            return null
+        }
+        for (const eventFilter of eventConfig.filters.events) {
+            if (eventFilter.type !== 'events' || eventFilter.id == null) {
+                return null
+            }
+            names.add(String(eventFilter.id))
+        }
+    }
+    return names
+}
+
+// Postgres returns jsonb with its keys reordered, so goals are compared by a key-sorted encoding.
+function stableStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(stableStringify).join(',')}]`
+    }
+    if (value && typeof value === 'object') {
+        const object = value as Record<string, unknown>
+        return `{${Object.keys(object)
+            .sort()
+            .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
+            .join(',')}}`
+    }
+    return JSON.stringify(value) ?? 'null'
 }
 
 // A pinned goal converts when the property branch matches, or any event branch does. The two are

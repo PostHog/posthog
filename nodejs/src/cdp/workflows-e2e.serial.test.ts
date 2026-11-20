@@ -2214,6 +2214,89 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(conversionCount()).toBe(1)
             }, 5000)
         })
+
+        it('counts a conversion on the goal a run enrolled with after the flow changed goal, with lookups gated on every goal the flow has had', async () => {
+            const flow = await createWorkflowFlow(
+                {
+                    // The run finishes at once, so only its watcher can count the conversion.
+                    actions: { trigger: trigger(), exit: exitAction() },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                },
+                {
+                    exitCondition: 'exit_only_at_end',
+                    conversion: { filters: [], bytecode: [], events: [eventNameFilter('old_goal')] } as any,
+                }
+            )
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(async () => {
+                const rows = await cyclotronPool.query('SELECT 1 FROM conversion_watchers WHERE function_id = $1', [
+                    flow.id,
+                ])
+                expect(rows.rows).toHaveLength(1)
+                expect((await queryCyclotronJobs()).map((j: any) => j.status)).toEqual(['completed'])
+            }, 5000)
+            // What saving the new goal does in Django: the flow takes the new goal, which is recorded.
+            const newConversion = { filters: [], bytecode: [], events: [eventNameFilter('new_goal')] }
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET conversion = $1 WHERE id = $2`,
+                [JSON.stringify(newConversion), flow.id],
+                'editHogFlowGoal'
+            )
+            const recordGoal = (eventName: string, lastLiveAt: string): Promise<unknown> =>
+                hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_hogflowconversiongoal
+                         (id, team_id, hog_flow_id, goal_hash, goal, event_names, created_at, last_live_at)
+                     VALUES (gen_random_uuid(), $1, $2, md5($3::text), $3::jsonb, $4::jsonb, NOW(), NOW() - $5::interval)`,
+                    [
+                        flow.team_id,
+                        flow.id,
+                        JSON.stringify({ events: [eventNameBytecode(eventName)] }),
+                        JSON.stringify([eventName]),
+                        lastLiveAt,
+                    ],
+                    'recordHogFlowGoal'
+                )
+            await recordGoal('new_goal', '0 seconds')
+            const gated = new CdpHogflowSubscriptionMatcherConsumer(
+                { ...hub, CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PINNED_GOALS: 'on' },
+                deps
+            )
+            await (gated as any).refreshWatcherState()
+            // The old goal arrives as the backfill writes it, after the matcher's first read: created now, stamped
+            // with the workflow's last change. The next read, an incremental one, has to pick it up.
+            await recordGoal('old_goal', '30 days')
+            await (gated as any).refreshWatcherState()
+            const conversionCount = (): number =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(
+                        (m: any) =>
+                            m.value.app_source === 'hog_flow' &&
+                            m.value.metric_name === 'conversion' &&
+                            m.value.app_source_id === flow.id
+                    )
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            try {
+                // The run is judged by the goal it enrolled with, not the flow's current one.
+                await gated.processBatch([createGlobals({ event: 'new_goal' }), createGlobals({ event: 'unrelated' })])
+                expect(conversionCount()).toBe(0)
+                await gated.processBatch([createGlobals({ event: 'old_goal' })])
+
+                await waitForExpect(() => {
+                    expect(conversionCount()).toBe(1)
+                }, 5000)
+                const watchers = await cyclotronPool.query(
+                    'SELECT count(*)::int AS n FROM conversion_watchers WHERE function_id = $1',
+                    [flow.id]
+                )
+                expect(watchers.rows[0].n).toBe(0)
+            } finally {
+                await gated.stop().catch(() => {})
+            }
+        })
     })
 
     describe('wait_until_time_window: window in the future', () => {
