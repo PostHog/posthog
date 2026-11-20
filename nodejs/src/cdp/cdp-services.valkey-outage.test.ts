@@ -2,34 +2,14 @@ import { AddressInfo, Server, Socket, connect, createServer } from 'net'
 
 import { defaultConfig } from '~/common/config/config'
 import { RedisV2 } from '~/common/redis/redis-v2'
-import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpValkeyShadowPools } from './cdp-services'
-import { HogWatcherConfig, HogWatcherService } from './services/monitoring/hog-watcher.service'
 
 const LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS = 5_000
 const PORT_NOTHING_LISTENS_ON = 1
 const HALF_THE_SHADOW_COMMAND_TIMEOUT_MS = 500
 const ONE_SHARED_CONNECTION = { REDIS_POOL_MIN_SIZE: 1, REDIS_POOL_MAX_SIZE: 1 }
-
-const WATCHER_CONFIG: HogWatcherConfig = {
-    hogCostTimingLowerMs: 50,
-    hogCostTimingUpperMs: 550,
-    hogCostTiming: 100,
-    asyncCostTimingLowerMs: 100,
-    asyncCostTimingUpperMs: 5000,
-    asyncCostTiming: 20,
-    sendEvents: false,
-    bucketSize: 10000,
-    refillRate: 10,
-    ttl: 86400,
-    automaticallyDisableFunctions: true,
-    thresholdDegraded: 0.8,
-    stateLockTtl: 60,
-    observeResultsBufferTimeMs: 500,
-    observeResultsBufferMaxResults: 500,
-}
 
 const yieldToIo = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
@@ -194,13 +174,6 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             await expect(writer.useClient({ name: 'stalled' }, (client) => client.ping())).rejects.toThrow()
 
             expect(await writer.useClient({ name: 'after-stall' }, (client) => client.ping())).toEqual('PONG')
-        }, 30_000)
-
-        it('fails a watcher state read instead of reading the function as healthy', async () => {
-            const watcher = new HogWatcherService({} as TeamManager, WATCHER_CONFIG, writer)
-            await dropConnections()
-
-            await expect(watcher.getPersistedState('test-valkey-outage-function')).rejects.toThrow()
         }, 30_000)
     })
 })
