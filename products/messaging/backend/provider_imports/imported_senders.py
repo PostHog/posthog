@@ -23,7 +23,7 @@ def apply_sender(
     email["from"] = {
         "integrationId": sender.id,
         "email": literal_liquid(address),
-        "name": literal_liquid(display_name) or str(sender.config.get("name") or ""),
+        "name": literal_liquid(display_name or str(sender.config.get("name") or "")),
     }
     if not sender.config.get("verified"):
         return (f"{address} isn't verified in PostHog yet, so this {target} can't send until it is.",)

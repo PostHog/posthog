@@ -1,5 +1,6 @@
 import base64
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
@@ -24,6 +25,8 @@ from products.messaging.backend.models.provider_import_run import ProviderImport
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import mailgun, runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports.imported_senders import apply_sender
+from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.mailgun import (
     COMPLAINT_REASON_PREFIX,
     TEMPLATE_KEY_MAX_LENGTH,
@@ -47,6 +50,9 @@ US = "https://api.mailgun.net"
 EU = "https://api.eu.mailgun.net"
 ALL_STEPS = [spec.key for spec in MailgunImportProvider.steps]
 CLIENT = "products.messaging.backend.services.mailgun_client"
+ACCOUNT_TEMPLATES = "/v4/templates"
+EU_WELCOME = _template_key(_Target(region=MailgunRegion.EU, owner="", name="", path=ACCOUNT_TEMPLATES), "welcome", None)
+WELCOME_V1 = _template_key(_Target(region=MailgunRegion.US, owner="", name="", path=ACCOUNT_TEMPLATES), "welcome", "v1")
 
 
 class TestMailgunImport(BaseTest):
@@ -232,7 +238,7 @@ class TestMailgunImport(BaseTest):
         run = self._run(["templates"])
 
         templates = {row.key: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
-        assert set(templates) >= {"welcome", "mg-example-com-5b21c8439f-welcome", "eu-welcome"}
+        assert set(templates) >= {"welcome", "mg-example-com-5b21c8439f-welcome", EU_WELCOME}
         assert all(row.transactional_hog_flow_id is None for row in templates.values())
         assert templates["welcome"].content["email"]["subject"] == 'Welcome {{ variables.name | join: "," }}'
         assert templates["welcome"].content["email"]["replyTo"] == '{{ "{{" }}help}}@mg.example.com'
@@ -240,7 +246,7 @@ class TestMailgunImport(BaseTest):
         assert templates["welcome"].content["email"]["html"].startswith("&lt;h1&gt;Hello")
         assert templates["welcome"].content["email"]["design"]["body"]["rows"]
         assert templates["mg-example-com-5b21c8439f-welcome"].content["email"]["html"].startswith("&lt;p&gt;Hi")
-        assert "Hallo" in templates["eu-welcome"].content["email"]["html"]
+        assert "Hallo" in templates[EU_WELCOME].content["email"]["html"]
         assert not any("Old hello" in row.content["email"]["html"] for row in templates.values())
 
         items = {item["label"]: item for item in run.progress["templates"]["items"]}
@@ -256,7 +262,7 @@ class TestMailgunImport(BaseTest):
     def test_every_version_imports_when_asked(self) -> None:
         self._run(["templates"], region="us", template_versions="all")
 
-        old = MessageTemplate.objects.get(team_id=self.team.id, key="welcome-version-v1")
+        old = MessageTemplate.objects.get(team_id=self.team.id, key=WELCOME_V1)
         assert "Old hello" in old.content["email"]["html"]
         assert "Hello" in MessageTemplate.objects.get(team_id=self.team.id, key="welcome").content["email"]["html"]
         list_calls = [call for call in self.mailgun.calls if call["path"].endswith("/templates")]
@@ -267,7 +273,7 @@ class TestMailgunImport(BaseTest):
 
         run = self._run(["templates"], region="us", template_versions="all")
 
-        assert not MessageTemplate.objects.filter(team_id=self.team.id, key="welcome-version-v1").exists()
+        assert not MessageTemplate.objects.filter(team_id=self.team.id, key=WELCOME_V1).exists()
         active = MessageTemplate.objects.get(team_id=self.team.id, key="welcome")
         assert "Hello" in active.content["email"]["html"]
         items = {item["label"]: item for item in run.progress["templates"]["items"]}
@@ -481,7 +487,7 @@ class TestMailgunImport(BaseTest):
 
         remove_suppressions(self.team.id, ["both@example.com"], confirm_complaints=False)
         MessageTemplate.objects.filter(team_id=self.team.id, key="welcome").update(name="Edited here")
-        MessageTemplate.objects.filter(team_id=self.team.id, key="eu-welcome").update(deleted=True)
+        MessageTemplate.objects.filter(team_id=self.team.id, key=EU_WELCOME).update(deleted=True)
         MessageCategory.objects.filter(team_id=self.team.id, name="Developers").update(name="Renamed")
         MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier="no-tags@example.com").update(
             preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_IN"}
@@ -493,7 +499,7 @@ class TestMailgunImport(BaseTest):
         assert second.status == "completed"
         assert "both@example.com" not in self._suppressions()
         assert MessageTemplate.objects.get(team_id=self.team.id, key="welcome").name == "Edited here"
-        assert MessageTemplate.objects.get(team_id=self.team.id, key="eu-welcome").deleted is True
+        assert MessageTemplate.objects.get(team_id=self.team.id, key=EU_WELCOME).deleted is True
         assert MessageTemplate.objects.filter(team_id=self.team.id).count() == template_count
         assert MessageCategory.objects.filter(team_id=self.team.id, name="Renamed").exists()
         assert self._preferences()["no-tags@example.com"] == {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_IN"}
@@ -549,6 +555,35 @@ class TestMailgunTemplateKeys(SimpleTestCase):
 
         assert keys[0] != keys[1]
         assert all(len(key) <= TEMPLATE_KEY_MAX_LENGTH for key in keys)
+
+    @parameterized.expand(
+        [
+            ("region", (MailgunRegion.US, "eu-welcome", None), (MailgunRegion.EU, "welcome", None)),
+            ("version", (MailgunRegion.US, "receipt-version-v1", None), (MailgunRegion.US, "receipt", "v1")),
+        ]
+    )
+    def test_names_that_read_like_another_templates_scope_stay_apart(
+        self, _name: str, first: tuple, second: tuple
+    ) -> None:
+        keys = [
+            _template_key(_Target(region=region, owner="", name="", path="/v4/templates"), name, version)
+            for region, name, version in (first, second)
+        ]
+
+        assert keys[0] != keys[1]
+
+
+class TestImportedSender(SimpleTestCase):
+    def test_a_sender_name_with_liquid_stays_text_when_the_from_header_has_no_name(self) -> None:
+        sender = SimpleNamespace(
+            id=7, config={"email": "hello@example.com", "name": "{{ variables.reset_token }}", "verified": True}
+        )
+        email: dict[str, Any] = {}
+
+        apply_sender(email, "", "hello@example.com", {"hello@example.com": sender})
+
+        assert email["from"]["name"] == literal_liquid("{{ variables.reset_token }}")
+        assert email["from"]["name"] != "{{ variables.reset_token }}"
 
 
 class TestMailgunSettings(SimpleTestCase):

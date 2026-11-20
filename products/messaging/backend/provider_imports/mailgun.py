@@ -8,6 +8,7 @@ Mailgun's API has no automations, so nothing here makes a workflow. People never
 """
 
 import re
+import json
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -802,6 +803,12 @@ def _template_key(target: _Target, name: str, version_tag: str | None) -> str:
             *(["version", _hashed_key_part(version_tag)] if version_tag else []),
         ]
     )
+    if target.region == MailgunRegion.EU or target.owner or version_tag:
+        # Joined with dashes, a US template named eu-welcome and the EU welcome read the same, as do a template named
+        # receipt-version-v1 and version v1 of receipt, so a key with a region, subaccount or version ends in a hash of the
+        # whole identity. A domain already ends in a hash of itself.
+        identity = json.dumps([target.region.value, target.owner, target.name, name, version_tag])
+        key = f"{key}-{hashlib.sha256(identity.encode()).hexdigest()[:10]}"
     if len(key) <= TEMPLATE_KEY_MAX_LENGTH:
         return key
     # Cutting alone would give two keys that differ only at the end the same key, so the cut one ends in a hash.
@@ -827,6 +834,17 @@ def _template_label(target: _Target, name: str, version_tag: str | None) -> str:
     return f"{name} ({place}){suffix}"[:400] if place else f"{name}{suffix}"[:400]
 
 
+@frozen
+class _PendingTemplate:
+    """A converted template waiting for the insert, and where its result goes in the page's items."""
+
+    position: int
+    label: str
+    key: str
+    fields: dict[str, Any]
+    notes: tuple[str, ...]
+
+
 def _save_templates(
     context: ImportContext, target: _Target, templates: list[dict[str, Any]], _first: bool
 ) -> SavedPage:
@@ -841,6 +859,7 @@ def _save_templates(
         MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).values_list("key", flat=True)
     ) | code_email_keys(context.team_id, keys)
     items: list[ImportItem] = []
+    pending: list[_PendingTemplate] = []
     counts: Counter[str] = Counter()
     for template in templates:
         name = _clean(template.get("name"))
@@ -889,47 +908,42 @@ def _save_templates(
                 *_other_versions_note(template, version),
                 *_missing_versions_note(template, version),
             )
-            with transaction.atomic():
-                # Under the lock a send takes to add a code email key, so one added since the check above wins.
-                lock_team_keys(context.team_id)
-                created = (
-                    None
-                    if code_email_keys(context.team_id, [key])
-                    else create_template(
-                        context.team_id,
-                        context.created_by_id,
-                        {
-                            "name": label,
-                            "key": key,
-                            "description": " ".join(
-                                part
-                                for part in (
-                                    "Imported from Mailgun.",
-                                    _as_sentence(template.get("description")),
-                                    *notes,
-                                )
-                                if part
-                            ),
-                            "type": "email",
-                            "content": {"templating": "liquid", "email": email},
-                            "tags": [IMPORT_TAG],
-                        },
-                    )
-                )
-            if created is None:
-                counts["already_present"] += 1
-                items.append(
-                    ImportItem(
-                        label=label,
-                        status="skipped",
-                        notes=(f"A code email sends under the key {key}, so this template wasn't imported.",),
-                    )
-                )
-                continue
-            counts["needs_review" if notes else "created"] += 1
-            items.append(
-                ImportItem(label=label, status="created", url=f"/workflows/library/templates/{created.id}", notes=notes)
+            description = " ".join(
+                part for part in ("Imported from Mailgun.", _as_sentence(template.get("description")), *notes) if part
             )
+            fields = {
+                "name": label,
+                "key": key,
+                "description": description,
+                "type": "email",
+                "content": {"templating": "liquid", "email": email},
+                "tags": [IMPORT_TAG],
+            }
+            pending.append(_PendingTemplate(position=len(items), label=label, key=key, fields=fields, notes=notes))
+            items.append(ImportItem(label=label, status="created"))
+    if pending:
+        # Converting happens before the lock, so a send adding a code email key waits only for the inserts. Under it,
+        # a key a send added since the check above wins.
+        with transaction.atomic():
+            lock_team_keys(context.team_id)
+            code_keys = code_email_keys(context.team_id, [entry.key for entry in pending])
+            for entry in pending:
+                if entry.key in code_keys:
+                    counts["already_present"] += 1
+                    items[entry.position] = ImportItem(
+                        label=entry.label,
+                        status="skipped",
+                        notes=(f"A code email sends under the key {entry.key}, so this template wasn't imported.",),
+                    )
+                    continue
+                created = create_template(context.team_id, context.created_by_id, entry.fields)
+                counts["needs_review" if entry.notes else "created"] += 1
+                items[entry.position] = ImportItem(
+                    label=entry.label,
+                    status="created",
+                    url=f"/workflows/library/templates/{created.id}",
+                    notes=entry.notes,
+                )
     return SavedPage(imported=counts["created"] + counts["needs_review"], counts=dict(counts), items=tuple(items))
 
 
