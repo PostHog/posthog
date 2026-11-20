@@ -450,7 +450,7 @@ hog reads credentials only from the sources above. Runs from source keep their k
 hog releases the way posthog-cli does: a sampo changeset says what changed, and a person approves each release.
 The `Release hog` workflow (`.github/workflows/release-hog.yml`) runs it, and `release/` holds its scripts.
 
-A pull request that changes code compiled into hog, which the downloadable tool catalog can't deliver, needs a changeset. The `hog changeset` workflow adds one when the pull request has none: a patch, or a minor when the catalog format version changed, with the pull request title as the text. On a fork it fails with the command to run. `release/catalog-gap.ts` decides, from the build metafiles of hog and the CLI library.
+A pull request that changes code compiled into hog, which the downloadable tool catalog can't deliver, needs a changeset. The `hog changeset` workflow adds one when the pull request has none: a patch, or a minor when the catalog format version changed, with the pull request title as the text. On a fork it fails with the command to run. `release/catalog-gap.ts` decides, from the build metafiles of hog and the CLI library. A change to the generated API schemas in `services/mcp/src/generated/`, or to the registry of generated tool modules, counts only when it reaches a tool the catalog doesn't carry or hand-written code, because hog builds every tool the catalog carries from its catalog entry.
 
 To add a changeset yourself, run from `hog/`:
 

@@ -1,5 +1,6 @@
-// Whether a pull request changes code compiled into hog that the downloadable tool catalog can't deliver.
-// The compiled files come from the build metafiles. Run with --base <commit>; prints the result as JSON.
+// Whether the commits since <base> change code compiled into hog that the downloadable tool catalog can't
+// deliver. The compiled files come from the build metafiles. Run with --base <commit>, usually the last release
+// tag; prints the result as JSON. --list-compiled prints only the compiled files, one per line.
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -12,10 +13,21 @@ import { parseJsonOrUndefined } from '../src/core/json'
 
 export const CATALOG_TOOLS_JSON = 'services/mcp/schema/cli-catalog-tools.json'
 export const CATALOG_SCHEMA = 'services/mcp/src/cli/catalog/schema.ts'
-const WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
+const RELEASE_WORKFLOW = '.github/workflows/release-hog.yml'
+const CHANGESET_WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
+const RELEASE_BUILD_JOB = 'build'
 const GENERATED_TOOLS_DIR = 'services/mcp/src/tools/generated/'
+const GENERATED_REGISTRY = `${GENERATED_TOOLS_DIR}index.ts`
 // Generated, but code rather than catalog data: the barrel, the hook registry and the query wrappers.
 const GENERATED_CODE = new Set(['index.ts', 'hooks.ts', 'query-wrappers.ts'])
+// The zod schemas orval generates from the API. A downloaded catalog entry carries its tool's input schema,
+// so a generated tool module only reads them when hog falls back to the tools it was built with.
+const GENERATED_SCHEMAS_DIR = 'services/mcp/src/generated/'
+const REGISTRY_IMPORT = /^import \{ GENERATED_TOOLS as (\w+) \} from '\.\/([\w-]+)'$/
+const REGISTRY_SPREAD = /^\s+\.\.\.(\w+),$/
+const TOP_LEVEL_BLOCK = /^(?:export )?(?:const|function) (\w+)/
+const COMMENT_LINE = /^\s*(\/\*\*|\*|\/\/)/
+const TOOL_NAME = /^\s+name: '([a-z0-9-]+)',$/m
 const DEFINITION_FILES = new Set([
     'services/mcp/schema/tool-definitions.json',
     'services/mcp/schema/generated-tool-definitions.json',
@@ -32,16 +44,36 @@ export interface GapResult {
     reasons: Reason[]
 }
 
+export interface CompiledGraph {
+    files: Set<string>
+    importers: Map<string, Set<string>>
+}
+
 export interface GapInput {
     changed: string[]
-    compiled: Set<string>
+    compiled: CompiledGraph
     readBase: (path: string) => string | undefined
     readHead: (path: string) => string | undefined
 }
 
 const JsonObject = z.record(z.string(), z.unknown())
-const Metafile = z.object({ inputs: z.record(z.string(), z.unknown()) })
-const Workflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
+const Metafile = z.object({
+    inputs: z.record(
+        z.string(),
+        z.object({ imports: z.array(z.object({ path: z.string(), external: z.boolean().optional() })).optional() })
+    ),
+})
+const TriggerWorkflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
+const Workflow = z.object({
+    jobs: z.record(
+        z.string(),
+        z.object({
+            steps: z.array(
+                z.object({ uses: z.string().optional(), with: z.record(z.string(), z.unknown()).optional() })
+            ),
+        })
+    ),
+})
 
 function jsonObject(text: string | undefined): Record<string, unknown> {
     return (text && parseJsonOrUndefined(text, JsonObject)) || {}
@@ -69,27 +101,223 @@ function schemaVersion(source: string | undefined): string | undefined {
     return source?.match(/export const CATALOG_SCHEMA_VERSION = (\d+)/)?.[1]
 }
 
+function generatedModuleName(file: string): string | undefined {
+    const name = file.startsWith(GENERATED_TOOLS_DIR) ? file.slice(GENERATED_TOOLS_DIR.length) : undefined
+    return name && !name.includes('/') && !GENERATED_CODE.has(name) ? name : undefined
+}
+
+// Undefined when the module defines no tools, which proves nothing.
+function uncarriedTools(input: GapInput, carried: Set<string>, file: string): string[] | undefined {
+    const tools = new Set([...generatedToolNames(input.readBase(file)), ...generatedToolNames(input.readHead(file))])
+    return tools.size > 0 ? [...tools].filter((tool) => !carried.has(tool)) : undefined
+}
+
+// Splits a module into its top-level `const` and `function` blocks. Comments are dropped because they change
+// nothing hog runs. Whatever precedes the first block, like the imports, comes back as the prelude.
+function topLevelBlocks(source: string): { prelude: string; blocks: Map<string, string> } {
+    const prelude: string[] = []
+    const blocks = new Map<string, string[]>()
+    let current: string[] = prelude
+    for (const line of source.split('\n')) {
+        if (COMMENT_LINE.test(line)) {
+            continue
+        }
+        const name = line.match(TOP_LEVEL_BLOCK)?.[1]
+        if (name) {
+            current = []
+            blocks.set(name, current)
+        }
+        current.push(line)
+    }
+    return {
+        prelude: prelude.join('\n'),
+        blocks: new Map([...blocks].map(([name, lines]) => [name, lines.join('\n')])),
+    }
+}
+
+function referencesAny(text: string, names: Iterable<string>): boolean {
+    return [...names].some((name) => new RegExp(`\\b${name}\\b`).test(text))
+}
+
+// The exported schemas a change to a schema file alters, counting a schema that reads an altered one.
+// Undefined when the change reaches beyond the blocks, which leaves every schema suspect.
+function alteredSchemas(input: GapInput, file: string): Set<string> | undefined {
+    const base = topLevelBlocks(input.readBase(file) ?? '')
+    const head = topLevelBlocks(input.readHead(file) ?? '')
+    if (base.prelude !== head.prelude) {
+        return undefined
+    }
+
+    const altered = new Set(
+        [...new Set([...base.blocks.keys(), ...head.blocks.keys()])].filter(
+            (name) => base.blocks.get(name) !== head.blocks.get(name)
+        )
+    )
+    let grew = true
+    while (grew) {
+        grew = false
+        for (const [name, text] of head.blocks) {
+            if (!altered.has(name) && referencesAny(text, altered)) {
+                altered.add(name)
+                grew = true
+            }
+        }
+    }
+    return altered
+}
+
+// Which schemas each tool of a generated module reads through `orvalSchemas.<name>`, following the module's
+// own blocks. Undefined when a tool the module registers can't be traced.
+function schemasByTool(source: string | undefined): Map<string, Set<string>> | undefined {
+    if (!source) {
+        return undefined
+    }
+    const { blocks } = topLevelBlocks(source)
+    const schemasOf = (name: string, seen: Set<string>): Set<string> => {
+        const text = blocks.get(name) ?? ''
+        const schemas = new Set([...text.matchAll(/orvalSchemas\.(\w+)/g)].map((match) => match[1]!))
+        for (const other of blocks.keys()) {
+            if (other !== name && !seen.has(other) && referencesAny(text, [other])) {
+                seen.add(other)
+                schemasOf(other, seen).forEach((schema) => schemas.add(schema))
+            }
+        }
+        return schemas
+    }
+
+    const byTool = new Map<string, Set<string>>()
+    for (const [name, text] of blocks) {
+        const tool = text.match(TOOL_NAME)?.[1]
+        if (tool) {
+            byTool.set(tool, schemasOf(name, new Set([name, 'GENERATED_TOOLS'])))
+        }
+    }
+    return generatedToolNames(source).every((tool) => byTool.has(tool)) ? byTool : undefined
+}
+
+// The values a module imports from a schema file by name, or undefined when it imports the whole file.
+function namedImports(source: string | undefined, schemaFile: string): Set<string> | undefined {
+    const target = `generated/${schemaFile.slice(GENERATED_SCHEMAS_DIR.length).replace(/\.ts$/, '')}`
+    const names = new Set<string>()
+    for (const [, typeOnly, bindings, from] of (source ?? '').matchAll(
+        /import\s+(type\s+)?([^;]*?)\s+from\s+'([^']+)'/g
+    )) {
+        if (!from!.endsWith(target) || typeOnly) {
+            continue
+        }
+        const named = bindings!.match(/^\{([^}]*)\}$/)
+        if (!named) {
+            return undefined
+        }
+        for (const binding of named[1]!.split(',').map((part) => part.trim())) {
+            if (binding && !binding.startsWith('type ')) {
+                names.add(binding.split(/\s+as\s+/)[0]!)
+            }
+        }
+    }
+    return names
+}
+
+// The importers of a changed schema file that hog runs differently with a downloaded catalog. A generated
+// tool module counts only through tools that read an altered schema and that the catalog doesn't carry,
+// because hog builds every tool the catalog carries from the catalog entry.
+function schemaChangeBlockers(input: GapInput, carried: Set<string>, file: string): string[] {
+    const importers = [...(input.compiled.importers.get(file) ?? [])]
+    if (importers.length === 0) {
+        return ['no importer found']
+    }
+    const altered = alteredSchemas(input, file)
+
+    return importers.filter((importer) => {
+        if (generatedModuleName(importer)) {
+            const byTool = altered && schemasByTool(input.readHead(importer))
+            const affected = byTool
+                ? [...byTool]
+                      .filter(([, schemas]) => [...schemas].some((schema) => altered.has(schema)))
+                      .map(([tool]) => tool)
+                : generatedToolNames(input.readHead(importer))
+            return affected.some((tool) => !carried.has(tool))
+        }
+        const named = altered && namedImports(input.readHead(importer), file)
+        return !named || [...named].some((name) => altered.has(name))
+    })
+}
+
+function registrations(source: string | undefined): { modules: Map<string, string>; rest: string } {
+    const modules = new Map<string, string>()
+    const rest: string[] = []
+    for (const line of (source ?? '').split('\n')) {
+        const imported = line.match(REGISTRY_IMPORT)
+        if (imported) {
+            modules.set(imported[1]!, `${GENERATED_TOOLS_DIR}${imported[2]!}.ts`)
+        } else if (!REGISTRY_SPREAD.test(line)) {
+            rest.push(line)
+        }
+    }
+    return { modules, rest: rest.join('\n') }
+}
+
+// The registry lists the generated modules hog falls back to when the catalog lacks a tool. A change that
+// only adds or drops modules whose tools the catalog carries changes nothing hog runs with a downloaded
+// catalog. Any other line that changes counts.
+function registryChangeDelivered(input: GapInput, carried: Set<string>): boolean {
+    const base = registrations(input.readBase(GENERATED_REGISTRY))
+    const head = registrations(input.readHead(GENERATED_REGISTRY))
+    if (base.rest !== head.rest) {
+        return false
+    }
+
+    const carriedAt = (read: (path: string) => string | undefined, path: string): boolean => {
+        const tools = generatedToolNames(read(path))
+        return generatedModuleName(path) !== undefined && tools.length > 0 && tools.every((tool) => carried.has(tool))
+    }
+    const added = [...head.modules].filter(([alias, path]) => base.modules.get(alias) !== path)
+    const dropped = [...base.modules].filter(([alias, path]) => head.modules.get(alias) !== path)
+    return (
+        added.every(([, path]) => carriedAt(input.readHead, path)) &&
+        dropped.every(([, path]) => carriedAt(input.readBase, path))
+    )
+}
+
 // Anything compiled into hog counts unless the catalog provably carries it.
 export function findCatalogGaps(input: GapInput): GapResult {
     const carried = catalogTools(input)
     const reasons: Reason[] = []
 
     for (const file of input.changed) {
-        if (!input.compiled.has(file) || file === CATALOG_TOOLS_JSON) {
+        if (!input.compiled.files.has(file) || file === CATALOG_TOOLS_JSON) {
             continue
         }
 
-        const name = file.startsWith(GENERATED_TOOLS_DIR) ? file.slice(GENERATED_TOOLS_DIR.length) : undefined
-        if (name && !name.includes('/') && !GENERATED_CODE.has(name)) {
-            const tools = [...generatedToolNames(input.readBase(file)), ...generatedToolNames(input.readHead(file))]
-            const missing = tools.filter((tool) => !carried.has(tool))
-            if (tools.length > 0 && missing.length === 0) {
+        if (generatedModuleName(file)) {
+            const missing = uncarriedTools(input, carried, file)
+            if (missing?.length === 0) {
                 continue
             }
             reasons.push({
                 file,
-                why: `generated tools the catalog doesn't carry: ${missing.join(', ') || 'none found'}`,
+                why: `generated tools the catalog doesn't carry: ${missing?.join(', ') || 'none found'}`,
             })
+            continue
+        }
+
+        if (file.startsWith(GENERATED_SCHEMAS_DIR)) {
+            const blockers = schemaChangeBlockers(input, carried, file)
+            if (blockers.length === 0) {
+                continue
+            }
+            reasons.push({
+                file,
+                why: `generated schemas read by code the catalog can't deliver: ${blockers.join(', ')}`,
+            })
+            continue
+        }
+
+        if (file === GENERATED_REGISTRY) {
+            if (registryChangeDelivered(input, carried)) {
+                continue
+            }
+            reasons.push({ file, why: 'the generated tool registry changed beyond modules the catalog carries' })
             continue
         }
 
@@ -115,23 +343,42 @@ export function findCatalogGaps(input: GapInput): GapResult {
     return { needsRelease: reasons.length > 0, bump: formatChanged ? 'minor' : 'patch', reasons }
 }
 
-export function compiledFiles(metafiles: { path: string; root: string }[], repoRoot: string): Set<string> {
+export function compiledFiles(metafiles: { path: string; root: string }[], repoRoot: string): CompiledGraph {
     const files = new Set<string>()
+    const importers = new Map<string, Set<string>>()
+    // A module a build plugin makes up, like `cf-stub:cloudflare:workers`, is no file in the repository.
+    const repoFile = (root: string, path: string): string | undefined => {
+        if (path.includes(':')) {
+            return undefined
+        }
+        const file = relative(repoRoot, resolve(root, path)).split('\\').join(posix.sep)
+        return file.startsWith('..') || file.includes('node_modules/') || file.startsWith('services/mcp/dist/')
+            ? undefined
+            : file
+    }
+
     for (const { path, root } of metafiles) {
         const inputs = parseJsonOrUndefined(readFileSync(path, 'utf8'), Metafile)?.inputs ?? {}
-        for (const input of Object.keys(inputs)) {
-            const file = relative(repoRoot, resolve(root, input)).split('\\').join(posix.sep)
-            if (!file.startsWith('..') && !file.includes('node_modules/') && !file.startsWith('services/mcp/dist/')) {
-                files.add(file)
+        for (const [input, { imports }] of Object.entries(inputs)) {
+            const file = repoFile(root, input)
+            if (!file) {
+                continue
+            }
+            files.add(file)
+            for (const imported of imports ?? []) {
+                const target = imported.external ? undefined : repoFile(root, imported.path)
+                if (target) {
+                    importers.set(target, (importers.get(target) ?? new Set()).add(file))
+                }
             }
         }
     }
-    return files
+    return { files, importers }
 }
 
 // Patterns apply in order, and a later `!pattern` excludes again, as GitHub applies them.
 export function untriggeredFiles(compiled: Set<string>, workflow: string): string[] {
-    const patterns = Workflow.parse(parseYaml(workflow)).on.pull_request.paths
+    const patterns = TriggerWorkflow.parse(parseYaml(workflow)).on.pull_request.paths
     return [...compiled].filter(
         (file) =>
             !patterns.reduce((matched, pattern) => {
@@ -139,6 +386,43 @@ export function untriggeredFiles(compiled: Set<string>, workflow: string): strin
                 return new Bun.Glob(negated ? pattern.slice(1) : pattern).match(file) ? !negated : matched
             }, false)
     )
+}
+
+export function releaseCheckoutPatterns(workflow: string): string[] {
+    const steps = Workflow.parse(parseYaml(workflow)).jobs[RELEASE_BUILD_JOB]?.steps ?? []
+    const sparse = steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.with?.['sparse-checkout']
+    if (typeof sparse !== 'string') {
+        throw new Error(`The ${RELEASE_BUILD_JOB} job of ${RELEASE_WORKFLOW} has no sparse checkout to check.`)
+    }
+    return sparse
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+}
+
+// The patterns are git's non-cone sparse-checkout patterns, and the release build's are all anchored. A
+// pattern matches a path or any folder above it, `name/` matches only folders, and the last matching pattern
+// decides, so `!/*/` can drop every top-level folder that an earlier `/*` took in.
+export function outsideCheckout(compiled: Set<string>, patterns: string[]): string[] {
+    const rules = patterns.map((pattern) => {
+        const negated = pattern.startsWith('!')
+        const body = negated ? pattern.slice(1) : pattern
+        if (!body.startsWith('/')) {
+            throw new Error(`Only anchored sparse-checkout patterns are supported, not ${pattern}.`)
+        }
+        const folderOnly = body.endsWith('/')
+        return { negated, folderOnly, glob: new Bun.Glob(body.slice(1, folderOnly ? -1 : undefined)) }
+    })
+
+    return [...compiled].filter((file) => {
+        const parts = file.split('/')
+        const folders = parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join('/'))
+        const included = rules.reduce((current, rule) => {
+            const candidates = rule.folderOnly ? folders : [...folders, file]
+            return candidates.some((candidate) => rule.glob.match(candidate)) ? !rule.negated : current
+        }, false)
+        return !included
+    })
 }
 
 // Generated schema files are larger than execFileSync's default 1 MiB output buffer.
@@ -164,6 +448,7 @@ if (import.meta.main) {
     const { values } = parseArgs({
         options: {
             base: { type: 'string' },
+            'list-compiled': { type: 'boolean', default: false },
             'hog-metafile': { type: 'string', default: resolve(repoRoot, 'hog/dist/hog.metafile.json') },
             'mcp-metafile': {
                 type: 'string',
@@ -175,8 +460,8 @@ if (import.meta.main) {
             },
         },
     })
-    if (!values.base) {
-        console.error('Pass the commit the pull request branches from with --base.')
+    if (!values.base && !values['list-compiled']) {
+        console.error('Pass the commit to compare with, usually the last release tag, with --base.')
         process.exit(1)
     }
 
@@ -191,14 +476,27 @@ if (import.meta.main) {
         }
     }
 
-    const read = readAt(repoRoot)
     const compiled = compiledFiles(metafiles, repoRoot)
+    if (values['list-compiled'] || !values.base) {
+        process.stdout.write(
+            [...compiled.files]
+                .sort()
+                .map((file) => `${file}\n`)
+                .join('')
+        )
+        process.exit(0)
+    }
+
+    const read = readAt(repoRoot)
     const result = findCatalogGaps({
         changed: git(repoRoot, 'diff', '--name-only', `${values.base}...HEAD`).split('\n').filter(Boolean),
         compiled,
         readBase: read(values.base),
         readHead: read('HEAD'),
     })
-    const untriggered = untriggeredFiles(compiled, readFileSync(resolve(repoRoot, WORKFLOW), 'utf8'))
-    process.stdout.write(`${JSON.stringify({ ...result, untriggered })}\n`)
+    const patterns = releaseCheckoutPatterns(readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8'))
+    const untriggered = untriggeredFiles(compiled.files, readFileSync(resolve(repoRoot, CHANGESET_WORKFLOW), 'utf8'))
+    process.stdout.write(
+        `${JSON.stringify({ ...result, untriggered, compiled: [...compiled.files].sort(), outsideReleaseCheckout: outsideCheckout(compiled.files, patterns) })}\n`
+    )
 }
