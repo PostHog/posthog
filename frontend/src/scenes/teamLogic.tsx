@@ -27,6 +27,7 @@ import {
     ProductKey,
 } from '~/queries/schema/schema-general'
 import { ProjectType, TeamPublicType, TeamType } from '~/types'
+import type { OrganizationType } from '~/types'
 
 import type { FeatureFlagsSet } from '../lib/logic/featureFlagLogic'
 import { organizationLogic } from './organizationLogic'
@@ -339,7 +340,7 @@ export interface teamLogicMeta {
         ) => boolean
         demoOnlyProject: (
             currentTeam: TeamPublicType | TeamType | null,
-            currentOrganization: null | import('~/types').OrganizationType
+            currentOrganization: OrganizationType | null
         ) => boolean
         timezone: (currentTeam: TeamPublicType | TeamType | null) => string
         weekStartDay: (currentTeam: TeamPublicType | TeamType | null) => number

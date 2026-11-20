@@ -58,6 +58,8 @@ export function extractNotebook(message: ToolRendererProps['message']): Notebook
 export function CreateNotebookWidget(props: ToolRendererProps): JSX.Element {
     const { message } = props
     const notebook = message.status === 'completed' ? extractNotebook(message) : null
+    const isApp = message.resolvedKey === 'notebooks-app-get' || message.resolvedKey === 'notebooks-app-update'
+    const openLabel = isApp ? 'Open app builder' : 'Open notebook'
 
     if (!notebook) {
         return <GenericMcpToolRenderer {...props} />
@@ -72,13 +74,13 @@ export function CreateNotebookWidget(props: ToolRendererProps): JSX.Element {
                         <span className="font-medium">{notebook.title || 'Notebook ready'}</span>
                     </div>
                     <LemonButton
-                        to={notebook.url ?? urls.notebook(notebook.shortId)}
+                        to={notebook.url ?? `${urls.notebook(notebook.shortId)}${isApp ? '?view=builder' : ''}`}
                         targetBlank
                         icon={<IconOpenInNew />}
                         size="xsmall"
-                        tooltip="Open notebook"
+                        tooltip={openLabel}
                     >
-                        Open notebook
+                        {openLabel}
                     </LemonButton>
                 </div>
             </MessageTemplate>

@@ -19,6 +19,7 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { dashboardsModel, getRemovedDashboardIds } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
+import type { DashboardType } from '~/types'
 
 import type { DashboardBulkDeleteResponseApi } from 'products/dashboards/frontend/generated/api.schemas'
 
@@ -274,8 +275,8 @@ export interface dashboardsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isFiltering: (filters: DashboardsFilters) => boolean
         dashboards: (
-            nameSortedDashboards: (DashboardBasicType | import('~/types').DashboardType)[],
-            rawDashboards: Record<string, DashboardBasicType | import('~/types').DashboardType>,
+            nameSortedDashboards: (DashboardBasicType | DashboardType)[],
+            rawDashboards: Record<string, DashboardBasicType | DashboardType>,
             searchedDashboards: DashboardBasicType[] | null,
             filters: DashboardsFilters,
             currentTab: DashboardsTab,

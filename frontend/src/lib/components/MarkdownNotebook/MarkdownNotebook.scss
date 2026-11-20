@@ -2178,8 +2178,9 @@ button.MarkdownNotebook__component-title:focus-visible {
     border-radius: 0.25rem;
 }
 
-/* Clicking the <ref> highlight flashes the thread it anchors. */
-.MarkdownNotebook__component-shell--comment-flash .MarkdownNotebook__discussion-comment {
+/* Clicking the <ref> highlight flashes the thread it anchors, and hovering it marks the thread. */
+.MarkdownNotebook__component-shell--comment-flash .MarkdownNotebook__discussion-comment,
+.MarkdownNotebook__component-shell--comment-linked .MarkdownNotebook__discussion-comment {
     border-color: var(--color-border-warning, rgb(235 145 0 / 80%));
     box-shadow: 0 0 0 3px rgb(235 145 0 / 20%);
     transition:
@@ -2221,6 +2222,7 @@ button.MarkdownNotebook__component-title:focus-visible {
         top: 0;
         left: calc(100% + 1rem);
         width: calc(var(--markdown-notebook-comment-gutter) - 2rem);
+        transition: top 0.15s ease;
     }
 }
 
