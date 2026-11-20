@@ -113,7 +113,6 @@ function seriesProperties(series: AnomalySeriesApi): Record<string, unknown> {
         flagged_buckets: series.flagged_buckets,
         scored_buckets: series.scored_buckets,
         anomaly_rate: series.anomaly_rate,
-        baseline_rate: series.baseline_rate,
     }
 }
 

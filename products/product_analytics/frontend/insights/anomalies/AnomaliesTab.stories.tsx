@@ -20,14 +20,7 @@ function dayIso(index: number): string {
     return new Date(RANGE_START + index * DAY_MS).toISOString().replace('.000Z', '+00:00')
 }
 
-function makeSeries(
-    id: number,
-    name: string,
-    label: string,
-    values: number[],
-    flagged: number[],
-    baselineRate: number | null
-): AnomalySeriesApi {
+function makeSeries(id: number, name: string, label: string, values: number[], flagged: number[]): AnomalySeriesApi {
     const flaggedDays = flagged.map(dayIso)
     return {
         insight_id: id,
@@ -43,7 +36,6 @@ function makeSeries(
         expected_buckets: 14,
         coverage: values.length / 14,
         scored_through: dayIso(values.length - 1),
-        baseline_rate: baselineRate,
         dashboards: [{ id: 1, name: 'Growth' }],
         first_flagged_bucket: flaggedDays[0] ?? null,
         last_flagged_bucket: flaggedDays.at(-1) ?? null,
@@ -85,28 +77,19 @@ const FLAGGED_SERIES = [
         'Signups by referrer',
         'Organic search',
         [42, 40, 45, 43, 41, 44, 46, 43, 42, 45, 88, 97, 71, 44],
-        [10, 11, 12],
-        0.04
+        [10, 11, 12]
     ),
     makeSeries(
         1,
         'Signups by referrer',
         'Paid social',
         [20, 22, 19, 21, 20, 23, 22, 21, 20, 60, 64, 22, 21, 20],
-        [9, 10],
-        0.03
+        [9, 10]
     ),
-    makeSeries(1, 'Signups by referrer', 'Newsletter', [8, 9, 8, 7, 9, 8, 30, 9, 8, 7, 8, 9, 8, 7], [6], 0.02),
-    makeSeries(
-        1,
-        'Signups by referrer',
-        'Direct',
-        [64, 66, 61, 65, 63, 62, 64, 66, 30, 28, 63, 65, 64, 62],
-        [8, 9],
-        0.05
-    ),
-    makeSeries(1, 'Signups by referrer', 'Partners', [5, 6, 5, 4, 6, 5, 6, 5, 4, 5, 6, 18, 5, 6], [11], 0.01),
-    makeSeries(2, 'Checkout started', 'Checkout started', [310, 305, 298, 312, 120, 115], [4, 5], 0),
+    makeSeries(1, 'Signups by referrer', 'Newsletter', [8, 9, 8, 7, 9, 8, 30, 9, 8, 7, 8, 9, 8, 7], [6]),
+    makeSeries(1, 'Signups by referrer', 'Direct', [64, 66, 61, 65, 63, 62, 64, 66, 30, 28, 63, 65, 64, 62], [8, 9]),
+    makeSeries(1, 'Signups by referrer', 'Partners', [5, 6, 5, 4, 6, 5, 6, 5, 4, 5, 6, 18, 5, 6], [11]),
+    makeSeries(2, 'Checkout started', 'Checkout started', [310, 305, 298, 312, 120, 115], [4, 5]),
 ]
 
 const meta: Meta = {
