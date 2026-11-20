@@ -9,12 +9,13 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
@@ -2084,6 +2085,8 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             ("access_revoked_during_exchange",),
             ("access_unavailable_final",),
             ("access_unavailable_final_persistent",),
+            ("cache_unavailable",),
+            ("cache_unavailable_after_exchange",),
         ]
     )
     def test_device_login_lifecycle(self, outcome):
@@ -2091,8 +2094,18 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
         now = time.time()
         approved = False
         requests_seen = []
+        fail_cache_read = outcome == "cache_unavailable"
+        cache_get = caches["codex_login"].get
+
+        def read_cache(*args, **kwargs):
+            nonlocal fail_cache_read
+            if fail_cache_read:
+                fail_cache_read = False
+                raise RedisError("Unavailable")
+            return cache_get(*args, **kwargs)
 
         def provider(method, url, **kwargs):
+            nonlocal fail_cache_read
             requests_seen.append(url)
             if url.endswith("/usercode"):
                 assert kwargs["json"] == {"client_id": "app_EMoamEEZ73f0CkXaXp7hrann"}
@@ -2117,6 +2130,8 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                     else self._openai_response(403, {})
                 )
             if "data" in kwargs:
+                if outcome == "cache_unavailable_after_exchange":
+                    fail_cache_read = True
                 if outcome == "access_revoked_during_exchange":
                     self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
                 if outcome == "cancel_during_exchange":
@@ -2141,13 +2156,14 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             return self._openai_response(200, _codex_refresh_body("rt_rotated"))
 
         with (
+            patch.object(caches["codex_login"], "get", side_effect=read_cache),
             patch("tenacity.nap.time.sleep"),
             patch("requests.request", side_effect=provider),
             patch("posthog.tasks.codex_login.complete_codex_login.apply_async") as schedule,
             patch("posthog.tasks.codex_login.time.time", return_value=now) as clock,
         ):
             with self.captureOnCommitCallbacks(execute=True):
-                complete_codex_login(self.user.id, login_id)
+                complete_codex_login.apply(args=(self.user.id, login_id), throw=False).get()
             result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
             assert result == {"login_id": login_id, "status": "pending", "user_code": "TEST-CODE"}
             assert schedule.call_args.kwargs["countdown"] == 5
@@ -2196,6 +2212,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             "poll_429",
             "access_unavailable",
             "access_unavailable_final",
+            "cache_unavailable",
         )
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is connected
         result = self.client.get(f"/api/users/@me/integrations/codex/login/{login_id}/").json()
@@ -2219,6 +2236,8 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                 "access_revoked_during_exchange": "failed",
                 "access_unavailable_final": "connected",
                 "access_unavailable_final_persistent": "failed",
+                "cache_unavailable": "connected",
+                "cache_unavailable_after_exchange": "failed",
             }[outcome]
         )
         assert "private-" not in json.dumps(result)

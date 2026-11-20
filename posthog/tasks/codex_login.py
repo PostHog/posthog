@@ -6,7 +6,8 @@ from django.db import transaction
 
 import requests
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
+from redis.exceptions import RedisError
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_fixed
 from urllib3.exceptions import InvalidHeader
 from urllib3.util import Retry
@@ -174,11 +175,12 @@ def check_login_access(user: User, login: DeviceLogin) -> bool:
         return False
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, soft_time_limit=55, time_limit=60)
+@shared_task(bind=True, ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, soft_time_limit=55, time_limit=60)
 @skip_team_scope_audit
-def complete_codex_login(user_id: int, login_id: str) -> None:
+def complete_codex_login(self: Task, user_id: int, login_id: str) -> None:
     from posthog.api.user_integration_codex import DesktopAccessUnavailable, ensure_codex_connect_enabled
 
+    exchange_started = False
     try:
         login = claim_login(user_id, login_id)
         if login is None:
@@ -217,6 +219,7 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
         if not check_login_access(user, login):
             return
         grant = approval.json()
+        exchange_started = True
         response = openai_auth_request(
             "POST",
             OPENAI_OAUTH_TOKEN_URL,
@@ -250,6 +253,8 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
             transaction.on_commit(lambda: update_login(user_id, login_id, "connected"))
             transaction.on_commit(lambda: capture_login_result(user, "connected"))
     except Exception as error:
+        if isinstance(error, RedisError) and not exchange_started:
+            raise self.retry(countdown=60, max_retries=3) from None
         logger.warning("codex_device_login_failed", reason=type(error).__name__)
         if update_login(user_id, login_id, "expired" if isinstance(error, TimeoutError) else "failed"):
             user = User.objects.filter(id=user_id).first()

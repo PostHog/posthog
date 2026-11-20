@@ -22,6 +22,8 @@ It refreshes once when a user connects, once per cloud task run start when the a
 It revokes the refresh token when the user disconnects.
 `posthog/tasks/codex_login.py` requests device codes, polls for approval, and exchanges the authorization code. Polls respect the provider interval. Temporary poll failures back off and honor `Retry-After` within the attempt deadline. The authorization code exchange is not retried, including HTTP rejections. Codex uses this policy for the single-use code. A timeout or rejected exchange ends the attempt; the user starts a new login. Access is checked again before the token transaction commits. A temporary final access failure is retried once after the five-second billing error cache expires. Tokens stay in worker memory and the uncommitted transaction. If access still cannot be verified, the transaction rolls back.
 
+Cache failures before token exchange retry the task up to three times, after the 60-second polling reservation expires. These retries keep the original login deadline. No task retry occurs after token exchange starts. The final access retry holds the user lock for five extra seconds, so cancellation and token issuance for that user wait. This keeps the refreshed tokens and access check in one transaction; cancellation can then remove only the credentials from that attempt.
+
 ## Rate-limit headers
 
 None documented, so the domain declares no gauges.
