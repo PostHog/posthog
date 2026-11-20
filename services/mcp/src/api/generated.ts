@@ -113252,6 +113252,26 @@ export namespace Schemas {
       user_prompt?: string;
     }
 
+    export interface ScoutChatUsageLimit {
+      /** True when the team is over its usage limit, so starting a scout chat returns a 429. */
+      limited: boolean;
+      /**
+         * The error code a start returns while limited, for example `usage_limit_exceeded`. Null when not limited.
+         * @nullable
+         */
+      code: string | null;
+      /**
+         * The error message a start returns while limited. Null when not limited.
+         * @nullable
+         */
+      error: string | null;
+      /**
+         * ISO 8601 timestamp when the limit resets, when known. Null otherwise.
+         * @nullable
+         */
+      reset_at: string | null;
+    }
+
     /**
      * One check as a scout run reads it back.
      */

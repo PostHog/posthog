@@ -72,6 +72,7 @@ import type {
     ReviewerExclusionCreateResultApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
+    ScoutChatUsageLimitApi,
     ScoutCheckSummaryApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
@@ -1985,6 +1986,24 @@ export const signalsScoutChatTasksCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutChatTaskCreateApi),
+    })
+}
+
+export const getSignalsScoutChatTasksUsageLimitRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/chat_tasks/usage_limit/`
+}
+
+/**
+ * Whether the team is over the usage limit that makes starting a scout chat return a 429, so a client can disable its chat buttons before the user clicks one.
+ * @summary Get the scout chat usage limit
+ */
+export const signalsScoutChatTasksUsageLimitRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScoutChatUsageLimitApi> => {
+    return apiMutator<ScoutChatUsageLimitApi>(getSignalsScoutChatTasksUsageLimitRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

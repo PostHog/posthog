@@ -13,8 +13,9 @@ from typing import Any, cast
 
 from django.core.cache import cache
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -32,7 +33,7 @@ from products.signals.backend.scout_harness.prompt import SCOUT_PROJECT_SCAN_GUI
 from products.signals.backend.scout_harness.suggestions import find_suggestion
 from products.signals.backend.task_profiles import CHAT
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import usage_limit_response
+from products.tasks.backend.facade.access import usage_limit_error, usage_limit_response
 
 SCOUT_AUTHOR_PROMPT = f"""I'd like to make a new scout for this PostHog project.
 
@@ -211,6 +212,22 @@ class ScoutChatTaskSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="The created chat task. Open it on the task detail page to continue.")
 
 
+class ScoutChatUsageLimitSerializer(serializers.Serializer):
+    limited = serializers.BooleanField(
+        help_text="True when the team is over its usage limit, so starting a scout chat returns a 429."
+    )
+    code = serializers.CharField(
+        allow_null=True,
+        help_text="The error code a start returns while limited, for example `usage_limit_exceeded`. Null when not limited.",
+    )
+    error = serializers.CharField(
+        allow_null=True, help_text="The error message a start returns while limited. Null when not limited."
+    )
+    reset_at = serializers.CharField(
+        allow_null=True, help_text="ISO 8601 timestamp when the limit resets, when known. Null otherwise."
+    )
+
+
 class ScoutChatSuggestionAccessPermission(ScoutCanonicalTeamAccessPermission):
     """The canonical-team check, applied only to a chat primed on a suggestion.
 
@@ -315,3 +332,25 @@ class SignalScoutChatTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             pending_user_message=prompt,
         )
         return Response(ScoutChatTaskSerializer({"task_id": created.task_id}).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        responses={200: ScoutChatUsageLimitSerializer},
+        summary="Get the scout chat usage limit",
+        description=(
+            "Whether the team is over the usage limit that makes starting a scout chat return a 429, so a "
+            "client can disable its chat buttons before the user clicks one."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="usage_limit", required_scopes=["task:read"])
+    def usage_limit(self, request, **kwargs):
+        error = usage_limit_error(self.team_id) or {}
+        return Response(
+            ScoutChatUsageLimitSerializer(
+                {
+                    "limited": bool(error),
+                    "code": error.get("code"),
+                    "error": error.get("error"),
+                    "reset_at": error.get("reset_at"),
+                }
+            ).data
+        )
