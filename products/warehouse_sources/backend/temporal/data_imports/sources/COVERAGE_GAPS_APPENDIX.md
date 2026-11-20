@@ -10462,7 +10462,7 @@ Note: Enumerated every /reference/get_v2-\* route from the ReadMe-hosted referen
 
 ## Notion — gaps
 
-Today (6): `blocks`, `comments`, `databases`, `pages`, `permission_groups`, `users`
+Today (9): `agent_credit_usage`, `blocks`, `comments`, `databases`, `pages`, `permission_group_members`, `permission_groups`, `user_credit_usage`, `users`
 
 Diffed against: <https://developers.notion.com/openapi-adminApi.json>
 
@@ -10470,10 +10470,10 @@ Diffed against: <https://developers.notion.com/openapi-adminApi.json>
 
 Re-audited 2026-11-19 against: <https://developers.notion.com/llms.txt>
 
-- [ ] `Permission group members (GET /v1/spaces/{space_id}/groups/{group_id}/members)` — Join table of users in each permission group we already sync, with owner or member role (medium)
-- [ ] `Credit usage per user (GET /v1/spaces/{space_id}/users/credit_usage)` — Notion credit usage and limits per member in the current billing period, joins to users (medium)
-- [ ] `Query meeting notes (POST /v1/blocks/meeting_notes/query)` — Meeting note blocks with status, calendar and recording metadata (medium)
-- [ ] `Credit usage per agent (GET /v1/spaces/{space_id}/agents/credit_usage)` — Credit spend by agent, split by credit type (low)
+- [x] `Permission group members (GET /v1/spaces/{space_id}/groups/{group_id}/members)` — Join table of users in each permission group we already sync, with owner or member role (medium). Added as `permission_group_members`.
+- [x] `Credit usage per user (GET /v1/spaces/{space_id}/users/credit_usage)` — Notion credit usage and limits per member in the current billing period, joins to users (medium). Added as `user_credit_usage`.
+- [ ] `Query meeting notes (POST /v1/blocks/meeting_notes/query)` — Meeting note blocks with status, calendar and recording metadata (medium). Skipped: no pagination (at most 50 notes per call), only meetings the integration's user attended, and the `blocks` table already holds `meeting_notes` blocks.
+- [x] `Credit usage per agent (GET /v1/spaces/{space_id}/agents/credit_usage)` — Credit spend by agent, split by credit type (low). Added as `agent_credit_usage`.
 - [ ] `List views (GET /v1/views)` — View definitions per database we already sync (low)
 - [ ] `Credit access policies (GET /v1/spaces/{space_id}/policies/credit_access; GET .../{policy_id}/assignments)` — Credit limit policies and who they cover (low)
 

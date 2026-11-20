@@ -2091,7 +2091,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Search the scout scratchpad",
         description=(
             "Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` "
-            "and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries "
+            "and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries "
+            "whose key starts with a prefix, and `skill_name` to keep the entries "
             "one scout (or `pipeline:*` stage) created. "
             "`date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
@@ -2128,6 +2129,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 **team_kwargs,
                 text=text,
                 key=validated.get("key") or None,
+                key_prefix=validated.get("key_prefix") or None,
                 skill_name=validated.get("skill_name") or None,
                 date_from=date_from,
                 date_to=date_to,
