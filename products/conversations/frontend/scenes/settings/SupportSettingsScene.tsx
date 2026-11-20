@@ -14,6 +14,7 @@ export const CONVERSATIONS_LOGIC_KEY = 'conversationsSettings'
 
 const VALID_SETTING_IDS = new Set<SettingId>([
     'conversations-general',
+    'conversations-channels',
     'conversations-ai',
     'conversations-learn-from-support',
     'conversations-notifications',
@@ -23,13 +24,13 @@ const VALID_SETTING_IDS = new Set<SettingId>([
 
 const DEFAULT_SETTING_ID: SettingId = 'conversations-general'
 
-function resolveSettingId(): SettingId {
-    const candidate = router.values.hashParams.selectedSetting
-    if (candidate === 'conversations-channels') {
-        return DEFAULT_SETTING_ID
-    }
+export function resolveSettingId(hashParams: Record<string, any>): SettingId {
+    const candidate = hashParams.selectedSetting
     if (typeof candidate === 'string' && VALID_SETTING_IDS.has(candidate as SettingId)) {
         return candidate as SettingId
+    }
+    if (hashParams.channel) {
+        return 'conversations-channels'
     }
     return DEFAULT_SETTING_ID
 }
@@ -53,7 +54,7 @@ export function SupportSettingsScene(): JSX.Element {
             <Settings
                 logicKey={CONVERSATIONS_LOGIC_KEY}
                 sectionId="environment-conversations"
-                settingId={resolveSettingId()}
+                settingId={resolveSettingId(router.values.hashParams)}
                 handleLocally
             />
         </SceneContent>
