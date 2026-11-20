@@ -4,7 +4,7 @@ import { LemonInput } from '@posthog/lemon-ui'
 import { Input } from '@posthog/quill'
 
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { StickinessOperator } from '~/queries/schema/schema-general'

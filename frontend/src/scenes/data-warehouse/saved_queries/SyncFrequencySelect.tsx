@@ -95,6 +95,10 @@ export interface SyncFrequencySelectProps {
     /** Set when the view has a DAG node, so a cadence slower than a downstream view can pin instead of being refused. */
     pin?: CadencePin | null
     onUnpin?: () => void
+    /** The bar's label. Defaults to the materialized view wording. */
+    label?: string
+    /** The help behind the label's info icon. Defaults to the materialized view wording. */
+    help?: string
 }
 
 /**
@@ -112,6 +116,8 @@ export function SyncFrequencySelect({
     'data-attr': dataAttr,
     pin,
     onUnpin,
+    label = 'Refresh every',
+    help = SYNC_FREQUENCY_HELP,
 }: SyncFrequencySelectProps): JSX.Element {
     const { selected, options, canUnpin, modeReason, reason, notes, explanation } = syncFrequencyState({
         bounds,
@@ -132,8 +138,8 @@ export function SyncFrequencySelect({
 
     return (
         <div className="flex flex-col gap-1 items-start" data-attr={dataAttr}>
-            <LemonLabel info={SYNC_FREQUENCY_HELP}>
-                Refresh every
+            <LemonLabel info={help}>
+                {label}
                 {loading && (
                     <span className="inline-flex items-center gap-1 text-secondary font-normal" role="status">
                         <Spinner /> Saving…

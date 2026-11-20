@@ -24,6 +24,7 @@ export type ValveDefinition = Definition & {
     target: z.ZodType<string>
     strandsRunningJobs: boolean
     roleExitGraceMs?: number
+    restarts?: readonly z.infer<typeof CdpRole>[]
     journalsIntent?: true
     apply(context: ValveContext, target: string, dose: unknown, holdMs: number, signal: AbortSignal): Promise<Actuation>
 }
@@ -129,6 +130,8 @@ export const pgFailover: ValveDefinition = {
     params: z.object({}).strict(),
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
+    roleExitGraceMs: 5000,
+    restarts: CdpRole.exclude(['cdp-ses-webhooks']).options,
     journalsIntent: true,
     apply: ({ environment, commits, manifest }, _target, _dose, holdMs, signal) =>
         manifest === undefined

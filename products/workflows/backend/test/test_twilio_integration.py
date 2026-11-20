@@ -26,7 +26,7 @@ def exceptions_reported(http: responses.RequestsMock) -> int:
     return sum(
         event["event"] == "$exception"
         for call in http.calls
-        if call.request.url == f"{CAPTURE_HOST}/batch/"
+        if call.request.url == f"{CAPTURE_HOST}/i/v1/analytics/events"
         for event in json.loads(call.request.body)["batch"]
     )
 
@@ -41,7 +41,7 @@ class TestTwilioIntegration:
     @pytest.fixture
     def http(self) -> Iterator[responses.RequestsMock]:
         with responses.RequestsMock(assert_all_requests_are_fired=False) as mock:
-            mock.post(f"{CAPTURE_HOST}/batch/", json={"status": 1})
+            mock.post(f"{CAPTURE_HOST}/i/v1/analytics/events", json={"results": {}})
             reporter = posthoganalytics.Client("phc_test", host=CAPTURE_HOST, sync_mode=True)
             with patch.multiple(posthoganalytics, default_client=reporter, disabled=False):
                 yield mock

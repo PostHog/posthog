@@ -3,16 +3,19 @@ import { Form } from 'kea-forms'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { Button, Text } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { ScopeAccessLevel } from 'lib/scopes'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
 import { GatewayKeySpend } from './GatewayKeySpend'
 import { MAX_PROJECT_API_KEYS_PER_PROJECT, projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
+import { QuillEditKeyDialog } from './QuillEditKeyDialog'
 
 function EditKeyModal(): JSX.Element {
     const {
@@ -27,6 +30,7 @@ function EditKeyModal(): JSX.Element {
     } = useValues(projectSecretAPIKeysLogic)
     const { setEditingKeyId, setScopeRadioValue, submitEditingKey, setSearchTerm } =
         useActions(projectSecretAPIKeysLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isNew = editingKeyId === 'new'
 
@@ -38,17 +42,57 @@ function EditKeyModal(): JSX.Element {
             ? 'Select at least one scope'
             : undefined
 
+    const closeModal = (): void => setEditingKeyId(null)
+    const renderScopeRow = ({ key, label, info, disabledActions }: (typeof filteredScopes)[number]): JSX.Element => {
+        const disabledReason = (action: 'read' | 'write'): string | undefined =>
+            disabledActions?.includes(action) ? 'Not available for project secret API keys' : undefined
+        return (
+            <ScopeAccessRow
+                key={key}
+                row={{
+                    key,
+                    label,
+                    info,
+                    value: (formScopeRadioValues[key] ?? 'none') as ScopeAccessLevel,
+                    disabledReasons: {
+                        read: disabledReason('read'),
+                        write: disabledReason('write'),
+                    },
+                }}
+                onChange={setScopeRadioValue}
+            />
+        )
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillEditKeyDialog
+                isNew={isNew}
+                isOpen={!!editingKeyId}
+                onClose={closeModal}
+                hasUnsavedInput={editingKeyChanged}
+                isSubmitting={isEditingKeySubmitting}
+                submitDisabledReason={submitDisabledReason}
+                onSubmit={submitEditingKey}
+                availablePresets={availablePresets}
+                searchTerm={searchTerm}
+                onSearchTermChange={setSearchTerm}
+                scopeRows={filteredScopes.map(renderScopeRow)}
+            />
+        )
+    }
+
     return (
         <Form logic={projectSecretAPIKeysLogic} formKey="editingKey">
             <LemonModal
                 title={`${isNew ? 'Create' : 'Edit'} project secret API key`}
-                onClose={() => setEditingKeyId(null)}
+                onClose={closeModal}
                 isOpen={!!editingKeyId}
                 width="40rem"
                 hasUnsavedInput={editingKeyChanged}
                 footer={
                     <>
-                        <LemonButton type="secondary" onClick={() => setEditingKeyId(null)}>
+                        <LemonButton type="secondary" onClick={closeModal}>
                             Cancel
                         </LemonButton>
                         <LemonButton
@@ -97,28 +141,7 @@ function EditKeyModal(): JSX.Element {
                         {filteredScopes.length === 0 ? (
                             <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
                         ) : (
-                            filteredScopes.map(({ key, label, info, disabledActions }) => {
-                                const disabledReason = (action: 'read' | 'write'): string | undefined =>
-                                    disabledActions?.includes(action)
-                                        ? 'Not available for project secret API keys'
-                                        : undefined
-                                return (
-                                    <ScopeAccessRow
-                                        key={key}
-                                        row={{
-                                            key,
-                                            label,
-                                            info,
-                                            value: (formScopeRadioValues[key] ?? 'none') as ScopeAccessLevel,
-                                            disabledReasons: {
-                                                read: disabledReason('read'),
-                                                write: disabledReason('write'),
-                                            },
-                                        }}
-                                        onChange={setScopeRadioValue}
-                                    />
-                                )
-                            })
+                            filteredScopes.map(renderScopeRow)
                         )}
                     </div>
                 </LemonField>
@@ -135,6 +158,50 @@ export function ProjectSecretAPIKeys(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
         scope: RestrictionScope.Project,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const openNewKey = (): void => setEditingKeyId('new')
+    const createDisabledReason =
+        keys.length >= MAX_PROJECT_API_KEYS_PER_PROJECT
+            ? `Maximum ${MAX_PROJECT_API_KEYS_PER_PROJECT} keys per project`
+            : undefined
+    const keyTable = (
+        <APIKeyTable
+            keys={keys}
+            loading={keysLoading}
+            onEdit={setEditingKeyId}
+            onRoll={rollKey}
+            onDelete={deleteKey}
+            noun="project secret API key"
+            showCreatedBy={true}
+            showActions={!restrictionReason}
+        />
+    )
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-2">
+                <Text size="xs" render={<p className="m-0" />}>
+                    Project secret API keys allow programmatic access to a very limited set of scopes and endpoints.
+                    Unlike personal API keys, project secret API keys are not tied to a specific user.
+                </Text>
+                <Text size="xs" weight="semibold" render={<p className="m-0" />}>
+                    They should be kept secret as they can have scopes that allow access to the project's data.
+                </Text>
+                {!restrictionReason && (
+                    <div>
+                        <Button variant="primary" onClick={openNewKey} disabledReason={createDisabledReason}>
+                            <IconPlus />
+                            Create project secret API key
+                        </Button>
+                    </div>
+                )}
+                {keyTable}
+                <GatewayKeySpend />
+                <EditKeyModal />
+            </div>
+        )
+    }
 
     return (
         <>
@@ -150,27 +217,14 @@ export function ProjectSecretAPIKeys(): JSX.Element {
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}
-                    onClick={() => setEditingKeyId('new')}
-                    disabledReason={
-                        keys.length >= MAX_PROJECT_API_KEYS_PER_PROJECT
-                            ? `Maximum ${MAX_PROJECT_API_KEYS_PER_PROJECT} keys per project`
-                            : undefined
-                    }
+                    onClick={openNewKey}
+                    disabledReason={createDisabledReason}
                 >
                     Create project secret API key
                 </LemonButton>
             )}
 
-            <APIKeyTable
-                keys={keys}
-                loading={keysLoading}
-                onEdit={setEditingKeyId}
-                onRoll={rollKey}
-                onDelete={deleteKey}
-                noun="project secret API key"
-                showCreatedBy={true}
-                showActions={!restrictionReason}
-            />
+            {keyTable}
 
             <GatewayKeySpend />
 

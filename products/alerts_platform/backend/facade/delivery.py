@@ -14,6 +14,7 @@ from products.alerts_platform.backend.delivery import (
     recipients,
     refusal_notices,
     subscribers,
+    team_flags,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -117,6 +118,11 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
     )
 
     return add_late_image_to_evaluation(request, late_detail)
+
+
+def team_flag_enabled(flag: str, team: Team) -> bool | None:
+    """Whether a PostHog feature flag is on for the team. None when the flag could not be evaluated."""
+    return team_flags.team_flag_enabled(flag, team)
 
 
 def delivery_test_destination_ids(*, team_id: int, public_id: UUID) -> frozenset[UUID]:

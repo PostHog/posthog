@@ -251,7 +251,7 @@ from posthog.query_scan.trigger import (
     is_analyzable_principal,
     maybe_trigger_query_scan,
 )
-from posthog.schema_helpers import strip_null_modifiers, to_dict
+from posthog.schema_helpers import strip_null_defaults, to_dict
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
@@ -2287,11 +2287,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return True
 
     def _query_json_with_events_schema(self) -> dict[str, Any]:
-        query_json = strip_null_modifiers(self.query.model_dump())
+        query_json = self.query.model_dump()
         # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
         if self.modifiers.useNewEventsSchema is not None and self._reads_events_route():
-            return with_pinned_events_route(query_json, self.modifiers)
-        return query_json
+            query_json = with_pinned_events_route(query_json, self.modifiers)
+        # Strip after pinning, because the pin goes only into a source whose payload has a `modifiers` key.
+        return strip_null_defaults(self.query, query_json)
 
     def enqueue_async_calculation(
         self,

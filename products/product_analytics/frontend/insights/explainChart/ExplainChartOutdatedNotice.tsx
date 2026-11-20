@@ -1,6 +1,6 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { QuillInsightBanner } from 'products/product_analytics/frontend/insights/shared/QuillInsightBanner'
 

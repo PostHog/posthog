@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
+import { Field, FieldLabel } from '@posthog/quill'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -9,6 +10,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -19,6 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BusinessModelConfig } from './BusinessModelConfig'
+import { QuillTeamVariables } from './QuillTeamVariables'
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
 
@@ -43,6 +46,7 @@ export function TeamVariables(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
     const { preflight } = useValues(preflightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const region = preflight?.region
 
@@ -78,6 +82,19 @@ export function TeamVariables(): JSX.Element {
                 resetToken()
             },
         })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillTeamVariables
+                apiToken={currentTeam?.api_token || ''}
+                projectId={String(currentTeam?.id || '')}
+                region={region}
+                isTokenResetAvailable={!!isTeamTokenResetAvailable}
+                restrictedReason={restrictedReason}
+                onResetToken={openDialog}
+            />
+        )
     }
 
     return (
@@ -132,6 +149,23 @@ export function TeamVariables(): JSX.Element {
 }
 
 export function TeamTimezone({ displayWarning = true }: { displayWarning?: boolean }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-wrap gap-x-8 gap-y-4">
+                <Field className="min-w-60 max-w-120 flex-1">
+                    <FieldLabel htmlFor="team-timezone">Time zone</FieldLabel>
+                    <TimezoneConfig displayWarning={displayWarning} id="team-timezone" />
+                </Field>
+                <Field className="w-fit">
+                    <FieldLabel htmlFor="team-week-start">Week starts on</FieldLabel>
+                    <WeekStartConfig displayWarning={displayWarning} id="team-week-start" />
+                </Field>
+            </div>
+        )
+    }
+
     return (
         <div className="flex flex-col sm:flex-row gap-8">
             <div className="flex flex-col gap-2 flex-1 max-w-120">
@@ -147,6 +181,17 @@ export function TeamTimezone({ displayWarning = true }: { displayWarning?: boole
 }
 
 export function TeamBusinessModel(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <Field>
+                <FieldLabel htmlFor="team-business-model">Business model</FieldLabel>
+                <BusinessModelConfig id="team-business-model" />
+            </Field>
+        )
+    }
+
     return (
         <div className="deprecated-space-y-2">
             <LemonLabel id="business-model">Business model</LemonLabel>
