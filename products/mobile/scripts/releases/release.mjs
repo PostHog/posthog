@@ -503,13 +503,9 @@ async function publish() {
         eas.build.production.environment !== 'production' ||
         eas.build.production.env.APP_VARIANT !== 'production' ||
         eas.build.production.env.EXPO_PUBLIC_SIGNUP_LINK !== '0' ||
-        !config.ascAppId ||
-        eas.submit.production.ios?.ascAppId !== config.ascAppId ||
         eas.submit.production.android.track !== 'internal'
     ) {
-        throw new Error(
-            'Release profiles must target production builds, the configured App Store Connect app and the Play internal track'
-        )
+        throw new Error('Release profiles must target production builds and the Play internal track')
     }
     const receipt = { schemaVersion: 1, state: 'claimed', request, commit, runUrl: process.env.MOBILE_RELEASE_RUN_URL }
     const message = `mobile-release:${request.id}@${commit}`

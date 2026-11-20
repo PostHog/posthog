@@ -68,7 +68,7 @@ function fixture(t) {
     writeFileSync(join(app, 'app.config.ts'), `export default {version:'1.3.0'}`)
     writeFileSync(
         join(app, 'releases/config.json'),
-        JSON.stringify({ initialRuntimeVersion: '1.3.0', projectId: 'example-project', ascAppId: '1234567890' })
+        JSON.stringify({ initialRuntimeVersion: '1.3.0', projectId: 'example-project' })
     )
     writeFileSync(
         join(app, 'eas.json'),
@@ -80,7 +80,7 @@ function fixture(t) {
                     env: { APP_VARIANT: 'production', EXPO_PUBLIC_SIGNUP_LINK: '0' },
                 },
             },
-            submit: { production: { ios: { ascAppId: '1234567890' }, android: { track: 'internal' } } },
+            submit: { production: { android: { track: 'internal' } } },
         })
     )
     writeFileSync(
@@ -377,20 +377,6 @@ test('plan uses actual git additions and PR validation rejects unchanged native 
     assert.equal(corrected.status, 0, corrected.stderr)
     assert.equal(f.state().releases['mobile-release/native-140'], undefined)
     assert.equal(f.state().releases['mobile-release/native-corrected'].draft, false)
-})
-
-test('a different App Store Connect destination stops a native release before it is claimed', (t) => {
-    const f = fixture(t)
-    const path = join(f.app, 'eas.json')
-    const eas = JSON.parse(readFileSync(path, 'utf8'))
-    eas.submit.production.ios.ascAppId = '2345678901'
-    writeFileSync(path, JSON.stringify(eas))
-    f.addRequest('native-140', 'native', null)
-    const outcome = f.invoke(['publish'])
-    assert.notEqual(outcome.status, 0)
-    assert.match(outcome.stderr, /configured App Store Connect app/)
-    assert.deepEqual(f.state().releases, {})
-    assert.deepEqual(f.state().submissions, [])
 })
 
 test('unreadable native environment inputs stop before claim and mismatched built fingerprints never submit', (t) => {
