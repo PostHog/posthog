@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.adjust.adjust import (
     MAX_HISTORY_DAYS,
     MAX_PAGES_PER_WINDOW,
     AdjustCredentialsError,
+    AdjustPageCapError,
     AdjustResumeConfig,
     AdjustRetryableError,
     build_report_params,
@@ -581,7 +582,23 @@ class TestFiltersData:
             {"id": "itunes", "name": "App Store", "filter_type": "store_types"},
         ]
 
-    @parameterized.expand([(401,), (403,)])
+    def test_app_lookup_stays_inside_the_app_token_filter(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("required_filters") == "apps":
+                return ScriptedResponse(json={"apps": [{"id": "abc123def456"}, {"id": "zzz999yyy888"}]})
+            if request.param("required_filters") == "countries":
+                return ScriptedResponse(json={"countries": [{"id": "de"}]})
+            return ScriptedResponse(status=204)
+
+        result = _driver(app_tokens="abc123def456").run("filters_data", answer)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "abc123def456", "filter_type": "apps"},
+            {"id": "de", "filter_type": "countries"},
+        ]
+
+    @parameterized.expand([(401,), (404,)])
     def test_errors_other_than_a_rejected_filter_fail_the_table(self, status: int) -> None:
         result = _driver().run("filters_data", always(ScriptedResponse(status=status)))
 
@@ -615,6 +632,12 @@ class TestCampaignApi:
             ("report_service_host", {"paging": {"next": "https://automate.adjust.com/x?cursor=a"}}, False),
             ("off_host_next", {"paging": {"next": "https://evil.example.com/x?cursor=a"}}, False),
             ("http_scheme_next", {"paging": {"next": "http://api.adjust.com/public/v2/partners?cursor=a"}}, False),
+            # urlsplit and requests disagree on these, so the token could reach another host.
+            ("backslash_bypass", {"paging": {"next": "https://evil.example.com\\@api.adjust.com/x"}}, False),
+            ("userinfo", {"paging": {"next": "https://user@api.adjust.com/public/v2/partners"}}, False),
+            ("explicit_port", {"paging": {"next": "https://api.adjust.com:8443/public/v2/partners"}}, False),
+            ("whitespace", {"paging": {"next": "https://api.adjust.com/public/v2/partners?cursor=a b"}}, False),
+            ("invalid_port", {"paging": {"next": "https://api.adjust.com:abc/public/v2/partners"}}, False),
         ]
     )
     def test_only_campaign_api_links_are_followed(self, _name: str, data: dict[str, Any], expected: bool) -> None:
@@ -685,9 +708,38 @@ class TestCampaignApi:
             ("adg1", "cmp1", "aaa111bbb222"),
         ]
 
+    def test_page_cap_fails_the_sync_instead_of_truncating(self) -> None:
+        looping = "https://api.adjust.com/public/v2/partners?cursor=again"
+        with mock.patch.object(adjust, "MAX_CAMPAIGN_API_PAGES", 3):
+            result = _driver().run("partners", always(_campaign_page([{"id": 1}], next_url=looping)))
+
+        assert isinstance(result.raised, AdjustPageCapError)
+        assert len(result.requests) == 3
+
+    def test_sublinks_walk_each_link_once_in_a_cyclic_tree(self) -> None:
+        app_path = "/apps/aaa111bbb222/trackers"
+        result = _driver(app_tokens="aaa111bbb222").run(
+            "sublinks",
+            route(
+                {
+                    f"{app_path}/net1/children": [
+                        _campaign_page([{"token": "cmp1", "has_subtrackers": True}]),
+                    ],
+                    # A malformed tree that points back to its own root.
+                    f"{app_path}/cmp1/children": [
+                        _campaign_page([{"token": "net1", "has_subtrackers": True}]),
+                    ],
+                    app_path: [_campaign_page([{"token": "net1", "has_subtrackers": True}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["token"], row["parent_token"]) for row in result.rows] == [("cmp1", "net1"), ("net1", "cmp1")]
+
     @parameterized.expand([(401,), (403,), (404,)])
     def test_rejections_match_a_non_retryable_error(self, status: int) -> None:
-        result = _driver().run("partners", [ScriptedResponse(status=status, json={"error": "denied"})])
+        result = _driver().run("partners", always(ScriptedResponse(status=status, json={"error": "denied"})))
 
         assert isinstance(result.raised, requests.HTTPError)
         assert any(key in str(result.raised) for key in AdjustSource().get_non_retryable_errors())
