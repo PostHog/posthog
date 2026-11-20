@@ -142,8 +142,7 @@ class Command(BaseCommand):
             type=Path,
             help=(
                 "Append the ids of the organizations that the run changed to this file, one per line. Each chunk "
-                "writes its ids before it commits. When the chunk fails, the file keeps only the ids whose organization "
-                "is at --mode. A rerun with the same path "
+                "writes its ids before it commits, and removes them again when the chunk rolls back. A rerun with the same path "
                 "appends the ids it changes. Refused with --dry-run."
             ),
         )
@@ -213,7 +212,7 @@ class Command(BaseCommand):
                     .order_by("created_at", "id")
                 )
                 chunk_start = changed_ids_file.tell() if changed_ids_file is not None else 0
-                written_ids: list[UUID] = []
+                modes_before_chunk: dict[UUID, int] = {}
                 try:
                     with transaction.atomic():
                         changes = set_organizations_flag_evaluations_mode(
@@ -227,12 +226,16 @@ class Command(BaseCommand):
                         # organization as unchanged, so it could not list an id that a crash after the
                         # commit lost.
                         if changed_ids_file is not None:
-                            written_ids = [change.organization_id for change in changes if change.changed]
-                            changed_ids_file.writelines(f"{organization_id}\n" for organization_id in written_ids)
+                            modes_before_chunk = {
+                                change.organization_id: change.current_mode for change in changes if change.changed
+                            }
+                            changed_ids_file.writelines(
+                                f"{organization_id}\n" for organization_id in modes_before_chunk
+                            )
                             _sync(changed_ids_file)
                 except BaseException:
                     if changed_ids_file is not None:
-                        self._keep_ids_at_mode(changed_ids_file, chunk_start, written_ids, mode)
+                        self._drop_ids_of_rolled_back_chunk(changed_ids_file, chunk_start, modes_before_chunk)
                     raise
 
                 done_count += len(chunk_ids)
@@ -301,27 +304,29 @@ class Command(BaseCommand):
         file.seek(0, os.SEEK_END)
         return file
 
-    def _keep_ids_at_mode(
-        self, file: TextIO, chunk_start: int, written_ids: list[UUID], mode: FlagEvaluationsMode
+    def _drop_ids_of_rolled_back_chunk(
+        self, file: TextIO, chunk_start: int, modes_before_chunk: dict[UUID, int]
     ) -> None:
-        """Leave in the file only the chunk's ids whose organization is now at `mode`.
+        """Remove the failed chunk's ids from the file when the chunk rolled back.
 
-        A failed chunk may or may not have committed, because a commit can apply on the server and still
-        raise. The stored modes tell the two apart.
+        A commit can apply on the server and still raise. The chunk commits or rolls back as a whole, so
+        the chunk rolled back only when every organization still reads the mode it had before the chunk.
+        In any other case the file keeps the ids, because another writer can move an organization after
+        the commit.
         """
+        if not modes_before_chunk:
+            return
         try:
-            stored_modes = get_organization_flag_evaluations_modes(written_ids)
+            stored_modes = get_organization_flag_evaluations_modes(list(modes_before_chunk))
         except DatabaseError:
             self.stderr.write(
                 f"Could not read back the modes of the failed chunk, so {file.name} keeps its "
-                f"{len(written_ids)} id(s) unverified."
+                f"{len(modes_before_chunk)} id(s) unverified."
             )
             return
-        file.truncate(chunk_start)
-        file.writelines(
-            f"{organization_id}\n" for organization_id in written_ids if stored_modes[organization_id] == mode
-        )
-        _sync(file)
+        if stored_modes == modes_before_chunk:
+            file.truncate(chunk_start)
+            _sync(file)
 
     def _write_organization_line(self, change: OrganizationModeChange, *, count_experiments: bool) -> None:
         outcome = (

@@ -310,9 +310,26 @@ class TestSetFlagEvaluationsMode(BaseTest):
         self.assertEqual(get_organization_flag_evaluations_mode(second.id), FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         self.assertEqual(Path(changed_ids_file).read_text().split(), [str(self.organization.id), str(second.id)])
 
-    @parameterized.expand([("commit_applies", True), ("commit_is_lost", False)])
-    def test_a_commit_that_raises_keeps_the_ids_file_in_step_with_the_stored_modes(
-        self, _name: str, commit_applies: bool
+    @parameterized.expand(
+        [
+            ("commit_applies", True, None, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+            ("commit_is_lost", False, None, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
+            (
+                "commit_applies_then_another_writer_lowers_it",
+                True,
+                FlagEvaluationsMode.EVENTS,
+                FlagEvaluationsMode.EVENTS,
+                True,
+            ),
+        ]
+    )
+    def test_a_commit_that_raises_keeps_the_ids_of_a_chunk_that_may_have_committed(
+        self,
+        _name: str,
+        commit_applies: bool,
+        mode_another_writer_stores: FlagEvaluationsMode | None,
+        expected_mode: int,
+        expects_listed: bool,
     ) -> None:
         self._store_mode(self.organization, FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         changed_ids_file = self._ids_file()
@@ -324,6 +341,8 @@ class TestSetFlagEvaluationsMode(BaseTest):
                 yield
                 if not commit_applies:
                     raise DatabaseError("connection lost before the commit")
+            if mode_another_writer_stores is not None:
+                self._store_mode(self.organization, mode_another_writer_stores)
             raise DatabaseError("connection lost after the commit")
 
         with (
@@ -337,12 +356,9 @@ class TestSetFlagEvaluationsMode(BaseTest):
                 "--mode", "2", "--organization-id", str(self.organization.id), "--write-changed-ids", changed_ids_file
             )
 
+        self.assertEqual(self._stored_mode(self.organization), expected_mode)
         self.assertEqual(
-            self._stored_mode(self.organization),
-            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY if commit_applies else FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-        )
-        self.assertEqual(
-            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if commit_applies else []
+            Path(changed_ids_file).read_text().split(), [str(self.organization.id)] if expects_listed else []
         )
 
     def test_all_organizations_skips_the_excluded_ones(self) -> None:
