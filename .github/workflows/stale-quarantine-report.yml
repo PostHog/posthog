@@ -32,7 +32,7 @@ permissions:
 jobs:
     report:
         runs-on: ubuntu-24.04
-        # One Trunk page can take 3 x 150s aborts plus 2 x 30s backoffs, about 8.5 minutes.
+        # Covers the slowest Trunk page with its retries.
         timeout-minutes: 15
         # Manual dispatch is master-only so branch-controlled code cannot run with the secrets.
         if: >-

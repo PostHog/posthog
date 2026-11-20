@@ -108,33 +108,25 @@ export const pagesOf = (items) =>
         items.slice(page * ROWS_PER_TABLE, (page + 1) * ROWS_PER_TABLE)
     )
 
+const intro = {
+    type: 'section',
+    text: {
+        type: 'mrkdwn',
+        text: `*Quarantined for ${WINDOW_DAYS}+ days.* "ran clean": ${MIN_RUNS}+ runs and no failure, so remove the override or check why the flaky status has not resolved. "did not run": the test may be deleted, skipped or renamed.`,
+    },
+}
+
 // Slack accepts one table block per message, so both kinds share a table and a message holds one page of it.
-export function sections(items, { withTeam = false, intro = true } = {}) {
-    if (items.length === 0) {
-        return []
-    }
+export function table(items, withTeam = false) {
     const columns = withTeam ? ['test', 'team', 'status'] : ['test', 'status']
-    return [
-        ...(intro
-            ? [
-                  {
-                      type: 'section',
-                      text: {
-                          type: 'mrkdwn',
-                          text: `*Quarantined for ${WINDOW_DAYS}+ days.* "ran clean": ${MIN_RUNS}+ runs and no failure, so remove the override or check why the flaky status has not resolved. "did not run": the test may be deleted, skipped or renamed.`,
-                      },
-                  },
-              ]
-            : []),
-        {
-            type: 'table',
-            column_settings: [...columns.map(() => ({ align: 'left' })), { align: 'right' }, { align: 'right' }],
-            rows: [
-                [...columns.map(cell), cell('quarantined'), cell(`runs, ${WINDOW_DAYS}d`)],
-                ...items.map((item) => rowFor(item, withTeam)),
-            ],
-        },
-    ]
+    return {
+        type: 'table',
+        column_settings: [...columns.map(() => ({ align: 'left' })), { align: 'right' }, { align: 'right' }],
+        rows: [
+            [...columns.map(cell), cell('quarantined'), cell(`runs, ${WINDOW_DAYS}d`)],
+            ...items.map((item) => rowFor(item, withTeam)),
+        ],
+    }
 }
 
 const footer = (extra = []) => ({
@@ -146,7 +138,7 @@ function digestBlocks(pages) {
     const editBlock = editWorkflowBlock()
     return [
         { type: 'header', text: { type: 'plain_text', text: 'Stale test quarantines' } },
-        ...sections(pages[0], { withTeam: true }),
+        ...(pages.length ? [intro, table(pages[0], true)] : []),
         footer(),
         ...(editBlock ? [editBlock] : []),
     ]
@@ -167,14 +159,15 @@ const moreNote = (rows) =>
           ]
         : []
 
+const cappedTeamRows = (rows) => [intro, table(rows.slice(0, ROWS_PER_TABLE)), ...moreNote(rows)]
+
 function teamBlocks({ owner, rows }, digestUrl) {
     return [
         {
             type: 'section',
             text: { type: 'mrkdwn', text: `*Stale test quarantines owned by ${teamLabel(owner)}*` },
         },
-        ...sections(rows.slice(0, ROWS_PER_TABLE)),
-        ...moreNote(rows),
+        ...cappedTeamRows(rows),
         footer(digestUrl ? [`<${digestUrl}|Report for all teams>`] : []),
     ]
 }
@@ -188,8 +181,7 @@ const teamReport = {
             type: 'section',
             text: { type: 'mrkdwn', text: `*${teamLabel(team.owner)}* _(${reason} ${team.channel})_` },
         },
-        ...sections(team.rows.slice(0, ROWS_PER_TABLE)),
-        ...moreNote(team.rows),
+        ...cappedTeamRows(team.rows),
     ],
 }
 
@@ -234,9 +226,7 @@ async function main() {
     }
     const digest = await postToSlack(blocks, 'Stale test quarantines')
     for (const page of pages.slice(1)) {
-        await postToSlack(sections(page, { withTeam: true, intro: false }), 'Stale test quarantines', {
-            threadTs: digest.ts,
-        })
+        await postToSlack([table(page, true)], 'Stale test quarantines', { threadTs: digest.ts })
     }
     console.info(`Posted the stale quarantine report to ${SLACK_CHANNEL}.`)
     await deliverTeamDigests(teamDigests, { digest, report: teamReport, withheld })

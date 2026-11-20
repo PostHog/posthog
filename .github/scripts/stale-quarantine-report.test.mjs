@@ -7,7 +7,7 @@ import {
     MIN_RUNS,
     pagesOf,
     ROWS_PER_TABLE,
-    sections,
+    table,
     WINDOW_DAYS,
 } from './stale-quarantine-report.mjs'
 
@@ -69,7 +69,7 @@ describe('stale quarantine report', () => {
             owner: 'team-devex',
         }))
         const pages = pagesOf(items)
-        const tableRows = pages.map((page) => sections(page).find((block) => block.type === 'table').rows.length)
+        const tableRows = pages.map((page) => table(page).rows.length)
         assert.deepEqual(tableRows, [100, 100, 2])
         assert.equal(pages.flat().length, items.length)
     })
