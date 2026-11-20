@@ -68,9 +68,16 @@ describe('logs ingestion parity corpus', () => {
 
     if (RECORD) {
         it('records the corpus', async () => {
-            rmSync(FIXTURE_DIR, { recursive: true, force: true })
+            // A re-record rewrites every input container with a new random sync marker, so `LOGS_PARITY_SCENARIOS` limits it to the named scenarios.
+            const only = process.env.LOGS_PARITY_SCENARIOS?.split(',').filter(Boolean)
+            if (!only) {
+                rmSync(FIXTURE_DIR, { recursive: true, force: true })
+            }
             mkdirSync(FIXTURE_DIR, { recursive: true })
             for (const scenario of await buildParityScenarios()) {
+                if (only && !only.includes(scenario.name)) {
+                    continue
+                }
                 // The framework consumer has the produce-replay fix that the corpus expects.
                 const expected = await run(scenario, FRAMEWORK_CLASSES)
                 const fixture: ParityFixture = { scenario, expected }
