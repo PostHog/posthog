@@ -264,7 +264,7 @@
         "kea-test-utils": "catalog:",
         "kea-waitfor": "catalog:",
         "kea-window-values": "catalog:",
-        "liquidjs": "^10.27.0",
+        "liquidjs": "^10.27.2",
         "lodash.difference": "^4.5.0",
         "lodash.merge": "^4.6.2",
         "lodash.sortby": "^4.7.0",
