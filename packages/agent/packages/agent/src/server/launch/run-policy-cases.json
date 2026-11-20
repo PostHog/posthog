@@ -9,7 +9,6 @@
         "finish_tool": true,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": true,
         "default_client_provenance": null
@@ -24,7 +23,6 @@
         "finish_tool": true,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": true,
         "default_client_provenance": null
@@ -39,7 +37,6 @@
         "finish_tool": true,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -54,7 +51,6 @@
         "finish_tool": false,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -69,7 +65,6 @@
         "finish_tool": false,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -84,7 +79,6 @@
         "finish_tool": true,
         "finish_report_required": true,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -99,7 +93,6 @@
         "finish_tool": false,
         "finish_report_required": true,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -114,7 +107,6 @@
         "finish_tool": false,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -129,7 +121,6 @@
         "finish_tool": false,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -144,7 +135,6 @@
         "finish_tool": false,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -159,7 +149,6 @@
         "finish_tool": false,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -174,22 +163,6 @@
         "finish_tool": true,
         "finish_report_required": false,
         "report_activity_tool": true,
-        "branch_push_only": false,
-        "expects_system_prompt": false,
-        "thread_link": false,
-        "default_client_provenance": null
-      }
-    },
-    {
-      "name": "a knowledge writer run",
-      "origin_product": "knowledge_writer",
-      "end_run_when_done": false,
-      "caller_ends_run": false,
-      "expected": {
-        "finish_tool": true,
-        "finish_report_required": false,
-        "report_activity_tool": false,
-        "branch_push_only": true,
         "expects_system_prompt": false,
         "thread_link": false,
         "default_client_provenance": null
@@ -204,7 +177,6 @@
         "finish_tool": true,
         "finish_report_required": false,
         "report_activity_tool": false,
-        "branch_push_only": false,
         "expects_system_prompt": true,
         "thread_link": true,
         "default_client_provenance": "posthog_web"

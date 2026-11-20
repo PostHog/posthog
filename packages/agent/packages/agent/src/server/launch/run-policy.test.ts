@@ -7,7 +7,6 @@ function toWire(policy: RunPolicy): Record<string, unknown> {
     finish_tool: policy.finishTool,
     finish_report_required: policy.finishReportRequired,
     report_activity_tool: policy.reportActivityTool,
-    branch_push_only: policy.branchPushOnly,
     expects_system_prompt: policy.expectsSystemPrompt,
     thread_link: policy.threadLink,
     default_client_provenance: policy.defaultClientProvenance ?? null,
