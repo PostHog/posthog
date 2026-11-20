@@ -363,6 +363,20 @@ class TestReceivers(_MemberTeamsTest):
             )
         self.member_push.assert_called_once_with(str(self.organization.id), str(self.member.uuid))
 
+    def test_revoking_role_admin_pushes_restricted_warehouse_access(self) -> None:
+        self._rule(self.team, "warehouse_objects", "none")
+        role_id = access_testing.create_role(
+            organization_id=self.organization.id,
+            name="Administrators",
+            organization_access_level=OrganizationMembership.Level.ADMIN,
+        )
+        access_testing.add_role_member(role_id=role_id, user_id=self.member.id)
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
+        with self.captureOnCommitCallbacks(execute=True):
+            access_testing.set_role_organization_access_level(role_id=role_id, level=None)
+        self.member_push.assert_any_call(str(self.organization.id), str(self.member.uuid))
+        assert member_teams.member_teams(self.organization, self.member) == {}
+
     def test_project_and_warehouse_rules_push_the_organization(self) -> None:
         for resource in ("project", *member_teams.RESTRICTING_RESOURCES):
             self.org_push.reset_mock()

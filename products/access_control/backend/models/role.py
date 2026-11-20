@@ -9,11 +9,26 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import UUIDTModel
 from posthog.organization_caching import invalidate_organization_membership_access_caches
 
+from products.access_control.backend.facade.change_signals import role_access_changed, role_access_invalidated
 from products.access_control.backend.models.organization_resource_access import OrganizationResourceAccess
+
+
+def invalidate_role_access(members: Iterable[tuple[UUID, int]]) -> None:
+    affected = set(members)
+    role_access_invalidated.send(sender=None)
+    invalidate_organization_membership_access_caches(affected)
+
+    def notify_after_commit() -> None:
+        # Projections must read after membership-cache invalidation, regardless of receiver registration order.
+        for organization_id, user_id in affected:
+            role_access_changed.send_robust(sender=None, organization_id=organization_id, user_id=user_id)
+
+    transaction.on_commit(notify_after_commit)
 
 
 class RoleQuerySet(models.QuerySet["Role"]):
     def invalidate_organization_access(self, previous_members: Iterable[tuple[UUID, int | None]]) -> None:
+        role_access_invalidated.send(sender=None)
         role_ids = tuple(self.values_list("pk", flat=True))
         previous = set(previous_members)
         model = self.model
@@ -24,7 +39,7 @@ class RoleQuerySet(models.QuerySet["Role"]):
                 # A concurrent membership insert may commit after the grant write but before this commit.
                 members.update(model.objects.filter(pk__in=role_ids).values_list("organization_id", "role__user_id"))
             finally:
-                invalidate_organization_membership_access_caches(
+                invalidate_role_access(
                     (organization_id, user_id) for organization_id, user_id in members if user_id is not None
                 )
 
@@ -52,16 +67,11 @@ class RoleQuerySet(models.QuerySet["Role"]):
     def update(self, **kwargs: Any) -> int:
         if not {"organization_access_level", "organization", "organization_id"}.intersection(kwargs):
             return super().update(**kwargs)
-        from products.authorization.backend.facade import (
-            api as authorization,  # noqa: PLC0415 - breaks a model import cycle
-        )
-
         with transaction.atomic():
             ids = list(self.select_for_update(of=("self",)).order_by("pk").values_list("pk", flat=True))
             affected = self.model.objects.filter(pk__in=ids)
             members = set(affected.values_list("organization_id", "role__user_id"))
             updated = models.QuerySet.update(affected, **kwargs)
-            authorization.invalidate_session()
             affected.invalidate_organization_access(members)
             return updated
 
@@ -119,18 +129,13 @@ class Role(UUIDTModel):
 
 class RoleMembershipQuerySet(models.QuerySet["RoleMembership"]):
     def update(self, **kwargs: Any) -> int:
-        from products.authorization.backend.facade import (
-            api as authorization,  # noqa: PLC0415 - breaks a model import cycle
-        )
-
         with transaction.atomic():
             ids = list(self.select_for_update(of=("self",)).order_by("pk").values_list("pk", flat=True))
             affected = self.model.objects.filter(pk__in=ids)
             members = set(affected.values_list("role__organization_id", "user_id"))
             updated = models.QuerySet.update(affected, **kwargs)
-            authorization.invalidate_session()
             members.update(affected.values_list("role__organization_id", "user_id"))
-            invalidate_organization_membership_access_caches(members)
+            invalidate_role_access(members)
             return updated
 
     # django-stubs rebinds QuerySet subclasses to its own TypeVar instead of the declared model.
@@ -145,10 +150,6 @@ class RoleMembershipQuerySet(models.QuerySet["RoleMembership"]):
     ) -> list["RoleMembership"]:
         if update_conflicts:
             raise ValueError("Use update or bulk_update to change existing role memberships.")
-        from products.authorization.backend.facade import (
-            api as authorization,  # noqa: PLC0415 - breaks a model import cycle
-        )
-
         with transaction.atomic():
             created = cast(
                 list[RoleMembership],
@@ -161,12 +162,9 @@ class RoleMembershipQuerySet(models.QuerySet["RoleMembership"]):
                     unique_fields,
                 ),
             )
-            authorization.invalidate_session()
             role_ids = {obj.role_id for obj in created}
             organizations = dict(Role.objects.filter(pk__in=role_ids).values_list("pk", "organization_id"))
-            invalidate_organization_membership_access_caches(
-                (organizations[obj.role_id], obj.user_id) for obj in created
-            )
+            invalidate_role_access((organizations[obj.role_id], obj.user_id) for obj in created)
             return created
 
     def valid_for_authorization(self) -> "RoleMembershipQuerySet":

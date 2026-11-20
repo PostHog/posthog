@@ -4,9 +4,8 @@ from django.db.models.signals import post_delete, post_save, pre_delete, pre_sav
 from django.dispatch import receiver
 
 from posthog.models.organization import OrganizationMembership
-from posthog.organization_caching import invalidate_organization_membership_access_caches
 
-from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.models.role import Role, RoleMembership, invalidate_role_access
 
 
 @receiver(pre_save, sender=Role)
@@ -36,12 +35,12 @@ def remember_previous_role_membership(sender: type[RoleMembership], instance: Ro
 def invalidate_role_membership(sender: type[RoleMembership], instance: RoleMembership, **kwargs: Any) -> None:
     members = set(getattr(instance, "_previous_grant_members", []))
     members.add((instance.role.organization_id, instance.user_id))
-    invalidate_organization_membership_access_caches(members)
+    invalidate_role_access(members)
 
 
 @receiver(post_delete, sender=RoleMembership)
 def invalidate_deleted_role_membership(sender: type[RoleMembership], instance: RoleMembership, **kwargs: Any) -> None:
-    invalidate_organization_membership_access_caches(getattr(instance, "_previous_grant_members", []))
+    invalidate_role_access(getattr(instance, "_previous_grant_members", []))
 
 
 @receiver(pre_delete, sender=OrganizationMembership)

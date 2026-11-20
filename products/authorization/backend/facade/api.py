@@ -177,8 +177,3 @@ def dangerous_explain(
     Use it only in access-rule editors and for debugging. Authorization decisions must use `check`.
     """
     raise NotImplementedError
-
-
-def invalidate_session() -> None:
-    """Clear current-session lookups after bulk rule writes; shared caches need separate invalidation."""
-    session.invalidate()

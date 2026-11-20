@@ -292,7 +292,7 @@ class ResolvedAccess:
       without the entitlement, where rules are never consulted)
     - "org_admin": rules never consulted — the admin bypass
     - "creator": rules never consulted — the user created the object
-    - "org_membership": the level comes from the user's OrganizationMembership.level (admin or
+    - "org_membership": the level comes from the user's OrganizationMembership.effective_level (admin or
       member) — the object is the organization itself, which has no access rules, or a project
       in an organization without the entitlement, where rules are never consulted
     """

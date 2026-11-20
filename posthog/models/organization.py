@@ -833,7 +833,11 @@ class OrganizationMembershipQuerySet(models.QuerySet["OrganizationMembership"]):
             user_id=models.OuterRef("user_id"),
             role__organization_id=models.OuterRef("organization_id"),
             role__organization_access_level=OrganizationMembership.Level.ADMIN,
-        ).filter(Q(organization_member_id=models.OuterRef("pk")) | Q(organization_member__isnull=True))
+        ).filter(
+            Q(organization_member_id=models.OuterRef("pk"))
+            # A legacy link from an earlier membership must not restore access after rejoining.
+            | Q(organization_member__isnull=True, joined_at__gte=models.OuterRef("joined_at"))
+        )
         return self.annotate(resolved_role_admin=models.Exists(admin_roles)).annotate(
             resolved_level=Greatest(
                 "level",
@@ -937,7 +941,10 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
                 for membership in memberships
                 if membership.user_id == self.user_id
                 and membership.role.organization_id == self.organization_id
-                and membership.organization_member_id in (None, self.pk)
+                and (
+                    membership.organization_member_id == self.pk
+                    or (membership.organization_member_id is None and membership.joined_at >= self.joined_at)
+                )
                 and membership.role.organization_access_level == self.Level.ADMIN
             ],
             key=lambda role: (role.name, str(role.pk)),

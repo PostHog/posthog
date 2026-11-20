@@ -961,7 +961,8 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
         role = Role.objects.create(name="engineers", organization=self.organization)
-        RoleMembership.objects.create(user=self.user, role=role)
+        with self.captureOnCommitCallbacks(execute=True):
+            RoleMembership.objects.create(user=self.user, role=role)
 
         mock_task.assert_called_with(self.user.pk)  # synchronous reprojection
         mock_task.delay.assert_not_called()  # sync succeeded — no retry queued

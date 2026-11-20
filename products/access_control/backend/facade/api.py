@@ -26,7 +26,7 @@ from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
-from django.db.models.signals import post_delete, post_save, pre_delete
+from django.db.models.signals import post_delete, post_save
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -44,6 +44,7 @@ from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
 from products.access_control.backend.activity_logging import get_access_control_log_entry
+from products.access_control.backend.facade.change_signals import connect_role_access_changed
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 
@@ -1123,17 +1124,16 @@ def connect_access_change_receivers(
     is_active: Callable[[], bool],
     dispatch_uid: str,
 ) -> None:
-    """Call back when an access rule or a role membership is saved or deleted.
+    """Call back when access rules, role memberships or organization role grants change.
 
     ``on_rule_change(team_id, resource)`` runs after a rule is saved or deleted. A property rule
     comes in as the ``property_definition`` resource.
-    ``on_role_membership_change(user_id, organization_id)`` runs after a role membership is
-    saved or deleted. ``organization_id`` is the role's organization, read before a delete while
-    the role is still there: most role memberships carry no organization membership.
+    ``on_role_membership_change(user_id, organization_id)`` runs after role changes commit and
+    membership caches are invalidated. It includes grant changes and bulk membership writes.
 
     Neither runs while ``is_active()`` is false, so a disabled caller costs no role query.
 
-    Both run inside the change's transaction: defer real work with ``transaction.on_commit``.
+    Rule callbacks run inside the transaction: defer real work with ``transaction.on_commit``.
     Only ids cross this boundary, never the models.
     """
 
@@ -1141,22 +1141,9 @@ def connect_access_change_receivers(
         if is_active():
             on_rule_change(instance.team_id, instance.resource)
 
-    def role_membership_changed(sender: object, instance: RoleMembership, **kwargs: object) -> None:
+    def role_grants_changed(sender: object, user_id: int, organization_id: UUID, **kwargs: object) -> None:
         if is_active():
-            on_role_membership_change(instance.user_id, instance.role.organization_id)
-
-    # Outside a transaction a callback's on_commit runs at once, so it must not run before the
-    # delete: read the organization before it, and call back after it.
-    pending_attr = f"_{dispatch_uid}_role_organization_id"
-
-    def role_membership_deleting(sender: object, instance: RoleMembership, **kwargs: object) -> None:
-        if is_active():
-            setattr(instance, pending_attr, instance.role.organization_id)
-
-    def role_membership_deleted(sender: object, instance: RoleMembership, **kwargs: object) -> None:
-        organization_id = getattr(instance, pending_attr, None)
-        if organization_id is not None:
-            on_role_membership_change(instance.user_id, organization_id)
+            on_role_membership_change(user_id, organization_id)
 
     # weak=False: the receivers are closures, and nothing else holds them.
     post_save.connect(rule_changed, sender=AccessControl, weak=False, dispatch_uid=f"{dispatch_uid}_rule_saved")
@@ -1178,15 +1165,7 @@ def connect_access_change_receivers(
         weak=False,
         dispatch_uid=f"{dispatch_uid}_property_rule_deleted",
     )
-    post_save.connect(
-        role_membership_changed, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_saved"
-    )
-    pre_delete.connect(
-        role_membership_deleting, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_deleting"
-    )
-    post_delete.connect(
-        role_membership_deleted, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_deleted"
-    )
+    connect_role_access_changed(role_grants_changed, dispatch_uid=f"{dispatch_uid}_role_grants")
 
 
 __all__ = [
