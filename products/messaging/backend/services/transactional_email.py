@@ -263,7 +263,9 @@ BATCH_REFUSALS = frozenset(
         "sandbox_sender_unavailable",
     }
 )
-RECIPIENT_REFUSALS = frozenset({"idempotency_key_reused", "sandbox_recipient_not_member"})
+RECIPIENT_REFUSALS = frozenset(
+    {"idempotency_key_reused", "recipient_suppressed", "recipient_unreachable", "sandbox_recipient_not_member"}
+)
 BATCH_INVALID_RECIPIENT = (
     "PostHog can't send to this recipient as given. Check its `to`, `distinct_id` and `message_data`, then send it "
     "again."
@@ -1077,8 +1079,6 @@ def _recipient_result(
             if refusal_code == "invalid_request"
             else InvalidRecipient(BATCH_INVALID_RECIPIENT)
         )
-    elif status_code == 422 and refusal_code == "recipient_unreachable":
-        error = InvalidRecipient("PostHog can't send to this address. Check it for a typo.")
     elif status_code == 422 and refusal_code in RECIPIENT_REFUSALS:
         if refusal_code == "sandbox_recipient_not_member":
             SANDBOX_FALLBACKS.labels(outcome="recipient_not_member").inc()
