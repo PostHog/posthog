@@ -172,6 +172,10 @@ def _derive_or_capture(teams: list[Team], now: datetime) -> dict[int, dict[str, 
         return {}
 
 
+def _expired(deadline: float | None) -> bool:
+    return deadline is not None and time.monotonic() >= deadline
+
+
 class _Projected(NamedTuple):
     written: int
     cleared: int
@@ -189,7 +193,7 @@ def _project_batch(teams: list[Team], failures_in_a_row: int = 0, deadline: floa
     for attempt in range(_MAX_PROJECTION_WRITES):
         now = datetime.now(tz=UTC)
         for team_id, blob in to_write.items():
-            if attempt == 0 and deadline is not None and time.monotonic() >= deadline:
+            if attempt == 0 and _expired(deadline):
                 break
             try:
                 _write_blob(by_id[team_id], blob, now)
@@ -219,12 +223,14 @@ def _project_batch(teams: list[Team], failures_in_a_row: int = 0, deadline: floa
 
 def _project_in_batches(queryset: QuerySet[Team], deadline: float | None = None) -> _Projected:
     written = cleared = failures_in_a_row = 0
+    if _expired(deadline):
+        return _Projected(written, cleared, failures_in_a_row)
     for batch in batched(queryset.iterator(chunk_size=_BATCH_SIZE), _BATCH_SIZE, strict=False):
         projected = _project_batch(list(batch), failures_in_a_row, deadline)
         written += projected.written
         cleared += projected.cleared
         failures_in_a_row = projected.write_failures_in_a_row
-        if failures_in_a_row >= _MAX_CONSECUTIVE_WRITE_FAILURES:
+        if failures_in_a_row >= _MAX_CONSECUTIVE_WRITE_FAILURES or _expired(deadline):
             break
     return _Projected(written, cleared, failures_in_a_row)
 
