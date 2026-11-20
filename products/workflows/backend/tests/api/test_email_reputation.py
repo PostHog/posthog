@@ -34,6 +34,7 @@ def _locally_evaluated_flag(released: bool):
 
     return feature_enabled
 
+
 CHANGED_AT = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 DAILY_METRICS_FETCH = "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team"
 

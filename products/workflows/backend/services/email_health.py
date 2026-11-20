@@ -16,6 +16,7 @@ import structlog
 import posthoganalytics
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
+from posthog.clickhouse.query_tagging import Feature
 from posthog.integrations import CrossTeamFilter, IntegrationManager
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
@@ -121,6 +122,7 @@ def _next_tier_and_recent_rates(
         after=now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS),
         recent_after=now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS),
         team_ids=[team_id],
+        feature=Feature.QUERY,
     )
     empty = TeamSendingHistory(team_id=team_id, sent=0, hard_bounced=0, complained=0, auto_paused=False, daily_sends={})
     recent = windows.recent.get(team_id, empty)

@@ -385,13 +385,14 @@ def build_sending_history_windows(
     recent_after: datetime,
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
+    feature: Feature = Feature.ENRICHMENT,
 ) -> SendingHistoryWindows:
     """The full promotion window and the shorter demotion window, from one query.
 
     The recent window is cut on calendar days (UTC), matching the day granularity the metrics are
     fetched at, so its edge can be up to a day coarser than `recent_after`.
     """
-    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
+    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids, feature=feature)
     recent_key = recent_after.strftime("%Y-%m-%d")
     return SendingHistoryWindows(
         window={team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()},
@@ -408,14 +409,15 @@ def _fetch_daily_metrics(
     before: Optional[datetime],
     team_ids: Optional[list[int]],
     workload: Workload = Workload.DEFAULT,
+    feature: Feature = Feature.ENRICHMENT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     metric_names = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
     # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
-    # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
-    # state in the background, so it is enrichment, not a customer-facing query. One context here
-    # covers the daily sweep, the admin recompute, and the backfill command.
-    with tags_context(product=Product.WORKFLOWS, feature=Feature.ENRICHMENT):
+    # guard in local dev. Celery adds only task identity, not a product or feature. The tier jobs
+    # derive state in the background, so they default to enrichment; the reputation page passes its
+    # own customer-facing feature.
+    with tags_context(product=Product.WORKFLOWS, feature=feature):
         return fetch_app_metric_daily_totals_by_team(
             app_source=APP_SOURCE,
             name=metric_names,
