@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
@@ -860,6 +860,45 @@ pub struct FillConfig {
     pub room_fraction: f64,
 }
 
+/// One offset a nanosecond, the finest pace `FillPace` can keep.
+pub const MAX_FILL_OFFSETS_PER_SEC: u32 = 1_000_000_000;
+
+/// How a pod runs its fills: side by side, sharing one pace.
+#[derive(Debug, Clone, Copy)]
+pub struct FillSchedule {
+    pub offsets_per_sec: u32,
+    pub concurrency: usize,
+}
+
+/// Paces every fill on a pod to one shared rate of changelog offsets. A fill takes its
+/// turn before it reads a chunk, so reading, parsing and inserting are all paced.
+pub struct FillPace {
+    per_offset: Duration,
+    next: StdMutex<tokio::time::Instant>,
+}
+
+impl FillPace {
+    pub fn new(offsets_per_sec: u32) -> Self {
+        Self {
+            per_offset: Duration::from_secs(1) / offsets_per_sec.max(1),
+            next: StdMutex::new(tokio::time::Instant::now()),
+        }
+    }
+
+    pub async fn take(&self, offsets: u64) {
+        let start = {
+            let mut next = self.next.lock().unwrap_or_else(PoisonError::into_inner);
+            let start = (*next).max(tokio::time::Instant::now());
+            *next = start
+                + self
+                    .per_offset
+                    .saturating_mul(u32::try_from(offsets).unwrap_or(u32::MAX));
+            start
+        };
+        tokio::time::sleep_until(start).await;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FillEnd {
     /// Reached the lookback bound or the start of the log.
@@ -923,9 +962,11 @@ pub async fn lookback_offset(
 }
 
 /// Refill a serving partition's cache from `[lower, upper)`, newest first, marking nothing.
+#[allow(clippy::too_many_arguments)]
 pub async fn fill_source(
     cfg: &WarmingConfig,
     fill: &FillConfig,
+    pace: &FillPace,
     pools: &WarmClientPools,
     cache: &PersonCache,
     source: &WarmSource,
@@ -954,6 +995,8 @@ pub async fn fill_source(
         let mut latest: LruCache<PersonCacheKey, CachedPerson> = LruCache::unbounded();
         let mut buffered = 0usize;
         let mut overflowed = false;
+        pace.take(u64::try_from(chunk_end - chunk_start).unwrap_or(0))
+            .await;
         let consumer = pools.warming.checkout()?;
         consume_range(
             cfg,
@@ -1023,6 +1066,7 @@ pub async fn fill_source(
 pub async fn run_fill(
     cfg: &WarmingConfig,
     fill: &FillConfig,
+    pace: &FillPace,
     pools: &WarmClientPools,
     cache: &PersonCache,
     source: &WarmSource,
@@ -1033,7 +1077,7 @@ pub async fn run_fill(
     let since_ms = chrono::Utc::now().timestamp_millis() - fill.lookback.as_millis() as i64;
     let filled = async {
         let lower = lookback_offset(cfg, pools, source, since_ms, upper).await?;
-        fill_source(cfg, fill, pools, cache, source, lower, upper).await
+        fill_source(cfg, fill, pace, pools, cache, source, lower, upper).await
     }
     .await;
     cache.stop_tracking_puts();
@@ -1062,6 +1106,40 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn fills_sharing_a_pace_take_turns_to_read() {
+        let pace = Arc::new(FillPace::new(100));
+        let reads = Arc::new(StdMutex::new(Vec::new()));
+
+        let fill = |pace: Arc<FillPace>, reads: Arc<StdMutex<Vec<tokio::time::Instant>>>| async move {
+            for _ in 0..3 {
+                pace.take(50).await;
+                reads.lock().unwrap().push(tokio::time::Instant::now());
+            }
+        };
+        tokio::join!(
+            fill(Arc::clone(&pace), Arc::clone(&reads)),
+            fill(Arc::clone(&pace), Arc::clone(&reads))
+        );
+
+        let mut reads = reads.lock().unwrap().clone();
+        reads.sort();
+        let gaps: Vec<Duration> = reads.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        assert_eq!(gaps, vec![Duration::from_millis(500); 5]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_pace_does_not_bank_idle_time() {
+        let pace = FillPace::new(100);
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        let started = tokio::time::Instant::now();
+
+        pace.take(100).await;
+        pace.take(100).await;
+
+        assert_eq!(started.elapsed(), Duration::from_secs(1));
+    }
 
     #[test]
     fn a_named_cluster_gets_its_own_pools_once() {

@@ -168,6 +168,10 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub cache_fill_chunk_offsets: i64,
 
+    /// Changelog offsets all of a pod's fills read per second, together.
+    #[envconfig(default = "10000")]
+    pub cache_fill_offsets_per_sec: u32,
+
     /// Per-message receive timeout while consuming the warming range. If
     /// hit, warming aborts with the offsets seen so far so the partition
     /// can be retried fresh.
@@ -448,6 +452,27 @@ impl Config {
             chunk_offsets: self.cache_fill_chunk_offsets.max(1),
             room_fraction: crate::warming::FILL_ROOM_FRACTION,
         })
+    }
+
+    pub fn cache_fill_schedule(&self) -> crate::warming::FillSchedule {
+        crate::warming::FillSchedule {
+            offsets_per_sec: self.cache_fill_offsets_per_sec,
+            concurrency: self.warm_concurrency,
+        }
+    }
+
+    /// A fill paced to zero would never finish, and the pace counts in whole nanoseconds
+    /// per offset, so above a billion a second it would not pace at all.
+    pub fn validate_cache_fill(&self) -> Result<(), String> {
+        let max = crate::warming::MAX_FILL_OFFSETS_PER_SEC;
+        if self.cache_fill_lookback_secs > 0
+            && !(1..=max).contains(&self.cache_fill_offsets_per_sec)
+        {
+            return Err(format!(
+                "CACHE_FILL_OFFSETS_PER_SEC must be from 1 to {max} while CACHE_FILL_LOOKBACK_SECS is above zero"
+            ));
+        }
+        Ok(())
     }
 
     /// The runway the keepalive reserves for the local fence: it
@@ -1336,5 +1361,33 @@ mod fencing_timescale_tests {
             .validate_fencing_timescales()
             .expect_err("must reject");
         assert!(err.contains("librdkafka"), "got: {err}");
+    }
+}
+
+#[cfg(test)]
+mod cache_fill_tests {
+    use super::*;
+
+    #[test]
+    fn a_pace_outside_its_range_is_refused_only_while_fills_are_on() {
+        let max = crate::warming::MAX_FILL_OFFSETS_PER_SEC;
+        for (lookback_secs, offsets_per_sec, valid) in [
+            (3600, 0, false),
+            (3600, 1, true),
+            (3600, max, true),
+            (3600, max + 1, false),
+            (0, 0, true),
+        ] {
+            let mut config =
+                Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+            config.cache_fill_lookback_secs = lookback_secs;
+            config.cache_fill_offsets_per_sec = offsets_per_sec;
+
+            assert_eq!(
+                config.validate_cache_fill().is_ok(),
+                valid,
+                "lookback {lookback_secs}, pace {offsets_per_sec}"
+            );
+        }
     }
 }

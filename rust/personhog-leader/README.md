@@ -212,6 +212,9 @@ start offset, newest records first (`fill_source` in `src/warming.rs`).
 It inserts only a person the partition has not put since the warm began,
 and stops at the lookback bound, at 90% of the cache budget, or when the
 partition is released.
+A pod's fills run side by side, up to `WARM_CONCURRENCY` at once, and
+together read at most `CACHE_FILL_OFFSETS_PER_SEC` changelog offsets a
+second, each taking its turn before it reads a chunk.
 
 #### vNode ownership
 
