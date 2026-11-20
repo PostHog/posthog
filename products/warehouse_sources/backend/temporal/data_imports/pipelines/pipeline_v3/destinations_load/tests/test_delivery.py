@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 from posthog.test.base import BaseTest
 from unittest import TestCase, mock
@@ -6,6 +7,7 @@ from unittest import TestCase, mock
 from django.db import OperationalError
 
 import structlog.testing
+from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.destination_health import TRANSIENT_DELIVERY_ERROR
@@ -15,6 +17,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataSourceDestination,
     get_or_create_warehouse_destination,
 )
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import BatchWriteOutcome
@@ -34,6 +37,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DESTINATION_CONFIGURATION_ERROR_MARKER,
     DestinationConfigurationError,
     destination_named_in_failure,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    process_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
@@ -307,6 +313,46 @@ class TestDelivery(DeliveryTestCase):
             delivery.deliver_batch_to_destinations(self._signal([str(a.id), str(b.id)]))
 
         assert not self._writes()
+
+
+class TestExternalOnlyRunCompletion(DeliveryTestCase):
+    def test_the_final_batch_marks_the_schema_synced(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="src", connection_id="conn", source_type="Hubspot"
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="contacts",
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            initial_sync_complete=False,
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        )
+        a = self._destination("customer redshift")
+        signal = dataclasses.replace(
+            self._signal([str(a.id)], is_final=True, schema_id=str(schema.id)), job_id=str(job.id)
+        )
+
+        # The pooled helpers run on another thread, which cannot see this test's uncommitted rows, and
+        # closing old connections would close the test's own connection.
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync.database_sync_to_async_pool",
+                sync_to_async,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.close_old_connections"
+            ),
+        ):
+            process_message(signal.to_dict())
+
+        schema.refresh_from_db()
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.COMPLETED
+        assert schema.initial_sync_complete is True
+        assert schema.last_synced_at == job.created_at
 
 
 class TestAbortDestinations(DeliveryTestCase):
