@@ -132,11 +132,11 @@ def _audits_responder(request: RecordedRequest) -> ScriptedResponse:
         if request.param("next_token") is None:
             return _docs_response([{"task_id": "T1"}, {"task_id": "T2"}], next_token="tok2")
         return _docs_response([{"task_id": "T3"}], next_token=None)
-    task_id = request.param("task_id")
-    if task_id == "T2":
-        # A task deleted between the listing and the audit read.
+    task_id = request.path.removeprefix("/v1/audits/task/")
+    if task_id == request.path:
+        # Any other route must fail the run, not import zero audits.
         return _error_response(404)
-    if task_id == "T3":
+    if task_id in ("T2", "T3"):
         return ScriptedResponse(json=[])
     return ScriptedResponse(
         json=[
@@ -157,8 +157,8 @@ class TestAuditsFanOut:
         assert [r.param("next_token") for r in task_requests] == [None, "tok2"]
         assert all(r.param("status") == "completed" and r.param("limit") == "100" for r in task_requests)
 
-        audit_requests = [r for r in result.requests if r.path == "/v1/audits"]
-        assert [r.param("task_id") for r in audit_requests] == ["T1", "T2", "T3"]
+        audit_requests = [r for r in result.requests if r.path != "/v1/tasks"]
+        assert [r.path for r in audit_requests] == [f"/v1/audits/task/{t}" for t in ("T1", "T2", "T3")]
         # The audits endpoint documents no paging params, so none are sent.
         assert all(r.param("limit") is None for r in audit_requests)
 
@@ -171,9 +171,9 @@ class TestAuditsFanOut:
         resumed = _driver().run("audits", _audits_responder, resume_state=state)
 
         assert resumed.raised is None
-        resumed_tasks = [r.param("task_id") for r in resumed.requests if r.path == "/v1/audits"]
-        assert "T1" not in resumed_tasks
-        assert "T3" in resumed_tasks
+        resumed_paths = [r.path for r in resumed.requests if r.path != "/v1/tasks"]
+        assert "/v1/audits/task/T1" not in resumed_paths
+        assert "/v1/audits/task/T3" in resumed_paths
 
 
 class TestBatchStatusesFanOut:

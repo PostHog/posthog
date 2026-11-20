@@ -85,13 +85,13 @@ SCALE_AI_ENDPOINTS: dict[str, ScaleAIEndpointConfig] = {
         incremental_fields=[],
         data_selector=None,
     ),
-    # Fixless audits can only be read per task (`task_id` is required), so this fans out over the
-    # task list. An audit needs a task response, so only completed tasks are listed. There is no
+    # Fixless audits can only be read per task, so this fans out over the task list. The route is
+    # the one Scale's own client uses for a task's audits. An audit needs a task response, so only completed tasks are listed. There is no
     # server-side time filter on audits, and the fan-out sends one request per completed task, so
     # it is a full refresh and off by default.
     "audits": ScaleAIEndpointConfig(
         name="audits",
-        path="/audits?task_id={task_id}",
+        path="/audits/task/{task_id}",
         pagination="none",
         primary_keys=["id"],
         partition_key="created_at",
@@ -104,8 +104,6 @@ SCALE_AI_ENDPOINTS: dict[str, ScaleAIEndpointConfig] = {
             resolve_field="task_id",
             include_from_parent=[],
             parent_params={"limit": 100, "status": "completed"},
-            # A task deleted between the listing and this request has no audits to read.
-            child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
     # The status response holds no batch name, so the name is copied from the parent row.

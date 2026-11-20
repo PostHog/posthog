@@ -30,7 +30,7 @@ from products.warehouse_sources.sources.sdk import (
 SCALE_AI_BASE_URL = "https://api.scale.com/v1"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ScaleAIResumeConfig:
     # Cursor token for the `tasks` endpoint — the token the resumed run sends on its first request.
     # None means "start from the first page".
