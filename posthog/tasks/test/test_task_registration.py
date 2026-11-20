@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 import pytest
@@ -5,6 +6,11 @@ import pytest
 from django.test import TestCase
 
 from posthog.celery import app
+
+
+def _enable(loggers: list[logging.Logger]) -> None:
+    for logger in loggers:
+        logger.disabled = False
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -18,6 +24,13 @@ class TestAllTasksRegistered(TestCase):
         # whole tree; under --split-granularity=file a shard imports just its own files,
         # so non-tasks.py tasks (see CELERY_IMPORTS) would be missing and the snapshot
         # would silently lose entries.
+        enabled_loggers = [
+            logger
+            for logger in logging.root.manager.loggerDict.values()
+            if isinstance(logger, logging.Logger) and not logger.disabled
+        ]
+        # The import runs django.setup() again. Its logging config disables every existing logger.
+        self.addCleanup(_enable, enabled_loggers)
         app.loader.import_default_modules()
 
         all_tasks = sorted([name for name in app.tasks.keys() if name.startswith("posthog.")])
