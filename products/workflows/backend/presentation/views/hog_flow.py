@@ -166,6 +166,7 @@ from products.workflows.backend.facade.api import (
     flow_ids_with_active_schedule,
     is_utm_apply_eligible,
     load_team_utm_defaults,
+    pick_default_email_sender,
     plan_flow_utm_update,
     release_edited_email_utm_keys,
     seed_new_email_steps_with_utm_defaults,
@@ -283,10 +284,11 @@ from products.workflows.backend.facade.sandbox_email import (
     SandboxSenderUnavailable,
     can_default_to_sandbox,
     check_sandbox_sender_available,
-    has_verified_own_sender,
+    deliverable_own_sender_ids,
     own_only_settings,
     own_sender_verification,
     provision_sandbox_sender,
+    provision_sandbox_sender_if_available,
     require_sandbox_runtime,
     sandbox_adoption_enabled,
     to_own_email_action,
@@ -1076,7 +1078,7 @@ SETS_UP_SANDBOX_SENDER = "sets_up_sandbox_sender"
 WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph", "action_email", "publish"})
 
 
-def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, context: dict) -> Any:
+def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: dict) -> Any:
     actions = data.get("actions") if isinstance(data, dict) else None
     get_team = context.get("get_team")
     user = getattr(context.get("request"), "user", None)
@@ -1101,12 +1103,16 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
     new_steps = [
         index
         for index, action in enumerate(actions)
-        if isinstance(action, dict) and can_default_to_sandbox(action) and action["id"] not in stored_ids
+        if isinstance(action, dict) and _has_no_sender(action) and action.get("id") not in stored_ids
     ]
     if not new_steps:
         return data
     team = get_team()
-    if has_verified_own_sender(team.id) or not _can_set_up_sandbox_sender(team, user):
+    deliverable = deliverable_own_sender_ids(team.id)
+    if deliverable:
+        return _with_own_sender(data, actions, new_steps, pick_default_email_sender(team.id, deliverable))
+    new_steps = [index for index in new_steps if can_default_to_sandbox(actions[index])]
+    if not new_steps or not _can_set_up_sandbox_sender(team, user):
         return data
     try:
         check_sandbox_sender_available(team, user)
@@ -1121,6 +1127,46 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
             moved = True
     if not moved:
         return data
+    context[SETS_UP_SANDBOX_SENDER] = True
+    return {**data, "actions": converted}
+
+
+def _has_no_sender(action: dict) -> bool:
+    if (
+        action.get("type") != "function_email"
+        or not isinstance(action.get("id"), str)
+        or not isinstance(action.get("config"), dict)
+    ):
+        return False
+    sender = _email_value(action["config"]).get("from")
+    if not sender:
+        return True
+    return isinstance(sender, dict) and not sender.get("integrationId") and not sender.get("integrationIds")
+
+
+def _email_value(config: dict) -> dict:
+    inputs = config.get("inputs")
+    email = inputs.get("email") if isinstance(inputs, dict) else None
+    value = email.get("value") if isinstance(email, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
+def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id: Optional[int]) -> Any:
+    if sender_id is None:
+        return data
+    converted = list(actions)
+    for index in new_steps:
+        step = deepcopy(actions[index])
+        config = step["config"]
+        inputs = config.get("inputs") if isinstance(config.get("inputs"), dict) else {}
+        email = inputs.get("email") if isinstance(inputs.get("email"), dict) else {}
+        value = _email_value(config)
+        sender = value.get("from") or {}
+        config["inputs"] = {
+            **inputs,
+            "email": {**email, "value": {**value, "from": {**sender, "integrationId": sender_id}}},
+        }
+        converted[index] = step
     return {**data, "actions": converted}
 
 
@@ -4017,10 +4063,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
-        defaulted = _with_new_email_steps_on_the_sandbox_sender(data, instance, self.context)
-        if defaulted is not data:
-            self.context[SETS_UP_SANDBOX_SENDER] = True
-        return super().to_internal_value(defaulted)
+        return super().to_internal_value(_with_default_senders_on_new_email_steps(data, instance, self.context))
 
     class Meta:
         fields = [
@@ -6393,6 +6436,18 @@ class HogFlowViewSet(
     def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
             provision_sandbox_sender(self.team, cast(User, self.request.user))
+        else:
+            self._set_up_sandbox_sender_for(cast(dict, serializer.validated_data).get("actions"))
+
+    def _set_up_sandbox_sender_for(self, actions: Any) -> None:
+        user = self.request.user
+        if (
+            isinstance(user, User)
+            and isinstance(actions, list)
+            and any(isinstance(step, dict) and step.get("type") == SANDBOX_EMAIL_ACTION_TYPE for step in actions)
+            and _can_set_up_sandbox_sender(self.team, user)
+        ):
+            provision_sandbox_sender_if_available(self.team, user)
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
@@ -7308,6 +7363,7 @@ class HogFlowViewSet(
         test_run_row = None
         if not payload.get("mock_async_functions", True):
             self._require_replay_vision_caller_access(request, actions)
+            self._set_up_sandbox_sender_for(actions)
             test_run_row = log_workflow_test_run(
                 actor=self._activity_actor(),
                 workflow_id=hog_flow.id if hog_flow else None,

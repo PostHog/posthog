@@ -18,6 +18,7 @@ from posthog.utils import absolute_uri
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.testing import create_message_template_for_test
+from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
 from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
@@ -639,6 +640,74 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert response.status_code == 201, response.json()
         assert HogFlow.objects.get(id=response.json()["id"]).actions[1]["type"] == expected_type
         assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
+
+    def _sender(self, domain: str, stopped: bool) -> Integration:
+        config: dict[str, Any] = {"domain": domain, "provider": "ses", "verified": True}
+        if stopped:
+            config["ses_sending_status"] = "failed"
+        return Integration.objects.create(team=self.team, kind="email", integration_id=domain, config=config)
+
+    @parameterized.expand(
+        [
+            ("only_one_verified_sender", [False], None, "function_email", 0),
+            ("the_project_default_of_several", [False, False], 1, "function_email", 1),
+            ("several_senders_and_no_default", [False, False], None, "function_email", None),
+            ("a_stopped_default_and_one_that_delivers", [True, False], 0, "function_email", 1),
+            ("only_stopped_senders", [True], None, "email_sandbox", None),
+        ]
+    )
+    def test_a_new_api_email_step_without_a_sender_gets_the_sender_the_editor_would_pick(
+        self,
+        _name: str,
+        stopped: list[bool],
+        default_index: int | None,
+        expected_type: str,
+        expected_index: int | None,
+    ) -> None:
+        senders = [self._sender(f"mail{index}.example.com", is_stopped) for index, is_stopped in enumerate(stopped)]
+        if default_index is not None:
+            set_default_email_sender_if_unset(self.team.id, senders[default_index].id)
+
+        with _flag(True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                _flow(_own_email_step(None)),
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == 201, response.json()
+        stored = HogFlow.objects.get(id=response.json()["id"]).actions[1]
+        assert stored["type"] == expected_type
+        if expected_type == "function_email":
+            expected_id = senders[expected_index].id if expected_index is not None else None
+            assert stored["config"]["inputs"]["email"]["value"]["from"].get("integrationId") == expected_id
+        assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
+
+    @parameterized.expand([("web_save", True), ("real_test", True), ("mocked_test", False)])
+    def test_a_test_sender_step_sets_up_the_test_sender_before_it_sends(self, path: str, expected: bool) -> None:
+        with _flag(True), _runtime(True), responses.RequestsMock(assert_all_requests_are_fired=False) as executor:
+            executor.post(
+                f"{settings.CDP_API_URL}/api/projects/{self.team.id}/hog_flows/new/invocations",
+                json={"status": "success"},
+            )
+            if path == "web_save":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
+                )
+            else:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/new/invocations",
+                    {
+                        "configuration": _flow(_sandbox_step()),
+                        "globals": {},
+                        "mock_async_functions": path == "mocked_test",
+                    },
+                    format="json",
+                )
+
+        assert response.status_code in (200, 201), response.json()
+        assert self._sandbox_sender_is_set_up() == expected
 
     @parameterized.expand(
         [

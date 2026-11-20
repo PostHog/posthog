@@ -2,6 +2,7 @@ from django.conf import settings
 
 from posthog.integrations import IntegrationConflict, IntegrationManager
 from posthog.integrations.contracts import IntegrationRecord
+from posthog.models.integration.email import SES_SENDING_FAILED, SES_SENDING_STATUS_KEY
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
@@ -69,6 +70,15 @@ def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
     return provision_sandbox_sender(team, user)
 
 
+def provision_sandbox_sender_if_available(team: Team, user: User) -> None:
+    if IntegrationManager.email_sandbox.credentials.find(team.id, external_id=SANDBOX_SENDER_INTEGRATION_ID):
+        return
+    try:
+        set_up_sandbox_sender(team, user)
+    except SandboxSenderUnavailable:
+        pass
+
+
 def check_sandbox_sender_available(team: Team, user: User) -> None:
     status = sandbox_sender_status(team, user)
     if not status.adoption_enabled:
@@ -84,6 +94,14 @@ def has_verified_own_sender(team_id: int) -> bool:
 def verified_own_sender_ids(team_id: int) -> frozenset[int]:
     return frozenset(
         sender.id for sender in IntegrationManager.email.credentials.list(team_id) if sender.config.get("verified")
+    )
+
+
+def deliverable_own_sender_ids(team_id: int) -> frozenset[int]:
+    return frozenset(
+        sender.id
+        for sender in IntegrationManager.email.credentials.list(team_id)
+        if sender.config.get("verified") and sender.config.get(SES_SENDING_STATUS_KEY) != SES_SENDING_FAILED
     )
 
 
