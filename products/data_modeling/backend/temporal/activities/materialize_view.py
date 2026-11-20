@@ -496,34 +496,70 @@ def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     return batch.cast(nullable_schema)
 
 
+class UnstorableDecimalError(NonReportableError):
+    """A nested column holds a decimal with more digits than the 128-bit decimals Delta Lake has."""
+
+    def __init__(self, column: str) -> None:
+        super().__init__(
+            f'Column "{column}" has decimal values with more than 38 digits, which is the most a '
+            f"materialized table can store. Round the values, or wrap the column in toString() to store it as text."
+        )
+        self.column = column
+
+
+DELTA_MAX_DECIMAL_PRECISION = 38
+
+
+def _delta_decimal_type(arrow_type: pa.DataType) -> pa.DataType:
+    """The type Delta Lake stores this as. Unchanged unless a decimal wider than 128 bits is in it."""
+    if pa.types.is_decimal256(arrow_type):
+        if arrow_type.precision <= DELTA_MAX_DECIMAL_PRECISION:
+            return pa.decimal128(arrow_type.precision, arrow_type.scale)
+        return pa.decimal128(DELTA_MAX_DECIMAL_PRECISION, min(arrow_type.scale, DELTA_MAX_DECIMAL_PRECISION - 1))
+
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_delta_decimal_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_delta_decimal_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        return pa.map_(
+            _delta_decimal_type(arrow_type.key_type), _delta_decimal_type(arrow_type.item_type), arrow_type.keys_sorted
+        )
+
+    return arrow_type
+
+
+def _delta_decimal_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_delta_decimal_type(field.type))
+
+
 def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
-    """Transform high-precision decimal columns to types supported by Delta Lake."""
+    """Transform decimal columns wider than 128 bits, at any depth, to types supported by Delta Lake."""
     schema = batch.schema
-    columns_to_cast: dict[str, pa.DataType] = {}
-
-    precision = 38
-    scale = 38 - 1
-
-    for field in schema:
-        if isinstance(field.type, pa.Decimal128Type | pa.Decimal256Type):
-            if field.type.precision > 38:
-                original_scale = field.type.scale
-                new_scale = min(original_scale, scale)
-                columns_to_cast[field.name] = pa.decimal128(precision, new_scale)
-
-    if not columns_to_cast:
+    target_fields = [_delta_decimal_field(field) for field in schema]
+    if all(target.type.equals(field.type) for target, field in zip(target_fields, schema)):
         return batch
+
+    precision = DELTA_MAX_DECIMAL_PRECISION
+    scale = DELTA_MAX_DECIMAL_PRECISION - 1
 
     new_columns: list[pa.Array] = []
     new_fields: list[pa.Field] = []
 
-    for field in batch.schema:
+    for field, target in zip(schema, target_fields):
         col = batch[field.name]
-        if field.name in columns_to_cast:
-            decimal128_type = columns_to_cast[field.name]
+        if target.type.equals(field.type):
+            new_fields.append(field)
+            new_columns.append(col)
+        elif pa.types.is_decimal(field.type):
             try:
-                cast_col = pc.cast(col, decimal128_type)
-                new_fields.append(field.with_type(decimal128_type))
+                cast_col = pc.cast(col, target.type)
+                new_fields.append(target)
                 new_columns.append(cast_col)
             except Exception:
                 reduced_decimal_type = pa.decimal128(precision, scale)
@@ -534,8 +570,11 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
                 new_fields.append(field.with_type(reduced_decimal_type))
                 new_columns.append(cast_reduced)
         else:
-            new_fields.append(field)
-            new_columns.append(col)
+            try:
+                new_columns.append(pc.cast(col, target.type))
+            except pa.ArrowInvalid as err:
+                raise UnstorableDecimalError(field.name) from err
+            new_fields.append(target)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(schema.metadata)) if schema.metadata else None
