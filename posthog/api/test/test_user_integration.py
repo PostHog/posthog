@@ -2097,12 +2097,18 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
         requests_seen = []
         events = []
         fail_cache_read = outcome == "cache_unavailable"
+        cache_failure_seen = False
         cache_get = caches["codex_login"].get
 
         def read_cache(*args, **kwargs):
-            nonlocal fail_cache_read
+            nonlocal fail_cache_read, cache_failure_seen
+            if outcome == "cache_unavailable_after_store" and not cache_failure_seen:
+                fail_cache_read = UserIntegration.objects.filter(
+                    user=self.user, kind="codex", config__device_login_id=login_id
+                ).exists()
             if fail_cache_read:
                 fail_cache_read = False
+                cache_failure_seen = True
                 raise RedisError("Unavailable")
             return cache_get(*args, **kwargs)
 
@@ -2145,14 +2151,7 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
                     "code": "private-code",
                     "code_verifier": "private-verifier",
                 }
-            if (
-                kwargs.get("json", {}).get("grant_type") == "refresh_token"
-                and outcome == "cache_unavailable_after_store"
-            ):
-                fail_cache_read = True
-            if kwargs.get("json", {}).get("grant_type") == "refresh_token" and outcome.startswith(
-                "access_unavailable_final"
-            ):
+            if "data" in kwargs and outcome.startswith("access_unavailable_final"):
                 self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
                 self.desktop_access_decision.side_effect = [
                     DesktopAccessResolutionError("Unavailable"),
@@ -2261,8 +2260,14 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
         )
         assert "private-" not in json.dumps(result)
         assert "rt_" not in json.dumps(result)
-        if outcome in ("cache_unavailable_after_exchange", "cache_unavailable_after_store"):
-            assert requests_seen.count("https://auth.openai.com/oauth/token") == 2
+        if outcome in (
+            "success",
+            "cache_unavailable_after_exchange",
+            "cache_unavailable_after_store",
+            "access_unavailable_final",
+            "access_unavailable_final_persistent",
+        ):
+            assert requests_seen.count("https://auth.openai.com/oauth/token") == 1
         if connected:
             assert (
                 UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"]

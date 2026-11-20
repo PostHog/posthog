@@ -251,14 +251,9 @@ class CodexUserIntegration:
     def connect(
         cls, user_id: int, tokens: CodexTokens, *, source: str, device_login_id: str | None = None
     ) -> "CodexUserIntegration":
-        """Store a submitted token set after one refresh.
-
-        The refresh proves the chain is live, and it makes the server the current holder: the tokens
-        in the file on the user's machine stop working by construction, whatever the client does.
-        """
         with transaction.atomic():
             cls._lock_user(user_id)
-            fresh = refresh_codex_tokens(tokens.refresh_token, source=source)
+            fresh = tokens if device_login_id else refresh_codex_tokens(tokens.refresh_token, source=source)
             now = timezone.now()
             row, _ = UserIntegration.objects.update_or_create(
                 user_id=user_id,

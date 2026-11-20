@@ -18,15 +18,15 @@ Add a gate only if OpenAI publishes a request limit for it.
 
 No lanes, because nothing is gated.
 `posthog/models/integration/codex.py` is the caller.
-It refreshes once when a user connects, once per cloud task run start when the access token is near expiry, and once more on demand when the Codex app-server reports a 401.
+It refreshes manually supplied tokens once on connect, once per cloud task run start when the access token is near expiry, and once more on demand when the Codex app-server reports a 401. Device login stores the tokens received directly from OpenAI without another refresh.
 It revokes the refresh token when the user disconnects.
-`posthog/tasks/codex_login.py` requests device codes, polls for approval, and exchanges the authorization code. Polls respect the provider interval. Temporary poll failures back off and honor `Retry-After` within the attempt deadline. The authorization code exchange is not retried, including HTTP rejections. Codex uses this policy for the single-use code. A timeout or rejected exchange ends the attempt; the user starts a new login. Access is checked again before the token transaction commits. A temporary final access failure is retried once after the five-second billing error cache expires. Tokens stay in worker memory and the uncommitted transaction. If access still cannot be verified, the transaction rolls back.
+`posthog/tasks/codex_login.py` requests device codes, polls for approval, and exchanges the authorization code. Polls respect the provider interval. Temporary poll failures back off and honor `Retry-After` within the attempt deadline. The authorization code exchange is not retried, including HTTP rejections. Codex uses this policy for the single-use code. A timeout or rejected exchange ends the attempt; the user starts a new login.
 
-Cache failures before token exchange retry the task up to three times, after the 60-second polling reservation expires. These retries keep the original login deadline. No task retry occurs after token exchange starts. The final access retry holds the user lock for five extra seconds, so cancellation and token issuance for that user wait. This keeps the refreshed tokens and access check in one transaction; cancellation can then remove only the credentials from that attempt.
+Cache failures before token exchange retry the task up to three times, after the 60-second polling reservation expires. These retries keep the original login deadline. No task retry occurs after token exchange starts.
 
-After token exchange, cancellation-state reads and status publication each have three attempts, two seconds apart. Tokens stay in worker memory while the read retries. Status publication runs after the token transaction commits. Neither retry repeats token exchange, and a publication failure does not mark the committed connection as failed.
+After token exchange, temporary cache or access failures retry the final transaction once after five seconds. The failed transaction rolls back and releases the user lock before the wait. Tokens stay in worker memory. Every attempt checks cancellation and access again. Status publication has three attempts, two seconds apart, after the token transaction commits. Neither retry repeats token exchange, and a publication failure does not mark the committed connection as failed.
 
-The login cache uses a separate connection pool with one-second connect and read timeouts. The final cancellation-state read stays under the user lock to serialize it with cancellation. Its two retry waits can add four seconds to the lock hold time.
+The login cache uses a separate connection pool with one-second connect and read timeouts. The final cancellation-state read stays under the user lock to serialize it with cancellation. Retry waits run outside that lock.
 
 Canceling an attempt that stored credentials emits the existing `codex subscription disconnected` user event after the cancellation transaction commits. Repeated cancellation does not emit it again.
 

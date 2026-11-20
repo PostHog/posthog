@@ -249,24 +249,25 @@ def complete_codex_login(self: Task, user_id: int, login_id: str) -> None:
         )
         response.raise_for_status()
         tokens = parse_codex_auth_json({"tokens": response.json()})
-        with transaction.atomic():
-            CodexUserIntegration._lock_user(user_id)
-            if retry_cache(get_login, user_id, login_id)["status"] != "pending":
-                return
-            CodexUserIntegration.connect(user_id, tokens, source="device_login", device_login_id=login_id)
-            Retrying(
-                retry=retry_if_exception_type(DesktopAccessUnavailable),
-                stop=stop_after_attempt(2),
-                wait=wait_fixed(5),
-                reraise=True,
-            )(lambda: ensure_codex_connect_enabled(User.objects.get(id=user_id, is_active=True)))
-            if time.time() >= login["expires_at"]:
-                raise TimeoutError("Device login expired")
-            transaction.on_commit(
-                lambda: retry_cache(update_login, user_id, login_id, "connected"),
-                robust=True,
-            )
-            transaction.on_commit(lambda: capture_login_result(user, "connected"))
+        for attempt in Retrying(
+            retry=retry_if_exception_type((RedisError, DesktopAccessUnavailable)),
+            stop=stop_after_attempt(2),
+            wait=wait_fixed(5),
+            reraise=True,
+        ):
+            with attempt, transaction.atomic():
+                CodexUserIntegration._lock_user(user_id)
+                if get_login(user_id, login_id)["status"] != "pending":
+                    return
+                CodexUserIntegration.connect(user_id, tokens, source="device_login", device_login_id=login_id)
+                ensure_codex_connect_enabled(User.objects.get(id=user_id, is_active=True))
+                if time.time() >= login["expires_at"]:
+                    raise TimeoutError("Device login expired")
+                transaction.on_commit(
+                    lambda: retry_cache(update_login, user_id, login_id, "connected"),
+                    robust=True,
+                )
+                transaction.on_commit(lambda: capture_login_result(user, "connected"))
     except Exception as error:
         if isinstance(error, RedisError) and not exchange_started:
             raise self.retry(countdown=60, max_retries=3) from None
