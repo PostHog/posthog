@@ -335,7 +335,7 @@ export function createCdpReaderRedisPool(
 
 const shadowCallsFailedOpenTotal = new Counter({
     name: 'cdp_valkey_shadow_calls_failed_open_total',
-    help: 'Shadow Valkey calls that returned null because the pool could not serve them.',
+    help: 'Shadow Valkey calls that failed and returned null because the caller asked to fail open.',
     labelNames: ['name'],
 })
 
@@ -353,8 +353,10 @@ function failOpenOnAnyError(pool: RedisV2): RedisV2 {
         }
     }
     return {
-        useClient: (options, callback) => failOpen(options, () => pool.useClient(options, callback)),
-        usePipeline: (options, callback) => failOpen(options, () => pool.usePipeline(options, callback)),
+        useClient: (options, callback) =>
+            failOpen(options, () => pool.useClient({ ...options, failOpen: false }, callback)),
+        usePipeline: (options, callback) =>
+            failOpen(options, () => pool.usePipeline({ ...options, failOpen: false }, callback)),
     }
 }
 

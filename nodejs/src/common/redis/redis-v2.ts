@@ -48,9 +48,12 @@ type ClientQueues = {
     prevCommandQueue: { length: number } | null
 }
 
-// Before a reconnected client is ready, its command queue holds ioredis's own readiness check, not a caller's command.
+// Before a reconnected client is ready, its command queue holds the readiness check of ioredis. A client with an
+// offline queue holds a caller's command until the client is ready, so it can still serve a call. A client without
+// one rejects the command at once, so it must be replaced.
 const isStalled = (client: RedisClient): boolean =>
-    client.status === 'ready' && (client as unknown as ClientQueues).commandQueue.length > 0
+    (client.status === 'ready' || client.options.enableOfflineQueue === false) &&
+    (client as unknown as ClientQueues).commandQueue.length > 0
 
 // ioredis keeps a command that timed out during a reconnect, in the offline queue or in the queue it resends
 // after the reconnect, and sends it once the connection is ready, after its caller has already seen it fail.

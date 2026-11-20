@@ -5,7 +5,7 @@ import path from 'path'
 import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
-import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpValkeyShadowPools } from './cdp-services'
@@ -183,6 +183,11 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             })
         }
 
+        const answerOnly = (connection: ProxiedConnection): void => {
+            connection.forwarding = true
+            connection.held.splice(0).forEach((data) => connection.upstream.write(data))
+        }
+
         const aConnectionHoldsData = (): Promise<void> => new Promise((resolve) => waitingForHeldData.push(resolve))
 
         const reopenProxy = (): Promise<void> =>
@@ -260,11 +265,56 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             await reopenProxy()
             await readinessCheckHeld
 
+            const reconnectedConnection = connections[connections.length - 1]
+
             const answer = writer.useClient({ name: 'during-readiness-check' }, (client) => client.ping())
+            answerOnly(reconnectedConnection)
+
+            expect(await answer).toEqual('PONG')
+        }, 30_000)
+
+        it('replaces a client without an offline queue that a call borrows during its readiness check', async () => {
+            const poolWithoutAnOfflineQueue = createRedisV2PoolFromConfig({
+                connection: {
+                    url: '127.0.0.1',
+                    options: { port, commandTimeout: 1000, enableOfflineQueue: false },
+                    name: 'test-without-offline-queue',
+                    exitOnRepeatedErrors: false,
+                },
+                poolMinSize: 1,
+                poolMaxSize: 1,
+                acquireTimeoutMillis: 1000,
+                discardStalledClients: true,
+            })
+            expect(await poolWithoutAnOfflineQueue.useClient({ name: 'warm' }, (client) => client.ping())).toEqual(
+                'PONG'
+            )
+            const clientSawTheDrop = poolWithoutAnOfflineQueue.useClient(
+                { name: 'watch-drop' },
+                (client) => new Promise((resolve) => client.once('close', resolve))
+            )
+            await dropConnections()
+            await clientSawTheDrop
+            holdNewConnections()
+            const readinessCheckHeld = aConnectionHoldsData()
+            await reopenProxy()
+            await readinessCheckHeld
+
+            const answer = poolWithoutAnOfflineQueue.useClient({ name: 'during-readiness-check' }, (client) =>
+                client.ping()
+            )
             answerEverything()
 
             expect(await answer).toEqual('PONG')
-            expect(connections).toHaveLength(2)
+        }, 30_000)
+
+        it('counts a fail-open call whose command times out', async () => {
+            stopAnsweringOpenConnections()
+
+            expect(
+                await writer.useClient({ name: 'fail-open-command-timeout', failOpen: true }, (client) => client.ping())
+            ).toBeNull()
+            expect(await callsFailedOpen('fail-open-command-timeout')).toBe(1)
         }, 30_000)
 
         it('answers through a new connection after a command stalls', async () => {
