@@ -4999,7 +4999,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             if (url.includes('/user_blast_radius_persons')) {
                 personPageCalls += 1
                 if (personPageCalls === pagesBeforeLimit) {
-                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations', true)
                 }
                 const page =
                     personPageCalls === 1
@@ -5035,7 +5035,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         })
 
         try {
-            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', pagesBeforeLimit === 0)
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations', pagesBeforeLimit === 0)
             await supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
                 .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
@@ -5052,7 +5052,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             )
             expect(children.rows).toHaveLength(expectedChildren)
         } finally {
-            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations', false)
         }
     })
 

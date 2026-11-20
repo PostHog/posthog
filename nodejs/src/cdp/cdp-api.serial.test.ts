@@ -2128,7 +2128,7 @@ describe('CDP API', () => {
             })
             const hogflowQueue = createInMemoryJobQueue()
             api['hogflowQueue'] = hogflowQueue
-            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations', true)
             mockProducerObserver.resetKafkaProducer()
             const kafka = mockProducer['producer'] as unknown as { produce: jest.Mock }
             const stalledMetricAcks: (() => void)[] = []
@@ -2168,7 +2168,7 @@ describe('CDP API', () => {
             } finally {
                 kafka.produce.mockImplementation((...args: any[]) => args[args.length - 1]?.())
                 stalledMetricAcks.forEach((ack) => ack())
-                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations', false)
             }
         })
 

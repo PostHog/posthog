@@ -1400,7 +1400,7 @@ describe('hog flow processing', () => {
             )
             expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
-                'workflow_destinations_dispatched'
+                'workflow_destinations'
             )
 
             // Flush metrics so we can assert them down below
@@ -1428,7 +1428,7 @@ describe('hog flow processing', () => {
             ;(processor as any)['deps'].quotaLimiting.isTeamQuotaLimited = jest
                 .fn()
                 .mockImplementation((_teamId, resource) => {
-                    return resource === 'workflow_destinations_dispatched'
+                    return resource === 'workflow_destinations'
                 })
 
             await insertHogFlow(
@@ -1470,7 +1470,7 @@ describe('hog flow processing', () => {
             expect(invocations).toHaveLength(0)
             expect((processor as any)['deps'].quotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
                 team.id,
-                'workflow_destinations_dispatched'
+                'workflow_destinations'
             )
         })
 
