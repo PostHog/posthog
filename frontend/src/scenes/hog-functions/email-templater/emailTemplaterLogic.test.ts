@@ -994,7 +994,7 @@ describe('emailTemplaterLogic', () => {
         })
 
         it('leaves the email alone on a save when no design was ever loaded into the canvas', async () => {
-            logic.cache.baselineConfirmed = false
+            logic.cache.baselineConfirmedBy = null
             const before = parent.email
             editorDesign = DESIGN_EDITED
             await logic.asyncActions.flushPendingDesignEdit()
@@ -1009,6 +1009,16 @@ describe('emailTemplaterLogic', () => {
             await logic.asyncActions.flushPendingDesignEdit()
 
             expect(parent.email).toBe(before)
+        })
+
+        it('still picks up an unreported edit after a re-render hands over the same editor again', async () => {
+            const ref = logic.values.emailEditorRef
+            logic.actions.setEmailEditorRef(null)
+            logic.actions.setEmailEditorRef(ref)
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
         })
 
         it('reads the canvas early again once the editor confirms its loaded design', async () => {

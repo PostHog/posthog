@@ -1001,10 +1001,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
             actions.runEmailConversion()
         },
-        setEmailEditorRef: () => {
-            // A new editor starts blank until its design loads, so nothing read from it yet is an edit.
-            cache.baselineConfirmed = false
-        },
         setPrefersOldEmailEditor: ({ prefersOld }) => {
             cache.lastConvertedHtml = undefined
             if (!prefersOld) {
@@ -1031,7 +1027,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // The new editor already holds this email's document, or its starter. The sample's old design isn't for it.
             const newEditorHasIt =
                 values.usesDocumentEditor && !!props.value && !emailDocumentFromValue(props.value).document
-            cache.baselineConfirmed = false
+            cache.baselineConfirmedBy = null
             if (design && !newEditorHasIt) {
                 cache.lastEditorDesign = design
                 values.emailEditorRef?.editor?.loadDesign(design)
@@ -1053,7 +1049,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             const htmlData: { design: JSONTemplate } = await exportEditorHtml(editor)
             breakpoint()
             cache.lastEditorDesign = htmlData.design
-            cache.baselineConfirmed = true
+            cache.baselineConfirmedBy = editor
         },
 
         designUpdated: async (_, breakpoint) => {
@@ -1097,7 +1093,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             cache.pendingDesignEdit = false
             actions.setLatestEditUnsaved(false)
 
-            cache.baselineConfirmed = true
+            cache.baselineConfirmedBy = editor
             // Only real changes propagate - an export identical to the last known editor state is a
             // load echo, and pushing it would only mark the parent form dirty.
             if (objectsEqual(htmlData.design, cache.lastEditorDesign)) {
@@ -1182,7 +1178,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             const design = editorDesignForEmail(emailTemplateContent)
             if (values.isEmailEditorReady && design) {
                 cache.lastEditorDesign = design
-                cache.baselineConfirmed = false
+                cache.baselineConfirmedBy = null
                 values.emailEditorRef?.editor?.loadDesign(design, emailTemplateContent.html)
             }
         },
@@ -1235,8 +1231,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
             // The old editor reports a typed edit up to a second late, so its canvas is read even when nothing is
-            // pending, but only once it has confirmed its design: before that, a difference isn't an edit.
-            let readCanvas = !values.usesDocumentEditor && !!cache.baselineConfirmed
+            // pending, but only once this editor has confirmed its design: before that, a difference isn't an edit.
+            let readCanvas = !values.usesDocumentEditor && cache.baselineConfirmedBy === editor
             while (readCanvas || cache.pendingDesignEdit) {
                 readCanvas = false
                 const editsBeforeExport = cache.designEdits
@@ -1263,7 +1259,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 }
                 cache.pendingDesignEdit = false
                 actions.setLatestEditUnsaved(false)
-                cache.baselineConfirmed = true
+                cache.baselineConfirmedBy = editor
                 if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
                     cache.lastEditorDesign = htmlData.design
                     cache.lastLoadedExternalDesign = null
@@ -1414,7 +1410,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     // unrelated field changes.
                     cache.lastLoadedExternalDesign = design
                     cache.lastEditorDesign = design
-                    cache.baselineConfirmed = false
+                    cache.baselineConfirmedBy = null
                     values.emailEditorRef?.editor?.loadDesign(design)
                 }
             }
