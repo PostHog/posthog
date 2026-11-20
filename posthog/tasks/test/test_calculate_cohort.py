@@ -24,7 +24,7 @@ from posthog.hogql.errors import QueryError
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorQueryWasCancelled, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
-from posthog.models.person.sql import REPLACE_ROW_OFFSET
+from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE, REPLACE_ROW_OFFSET
 from posthog.tasks.calculate_cohort import (
     COHORT_BACKFILL_REFUSAL_OUTCOMES,
     COHORT_BACKFILL_TRIGGER_TASK_COUNTER,
@@ -2813,6 +2813,243 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         expected = {str(matched.uuid)} if pg_already_written else set()
         self.assertEqual({str(row[0]) for row in ch_rows}, expected)
+
+    def test_replace_319_then_pre_copy_failure_deletes_all_abandoned_rows_for_this_cohort_only(self) -> None:
+        run = uuid4().hex[:8]
+        p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        other_person = create_person(team=self.team, distinct_ids=[f"{run}-other"], uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace 319 cleanup",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        other_cohort = Cohort.objects.create(team=self.team, name="other cohort", is_static=True)
+        start = timezone.now().replace(microsecond=0)
+        _claim_replace(cohort, claimed_at=start)
+
+        from products.cohorts.backend.models import util as cohort_util
+
+        real_ch_insert = cohort_util.insert_cohort_query_actors_into_ch
+        ch_calls = 0
+
+        def partial_319_then_succeed(c: Cohort, *, team: Any, replace_marker: datetime | None = None) -> int:
+            nonlocal ch_calls
+            ch_calls += 1
+            written = real_ch_insert(c, team=team, replace_marker=replace_marker)
+            if ch_calls == 1:
+                # Seed another cohort at the same first marker to prove cleanup stays scoped to this cohort.
+                sync_execute(
+                    f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+                    [(uuid4(), other_person.uuid, other_cohort.pk, self.team.pk, replace_marker, REPLACE_ROW_OFFSET)],
+                )
+                raise InternalCHQueryError("unknown insert status", code=319)
+            return written
+
+        with time_machine.travel(start + timedelta(seconds=10), tick=False) as clock:
+            insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
+            try:
+                with (
+                    patch(
+                        "products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch",
+                        side_effect=partial_319_then_succeed,
+                    ),
+                    self.assertRaises(Retry) as scheduled,
+                ):
+                    insert_cohort_from_query.run(cohort.id, self.team.pk)
+                self.assertNotIn("replace_marker", scheduled.exception.sig.kwargs)
+
+                insert_cohort_from_query.pop_request()
+                insert_cohort_from_query.push_request(
+                    retries=STATIC_POPULATION_MAX_RETRIES, called_directly=False, is_eager=True
+                )
+                clock.shift(10)
+                with (
+                    patch(
+                        "products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch",
+                        side_effect=partial_319_then_succeed,
+                    ),
+                    patch(PG_SYNC_PATH, side_effect=RuntimeError("fatal before copy")),
+                ):
+                    insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
+            finally:
+                insert_cohort_from_query.pop_request()
+
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [])
+        self.assertEqual(
+            _static_cohort_rows(self.team.pk, other_cohort.pk), [(str(other_person.uuid), REPLACE_ROW_OFFSET)]
+        )
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [])
+        self.assertIsNotNone(p1.id)
+
+    def test_killed_replace_that_copied_then_redispatch_failing_before_copy_keeps_first_attempt_rows(self) -> None:
+        run = uuid4().hex[:8]
+        p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace killed after copy",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        _claim_replace(cohort, claimed_at=start)
+
+        saved_state: dict[str, Any] = {}
+
+        class _SimulatedKill(BaseException):
+            pass
+
+        def kill_during_prune(*_args: Any, **_kwargs: Any) -> int:
+            cohort.refresh_from_db()
+            saved_state.update(
+                is_calculating=cohort.is_calculating,
+                pending_population_mode=cohort.pending_population_mode,
+                population_marker=cohort.population_marker,
+                population_claimed_at=cohort.population_claimed_at,
+                population_copy_started=cohort.population_copy_started,
+                population_first_marker=cohort.population_first_marker,
+            )
+            raise _SimulatedKill()
+
+        with time_machine.travel(start + timedelta(seconds=10), tick=False) as clock:
+            with (
+                patch(
+                    "products.cohorts.backend.models.util.prune_members_absent_from_replace",
+                    side_effect=kill_during_prune,
+                ),
+                self.assertRaises(_SimulatedKill),
+            ):
+                insert_cohort_from_query(cohort.id, self.team.pk)
+
+            # Restore pre-finally killed state and let the sweep clear population_marker while keeping copy_started=True.
+            Cohort.objects.filter(pk=cohort.pk).update(**saved_state)
+            CohortCalculationHistory.objects.filter(cohort=cohort).update(finished_at=None, error=None, error_code=None)
+            clock.shift(timedelta(hours=5))
+            with patch("posthog.tasks.calculate_cohort.insert_cohort_from_query"):
+                reset_stuck_cohorts()
+
+            # Redispatched attempt mints M2 and fails terminally before copying; M1's rows must survive.
+            clock.shift(10)
+            with patch(PG_SYNC_PATH, side_effect=RuntimeError("fatal before copy")):
+                insert_cohort_from_query(cohort.id, self.team.pk)
+
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [p1.id])
+        self.assertIn((str(p1.uuid), REPLACE_ROW_OFFSET), _static_cohort_rows(self.team.pk, cohort.pk))
+
+    def test_fresh_replace_failing_before_copy_keeps_earlier_failed_runs_copied_rows(self) -> None:
+        run = uuid4().hex[:8]
+        p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-a"}, uuid=uuid4())
+        p2 = create_person(team=self.team, distinct_ids=[f"{run}-p2"], properties={"tag": f"{run}-b"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace cross run",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-a'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+
+        with time_machine.travel(start, tick=False) as clock:
+            # Run A copies p1 at M1 into Postgres, then fails terminally during prune.
+            _claim_replace(cohort, claimed_at=start)
+            clock.shift(10)
+            with patch(
+                "products.cohorts.backend.models.util.prune_members_absent_from_replace",
+                side_effect=RuntimeError("run A fatal prune"),
+            ):
+                insert_cohort_from_query(cohort.id, self.team.pk)
+
+            # Run B claims fresh (resetting copy_started and first_marker), mints M2 for p2, then fails before copying.
+            clock.shift(10)
+            Cohort.objects.filter(pk=cohort.pk).update(
+                query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-b'"},
+                is_calculating=True,
+                pending_population_mode=CohortPopulationMode.REPLACE,
+                population_marker=None,
+                population_claimed_at=timezone.now().replace(microsecond=0),
+                population_copy_started=False,
+                population_first_marker=None,
+            )
+            clock.shift(10)
+            with patch(PG_SYNC_PATH, side_effect=RuntimeError("run B fatal before copy")):
+                insert_cohort_from_query(cohort.id, self.team.pk)
+
+        # Run A's p1 row at M1 survives (backing Postgres); run B's uncopied p2 row at M2 is deleted.
+        self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [p1.id])
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p1.uuid), REPLACE_ROW_OFFSET)])
+        self.assertIsNotNone(p2.id)
+
+    def test_failed_replace_cleanup_runs_while_cohort_is_still_locked_before_release(self) -> None:
+        run = uuid4().hex[:8]
+        p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        p2 = create_person(team=self.team, distinct_ids=[f"{run}-p2"], uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace cleanup ordering",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        _claim_replace(cohort, claimed_at=start)
+
+        observed_calculating: list[bool] = []
+        from products.cohorts.backend.models import util as cohort_util
+
+        real_delete = cohort_util.delete_failed_replace_attempt_rows
+
+        def spy_delete(*args: Any, **kwargs: Any) -> None:
+            observed_calculating.append(Cohort.objects.values_list("is_calculating", flat=True).get(pk=cohort.pk))
+            return real_delete(*args, **kwargs)
+
+        with (
+            time_machine.travel(start + timedelta(seconds=10), tick=False),
+            patch(PG_SYNC_PATH, side_effect=RuntimeError("fatal before copy")),
+            patch("products.cohorts.backend.models.util.delete_failed_replace_attempt_rows", side_effect=spy_delete),
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        self.assertEqual(observed_calculating, [True])
+        # Once released, a new replace claim's rows are untouched.
+        new_marker = start + timedelta(seconds=20)
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [(uuid4(), p2.uuid, cohort.pk, self.team.pk, new_marker, REPLACE_ROW_OFFSET)],
+        )
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p2.uuid), REPLACE_ROW_OFFSET)])
+        self.assertIsNotNone(p1.id)
+
+    def test_failed_append_does_not_run_replace_cleanup(self) -> None:
+        run = uuid4().hex[:8]
+        p1 = create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        flush_persons_and_events()
+        start = timezone.now().replace(microsecond=0)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static append no replace cleanup",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.APPEND,
+            population_claimed_at=start,
+            population_first_marker=start,
+        )
+        sync_execute(
+            f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
+            [(uuid4(), p1.uuid, cohort.pk, self.team.pk, start, REPLACE_ROW_OFFSET)],
+        )
+
+        with (
+            time_machine.travel(start + timedelta(seconds=10), tick=False),
+            patch(PG_SYNC_PATH, side_effect=RuntimeError("append failed")),
+            patch("products.cohorts.backend.models.util.delete_failed_replace_attempt_rows") as mock_delete,
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_delete.assert_not_called()
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p1.uuid), REPLACE_ROW_OFFSET)])
 
     def test_resync_stopped_when_replace_claims_cohort_between_read_and_lock(self) -> None:
         # A concurrent PATCH claim arriving after the task starts must fence out an append_only resync before it

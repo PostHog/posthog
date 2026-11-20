@@ -1036,11 +1036,25 @@ def _finish_owned_population(
     *,
     log_prefix: str,
     processing_error: BaseException | None,
+    replacing: bool,
     copy_started: bool,
-    stored_marker: datetime | None,
+    first_marker: datetime | None,
 ) -> None:
-    """Save final cohort state and delete uncopied ClickHouse replace rows when cleanup applies."""
+    """Delete uncopied ClickHouse replace rows while the cohort is still locked, then save final cohort state."""
     from products.cohorts.backend.models.util import delete_failed_replace_attempt_rows
+
+    # Run cleanup before _safe_save_cohort_state releases is_calculating so no new replace can claim the cohort
+    # and insert rows before this delete is submitted. Scope to _timestamp >= first_marker so earlier runs'
+    # rows are never touched. Covers BaseException exits (SystemExit, worker shutdown or revoke) too.
+    if replacing and processing_error is not None and not copy_started and first_marker is not None:
+        try:
+            delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, from_marker=first_marker)
+        except Exception:
+            logger.exception(
+                f"{log_prefix}_failed_replace_cleanup_failed",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+            )
 
     cohort._safe_save_cohort_state(team_id=cohort.team_id, processing_error=processing_error)
     cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
@@ -1051,17 +1065,6 @@ def _finish_owned_population(
         is_calculating=cohort.is_calculating,
         errors_calculating=cohort.errors_calculating,
     )
-    # Clean up ClickHouse rows whenever this replace ended in error before any attempt started copying its own
-    # rows into Postgres, including BaseException exits (SystemExit, worker shutdown or revoke).
-    if stored_marker is not None and processing_error is not None and not copy_started:
-        try:
-            delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, marker=stored_marker)
-        except Exception:
-            logger.exception(
-                f"{log_prefix}_failed_replace_cleanup_failed",
-                cohort_id=cohort.pk,
-                team_id=cohort.team_id,
-            )
 
 
 def _replace_floor(cohort: Cohort, marker: datetime) -> datetime:
@@ -1355,8 +1358,8 @@ def _populate_static_cohort(
         # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt, and a
         # superseded attempt leaves all of it to the attempt that replaced it.
         if claimed is not None:
-            stored_marker = claimed.population_marker
             copy_started = claimed.population_copy_started
+            first_marker = claimed.population_first_marker
             owns_cohort: bool | None = None
             if superseded is None and retry is None:
                 # Finalize only while this attempt still owns the cohort: its mode and marker are still the
@@ -1400,8 +1403,9 @@ def _populate_static_cohort(
                     claimed,
                     log_prefix=log_prefix,
                     processing_error=processing_error,
+                    replacing=replacing,
                     copy_started=copy_started,
-                    stored_marker=stored_marker,
+                    first_marker=first_marker,
                 )
     if settings.DEBUG and processing_error is not None:
         raise processing_error

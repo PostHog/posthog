@@ -569,10 +569,11 @@ DELETE_STALE_STATIC_COHORT_ROWS = (
     f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s"
     " AND (_timestamp < %(floor)s OR (_offset = %(replace_offset)s AND _timestamp < %(marker)s))"
 )
-# Cleanup for a failed replace attempt that wrote nothing to Postgres: deletes only rows stamped at that attempt's marker.
-DELETE_STATIC_COHORT_ROWS_AT_MARKER = (
+# Cleanup for a failed replace that never started copying into Postgres: deletes every replace-flagged row
+# stamped at or after this run's first marker, leaving earlier runs' rows untouched.
+DELETE_STATIC_COHORT_ROWS_FROM_MARKER = (
     f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s"
-    " AND _offset = %(replace_offset)s AND _timestamp = %(marker)s"
+    " AND _offset = %(replace_offset)s AND _timestamp >= %(from_marker)s"
 )
 
 #

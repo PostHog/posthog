@@ -54,7 +54,7 @@ from posthog.models.event.new_events_schema import events_read_settings, events_
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
     DELETE_STALE_STATIC_COHORT_ROWS,
-    DELETE_STATIC_COHORT_ROWS_AT_MARKER,
+    DELETE_STATIC_COHORT_ROWS_FROM_MARKER,
     INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
@@ -2183,11 +2183,11 @@ def prune_stale_static_cohort_rows(
     )
 
 
-def delete_failed_replace_attempt_rows(cohort_id: int, *, team_id: int, marker: datetime) -> None:
-    """Delete ClickHouse rows left at ``marker`` by a failed replace attempt that wrote nothing to Postgres."""
+def delete_failed_replace_attempt_rows(cohort_id: int, *, team_id: int, from_marker: datetime) -> None:
+    """Delete ClickHouse replace rows stamped at or after ``from_marker`` for a failed replace that never copied into Postgres."""
     _delete_static_cohort_rows(
-        DELETE_STATIC_COHORT_ROWS_AT_MARKER,
-        {"marker": marker, "replace_offset": REPLACE_ROW_OFFSET},
+        DELETE_STATIC_COHORT_ROWS_FROM_MARKER,
+        {"from_marker": from_marker, "replace_offset": REPLACE_ROW_OFFSET},
         cohort_id=cohort_id,
         team_id=team_id,
         name="delete_failed_replace_attempt_rows",

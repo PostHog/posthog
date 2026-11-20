@@ -1943,7 +1943,7 @@ class TestAddDuringReplace(BaseTest):
 
         written = insert_cohort_query_actors_into_ch(cohort, team=self.team)
         self.assertEqual(written, 1)
-        delete_failed_replace_attempt_rows(cohort.pk, team_id=self.team.pk, marker=attempt_marker)
+        delete_failed_replace_attempt_rows(cohort.pk, team_id=self.team.pk, from_marker=attempt_marker)
 
         remaining_rows = sync_execute(
             f"SELECT person_id, _offset FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
@@ -1983,7 +1983,7 @@ class TestAddDuringReplace(BaseTest):
             ],
         )
 
-        delete_failed_replace_attempt_rows(cohort.pk, team_id=self.team.pk, marker=marker)
+        delete_failed_replace_attempt_rows(cohort.pk, team_id=self.team.pk, from_marker=marker)
 
         cohort_rows = sync_execute(
             f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
