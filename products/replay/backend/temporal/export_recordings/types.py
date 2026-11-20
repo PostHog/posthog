@@ -45,9 +45,12 @@ class ExportRecordingsInput:
     quoted_at: str
     shards_per_day: int = 16
     max_parallel_shards: int = 32
+    # Run only these shards, each as "YYYY-MM-DD:shard", for example the failed shards of an earlier run.
+    only_shards: tuple[str, ...] | None = None
     # Carried across continue-as-new.
     next_shard: int = 0
     totals: ExportTotals = ExportTotals()
+    failed_shards: tuple[str, ...] = ()
     started_at: str | None = None
 
 
@@ -72,3 +75,4 @@ class WriteSummaryInput:
     shards_per_day: int
     started_at: str
     totals: ExportTotals
+    failed_shards: tuple[str, ...]

@@ -8,7 +8,7 @@ import collections
 import dataclasses
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import structlog
 from temporalio import activity
@@ -60,11 +60,13 @@ FILE_EXTENSION = "phrec"
 SESSION_CONCURRENCY = 16
 BLOCK_CONCURRENCY = 8
 BLOCK_FETCH_ATTEMPTS = 3
+BLOCK_RETRY_DELAY_SECONDS = 1.0
 RECORDING_API_CONNECTIONS = SESSION_CONCURRENCY * BLOCK_CONCURRENCY
 # S3 needs at least 5 MiB for every multipart part except the last.
-UPLOAD_PART_BYTES = 16 * 1024 * 1024
+UPLOAD_PART_BYTES = 8 * 1024 * 1024
 SESSIONS_PER_CHECKPOINT = 500
 METADATA_BATCH_SIZE = 100
+VIEWPORT_ROW_LIMIT = 50000
 
 BLOCK_URL_PATTERN = re.compile(r"^s3://[^/]+/(?P<key>[^?]+)\?range=bytes=(?P<start>\d+)-(?P<end>\d+)$")
 
@@ -73,7 +75,8 @@ NON_RETRYABLE_ERRORS = (InvalidCredentialsError, S3IntegrationNotFoundError, Ext
 # Same rule as recording-api's listBlocks. Needs `start_time` and the session's grouped rows.
 SESSION_EXPIRY_TIME_SQL = "dateTrunc('DAY', start_time) + toIntervalDay(coalesce(max(retention_period_days), 30))"
 
-# Rows group by session start, so a day reads the next day too: a session's later rows can start after midnight.
+# A session that crosses midnight has rows on two days. Reading the day before finds its true start,
+# and reading the day after finds its later rows.
 SHARD_SESSIONS_QUERY = f"""
 SELECT
     session_id,
@@ -86,7 +89,7 @@ SELECT
     expiry_time < now() AS expired
 FROM session_replay_events
 PREWHERE team_id = %(team_id)s
-    AND min_first_timestamp >= %(day_start)s
+    AND min_first_timestamp >= %(day_start)s - INTERVAL 1 DAY
     AND min_first_timestamp < %(day_start)s + INTERVAL 2 DAY
 WHERE cityHash64(session_id) %% %(shards_per_day)s = %(shard)s
 GROUP BY session_id
@@ -111,7 +114,7 @@ WHERE timestamp >= {start} AND timestamp < {end}
     AND isNotNull(properties.$viewport_width) AND isNotNull(properties.$viewport_height)
 GROUP BY `$session_id`, width, height, href, toStartOfMinute(timestamp)
 ORDER BY `$session_id`, min(timestamp)
-LIMIT 50000
+LIMIT {limit}
 """
 
 PERSONS_QUERY = """
@@ -167,11 +170,13 @@ def run_prefix(destination: ExportDestination, team_id: int) -> str:
 
 
 def manifest_prefix(destination: ExportDestination, team_id: int, run_id: str) -> str:
-    return f"{run_prefix(destination, team_id)}/manifests/{run_id}"
+    return f"{run_prefix(destination, team_id)}/{run_id}/manifests"
 
 
-def session_key(destination: ExportDestination, team_id: int, start_time: datetime, session_id: str) -> str:
-    return f"{run_prefix(destination, team_id)}/{start_time:%Y-%m-%d}/{session_id}.{FILE_EXTENSION}"
+def session_key(
+    destination: ExportDestination, team_id: int, run_id: str, start_time: datetime, session_id: str
+) -> str:
+    return f"{run_prefix(destination, team_id)}/{run_id}/{start_time:%Y-%m-%d}/{session_id}.{FILE_EXTENSION}"
 
 
 def quote_storage_key(quote_id: str) -> str:
@@ -228,7 +233,7 @@ def list_shard_sessions(input: ExportShardInput) -> list[SessionRow]:
     ]
 
 
-@functools.cache
+@functools.lru_cache(maxsize=8)
 def load_session_ids(key: str) -> frozenset[str]:
     content = object_storage.read(key)
     if content is None:
@@ -239,6 +244,32 @@ def load_session_ids(key: str) -> frozenset[str]:
 SessionMetadata = tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]
 
 
+def load_viewports(team: Team, sessions: list[SessionRow], viewports: dict[str, list[dict[str, Any]]]) -> None:
+    rows = execute_hogql_query(
+        parse_select(VIEWPORTS_QUERY),
+        team,
+        placeholders={
+            "start": ast.Constant(value=min(s.start_time for s in sessions) - timedelta(minutes=5)),
+            "end": ast.Constant(value=max(s.end_time for s in sessions) + timedelta(minutes=5)),
+            "session_ids": ast.Constant(value=[s.session_id for s in sessions]),
+            "limit": ast.Constant(value=VIEWPORT_ROW_LIMIT),
+        },
+        limit_context=LimitContext.EXPORT,
+    ).results
+    if len(rows) >= VIEWPORT_ROW_LIMIT and len(sessions) > 1:
+        # The batch hit the row limit, so some sessions would get partial viewports. Query each half instead.
+        middle = len(sessions) // 2
+        load_viewports(team, sessions[:middle], viewports)
+        load_viewports(team, sessions[middle:], viewports)
+        return
+    if len(rows) >= VIEWPORT_ROW_LIMIT:
+        logger.warning("export_recordings.viewports_truncated", session_id=sessions[0].session_id)
+    for session_id, timestamp, width, height, href in rows:
+        viewports.setdefault(session_id, []).append(
+            {"timestamp": timestamp, "width": width, "height": height, "href": href}
+        )
+
+
 def load_session_metadata(team_id: int, sessions: list[SessionRow]) -> SessionMetadata:
     """Return the viewports per session and the person per distinct ID, which file playback cannot load."""
     team = Team.objects.get(id=team_id)
@@ -246,22 +277,7 @@ def load_session_metadata(team_id: int, sessions: list[SessionRow]) -> SessionMe
     persons: dict[str, dict[str, Any]] = {}
     for batch_start in range(0, len(sessions), METADATA_BATCH_SIZE):
         batch = sessions[batch_start : batch_start + METADATA_BATCH_SIZE]
-        start = min(s.start_time for s in batch) - timedelta(minutes=5)
-        end = max(s.end_time for s in batch) + timedelta(minutes=5)
-        viewport_rows = execute_hogql_query(
-            parse_select(VIEWPORTS_QUERY),
-            team,
-            placeholders={
-                "start": ast.Constant(value=start),
-                "end": ast.Constant(value=end),
-                "session_ids": ast.Constant(value=[s.session_id for s in batch]),
-            },
-            limit_context=LimitContext.EXPORT,
-        ).results
-        for session_id, timestamp, width, height, href in viewport_rows:
-            viewports.setdefault(session_id, []).append(
-                {"timestamp": timestamp, "width": width, "height": height, "href": href}
-            )
+        load_viewports(team, batch, viewports)
         person_rows = execute_hogql_query(
             parse_select(PERSONS_QUERY),
             team,
@@ -281,7 +297,8 @@ def load_session_metadata(team_id: int, sessions: list[SessionRow]) -> SessionMe
 
 async def resolve_s3_credentials(
     team_id: int, destination: ExportDestination
-) -> tuple[AWSCredentials, Callable[[], Coroutine[Any, Any, AWSCredentials]]]:
+) -> tuple[AWSCredentials, Callable[[], Coroutine[Any, Any, AWSCredentials]], str]:
+    """Return the assumed role's credentials, how to refresh them and the role's AWS account ID."""
     integration = await get_s3_integration(destination.integration_id, team_id)
     aws_role_arn: str | None = getattr(integration, "aws_role_arn", None)
     if not aws_role_arn:
@@ -294,7 +311,14 @@ async def resolve_s3_credentials(
         session_name=f"PostHog-replay-export-{team_id}",
         policy_statements=policy_statements(destination, team_id, aws_role_arn),
     )
-    return await refresh_using(), refresh_using
+    return await refresh_using(), refresh_using, role_account_id(aws_role_arn)
+
+
+def role_account_id(aws_role_arn: str) -> str:
+    parts = aws_role_arn.split(":")
+    if len(parts) < 6 or not parts[4]:
+        raise ApplicationError(f"Malformed role ARN {aws_role_arn!r}", non_retryable=True)
+    return parts[4]
 
 
 def policy_statements(destination: ExportDestination, team_id: int, aws_role_arn: str) -> list[PolicyStatement]:
@@ -318,27 +342,54 @@ def policy_statements(destination: ExportDestination, team_id: int, aws_role_arn
 
 
 def kms_key_arn(kms_key_id: str, region: str, aws_role_arn: str) -> str:
+    # A policy on an alias ARN grants nothing on the key it points to.
+    if "alias/" in kms_key_id:
+        raise ApplicationError("Use a KMS key ID or key ARN, not an alias", non_retryable=True)
     if kms_key_id.startswith("arn:"):
         return kms_key_id
     # S3 reads a bare key ID as a key in the account that makes the request, which is the role's account.
-    parts = aws_role_arn.split(":")
-    if len(parts) < 6 or not parts[4]:
-        raise ApplicationError(f"Malformed role ARN {aws_role_arn!r}", non_retryable=True)
-    return f"arn:aws:kms:{region}:{parts[4]}:key/{kms_key_id}"
+    return f"arn:aws:kms:{region}:{role_account_id(aws_role_arn)}:key/{kms_key_id}"
 
 
-def encryption_args(destination: ExportDestination) -> dict[str, Any]:
-    if not destination.kms_key_id:
-        return {}
-    return {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": destination.kms_key_id}
+class CustomerBucket:
+    """Writes to the customer's bucket. Every request names the bucket owner, so S3 refuses a bucket of another account."""
+
+    def __init__(self, client: "S3Client", destination: ExportDestination, owner_account_id: str) -> None:
+        self.client = client
+        self.target: dict[str, Any] = {"Bucket": destination.bucket, "ExpectedBucketOwner": owner_account_id}
+        self.encryption: dict[str, Any] = (
+            {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": destination.kms_key_id} if destination.kms_key_id else {}
+        )
+
+    async def put(self, key: str, body: bytes | bytearray) -> None:
+        # botocore accepts a bytearray body, so a buffer goes out without a copy. The type stubs list bytes only.
+        await self.client.put_object(**self.target, Key=key, Body=cast(bytes, body), **self.encryption)
+
+    async def create_multipart_upload(self, key: str) -> str:
+        created = await self.client.create_multipart_upload(**self.target, Key=key, **self.encryption)
+        return created["UploadId"]
+
+    async def upload_part(self, key: str, upload_id: str, part_number: int, body: bytearray) -> str:
+        response = await self.client.upload_part(
+            **self.target, Key=key, UploadId=upload_id, PartNumber=part_number, Body=cast(bytes, body)
+        )
+        return response["ETag"]
+
+    async def complete_multipart_upload(self, key: str, upload_id: str, parts: list["CompletedPartTypeDef"]) -> None:
+        await self.client.complete_multipart_upload(
+            **self.target, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}
+        )
+
+    async def abort_multipart_upload(self, key: str, upload_id: str) -> None:
+        await self.client.abort_multipart_upload(**self.target, Key=key, UploadId=upload_id)
 
 
 @contextlib.asynccontextmanager
-async def destination_client(team_id: int, destination: ExportDestination) -> AsyncIterator["S3Client"]:
+async def customer_bucket(team_id: int, destination: ExportDestination) -> AsyncIterator[CustomerBucket]:
     try:
-        credentials, refresh_using = await resolve_s3_credentials(team_id, destination)
+        credentials, refresh_using, owner_account_id = await resolve_s3_credentials(team_id, destination)
         async with s3_client(credentials, destination.region, refresh_using=refresh_using) as client:
-            yield client
+            yield CustomerBucket(client, destination, owner_account_id)
     except NON_RETRYABLE_ERRORS as e:
         raise ApplicationError(str(e), non_retryable=True) from e
 
@@ -346,11 +397,9 @@ async def destination_client(team_id: int, destination: ExportDestination) -> As
 class SessionUpload:
     """Streams one session file to S3: a single PUT when small, a multipart upload otherwise."""
 
-    def __init__(self, client: "S3Client", destination: ExportDestination, key: str) -> None:
-        self.client = client
-        self.bucket = destination.bucket
+    def __init__(self, bucket: CustomerBucket, key: str) -> None:
+        self.bucket = bucket
         self.key = key
-        self.encryption = encryption_args(destination)
         self.buffer = bytearray()
         self.sha256 = hashlib.sha256()
         self.size = 0
@@ -366,29 +415,25 @@ class SessionUpload:
 
     async def finish(self) -> None:
         if self.upload_id is None:
-            await self.client.put_object(Bucket=self.bucket, Key=self.key, Body=bytes(self.buffer), **self.encryption)
+            await self.bucket.put(self.key, self.buffer)
             return
         if self.buffer:
             await self._upload_part()
-        await self.client.complete_multipart_upload(
-            Bucket=self.bucket, Key=self.key, UploadId=self.upload_id, MultipartUpload={"Parts": self.parts}
-        )
+        await self.bucket.complete_multipart_upload(self.key, self.upload_id, self.parts)
 
     async def abort(self) -> None:
         if self.upload_id is not None:
             with contextlib.suppress(Exception):
-                await self.client.abort_multipart_upload(Bucket=self.bucket, Key=self.key, UploadId=self.upload_id)
+                await self.bucket.abort_multipart_upload(self.key, self.upload_id)
 
     async def _upload_part(self) -> None:
         if self.upload_id is None:
-            created = await self.client.create_multipart_upload(Bucket=self.bucket, Key=self.key, **self.encryption)
-            self.upload_id = created["UploadId"]
+            self.upload_id = await self.bucket.create_multipart_upload(self.key)
         part_number = len(self.parts) + 1
-        response = await self.client.upload_part(
-            Bucket=self.bucket, Key=self.key, UploadId=self.upload_id, PartNumber=part_number, Body=bytes(self.buffer)
-        )
-        self.parts.append({"ETag": response["ETag"], "PartNumber": part_number})
-        self.buffer.clear()
+        # Hand the buffer over instead of copying it, so a session holds one part in memory.
+        body, self.buffer = self.buffer, bytearray()
+        etag = await self.bucket.upload_part(self.key, self.upload_id, part_number, body)
+        self.parts.append({"ETag": etag, "PartNumber": part_number})
 
 
 async def fetch_block(client: RecordingApiClient, block: Block, session: SessionRow, team_id: int) -> bytes:
@@ -400,8 +445,9 @@ async def fetch_block(client: RecordingApiClient, block: Block, session: Session
             return await fetch()
         except BlockNotFoundError:
             raise
-        except BlockFetchError:
-            await asyncio.sleep(attempt)
+        # The client raises TimeoutError, not BlockFetchError, when a block takes longer than its total timeout.
+        except (BlockFetchError, TimeoutError):
+            await asyncio.sleep(attempt * BLOCK_RETRY_DELAY_SECONDS)
     return await fetch()
 
 
@@ -418,11 +464,12 @@ async def fetch_blocks_in_order(client: RecordingApiClient, session: SessionRow,
     finally:
         for task in pending:
             task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 async def export_session(
     recordings: RecordingApiClient,
-    s3: "S3Client",
+    bucket: CustomerBucket,
     input: ExportShardInput,
     session: SessionRow,
     viewports: list[dict[str, Any]],
@@ -440,8 +487,8 @@ async def export_session(
     if not session.blocks:
         return line(status="missing")
 
-    key = session_key(input.destination, input.team_id, session.start_time, session.session_id)
-    upload = SessionUpload(s3, input.destination, key)
+    key = session_key(input.destination, input.team_id, input.run_id, session.start_time, session.session_id)
+    upload = SessionUpload(bucket, key)
     try:
         await upload.write(
             encode_header(
@@ -466,7 +513,7 @@ async def export_session(
     except RecordingDeletedError:
         await upload.abort()
         return line(status="deleted")
-    except BlockFetchError:
+    except BlockNotFoundError:
         await upload.abort()
         return line(status="missing")
     except BaseException:
@@ -487,10 +534,6 @@ def count(lines: list[ManifestLine]) -> ExportTotals:
     return ExportTotals(**statuses, bytes=sum(manifest_line.bytes for manifest_line in lines))
 
 
-async def put_object(s3: "S3Client", destination: ExportDestination, key: str, body: bytes) -> None:
-    await s3.put_object(Bucket=destination.bucket, Key=key, Body=body, **encryption_args(destination))
-
-
 @activity.defn
 async def export_shard(input: ExportShardInput) -> ExportTotals:
     tag_queries(product=Product.REPLAY, feature=Feature.MANAGEMENT_COMMAND, team_id=input.team_id)
@@ -509,13 +552,13 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
     async with (
         Heartbeater(details=(checkpoint,)) as heartbeater,
         recording_api_client(connection_limit=RECORDING_API_CONNECTIONS) as recordings,
-        destination_client(input.team_id, input.destination) as s3,
+        customer_bucket(input.team_id, input.destination) as bucket,
     ):
         semaphore = asyncio.Semaphore(SESSION_CONCURRENCY)
 
         async def export_one(session: SessionRow, viewports: list[dict[str, Any]], person: dict | None) -> ManifestLine:
             async with semaphore:
-                return await export_session(recordings, s3, input, session, viewports, person)
+                return await export_session(recordings, bucket, input, session, viewports, person)
 
         def load_metadata(chunk: list[SessionRow]) -> asyncio.Task[SessionMetadata]:
             return asyncio.create_task(database_sync_to_async_pool(load_session_metadata)(input.team_id, chunk))
@@ -528,13 +571,19 @@ async def export_shard(input: ExportShardInput) -> ExportTotals:
             viewports, persons = await metadata
             # The next chunk's metadata loads while this chunk exports.
             metadata = load_metadata(chunks[index + 1]) if index + 1 < len(chunks) else None
-            lines = await asyncio.gather(
-                *(export_one(s, viewports.get(s.session_id, []), persons.get(s.distinct_id)) for s in chunk)
-            )
+            # A failed session cancels the rest of the chunk, and each cancelled session aborts its upload.
+            # Temporal then retries the shard from the last checkpoint.
+            try:
+                async with asyncio.TaskGroup() as group:
+                    tasks = [
+                        group.create_task(export_one(s, viewports.get(s.session_id, []), persons.get(s.distinct_id)))
+                        for s in chunk
+                    ]
+            except ExceptionGroup as e:
+                raise e.exceptions[0] from e
+            lines = [task.result() for task in tasks]
             part = checkpoint.manifest_parts
-            await put_object(
-                s3,
-                input.destination,
+            await bucket.put(
                 f"{prefix}/{input.day}-{input.shard:04d}-{part:04d}.jsonl",
                 "".join(manifest_line.to_json() + "\n" for manifest_line in lines).encode(),
             )
@@ -567,6 +616,8 @@ async def write_summary(input: WriteSummaryInput) -> None:
         "date_to": quote["date_to"],
         "shards_per_day": input.shards_per_day,
         "manifest_file_pattern": "{date}-{shard}-{part}.jsonl",
+        # Shards that failed after every retry. Rerun them with --shards.
+        "failed_shards": list(input.failed_shards),
         "started_at": input.started_at,
         "finished_at": datetime.now(UTC).isoformat(),
         "sessions": {
@@ -581,6 +632,6 @@ async def write_summary(input: WriteSummaryInput) -> None:
         "bytes": totals.bytes,
     }
     prefix = manifest_prefix(input.destination, input.team_id, input.run_id)
-    async with destination_client(input.team_id, input.destination) as s3:
-        await put_object(s3, input.destination, f"{prefix}/quote.json", quote_json.encode())
-        await put_object(s3, input.destination, f"{prefix}/summary.json", json.dumps(summary).encode())
+    async with customer_bucket(input.team_id, input.destination) as bucket:
+        await bucket.put(f"{prefix}/quote.json", quote_json.encode())
+        await bucket.put(f"{prefix}/summary.json", json.dumps(summary).encode())

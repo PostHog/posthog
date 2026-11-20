@@ -19,12 +19,16 @@ Usage:
 import sys
 import uuid
 import asyncio
+import argparse
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Integration, Team
 from posthog.temporal.common.client import async_connect
@@ -55,8 +59,14 @@ class Command(BaseCommand):
         parser.add_argument(
             "--kms-key-id", help="Encrypt with this KMS key: a key ID in the role's account, or a key ARN."
         )
-        parser.add_argument("--shards-per-day", type=int, default=16)
-        parser.add_argument("--max-parallel-shards", type=int, default=32)
+        parser.add_argument("--shards-per-day", type=_positive_int, default=16)
+        parser.add_argument("--max-parallel-shards", type=_positive_int, default=32)
+        parser.add_argument(
+            "--shards",
+            type=_shard_list,
+            help="Run only these shards, as YYYY-MM-DD:N,..., for example the failed shards an earlier run lists. "
+            "Pass the same --shards-per-day as that run.",
+        )
         parser.add_argument("--yes", action="store_true", help="Start without asking for confirmation.")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -72,6 +82,10 @@ class Command(BaseCommand):
         date_from, date_to = _required(options, "date_from"), _required(options, "date_to")
         if date_to < date_from:
             raise CommandError("--date-to is before --date-from")
+        if date_to >= datetime.now(UTC).date():
+            raise CommandError(
+                "--date-to must be before today (UTC), so no new sessions join the range after the quote"
+            )
         Team.objects.get(id=team_id)
         session_ids = None
         if options["session_ids_file"]:
@@ -97,6 +111,14 @@ class Command(BaseCommand):
         if region != quote.region:
             raise CommandError(f"The quote priced region {quote.region}, not {region}")
         integration_id, bucket = _required(options, "integration_id"), _required(options, "bucket")
+        prefix, kms_key_id = options["prefix"], options["kms_key_id"]
+        if any(character in prefix for character in "*?"):
+            raise CommandError("--prefix must not contain * or ?, which would widen the role's permissions")
+        if kms_key_id and "alias/" in kms_key_id:
+            raise CommandError("--kms-key-id takes a key ID or key ARN, not an alias")
+        only_shards = options["shards"]
+        if only_shards and any(int(name.split(":")[1]) >= options["shards_per_day"] for name in only_shards):
+            raise CommandError("A shard in --shards is not below --shards-per-day")
         if not Integration.objects.filter(
             id=integration_id, team_id=quote.team_id, kind=Integration.IntegrationKind.AWS_S3
         ).exists():
@@ -109,8 +131,8 @@ class Command(BaseCommand):
                 integration_id=integration_id,
                 bucket=bucket,
                 region=region,
-                prefix=options["prefix"],
-                kms_key_id=options["kms_key_id"],
+                prefix=prefix,
+                kms_key_id=kms_key_id,
             ),
             quote_id=quote.quote_id,
             run_id=run_id,
@@ -120,19 +142,47 @@ class Command(BaseCommand):
             quoted_at=quote.created_at,
             shards_per_day=options["shards_per_day"],
             max_parallel_shards=options["max_parallel_shards"],
+            only_shards=only_shards,
         )
         self.stdout.write(format_quote(quote))
-        encryption = f", KMS key {options['kms_key_id']}" if options["kms_key_id"] else ""
-        self.stdout.write(f"Destination: s3://{bucket}/{options['prefix']} ({region}{encryption}), run {run_id}")
+        encryption = f", KMS key {kms_key_id}" if kms_key_id else ""
+        shards = f", only shards {','.join(only_shards)}" if only_shards else ""
+        self.stdout.write(f"Destination: s3://{bucket}/{prefix} ({region}{encryption}), run {run_id}{shards}")
         if not options["yes"]:
             # A non-interactive exec has no terminal to answer the prompt.
             if not sys.stdin.isatty():
                 raise CommandError("Not started. Check the quote and destination above, then rerun with --yes.")
             if input("Start the export? [y/N] ").strip().lower() != "y":
                 raise CommandError("Not started")
-        workflow_id = f"export-recordings-{quote.team_id}-{run_id}"
-        asyncio.run(_start_workflow(workflow_input, workflow_id))
+        # One workflow ID per quote. Temporal refuses a second start unless the earlier run failed.
+        workflow_id = f"export-recordings-{quote.team_id}-{quote.quote_id}"
+        try:
+            asyncio.run(_start_workflow(workflow_input, workflow_id))
+        except WorkflowAlreadyStartedError as e:
+            raise CommandError(
+                f"{workflow_id} is running or finished. A quote starts again only after a failed run."
+            ) from e
         self.stdout.write(self.style.SUCCESS(f"Started {workflow_id}"))
+
+
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"{value} is not a positive integer")
+    return number
+
+
+def _shard_list(value: str) -> tuple[str, ...]:
+    shards = tuple(name.strip() for name in value.split(",") if name.strip())
+    for name in shards:
+        day, _, shard = name.partition(":")
+        try:
+            date.fromisoformat(day)
+            if int(shard) < 0:
+                raise ValueError(shard)
+        except ValueError as e:
+            raise argparse.ArgumentTypeError(f"{name} is not YYYY-MM-DD:N") from e
+    return shards
 
 
 def _required(options: dict[str, Any], name: str) -> Any:
@@ -176,7 +226,11 @@ def format_quote(quote: Quote) -> str:
 async def _start_workflow(workflow_input: ExportRecordingsInput, workflow_id: str) -> None:
     client = await async_connect()
     await client.start_workflow(
-        "export-recordings", workflow_input, id=workflow_id, task_queue=settings.SESSION_REPLAY_TASK_QUEUE
+        "export-recordings",
+        workflow_input,
+        id=workflow_id,
+        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
     )
 
 

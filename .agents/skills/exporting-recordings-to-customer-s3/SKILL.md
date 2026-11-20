@@ -43,6 +43,7 @@ For a session list, first copy the file into the pod with `kubectl cp`.
 
 You need the team ID, the region (US or EU), the date range (UTC days, inclusive) or a file of session IDs, and the bucket's AWS region.
 A session belongs to the day it started on.
+The range must end before today (UTC). The command refuses a range that includes today.
 Recordings past their retention are gone and cannot be exported.
 
 ### 2. Quote
@@ -62,7 +63,9 @@ Before the start, confirm with the person that the customer has:
 
 - a role-based AWS S3 integration in that project (note its integration ID),
 - a role that allows `s3:PutObject` and `s3:AbortMultipartUpload` on the bucket and prefix,
-- for a KMS-encrypted bucket, KMS permissions on the role and a key policy that allows the role, plus the key ID or ARN.
+- for a KMS-encrypted bucket, KMS permissions on the role and a key policy that allows the role, plus the key ID or ARN (not an alias),
+- the bucket in the same AWS account as the role,
+- a lifecycle rule that aborts incomplete multipart uploads, so a failed shard's unfinished parts do not stay in their bucket.
 
 The README lists the exact requirements to send them.
 
@@ -88,9 +91,14 @@ A large export runs for hours or days.
 A failure on credentials or a missing integration is permanent: the customer must fix the role, then you start a new run from a fresh quote.
 Other shard failures retry on their own and resume from their last checkpoint.
 
+A shard that still fails after its retries does not stop the run. The run writes its summary and then ends as failed, with the failed shards in the error and in `summary.json` under `failed_shards`.
+Ask the person before you rerun them. Then start the same quote again with `--shards <the failed list>` and the same `--shards-per-day`.
+A quote can start again only after a failed run, so a second start of a running or finished export is refused.
+
 ### 6. Hand over
 
-When the status is completed, `summary.json` is in the bucket under `{prefix}/{team_id}/manifests/{run_id}/`.
+When the status is completed, `summary.json` is in the bucket under `{prefix}/{team_id}/{run_id}/manifests/`.
+Each run, including a rerun of failed shards, has its own `run_id` folder.
 Report its session totals: exported, deleted, expired, missing, and `deleted_before_run`.
 Explain any non-zero count other than exported.
 Tell the customer they can check each file against the `sha256` in the manifests, and play a file back in Replay's file playback page.

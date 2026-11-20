@@ -19,8 +19,14 @@ It plays one session at a time, with no event timeline and no search.
    It runs at most `--max-parallel-shards` shards at once, oldest day first, so the sessions closest to expiry go first.
 4. Each shard lists its sessions in `session_replay_events`, fetches every block from recording-api (decrypted, still snappy-compressed) and writes the session file.
    A shard checkpoints through its heartbeat every 500 sessions, so a retry resumes there.
+   Only a 404 from recording-api marks a session `missing`. Any other recording-api error fails the shard, and Temporal retries it from the checkpoint.
 5. A last activity writes `quote.json` and `summary.json` next to the manifests.
    `summary.json` exists only when the run finished.
+   A shard that fails after all its retries does not stop the others. The summary lists it under `failed_shards` as `YYYY-MM-DD:N`, and the run then ends as failed.
+   Start the quote again with `--shards <that list>` and the same `--shards-per-day` to export only those shards, as a new run.
+
+A quote starts one workflow, `export-recordings-<team_id>-<quote_id>`.
+Temporal refuses a second start while it runs or after it completes, and allows one after a failed run.
 
 Sessions deleted between the quote and the run drop out and show as `deleted_before_run` in the summary.
 Sessions that expire during the run get the `expired` status.
@@ -28,11 +34,13 @@ Sessions that expire during the run get the `expired` status.
 ## Bucket layout
 
 ```text
-{prefix}/{team_id}/{yyyy-mm-dd}/{session_id}.phrec          one file per session, by session start day (UTC)
-{prefix}/{team_id}/manifests/{run_id}/{day}-{shard}-{part}.jsonl
-{prefix}/{team_id}/manifests/{run_id}/quote.json
-{prefix}/{team_id}/manifests/{run_id}/summary.json
+{prefix}/{team_id}/{run_id}/{yyyy-mm-dd}/{session_id}.phrec   one file per session, by session start day (UTC)
+{prefix}/{team_id}/{run_id}/manifests/{day}-{shard}-{part}.jsonl
+{prefix}/{team_id}/{run_id}/manifests/quote.json
+{prefix}/{team_id}/{run_id}/manifests/summary.json
 ```
+
+Each run writes under its own `run_id`, so a rerun never overwrites the files an earlier manifest describes.
 
 Each manifest line has `session_id`, `distinct_id`, `status` (`exported`, `deleted`, `expired` or `missing`), `start_time`, `end_time`, `key`, `bytes`, `sha256` and `block_count`.
 `sha256` covers the whole file, so the customer can check each object against it.
@@ -60,6 +68,10 @@ The customer adds it in the project with the AWS S3 setup modal ("assume IAM rol
 - The role allows `s3:PutObject` and `s3:AbortMultipartUpload` on the bucket and prefix.
 - With `--kms-key-id`, the role also allows `kms:GenerateDataKey` and `kms:Decrypt` on the key, and the key policy allows the role.
   Pass the flag even when the bucket encrypts with that key by default: the session policy caps the role to the actions it lists.
+  Pass a key ID or key ARN. An alias does not work, because a policy on an alias grants nothing on the key.
+- The bucket belongs to the role's AWS account. Every write names that account as the expected bucket owner, so S3 refuses any other bucket.
+- A lifecycle rule that aborts incomplete multipart uploads after a few days.
+  A shard that fails while uploading leaves its unfinished parts behind, and the customer pays to store them until the rule removes them.
 
 The export never reads or lists the bucket.
 

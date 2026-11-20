@@ -48,7 +48,7 @@ FROM (
         {SESSION_EXPIRY_TIME_SQL} AS expiry_time
     FROM session_replay_events
     PREWHERE team_id = %(team_id)s
-        AND min_first_timestamp >= %(range_start)s
+        AND min_first_timestamp >= %(range_start)s - INTERVAL 1 DAY
         AND min_first_timestamp < %(range_end)s + INTERVAL 1 DAY
     {{session_filter}}
     GROUP BY session_id
