@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { EndpointRequest, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EndpointType, EndpointVersionType } from '~/types'
 
@@ -56,6 +57,9 @@ export interface endpointLogicActions {
     closeCreateFromInsightModal: () => {
         value: true
     }
+    confirmDeleteEndpoint: (name: string) => {
+        name: string
+    }
     confirmToggleActive: (endpoint: EndpointType) => {
         endpoint: EndpointType
     }
@@ -76,6 +80,9 @@ export interface endpointLogicActions {
     }
     deleteEndpointSuccess: (response: any) => {
         response: any
+    }
+    duplicateEndpointFrom: (endpoint: EndpointType) => {
+        endpoint: EndpointType
     }
     loadEndpoint: (name: string) => string
     loadEndpointFailure: (
@@ -250,7 +257,9 @@ export const endpointLogic = kea<endpointLogicType>([
         deleteEndpointSuccess: (response: any) => ({ response }),
         clearMaterializationStatus: true,
         deleteEndpointFailure: (errorObject?: any) => ({ errorObject }),
+        confirmDeleteEndpoint: (name: string) => ({ name }),
         confirmToggleActive: (endpoint: EndpointType) => ({ endpoint }),
+        duplicateEndpointFrom: (endpoint: EndpointType) => ({ endpoint }),
         saveTagsInline: (tags: string[]) => ({ tags }),
         setEndpointMissing: true,
     }),
@@ -537,6 +546,38 @@ export const endpointLogic = kea<endpointLogicType>([
                           }
                         : undefined,
                 })
+            },
+            confirmDeleteEndpoint: ({ name }) => {
+                LemonDialog.open({
+                    title: 'Delete endpoint?',
+                    content: (
+                        <div className="text-sm text-secondary">
+                            Are you sure you want to delete this endpoint? This action cannot be undone.
+                        </div>
+                    ),
+                    primaryButton: {
+                        children: 'Delete',
+                        type: 'primary',
+                        status: 'danger',
+                        onClick: () => {
+                            actions.deleteEndpoint(name)
+                        },
+                        size: 'small',
+                    },
+                    secondaryButton: {
+                        children: 'Cancel',
+                        type: 'tertiary',
+                        size: 'small',
+                    },
+                })
+            },
+            duplicateEndpointFrom: ({ endpoint }) => {
+                // A SQL endpoint duplicates in the SQL editor; an insight endpoint goes through the insight picker.
+                if (isHogQLQuery(endpoint.query)) {
+                    router.actions.push(urls.sqlEditor({ query: endpoint.query.query, source: 'endpoint' }))
+                } else {
+                    actions.setDuplicateEndpoint(endpoint)
+                }
             },
             confirmToggleActive: ({ endpoint }) => {
                 const isActivating = !endpoint.is_active
