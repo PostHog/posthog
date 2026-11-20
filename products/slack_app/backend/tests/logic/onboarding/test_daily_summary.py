@@ -120,10 +120,13 @@ def test_the_sweep_builds_the_index_once_and_the_runs_only_read_it(workspace_int
         patch(f"{DAILY_SUMMARY}.wants_summary", return_value=True),
     ):
         slack.return_value.client = client
-        slack.return_value.missing_scopes.side_effect = lambda required: frozenset(required) - {
-            "channels:read",
-            "channels:history",
-        }
+        slack.return_value.missing_scopes.side_effect = lambda required: (
+            frozenset(required)
+            - {
+                "channels:read",
+                "channels:history",
+            }
+        )
         ranker.return_value.decide.side_effect = decide
         # A run before the sweep built today's index reads no channel itself.
         assert summary_threads(workspace_integration, SLACK_USER_ID, since=SINCE, bot_user_id=None) == []
@@ -176,10 +179,13 @@ def _patched_slack(client: MagicMock) -> Any:
     slack = patch(f"{DAILY_SUMMARY}.SlackIntegration")
     started = slack.start()
     started.return_value.client = client
-    started.return_value.missing_scopes.side_effect = lambda required: frozenset(required) - {
-        "channels:read",
-        "channels:history",
-    }
+    started.return_value.missing_scopes.side_effect = lambda required: (
+        frozenset(required)
+        - {
+            "channels:read",
+            "channels:history",
+        }
+    )
     return slack
 
 
