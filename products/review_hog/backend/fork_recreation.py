@@ -11,7 +11,9 @@ from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 
+from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.facade.contracts import ForkRecreationOutcome
+from products.review_hog.backend.reviewer.tools.github_client import matches_app_bot
 
 logger = structlog.get_logger(__name__)
 
@@ -24,6 +26,7 @@ CI_PATH_PREFIXES = (".github/", ".depot/", "bin/")
 CI_FILE_NAMES = frozenset({"package.json", "conftest.py"})
 MAX_COMPARE_FILES = 300
 GRAPHQL_PATHS_PER_QUERY = 100
+MAX_COMMENT_PAGES = 10
 _SOURCE = "review_hog_fork_recreation"
 _CALL_ERRORS = (GitHubIntegrationError, GitHubRateLimitError, requests.RequestException)
 _MENTION_RE = re.compile(r"@(?=[A-Za-z0-9])")
@@ -162,8 +165,17 @@ def _graphql_string(value: str) -> str:
 
 
 class ForkRecreation:
-    def __init__(self, github: GitHubIntegration, repository: str, pr_number: int, *, enqueue: bool = False) -> None:
+    def __init__(
+        self,
+        github: GitHubIntegration,
+        repository: str,
+        pr_number: int,
+        *,
+        app_login: str | None,
+        enqueue: bool = False,
+    ) -> None:
         self._github = github
+        self._app_login = app_login
         self._repository = repository
         self._owner, self._name = repository.split("/", 1)
         self._pr_number = pr_number
@@ -183,6 +195,10 @@ class ForkRecreation:
             if existing is None:
                 raise RecreationRefused(
                     f"The branch `{branch}` already exists with no open pull request. Delete the branch to re-create it."
+                )
+            if not matches_app_bot(existing.get("user"), self._app_login):
+                raise RecreationRefused(
+                    f"The open pull request from `{branch}` wasn't opened by PostHog, so I won't hand this one over to it."
                 )
             contributor = self._contributor(fork_pr["user"]["login"])
             return self._outcome(existing, self._hand_over(existing["number"], approval, contributor, fork_pr))
@@ -436,7 +452,7 @@ class ForkRecreation:
     def _comment_once(
         self, new_pr_number: int, approval: Approval, contributor: Contributor, fork_pr: Mapping[str, Any]
     ) -> bool:
-        already = self._github.has_pull_request_comment(self._repository, self._pr_number, RECREATED_MARKER)
+        already = self._app_commented()
         if already:
             return True
         if already is None:
@@ -453,6 +469,26 @@ class ForkRecreation:
             f"so this change continues in #{new_pr_number}, with you as co-author.{left_out}",
         )
         return bool(result.get("success"))
+
+    def _app_commented(self) -> bool | None:
+        for page in range(1, MAX_COMMENT_PAGES + 1):
+            response = self._request(
+                "GET",
+                f"/repos/{self._repository}/issues/{self._pr_number}/comments?per_page=100&page={page}",
+                "/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            )
+            if response.status_code != 200:
+                return None
+            comments = response.json()
+            if any(
+                RECREATED_MARKER in str(comment.get("body") or "")
+                and matches_app_bot(comment.get("user"), self._app_login)
+                for comment in comments
+            ):
+                return True
+            if len(comments) < 100:
+                return False
+        return None
 
     def _delete_branch(self, branch: str) -> None:
         try:
@@ -503,7 +539,7 @@ def recreate_fork_pull_request(
         )
     github = GitHubIntegration(min(rows, key=lambda row: row.id), source=_SOURCE, priority=Priority.NORMAL)
     try:
-        return ForkRecreation(github, repository, pr_number, enqueue=enqueue).run()
+        return ForkRecreation(github, repository, pr_number, app_login=posthog_app_login(), enqueue=enqueue).run()
     except RecreationRefused as refusal:
         return ForkRecreationOutcome(created=False, message=str(refusal))
     except RecreationFailed:

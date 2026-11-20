@@ -22,6 +22,10 @@ MERGE_BASE_SHA = "m" * 40
 APPROVED_SHA = "a" * 40
 LATER_SHA = "c" * 40
 
+APP_LOGIN = "posthog[bot]"
+APP_BOT = {"login": APP_LOGIN, "type": "Bot"}
+SPOOFER = {"login": "mallory", "type": "User"}
+
 _OBJECT_FIELD = re.compile(r'(\w+): object\(expression: "([0-9a-z]+):([^"]*)"\)')
 
 
@@ -48,7 +52,8 @@ class FakeGitHub:
         self.failing_posts: set[str] = set()
         self.deleted: list[str] = []
         self.permission_lookups: list[tuple[str, int | None]] = []
-        self.open_pull_requests: list[dict[str, Any]] = [{"number": 12, "html_url": "https://pr/12"}]
+        self.open_pull_requests: list[dict[str, Any]] = [{"number": 12, "html_url": "https://pr/12", "user": APP_BOT}]
+        self.foreign_comments: list[dict[str, Any]] = []
         self.pr: dict[str, Any] = {
             "state": "open",
             "title": "Fix the widget for @maintainer",
@@ -110,6 +115,9 @@ class FakeGitHub:
             ),
             "/users/jane": _Response(200, {"login": "jane", "id": 42, "name": "Jane"}),
             f"{base}/labels/trunk-merge-queue-submit": _Response(200, {}),
+            f"{base}/issues/7/comments?per_page=100&page=1": _Response(
+                200, [*self.foreign_comments, *({"body": body, "user": APP_BOT} for body in self.comments)]
+            ),
         }
         return routes[path]
 
@@ -144,9 +152,6 @@ class FakeGitHub:
         self.reviewers += reviewers
         return {"success": True}
 
-    def has_pull_request_comment(self, repository: str, pr_number: int, marker: str) -> bool:
-        return any(marker in comment for comment in self.comments)
-
     def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
         if self.comment_fails:
             return {"success": False}
@@ -161,6 +166,11 @@ class FakeGitHub:
 def _bare_branch(github: FakeGitHub) -> None:
     github.branch_exists = True
     github.open_pull_requests = []
+
+
+def _foreign_pull_request(github: FakeGitHub) -> None:
+    github.branch_exists = True
+    github.open_pull_requests = [{"number": 12, "html_url": "https://pr/12", "user": SPOOFER}]
 
 
 def _review(login: str, user_id: int, state: str, commit_id: str = APPROVED_SHA) -> dict[str, Any]:
@@ -211,8 +221,9 @@ class TestForkRecreation(SimpleTestCase):
             permissions={"alice": "write"},
             files=FILES,
         )
+        github.foreign_comments = [{"body": "<!-- fork-pr-recreated -->", "user": SPOOFER}]
 
-        outcome = ForkRecreation(github, REPOSITORY, 7, enqueue=enqueue).run()  # type: ignore[arg-type]
+        outcome = ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN, enqueue=enqueue).run()  # type: ignore[arg-type]
 
         assert outcome.created and outcome.handed_over and outcome.pull_request_number == 12
         writes = dict(github.writes)
@@ -254,6 +265,7 @@ class TestForkRecreation(SimpleTestCase):
             ),
             ("not_into_the_default_branch", lambda github: github.pr["base"].update(ref="release"), "default branch"),
             ("branch_exists_without_a_pull_request", _bare_branch, "already exists with no open pull request"),
+            ("pull_request_not_opened_by_the_app", _foreign_pull_request, "wasn't opened by PostHog"),
             ("no_changes", lambda github: setattr(github, "files", []), "changes nothing"),
             (
                 "too_many_files",
@@ -296,7 +308,7 @@ class TestForkRecreation(SimpleTestCase):
         configure(github)
 
         with self.assertRaisesRegex(RecreationRefused, expected):
-            ForkRecreation(github, REPOSITORY, 7).run()  # type: ignore[arg-type]
+            ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
 
         assert github.writes == [] and github.comments == [] and github.closed == []
 
@@ -311,7 +323,7 @@ class TestForkRecreation(SimpleTestCase):
             files=list(FILES),
         )
 
-        outcome = ForkRecreation(github, REPOSITORY, 7).run()  # type: ignore[arg-type]
+        outcome = ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
 
         assert outcome.created and github.reviewers == ["alice"]
         assert github.permission_lookups == [("ghost", 3), ("alice", 1)]
@@ -322,7 +334,7 @@ class TestForkRecreation(SimpleTestCase):
         )
 
         with self.assertRaises(RecreationFailed):
-            ForkRecreation(github, REPOSITORY, 7).run()  # type: ignore[arg-type]
+            ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
 
     def test_deletes_the_branch_when_the_pull_request_cannot_be_opened(self) -> None:
         github = FakeGitHub(
@@ -331,7 +343,7 @@ class TestForkRecreation(SimpleTestCase):
         github.failing_posts = {"/pulls"}
 
         with self.assertRaises(RecreationFailed):
-            ForkRecreation(github, REPOSITORY, 7).run()  # type: ignore[arg-type]
+            ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
 
         assert github.deleted == ["/git/refs/heads/fork-pr/7"]
         assert github.comments == [] and github.closed == []
@@ -340,7 +352,7 @@ class TestForkRecreation(SimpleTestCase):
         github = FakeGitHub(reviews=[_review("alice", 1, "APPROVED")], permissions={"alice": "write"}, files=FILES)
         github.comment_fails = True
 
-        first = ForkRecreation(github, REPOSITORY, 7).run()  # type: ignore[arg-type]
+        first = ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
 
         assert first.created and not first.handed_over
         assert github.closed == []
@@ -349,7 +361,7 @@ class TestForkRecreation(SimpleTestCase):
         github.branch_exists = True
         writes_before_retry = list(github.writes)
 
-        retry = ForkRecreation(github, REPOSITORY, 7).run()  # type: ignore[arg-type]
+        retry = ForkRecreation(github, REPOSITORY, 7, app_login=APP_LOGIN).run()  # type: ignore[arg-type]
 
         assert retry.handed_over and retry.pull_request_number == 12
         assert github.writes == writes_before_retry
