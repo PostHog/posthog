@@ -35,6 +35,25 @@ class TestExtractUserMessagesIndividually:
                 ],
                 [(1, "a"), (3, "c")],
             ),
+            (
+                "otel_parts_text_kept_and_media_dropped",
+                [
+                    {"role": "system", "parts": [{"type": "text", "content": "sys"}]},
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"type": "text", "content": "this is broken"},
+                            {
+                                "type": "blob",
+                                "modality": "image",
+                                "mime_type": "image/png",
+                                "content": "ZmFrZS1pbWFnZS1ieXRlcw==",
+                            },
+                        ],
+                    },
+                ],
+                [(1, "this is broken")],
+            ),
             ("empty_list", [], []),
             ("integer_input", 123, []),
             (
