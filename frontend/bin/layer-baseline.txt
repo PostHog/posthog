@@ -47,10 +47,6 @@ frontend/src/layout/today/TodayObjectHoverCard.tsx -> frontend/src/scenes/projec
 frontend/src/layout/today/TodayPanelTaskMenuItems.tsx -> products/posthog_ai/frontend/api/menus.ts
 frontend/src/layout/today/TodayProductsAnalyticsHint.tsx -> frontend/src/scenes/analytics/AnalyticsTypeIcon.tsx
 frontend/src/layout/today/TodayProductsAnalyticsHint.tsx -> frontend/src/scenes/analytics/analyticsUtils.ts
-frontend/src/layout/today/TodaySessionBadges.tsx -> products/tasks/frontend/spaces/TaskPullRequestChip.tsx
-frontend/src/layout/today/TodaySessionBadges.tsx -> products/tasks/frontend/spaces/TaskUserAvatar.tsx
-frontend/src/layout/today/TodaySessionHoverCard.tsx -> products/tasks/frontend/spaces/TaskPullRequestChip.tsx
-frontend/src/layout/today/TodaySessionHoverCard.tsx -> products/tasks/frontend/spaces/TaskUserAvatar.tsx
 frontend/src/layout/today/TodaySessionRow.tsx -> products/posthog_ai/frontend/api/logics.ts
 frontend/src/layout/today/TodaySettingsSidebar.tsx -> frontend/src/scenes/settings/settingsLogic.ts
 frontend/src/layout/today/TodaySettingsSidebar.tsx -> frontend/src/scenes/settings/settingsNavTree.ts
@@ -74,10 +70,6 @@ frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/analytics/an
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/settings/settingsSectionScenes.ts
 frontend/src/layout/today/todaySpacesLogic.ts -> frontend/src/scenes/max/maxGlobalLogic.tsx
-frontend/src/layout/today/todaySpacesLogic.ts -> products/tasks/frontend/spaces/taskPullRequests.ts
-frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/TaskUserAvatar.tsx
-frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/spacePresence.ts
-frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/taskPullRequests.ts
 frontend/src/lib/api.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/api.ts -> frontend/src/lib/apiRequestTiming.ts
 frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts
@@ -162,9 +154,6 @@ frontend/src/lib/components/Errors/Frame/FrameVariables.tsx -> products/error_tr
 frontend/src/lib/components/EventPropertyTabs/EventPropertyTabs.tsx -> frontend/src/scenes/surveys/utils.ts
 frontend/src/lib/components/EventPropertyTabs/EventPropertyTabs.tsx -> products/error_tracking/frontend/utils.ts
 frontend/src/lib/components/FlagCalledRebuildBanner/flagCalledRebuildBannerLogic.ts -> frontend/src/scenes/feature-flags/flagEvaluationsTable.ts
-frontend/src/lib/components/HedgehogMode/HedgehogMode.tsx -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
-frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
-frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts -> frontend/src/toolbar/shared/toolbarFetch.ts
 frontend/src/lib/components/HighlightedJSONViewer.tsx -> products/ai_observability/frontend/ConversationDisplay/HighlightedContentWrapper.tsx
 frontend/src/lib/components/IngestionControls/TriggerMatchChoice.tsx -> frontend/src/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect.tsx
 frontend/src/lib/components/IngestionControls/TriggerMatchChoice.tsx -> frontend/src/scenes/settings/environment/SessionRecordingSettings.tsx
@@ -254,10 +243,7 @@ frontend/src/lib/components/UnitPicker/UnitPicker.tsx -> frontend/src/scenes/ins
 frontend/src/lib/components/UniversalFilters/universalFiltersLogic.ts -> frontend/src/scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic.ts
 frontend/src/lib/components/ViewRecordingButton/ViewRecordingButton.tsx -> frontend/src/scenes/session-recordings/player/modal/sessionPlayerModalLogic.ts
 frontend/src/lib/components/ViewRecordingButton/ViewRecordingButton.tsx -> frontend/src/scenes/session-recordings/playlist/UnwatchedIndicator.tsx
-frontend/src/lib/components/heatmaps/heatmapDataLogic.ts -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
-frontend/src/lib/components/heatmaps/heatmapDataLogic.ts -> frontend/src/toolbar/shared/toolbarFetch.ts
 frontend/src/lib/components/heatmaps/heatmapDataLogic.ts -> frontend/src/toolbar/shared/toolbarRequestError.ts
-frontend/src/lib/components/heatmaps/useScrollSync.ts -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
 frontend/src/lib/components/openPublishToCommunityDialog.tsx -> products/skills/frontend/PublishToCommunityContents.tsx
 frontend/src/lib/hog.ts -> frontend/src/queries/query.ts
 frontend/src/lib/hooks/useFeatureFlag.ts -> frontend/src/lib/logic/featureFlagLogic.ts
@@ -354,7 +340,6 @@ frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> frontend/s
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/alerts/frontend/logic/insightAlertsLogic.ts
-frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/business_intelligence/frontend/BIChartAxisControls.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/business_intelligence/frontend/BIChartYearLabels.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/business_intelligence/frontend/BIComparisonSummary.tsx
 frontend/src/queries/nodes/DataVisualization/DataVisualization.tsx -> products/business_intelligence/frontend/BIDrilldownMenu.tsx

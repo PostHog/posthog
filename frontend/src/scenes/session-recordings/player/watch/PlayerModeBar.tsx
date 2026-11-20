@@ -2,13 +2,16 @@ import '../player-meta/PlayerMeta.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { IconBug } from '@posthog/icons'
 import { Button, Skeleton, Toggle } from '@posthog/quill'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { ReplayHintPopover } from 'scenes/session-recordings/components/ReplayHintPopover'
 import { parseUrl } from 'scenes/session-recordings/player/player-meta/PlayerMeta'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -28,16 +31,18 @@ type PlayerMode = 'watch' | 'debug'
 export function PlayerModeBar(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { currentURL, loading } = useValues(playerMetaLogic(logicProps))
-    const { debugMode, replayLayout } = useValues(playerSettingsLogic)
-    const { setDebugMode } = useActions(playerSettingsLogic)
+    const { debugMode, replayLayout, debugHintShown } = useValues(playerSettingsLogic)
+    const { setDebugMode, dismissDebugHint } = useActions(playerSettingsLogic)
+    const [devModeToggleEl, setDevModeToggle] = useState<HTMLElement | null>(null)
+    const floatingContainer = useFloatingContainer()
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const debugTabs = debugTabKeys(useLinkedIssuesAvailable())
     const { ref, size } = useResizeBreakpoints({ 0: 'small', 600: 'normal' })
 
     const controlsBelow = isFeedReplayLayout(replayLayout)
-    const setMode = (next: PlayerMode): void => {
-        posthog.capture('session recording mode changed', { mode: next })
+    const setMode = (next: PlayerMode, source?: 'hint'): void => {
+        posthog.capture('session recording mode changed', { mode: next, ...(source ? { source } : {}) })
         setDebugMode(next === 'debug')
         if (next === 'debug' && !debugTabs.includes(activeTab)) {
             setTab(SessionRecordingSidebarTab.INSPECTOR)
@@ -46,23 +51,39 @@ export function PlayerModeBar(): JSX.Element {
 
     const { urlToUse, isWebUrl } = parseUrl(currentURL)
     const devModeToggle = (
-        <Toggle
-            variant="outline"
-            size="sm"
-            pressed={debugMode}
-            onPressedChange={(pressed) => setMode(pressed ? 'debug' : 'watch')}
-            className="shrink-0 text-xs aria-pressed:translate-none aria-pressed:border-(--primary) aria-pressed:bg-(--primary) aria-pressed:text-(--primary-foreground)"
-            data-attr="player-mode-debug"
-        >
-            <IconBug />
-            Dev mode
-        </Toggle>
+        <span ref={setDevModeToggle} className="flex shrink-0">
+            <Toggle
+                variant="outline"
+                size="sm"
+                pressed={debugMode}
+                onPressedChange={(pressed) => setMode(pressed ? 'debug' : 'watch')}
+                className="shrink-0 text-xs aria-pressed:translate-none aria-pressed:border-(--primary) aria-pressed:bg-(--primary) aria-pressed:text-(--primary-foreground)"
+                data-attr="player-mode-debug"
+            >
+                <IconBug />
+                Dev mode
+            </Toggle>
+            {debugHintShown && !debugMode && (
+                <ReplayHintPopover
+                    anchor={devModeToggleEl}
+                    onDismiss={dismissDebugHint}
+                    action={{
+                        label: 'Turn on dev mode',
+                        onClick: () => setMode('debug', 'hint'),
+                        dataAttr: 'player-debug-hint-open',
+                    }}
+                    container={floatingContainer}
+                    dataAttr="player-debug-hint"
+                >
+                    The inspector, network waterfall, linked issues and Inspect DOM are under Dev mode now.
+                </ReplayHintPopover>
+            )}
+        </span>
     )
 
     return (
         <div ref={ref} data-quill className="PlayerMeta relative text-foreground">
             <div className="flex flex-row items-center gap-x-1 whitespace-nowrap overflow-hidden px-1 py-1 text-xs">
-                {!controlsBelow && devModeToggle}
                 {!controlsBelow && <QuillWindowSelect />}
                 {loading ? (
                     <Skeleton className="w-1/3 h-4 my-1" />
@@ -96,7 +117,8 @@ export function PlayerModeBar(): JSX.Element {
                     </>
                 )}
                 <div className="flex-1 min-w-4" />
-                {controlsBelow ? devModeToggle : <QuillPlayerActions size={size} />}
+                {!controlsBelow && <QuillPlayerActions size={size} />}
+                {devModeToggle}
             </div>
         </div>
     )

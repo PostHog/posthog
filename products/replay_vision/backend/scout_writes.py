@@ -112,7 +112,7 @@ def check_scout_scanner_credit_limit(
         and (instance.scanner_config or {}).get("start_on_launch") is not True
     )
     turning_on = (attrs.get("enabled") and not instance.enabled) or arms_start_on_launch
-    cost_fields = {"query", "sampling_rate", "sampling_mode", "provider", "model", "experiment_targeting"}
+    cost_fields = {"query", "sampling_rate", "provider", "model", "experiment_targeting"}
     changes_cost = any(field in attrs and attrs[field] != getattr(instance, field) for field in cost_fields)
     if not changes_cost and instance.scanner_type == ScannerType.EXPERIMENT and "scanner_config" in attrs:
         # The experiment type keeps its scope (and therefore its volume) in scanner_config.

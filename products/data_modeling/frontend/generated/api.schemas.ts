@@ -436,9 +436,20 @@ export interface NodeRunApi {
     direction: MaterializationRunDirectionEnumApi
 }
 
+export interface NodeRunSkippedNodeApi {
+    /** The node left out of the run. */
+    node_id: string
+    /** Name of the node left out of the run. */
+    name: string
+    /** Why the node was left out: its query doesn't compile, or it depends on a node whose query doesn't compile. */
+    reason: string
+}
+
 export interface NodeRunResponseApi {
     /** The nodes included in the dependency run. */
     node_ids: string[]
+    /** Nodes the run selected but left out, because their query doesn't compile or they depend on one that doesn't. Their sources can't be checked against your access, so they don't run. */
+    skipped: NodeRunSkippedNodeApi[]
 }
 
 export interface NodeWatchingApi {

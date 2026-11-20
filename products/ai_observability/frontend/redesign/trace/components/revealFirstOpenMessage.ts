@@ -7,9 +7,13 @@ export type RevealMode = 'align' | 'ifBelow'
 // The document never scrolls here: moving the page would take the trace header and the tree out of view.
 function nearestScroller(element: HTMLElement): HTMLElement | null {
     for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
-        const { overflowY } = getComputedStyle(parent)
+        const { overflowY, position } = getComputedStyle(parent)
         if ((overflowY === 'auto' || overflowY === 'scroll') && parent.scrollHeight > parent.clientHeight) {
             return parent
+        }
+        // Scrolling above a fixed panel cannot move its content, and it would move the page behind the panel.
+        if (position === 'fixed') {
+            return null
         }
     }
     return null

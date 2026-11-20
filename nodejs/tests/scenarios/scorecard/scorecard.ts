@@ -6,8 +6,9 @@ import type { Provenance } from './provenance'
 
 export const SCHEMA_VERSION = 1
 export const TARGET = 'local'
+export const ADAPTERS: readonly string[] = ['workflows']
 
-type Property = string | number | boolean | null | string[] | unknown[]
+type Property = string | number | boolean | null | readonly string[] | unknown[]
 
 export type ScorecardProperties = { run_id: string; ended_at: string } & Record<string, Property>
 
@@ -40,6 +41,32 @@ function measurementProperties(result: RunVerdict): Record<string, Property> {
     )
 }
 
+const stepsOfRamp = (steps: NonNullable<RunVerdict['units']>['steps']): unknown[] =>
+    steps.map(({ scale, startedAt, endedAt, waitedFor }) => ({
+        scale,
+        started_at: new Date(startedAt).toISOString(),
+        ended_at: new Date(endedAt).toISOString(),
+        stretched:
+            waitedFor === undefined
+                ? null
+                : `held the ${scale}x rate past its planned end until the ${steps[waitedFor].scale}x step was judged`,
+    }))
+
+function rampProperties({ ramp, units }: RunVerdict): Record<string, Property> {
+    return {
+        ramp_steps: ramp && units ? stepsOfRamp(units.steps) : null,
+        ramp_end: ramp?.end ?? null,
+        ramp_sustained_scale: ramp?.sustainedScale ?? null,
+        ramp_broke_scale: ramp?.broke?.scale ?? null,
+        ramp_broke_offered_per_s: ramp?.broke?.offeredPerSecond ?? null,
+        ramp_broke_by: ramp?.broke?.by ?? null,
+        ramp_broke_kind: ramp?.broke?.kind ?? null,
+        ramp_broke_at: ramp?.broke?.at ?? null,
+        ramp_broke_part: ramp?.broke?.part ?? null,
+        ramp_end_reason: ramp?.reason ?? null,
+    }
+}
+
 export function scorecardOf(
     result: RunVerdict,
     { card, profile }: LoadedCard,
@@ -54,11 +81,14 @@ export function scorecardOf(
     return {
         schema_version: SCHEMA_VERSION,
         run_id: result.runId,
+        adapters: ADAPTERS,
+        owners: [],
         card_id: result.cardId,
         card_version: card.version,
         card_hash: result.cardHash,
         profile_name: profile.name,
         profile_hash: result.profileHash,
+        topology_hash: result.topologyHash ?? null,
         head_sha: provenance.headSha,
         head_dirty: provenance.headDirty,
         origin: result.origin,
@@ -82,6 +112,7 @@ export function scorecardOf(
         janitor_resets: result.janitorResets ?? null,
         ...invariantProperties(result),
         ...measurementProperties(result),
+        ...(card.drive.stopOnBreak === true ? rampProperties(result) : {}),
         admissions: result.admissions,
         bars: result.bars,
         valve_timeline: result.timeline,

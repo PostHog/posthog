@@ -39,7 +39,9 @@ use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::pools::{IdentityPools, Lane};
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
+use personhog_identity::storage::coalesce::{CoalesceSettings, CoalescingIdentityStorage};
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
+use personhog_identity::storage::IdentityStorage;
 use personhog_identity::warnings;
 use tokio_util::sync::CancellationToken;
 
@@ -235,6 +237,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap()
         .set_buckets_for_metric(Matcher::Suffix("_per_call".into()), PER_CALL_BUCKETS)
         .unwrap()
+        .set_buckets_for_metric(Matcher::Suffix("_per_batch".into()), PER_CALL_BUCKETS)
+        .unwrap()
         .set_buckets_for_metric(
             Matcher::Full("assignment_coordination_etcd_op_ms".into()),
             ETCD_OP_LATENCY_BUCKETS_MS,
@@ -316,11 +320,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     }
-    let storage = Arc::new(PostgresIdentityStorage::new(
+    let postgres_storage = Arc::new(PostgresIdentityStorage::new(
         pools.clone(),
         config.tables(),
         outbox_writes,
     ));
+    let storage: Arc<dyn IdentityStorage> = if config.stub_create_workers == 0 {
+        postgres_storage
+    } else {
+        tracing::info!(
+            workers = config.stub_create_workers,
+            max_batch_distinct_ids = config.stub_create_max_batch_distinct_ids,
+            max_queued_calls = config.stub_create_max_queued_calls,
+            "Coalescing stub-creation transactions"
+        );
+        if config.stub_create_workers >= config.heavy_max_pg_connections as usize {
+            tracing::warn!(
+                workers = config.stub_create_workers,
+                heavy_max_pg_connections = config.heavy_max_pg_connections,
+                "STUB_CREATE_WORKERS can hold every heavy connection, which leaves none for attach, saga steps and GC"
+            );
+        }
+        Arc::new(CoalescingIdentityStorage::spawn(
+            postgres_storage,
+            CoalesceSettings {
+                workers: config.stub_create_workers,
+                max_batch_distinct_ids: config.stub_create_max_batch_distinct_ids,
+                max_queued_calls: config.stub_create_max_queued_calls,
+                max_queue_wait: Duration::from_secs(config.heavy_acquire_timeout_secs),
+            },
+        ))
+    };
     let merge_warnings = warnings::install(&config.ingestion_warnings_settings(), warnings_handle);
     let warnings_to_flush = merge_warnings.clone();
 

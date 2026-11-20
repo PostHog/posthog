@@ -181,7 +181,7 @@ export const getDataQualityChecksRunCreateUrl = (projectId: string, id: string) 
 }
 
 /**
- * Run this check now. Returns the suite run to poll for the report.
+ * Run this check now. Returns the suite run to poll for the report. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour, counted across this endpoint and POST data_quality_runs, whatever the response. To run every check on a subject, call POST data_quality_runs with subject_type and subject_uuid. That counts as one request.
  */
 export const dataQualityChecksRunCreate = async (
     projectId: string,
@@ -480,7 +480,7 @@ export const getDataQualityRunsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Run checks now: the ones named by check_ids, every enabled check on the subject named by subject_type and subject_uuid, or every enabled check in the project when neither is given. Returns the suite run to poll for the report.
+ * Run checks now: the ones named by check_ids, every enabled check on the subject named by subject_type and subject_uuid, or every enabled check in the project when neither is given. Returns the suite run to poll for the report. Each call counts as one run request, however many checks it runs and whatever the response. Each caller can send 20 run requests a minute and 60 an hour, and each project 180 an hour.
  */
 export const dataQualityRunsCreate = async (
     projectId: string,

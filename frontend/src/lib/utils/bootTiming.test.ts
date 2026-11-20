@@ -98,6 +98,37 @@ describe('bootTiming', () => {
         }
     )
 
+    it('exposes renewable readiness without enabling boot analytics in Storybook', async () => {
+        let renders = 0
+        const scene = createSceneRenderedMark(() => renders++)
+        const releaseFirst = scene.holdUntilContent()
+        const releaseSecond = scene.holdUntilContent()
+        scene.sceneCommitted()
+        releaseFirst()
+        releaseFirst()
+        await flushSend()
+        expect(scene.getReadyVersion()).toBeNull()
+        expect(renders).toBe(0)
+
+        releaseSecond()
+        expect(scene.getReadyVersion()).toBeNull()
+        await flushSend()
+        const firstVersion = scene.getReadyVersion()
+        expect(firstVersion).not.toBeNull()
+        expect(renders).toBe(1)
+
+        const releaseLateContent = scene.holdUntilContent()
+        expect(scene.getReadyVersion()).toBeNull()
+        releaseLateContent()
+        await flushSend()
+        expect(scene.getReadyVersion()).not.toBe(firstVersion)
+        expect(renders).toBe(2)
+
+        scene.sceneUncommitted()
+        expect(scene.getReadyVersion()).toBeNull()
+        expect(capture).not.toHaveBeenCalled()
+    })
+
     it('does not mark a scene that unmounts before lazy content appears', async () => {
         markAt(50, 'entry')
         const sceneRendered = createSceneRenderedMark()

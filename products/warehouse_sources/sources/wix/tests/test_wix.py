@@ -66,6 +66,8 @@ class TestWixTransport:
             ("orders", "orders", "metadata", "updatedDate"),
             ("store_categories", "categories", "pagingMetadata", "updatedDate"),
             ("bookings", "extendedBookings", "pagingMetadata", "booking.updatedDate"),
+            ("inventory_items", "inventoryItems", "pagingMetadata", "updatedDate"),
+            ("pricing_plans", "plans", "pagingMetadata", "updatedDate"),
         ],
     )
     def test_incremental_run_filters_and_sorts_on_the_chosen_field(
@@ -155,6 +157,38 @@ class TestWixTransport:
         assert offsets == expected_offsets
         assert [len(batch) for batch in batches] == [size for size in page_sizes if size]
 
+    @pytest.mark.parametrize(
+        "page_sizes,expected_offsets",
+        [
+            ([50, 7], [0, 50]),
+            ([50, 50, 0], [0, 50, 100]),
+            ([0], [0]),
+        ],
+    )
+    def test_pricing_plan_orders_page_by_offset_with_get(
+        self, page_sizes: list[int], expected_offsets: list[int]
+    ) -> None:
+        session = mock.MagicMock()
+        requests_sent: list[dict[str, Any]] = []
+
+        def respond(url: str, params: dict[str, Any], timeout: int) -> mock.MagicMock:
+            assert url == "https://www.wixapis.com/pricing-plans/v2/orders"
+            requests_sent.append(params)
+            size = page_sizes[len(requests_sent) - 1]
+            return _response(payload={"orders": [{"id": f"{len(requests_sent)}-{i}"} for i in range(size)]})
+
+        session.get.side_effect = respond
+
+        with mock.patch(f"{_MODULE}._get_session", return_value=session):
+            batches = list(get_rows("key", "site", "pricing_plan_orders", mock.MagicMock(), _manager()))
+
+        assert requests_sent == [
+            {"limit": 50, "offset": offset, "sorting.fieldName": "createdDate", "sorting.order": "ASC"}
+            for offset in expected_offsets
+        ]
+        assert [len(batch) for batch in batches] == [size for size in page_sizes if size]
+        session.post.assert_not_called()
+
     def test_expired_resume_cursor_restarts_the_stream(self) -> None:
         # Wix cursors are time-limited, so a resumed run can open with one the API no longer accepts.
         session = mock.MagicMock()
@@ -183,7 +217,32 @@ class TestWixTransport:
 
         assert "potentially sensitive upstream error" not in str(logger.error.call_args)
 
-    def test_order_transactions_look_up_each_page_of_orders(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,lookup_path,data_key,lookup_rows",
+        [
+            (
+                "order_transactions",
+                "/ecom/v1/payments/list-by-ids",
+                "orderTransactions",
+                [
+                    {"orderId": "o1", "payments": [{"id": "p1"}], "refunds": []},
+                    {"orderId": "o2", "payments": [], "refunds": [{"id": "r1"}]},
+                ],
+            ),
+            (
+                "order_fulfillments",
+                "/ecom/v1/fulfillments/list-by-ids",
+                "ordersWithFulfillments",
+                [
+                    {"orderId": "o1", "fulfillments": [{"id": "f1", "lineItems": [{"id": "l1", "quantity": 2}]}]},
+                    {"orderId": "o2", "fulfillments": []},
+                ],
+            ),
+        ],
+    )
+    def test_order_children_look_up_each_page_of_orders(
+        self, endpoint: str, lookup_path: str, data_key: str, lookup_rows: list[dict[str, Any]]
+    ) -> None:
         session = mock.MagicMock()
         manager = _manager()
 
@@ -201,27 +260,20 @@ class TestWixTransport:
                         "cursor-2",
                     )
                 )
-            assert url.endswith("/ecom/v1/payments/list-by-ids")
+            assert url == f"https://www.wixapis.com{lookup_path}"
             if json["orderIds"] == ["o3"]:
-                return _response(payload={"orderTransactions": []})
-            return _response(
-                payload={
-                    "orderTransactions": [
-                        {"orderId": "o1", "payments": [{"id": "p1"}], "refunds": []},
-                        {"orderId": "o2", "payments": [], "refunds": [{"id": "r1"}]},
-                    ]
-                }
-            )
+                return _response(payload={data_key: []})
+            return _response(payload={data_key: lookup_rows})
 
         session.post.side_effect = respond
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            batches = list(get_rows("key", "site", "order_transactions", mock.MagicMock(), manager))
+            batches = list(get_rows("key", "site", endpoint, mock.MagicMock(), manager))
 
         assert batches == [
             [
-                {"orderId": "o1", "payments": [{"id": "p1"}], "refunds": [], "orderCreatedDate": "2026-01-01"},
-                {"orderId": "o2", "payments": [], "refunds": [{"id": "r1"}], "orderCreatedDate": "2026-01-02"},
+                {**lookup_rows[0], "orderCreatedDate": "2026-01-01"},
+                {**lookup_rows[1], "orderCreatedDate": "2026-01-02"},
             ]
         ]
         lookups = [call.kwargs["json"] for call in session.post.call_args_list if "orderIds" in call.kwargs["json"]]
@@ -275,6 +327,20 @@ class TestWixCredentials:
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
             assert check_endpoint_permissions("key", "site", ["orders"]) == {"orders": None}
+
+    def test_permission_probe_lists_one_pricing_plan_order_with_get(self) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = _response(status_code=403)
+
+        with mock.patch(f"{_MODULE}._get_session", return_value=session):
+            results = check_endpoint_permissions("key", "site", ["pricing_plan_orders"])
+
+        assert results == {
+            "pricing_plan_orders": "This API key is missing the 'Read Pricing Plans Orders' permission in Wix."
+        }
+        assert session.get.call_args.args[0] == "https://www.wixapis.com/pricing-plans/v2/orders"
+        assert session.get.call_args.kwargs["params"] == {"limit": 1}
+        session.post.assert_not_called()
 
     @pytest.mark.parametrize(
         "endpoint,expected_path,expected_body",

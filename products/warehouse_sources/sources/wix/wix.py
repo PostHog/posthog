@@ -10,7 +10,6 @@ from products.warehouse_sources.sources.sdk import ResumableSourceManager, Sourc
 from products.warehouse_sources.sources.wix.settings import WIX_ENDPOINTS, WixEndpointConfig
 
 WIX_BASE_URL = "https://www.wixapis.com"
-PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
 
@@ -63,7 +62,7 @@ def _first_page_criteria(
     sort_field = _query_field(config, incremental_field or config.sort_field)
     paging_key = "paging" if config.paging == "offset" else "cursorPaging"
     criteria: dict[str, Any] = {
-        paging_key: {"limit": PAGE_SIZE},
+        paging_key: {"limit": config.page_size},
         "sort": [{"fieldName": sort_field, "order": "ASC"}],
     }
     watermark = _to_wix_datetime(incremental_last_value) if incremental_field else None
@@ -75,6 +74,15 @@ def _first_page_criteria(
 def _probe_body(config: WixEndpointConfig) -> dict[str, Any]:
     paging_key = "paging" if config.paging == "offset" else "cursorPaging"
     return {config.body_key: {paging_key: {"limit": 1}}, **config.extra_body}
+
+
+def _get_params(config: WixEndpointConfig, limit: int, offset: Optional[int] = None) -> dict[str, Any]:
+    params: dict[str, Any] = {"limit": limit}
+    if offset is not None:
+        params.update(
+            {"offset": offset, f"{config.body_key}.fieldName": config.sort_field, f"{config.body_key}.order": "ASC"}
+        )
+    return params
 
 
 def _to_row(config: WixEndpointConfig, item: dict[str, Any]) -> dict[str, Any]:
@@ -123,12 +131,12 @@ def check_endpoint_permissions(api_key: str, site_id: str, endpoints: list[str])
             continue
         # A batch lookup needs real parent IDs, and it needs the same permission as its parent.
         probe_config = WIX_ENDPOINTS[config.parent] if config.parent else config
+        url = f"{WIX_BASE_URL}{probe_config.path}"
         try:
-            response = session.post(
-                f"{WIX_BASE_URL}{probe_config.path}",
-                json=_probe_body(probe_config),
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
+            if probe_config.http_method == "GET":
+                response = session.get(url, params=_get_params(probe_config, 1), timeout=REQUEST_TIMEOUT_SECONDS)
+            else:
+                response = session.post(url, json=_probe_body(probe_config), timeout=REQUEST_TIMEOUT_SECONDS)
         except Exception:
             # A network blip is not a permission problem, so leave the table selectable.
             results[name] = None
@@ -153,17 +161,22 @@ def _get_offset_rows(
     criteria = _first_page_criteria(endpoint, None, None)
     offset = 0
     while True:
-        criteria["paging"]["offset"] = offset
-        response = session.post(
-            url, json={config.body_key: criteria, **config.extra_body}, timeout=REQUEST_TIMEOUT_SECONDS
-        )
+        if config.http_method == "GET":
+            response = session.get(
+                url, params=_get_params(config, config.page_size, offset), timeout=REQUEST_TIMEOUT_SECONDS
+            )
+        else:
+            criteria["paging"]["offset"] = offset
+            response = session.post(
+                url, json={config.body_key: criteria, **config.extra_body}, timeout=REQUEST_TIMEOUT_SECONDS
+            )
         if not response.ok:
             logger.error(f"Wix API request failed for {endpoint}: status={response.status_code}")
             response.raise_for_status()
         items = response.json().get(config.data_key) or []
         if items:
             yield [_to_row(config, item) for item in items]
-        if len(items) < PAGE_SIZE:
+        if len(items) < config.page_size:
             break
         offset += len(items)
 
@@ -190,7 +203,7 @@ def _get_cursor_rows(
         else:
             # Wix encodes the filter and sort into the cursor, and rejects a request that repeats
             # them, so a follow-up page carries the cursor alone.
-            criteria = {"cursorPaging": {"limit": PAGE_SIZE, "cursor": page_cursor}}
+            criteria = {"cursorPaging": {"limit": config.page_size, "cursor": page_cursor}}
         response = session.post(
             url, json={config.body_key: criteria, **config.extra_body}, timeout=REQUEST_TIMEOUT_SECONDS
         )
@@ -230,7 +243,7 @@ def _get_cursor_rows(
             break
 
 
-def _get_transaction_rows(
+def _get_order_child_rows(
     session: requests.Session,
     endpoint: str,
     logger: FilteringBoundLogger,
@@ -253,8 +266,8 @@ def _get_transaction_rows(
                 logger.error(f"Wix API request failed for {endpoint}: status={response.status_code}")
                 response.raise_for_status()
             rows = [
-                {**transactions, "orderCreatedDate": created_dates.get(transactions.get("orderId"))}
-                for transactions in response.json().get(config.data_key) or []
+                {**order_rows, "orderCreatedDate": created_dates.get(order_rows.get("orderId"))}
+                for order_rows in response.json().get(config.data_key) or []
             ]
         if rows:
             yield rows
@@ -275,7 +288,7 @@ def get_rows(
     session = _get_session(api_key, site_id)
 
     if config.parent is not None:
-        yield from _get_transaction_rows(session, endpoint, logger, resumable_source_manager)
+        yield from _get_order_child_rows(session, endpoint, logger, resumable_source_manager)
     elif config.paging == "offset":
         yield from _get_offset_rows(session, endpoint, logger)
     else:
@@ -317,7 +330,7 @@ def wix_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Every page is requested with an ascending sort on the cursor field. Transactions follow
-        # their orders, so they have no order of their own.
+        # Every page is requested with an ascending sort on the cursor field. Transactions and
+        # fulfillments follow their orders, so they have no order of their own.
         sort_mode=None if config.parent else "asc",
     )

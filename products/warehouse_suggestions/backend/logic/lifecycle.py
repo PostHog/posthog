@@ -72,6 +72,7 @@ def apply_run(
         (SuggestionOutcome.AUTO_RESOLVED, auto_resolved),
         (SuggestionOutcome.EXPIRED, expired),
         (SuggestionOutcome.SURFACED, surfaced),
+        (SuggestionOutcome.ASSET_OUTCOME_CHANGED, assets_reconciled),
     )
     transaction.on_commit(partial(_report_all, outcomes, team))
     transaction.on_commit(partial(notify_surfaced, team, assigned, context.run_id))
@@ -82,7 +83,7 @@ def apply_run(
         auto_resolved=len(auto_resolved),
         expired=len(expired),
         surfaced=len(surfaced),
-        assets_reconciled=assets_reconciled,
+        assets_reconciled=len(assets_reconciled),
     )
 
 
@@ -275,9 +276,9 @@ def _pick_in_turns(
     return chosen
 
 
-def _reconcile_assets(context: CandidateContext) -> int:
+def _reconcile_assets(context: CandidateContext) -> list[WarehouseSuggestion]:
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
-    changed = 0
+    changed_ids: list[UUID] = []
     for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED).only(
         "id",
         "kind",
@@ -291,8 +292,9 @@ def _reconcile_assets(context: CandidateContext) -> int:
     ):
         updates = _asset_updates(context, row)
         if any(getattr(row, field) != value for field, value in updates.items()):
-            changed += suggestions.filter(id=row.id).update(**updates)
-    return changed
+            suggestions.filter(id=row.id).update(**updates)
+            changed_ids.append(row.id)
+    return list(suggestions.filter(id__in=changed_ids)) if changed_ids else []
 
 
 def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[str, object]:

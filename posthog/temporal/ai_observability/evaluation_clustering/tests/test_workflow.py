@@ -20,6 +20,7 @@ from posthog.temporal.ai_observability.evaluation_clustering.activities import (
     _compute_sync,
 )
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
+    CLUSTERING_MAX_SAMPLES,
     SAMPLER_MAX_SAMPLES_PER_JOB,
     SAMPLER_WINDOW_MINUTES,
     SAMPLER_WINDOW_OFFSET_MINUTES,
@@ -114,6 +115,7 @@ async def _run_sampler_with_mock_activity(
         )
 
     task_queue = str(uuid.uuid4())
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -267,7 +269,8 @@ class TestSamplerCoordinatorWindow:
 
 class TestClusteringWorkflowWiring:
     @pytest.mark.asyncio
-    async def test_forwards_workflow_run_identity_to_labeling(self) -> None:
+    @pytest.mark.parametrize("max_samples", [100, None])
+    async def test_forwards_workflow_run_identity_to_labeling(self, max_samples: int | None) -> None:
         trace_uuid = uuid.UUID("11111111-1111-4111-8111-111111111111")
         compute_result = EvaluationClusteringComputeResult(
             clustering_run_id="1_evaluation_20250108_000000_job-1",
@@ -322,9 +325,12 @@ class TestClusteringWorkflowWiring:
             patch("posthog.temporal.ai_observability.evaluation_clustering.workflow.record_clusters_generated"),
         ):
             await AIObservabilityEvaluationClusteringWorkflow().run(
-                SamplerWorkflowInputs(team_id=1, job_id="job-1", job_name="Job 1")
+                SamplerWorkflowInputs(team_id=1, job_id="job-1", job_name="Job 1", max_samples=max_samples)
             )
 
+        compute_inputs = activity_inputs[0]
+        assert isinstance(compute_inputs, EvaluationClusteringComputeInputs)
+        assert compute_inputs.max_samples == (max_samples if max_samples is not None else CLUSTERING_MAX_SAMPLES)
         label_inputs = activity_inputs[2]
         assert isinstance(label_inputs, GenerateEvaluationLabelsInputs)
         assert label_inputs.trace_id == str(trace_uuid)
@@ -344,5 +350,5 @@ class TestClusteringWorkflowWiring:
 def test_compute_skips_deleted_team() -> None:
     result = _compute_sync(EvaluationClusteringComputeInputs(team_id=999_999_999, job_id="job-1", job_name="job"))
 
-    assert result.skip_reason == "team_not_found"
+    assert result.skip_reason == "team_not_eligible"
     assert result.eval_ids == []

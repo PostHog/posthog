@@ -23,7 +23,7 @@ from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
-    comparable_content,
+    HogFunctionViewSet,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
@@ -34,6 +34,8 @@ from products.cdp.backend.models.hog_functions.hog_function import (
     HogFunction,
     HogFunctionState,
 )
+from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
+from products.cdp.backend.services.hog_function_content import comparable_content
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -98,6 +100,13 @@ def get_db_field_value(field, model_id):
     cursor = connection.cursor()
     cursor.execute(f"select {field} from posthog_hogfunction where id='{model_id}';")
     return cursor.fetchone()[0]
+
+
+_REPORT_FILTERS = {"events": [{"id": "$signals_report_ready", "type": "events"}]}
+_OTHER_INTERNAL_FILTERS = {"events": [{"id": "$activity_log_entry_created", "type": "events"}]}
+_WRITE = ["hog_function:write"]
+_WRITE_INBOX = ["hog_function:write", "inbox:read"]
+_RERUN = ["hog_function:write", "person:read", "group:read"]
 
 
 def _alert_filters(event_id: str = "$logs_alert_firing", alert_id: str = "alert-1", **overrides: Any) -> dict:
@@ -422,6 +431,177 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         self.assertEqual(patch_response.status_code, status.HTTP_403_FORBIDDEN, patch_response.json())
         managed.refresh_from_db()
         self.assertEqual(managed.name, "Alert destination")
+
+    @parameterized.expand(
+        [
+            ("create with inbox read", "create", ["hog_function:write", "inbox:read"], status.HTTP_201_CREATED),
+            ("create with legacy task read", "create", ["hog_function:write", "task:read"], status.HTTP_201_CREATED),
+            ("create without inbox read", "create", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "edit stored destination with inbox read",
+                "edit",
+                ["hog_function:write", "inbox:read"],
+                status.HTTP_200_OK,
+            ),
+            ("edit stored destination without inbox read", "edit", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+            ("move a destination onto the event", "retarget", ["hog_function:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_destination_on_signals_reports_needs_the_inbox_read_scope(self, _name, mode, scopes, expected_status):
+        report_filters = _REPORT_FILTERS
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        if mode == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Inbox webhook",
+                    "hog": "fetch('https://example.com');",
+                    "type": "internal_destination",
+                    "filters": report_filters,
+                },
+                HTTP_AUTHORIZATION=f"Bearer {key}",
+            )
+        else:
+            stored_filters = (
+                report_filters
+                if mode == "edit"
+                else {"events": [{"id": "$activity_log_entry_created", "type": "events"}]}
+            )
+            destination = self._create_internal_destination(stored_filters)
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{destination.id}/",
+                data={"filters": report_filters, "inputs": {"channel": {"value": "#elsewhere"}}},
+                HTTP_AUTHORIZATION=f"Bearer {key}",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand(
+        [
+            # The Hog VM uses JavaScript truthiness, and a template is only known when it runs.
+            ("true", _REPORT_FILTERS, True, status.HTTP_400_BAD_REQUEST),
+            ("string false", _REPORT_FILTERS, "false", status.HTTP_400_BAD_REQUEST),
+            ("string zero", _REPORT_FILTERS, "0", status.HTTP_400_BAD_REQUEST),
+            ("one", _REPORT_FILTERS, 1, status.HTTP_400_BAD_REQUEST),
+            ("template", _REPORT_FILTERS, "{false}", status.HTTP_400_BAD_REQUEST),
+            ("false", _REPORT_FILTERS, False, status.HTTP_201_CREATED),
+            ("no debug input", _REPORT_FILTERS, None, status.HTTP_201_CREATED),
+            ("empty string", _REPORT_FILTERS, "", status.HTTP_201_CREATED),
+            ("zero", _REPORT_FILTERS, 0, status.HTTP_201_CREATED),
+            ("true for another event", _OTHER_INTERNAL_FILTERS, True, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_a_destination_on_signals_reports_cannot_log_debug_output(self, _name, filters, debug, expected_status):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Inbox webhook",
+                "hog": "fetch('https://example.com');",
+                "type": "internal_destination",
+                "filters": filters,
+                "inputs_schema": [{"key": "debug", "type": "json", "required": False}],
+                "inputs": {} if debug is None else {"debug": {"value": debug}},
+            },
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    def test_turning_on_debug_for_a_stored_report_destination_is_refused(self):
+        destination = self._create_internal_destination(_REPORT_FILTERS)
+        destination.inputs_schema = [{"key": "debug", "type": "boolean", "required": False}]
+        destination.save(update_fields=["inputs_schema"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{destination.id}/",
+            data={"inputs": {"debug": {"value": True}}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], "inputs")
+
+    def _destination_with_report_history(self, history: str) -> HogFunction:
+        destination = self._create_internal_destination(_OTHER_INTERNAL_FILTERS)
+        if history == "revision":
+            for version, filters in ((1, _REPORT_FILTERS), (2, _OTHER_INTERNAL_FILTERS)):
+                HogFunctionRevision.objects.for_team(self.team.id).create(
+                    team_id=self.team.id, hog_function=destination, version=version, content={"filters": filters}
+                )
+        elif history == "draft":
+            destination.draft = {"filters": _REPORT_FILTERS}
+            destination.save(update_fields=["draft"])
+        return destination
+
+    @parameterized.expand(
+        [
+            ("restore a report revision", "revision", "post", "revisions/1/restore", _WRITE, True),
+            (
+                "restore a report revision with inbox read",
+                "revision",
+                "post",
+                "revisions/1/restore",
+                _WRITE_INBOX,
+                False,
+            ),
+            ("restore another revision", "revision", "post", "revisions/2/restore", _WRITE, False),
+            ("publish a report draft", "draft", "post", "publish", _WRITE, True),
+            ("publish a report draft with inbox read", "draft", "post", "publish", _WRITE_INBOX, False),
+            ("rerun after leaving the event", "revision", "post", "rerun", _RERUN, True),
+            (
+                "rerun after leaving the event with inbox read",
+                "revision",
+                "post",
+                "rerun",
+                [*_RERUN, "inbox:read"],
+                False,
+            ),
+            ("rerun a destination never on the event", "none", "post", "rerun", _RERUN, False),
+            ("read logs after leaving the event", "revision", "get", "logs", ["hog_function:read"], True),
+            ("read logs with inbox read", "revision", "get", "logs", ["hog_function:read", "inbox:read"], False),
+            ("read logs of a destination never on the event", "none", "get", "logs", ["hog_function:read"], False),
+        ]
+    )
+    def test_report_history_of_a_destination_needs_the_inbox_read_scope(
+        self, _name, history, method, path, scopes, forbidden
+    ):
+        destination = self._destination_with_report_history(history)
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        with patch(
+            "products.cdp.backend.api.hog_function.rerun_hog_invocations",
+            return_value=MagicMock(status_code=200, json=lambda: {"queued_count": 0, "skipped_count": 0}),
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/hog_functions/{destination.id}/{path}/",
+                HTTP_AUTHORIZATION=f"Bearer {key}",
+            )
+
+        self.assertEqual(response.status_code == status.HTTP_403_FORBIDDEN, forbidden, response.content)
+
+    @parameterized.expand([("create",), ("logs",)])
+    def test_a_destination_on_signals_reports_needs_viewer_access_to_the_inbox(self, mode):
+        destination = self._destination_with_report_history("revision")
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, required_level=None, **_: resource != "inbox",
+        ):
+            if mode == "create":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": "Inbox webhook",
+                        "hog": "fetch('https://example.com');",
+                        "type": "internal_destination",
+                        "filters": _REPORT_FILTERS,
+                    },
+                )
+            else:
+                response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{destination.id}/logs/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        self.assertFalse(HogFunction.objects.filter(team=self.team, name="Inbox webhook").exists())
 
     def test_generic_api_cannot_restore_a_managed_alert_destination(self):
         managed = self._create_internal_destination(_alert_filters(), deleted=True)
@@ -1123,6 +1303,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self.client.get(f"/api/projects/{self.team.id}/hog_functions/{id}").status_code == status.HTTP_200_OK
+
+    def test_an_edit_that_loaded_the_function_before_a_delete_does_not_undelete_it(self, *args):
+        id = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**EXAMPLE_FULL}).json()["id"]
+        route_to_draft = HogFunctionViewSet._should_route_to_draft
+
+        # A queryset soft delete commits after the request loaded the function and before it takes the row lock.
+        def deleted_meanwhile(viewset: HogFunctionViewSet, serializer: Any) -> bool:
+            HogFunction.objects.filter(id=id).update(deleted=True)
+            return route_to_draft(viewset, serializer)
+
+        with patch.object(HogFunctionViewSet, "_should_route_to_draft", deleted_meanwhile):
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{id}/", data={"name": "Renamed"})
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+        assert HogFunction.objects.get(id=id).deleted
 
     def test_inputs_required(self, *args):
         payload = {

@@ -16,8 +16,11 @@ _INCREMENTAL_ENDPOINTS = {
     "supporters",
     "features",
     "status_updates",
+    "feedback_records",
+    "external_users",
+    "external_accounts",
 }
-_FULL_REFRESH_ENDPOINTS = {"suggestion_statuses", "labels", "categories"}
+_FULL_REFRESH_ENDPOINTS = {"suggestion_statuses", "labels", "categories", "teams"}
 
 
 class TestUservoiceSource:

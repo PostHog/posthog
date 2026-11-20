@@ -86,8 +86,8 @@ def test_prompt_labels_candidate_visibility() -> None:
     assert "1. `acme/a` (private)" in prompt
     assert "2. `acme/b` (public)" in prompt
     assert "3. `acme/c` (visibility unknown)" in prompt
-    assert "**Source privacy.**" in prompt
-    assert "source privacy rule" in prompt
+    # The candidate filter enforces source privacy in code. A prompt rule only widened it to wrong cases.
+    assert "privacy" not in prompt.lower()
 
 
 def test_prompt_orders_candidates_by_activity_and_marks_same_tree_copies() -> None:

@@ -3,6 +3,7 @@ import { mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 import { DateTime } from 'luxon'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 
 import { InternalCaptureService } from './internal-capture'
 
@@ -29,13 +30,16 @@ describe('InternalCaptureService', () => {
             properties: {},
         })
         expect(res.status).toBe(200)
+        const { uuid, ...rest } = parseJSON(mockInternalFetch.mock.calls[0][1].body)
+        expect(uuid).toMatch(/^[0-9a-f-]{36}$/)
+        mockInternalFetch.mock.calls[0][1].body = JSON.stringify(rest)
         expect(mockInternalFetch.mock.calls).toMatchInlineSnapshot(
             `
             [
               [
                 "http://localhost:8010/capture",
                 {
-                  "body": "{"api_key":"token","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"event-name","properties":{"$geoip_disable":true,"capture_internal":true}}",
+                  "body": "{"api_key":"token","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"event-name","properties":{"$geoip_disable":true,"capture_internal":true,"$ignore_sent_at":true}}",
                   "headers": {
                     "Content-Type": "application/json",
                   },
@@ -55,6 +59,7 @@ describe('InternalCaptureService', () => {
         expect(parseJSON(mockInternalFetch.mock.calls[0][1].body).properties).toEqual({
             ...expected,
             capture_internal: true,
+            $ignore_sent_at: true,
         })
     })
 
@@ -69,19 +74,81 @@ describe('InternalCaptureService', () => {
                 foo: 'bar',
             },
         })
-        expect(parseJSON(mockInternalFetch.mock.calls[0][1].body)).toMatchInlineSnapshot(`
+        expect(parseJSON(mockInternalFetch.mock.calls[0][1].body)).toMatchInlineSnapshot(
+            { uuid: expect.any(String) },
+            `
             {
               "api_key": "token",
               "distinct_id": "distinct-id",
               "event": "event-name",
               "properties": {
                 "$geoip_disable": true,
+                "$ignore_sent_at": true,
                 "capture_internal": true,
                 "foo": "bar",
               },
               "sent_at": "2025-01-01T00:00:00.000Z",
               "timestamp": "2025-03-03T03:03:03.000Z",
+              "uuid": Any<String>,
             }
-        `)
+        `
+        )
+    })
+
+    describe('retry', () => {
+        const event = { team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' }
+        const response = (status: number) => ({
+            status,
+            headers: {},
+            json: () => Promise.resolve({}),
+            text: () => Promise.resolve(''),
+            dump: () => Promise.resolve(),
+        })
+        const sentBodies = (): string[] => mockInternalFetch.mock.calls.map((call) => call[1].body)
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+        })
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([
+            ['a socket error', () => mockInternalFetch.mockRejectedValueOnce(new Error('other side closed'))],
+            ['a 5xx', () => mockInternalFetch.mockResolvedValueOnce(response(503))],
+        ])('retries %s once with the same body', async (_name, failFirst) => {
+            failFirst()
+            const pending = service.capture(event)
+            await jest.runAllTimersAsync()
+            expect((await pending).status).toBe(200)
+            const [first, second, ...rest] = sentBodies()
+            expect(rest).toEqual([])
+            expect(parseJSON(first).uuid).toMatch(/^[0-9a-f-]{36}$/)
+            expect(second).toBe(first)
+        })
+
+        it('returns the 5xx with a warning when the retry fails too', async () => {
+            const warn = jest.spyOn(logger, 'warn')
+            mockInternalFetch.mockResolvedValue(response(503))
+            const pending = service.capture(event)
+            await jest.runAllTimersAsync()
+            expect((await pending).status).toBe(503)
+            expect(mockInternalFetch).toHaveBeenCalledTimes(2)
+            expect(warn).toHaveBeenCalledWith('Internal capture event rejected', { status: 503 })
+        })
+
+        it('does not retry a 4xx', async () => {
+            mockInternalFetch.mockResolvedValueOnce(response(400))
+            expect((await service.capture(event)).status).toBe(400)
+            expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('throws after the second socket error', async () => {
+            mockInternalFetch.mockRejectedValue(new Error('other side closed'))
+            const assertion = expect(service.capture(event)).rejects.toThrow('other side closed')
+            await jest.runAllTimersAsync()
+            await assertion
+            expect(mockInternalFetch).toHaveBeenCalledTimes(2)
+        })
     })
 })

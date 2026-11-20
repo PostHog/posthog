@@ -2039,10 +2039,16 @@ def _matches_repo_path(args: str, repo_str: str, repo_prefix: str) -> bool:
         idx = end
 
 
+# `hogli watch` runs detached on purpose, so it has no process manager above it but is not a zombie.
+_INTENDED_BACKGROUND_COMMANDS = ("-m hogli watch",)
+
+
 def _is_excluded(args: str) -> bool:
-    """Check if the executable basename is in the exclusion set."""
+    """Check if the executable basename is in the exclusion set, or the command runs in the background on purpose."""
     if not args or not args.strip():
         return False
+    if any(command in args for command in _INTENDED_BACKGROUND_COMMANDS):
+        return True
     basename = args.split()[0].rsplit("/", 1)[-1]
     return basename in _EXCLUDED_EXECUTABLES
 

@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { internalFetch } from '~/common/utils/request'
 
-import type { CdpRole, Named } from '../cards'
+import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
@@ -48,7 +48,12 @@ export type Measurement = { name: string; unit: string } & Measured
 
 export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets'> &
     Readonly<Sampled> &
-    Readonly<Probed> & { sampledFrom: number; drive: DriveWindow; timeline: readonly ValveTimelineEntry[] }
+    Readonly<Probed> & {
+        sampledFrom: number
+        drive: DriveWindow
+        steps: readonly Step[]
+        timeline: readonly ValveTimelineEntry[]
+    }
 
 export type MeasurementDefinition = Definition & {
     unit: string
@@ -242,6 +247,8 @@ const ENVELOPE_MS = 10 * 60_000
 const DRAINED_FOR_MS = 60_000
 const QUEUE_GAP_MS = 15_000
 
+export const SCRAPE_GAP_MS = 15_000
+
 function readThroughout(queue: readonly QueueSample[], phase: Phase): boolean {
     const edges = [
         phase.from,
@@ -289,6 +296,9 @@ const spanning = <T extends { at: number }>(series: readonly T[], phase: Phase):
     const reference = lastBefore(series, phase.from)
     return [...(reference ? [reference] : []), ...series.filter(({ at }) => within(phase, at))]
 }
+
+const inside = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] =>
+    series.filter(({ at }) => within(phase, at))
 
 const bracketing = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] => {
     const closing = series.find(({ at }) => at >= phase.to)
@@ -339,12 +349,50 @@ function phaseRate(samples: readonly MetricSample[], read: Counter, phase: Phase
     }, 0)
 }
 
+const queuesOf = (samples: readonly MetricSample[]): string[] => [
+    ...new Set(samples.flatMap(({ processed }) => Object.keys(processed))),
+]
+
+const claimRate = (samples: readonly MetricSample[], queue: string, phase: Phase): number =>
+    phaseRate(samples, ({ processed }) => processed[queue] ?? 0, phase)
+
 function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number {
     const spans = replicasOf(samples)
         .map((ofReplica) => spanning(ofReplica, phase))
         .filter((window) => window.length > 0)
         .map((window) => seconds(spanOf(window)))
     return spans.length === 0 ? 0 : Math.min(...spans)
+}
+
+function busyShareOf(span: readonly HostSample[]): number | undefined {
+    const [first, last] = [span.at(0), span.at(-1)]
+    return first !== undefined && last !== undefined && last.totalTicks > first.totalTicks
+        ? (last.busyTicks - first.busyTicks) / (last.totalTicks - first.totalTicks)
+        : undefined
+}
+
+export const stepHostBusyShareOf = (host: readonly HostSample[], step: Phase): number | undefined =>
+    busyShareOf(inside(byTime(host), step))
+
+function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Phase): Measured {
+    let value = 0
+    let incomplete = false
+    for (const ofReplica of replicasOf(samples).filter((series) =>
+        series.some(({ processed }) => queue in processed)
+    )) {
+        const window = inside(ofReplica, step)
+        const span = spanOf(window)
+        const edges = [step.from, ...window.map(({ at }) => at), step.to]
+        incomplete ||=
+            span <= 0 ||
+            edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
+            window.some(({ startedAt }) => startedAt * 1000 > step.from)
+        if (span <= 0) {
+            continue
+        }
+        value += increaseOf(window, ({ processed }) => processed[queue] ?? 0, window[0].at) / seconds(span)
+    }
+    return { value, ...(incomplete ? { incomplete: true as const } : {}) }
 }
 
 export type Baseline = {
@@ -355,21 +403,23 @@ export type Baseline = {
     hostBusyShare?: number
 }
 
-export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvidence): Baseline {
+export function baselineOf({
+    samples,
+    queue,
+    host,
+    drive,
+    timeline,
+}: Pick<MeasureEvidence, 'samples' | 'queue' | 'host' | 'drive' | 'timeline'>): Baseline {
     const { baseline } = phasesOf(drive, timeline)
     const length = seconds(baseline.to - baseline.from)
     const scraped = scrapedSeconds(samples, baseline)
     if (length < MIN_BASELINE_SECONDS) {
         return { seconds: length, scrapedSeconds: scraped, claimsPerSecond: {} }
     }
-    const queues =
-        scraped < MIN_BASELINE_SECONDS ? [] : [...new Set(samples.flatMap(({ processed }) => Object.keys(processed)))]
-    const claimsPerSecond = Object.fromEntries(
-        queues.map((name) => [name, phaseRate(samples, ({ processed }) => processed[name] ?? 0, baseline)])
-    )
+    const queues = scraped < MIN_BASELINE_SECONDS ? [] : queuesOf(samples)
+    const claimsPerSecond = Object.fromEntries(queues.map((name) => [name, claimRate(samples, name, baseline)]))
     const inserted = spanning(counted(queue), baseline)
-    const hostSpan = spanning(byTime(host), baseline)
-    const [firstHost, lastHost] = [hostSpan.at(0), hostSpan.at(-1)]
+    const hostBusyShare = busyShareOf(spanning(byTime(host), baseline))
     return {
         seconds: length,
         scrapedSeconds: scraped,
@@ -381,12 +431,7 @@ export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvi
                       seconds(inserted.at(-1)!.at - inserted[0].at),
               }
             : {}),
-        ...(firstHost !== undefined && lastHost !== undefined && lastHost.totalTicks > firstHost.totalTicks
-            ? {
-                  hostBusyShare:
-                      (lastHost.busyTicks - firstHost.busyTicks) / (lastHost.totalTicks - firstHost.totalTicks),
-              }
-            : {}),
+        ...(hostBusyShare === undefined ? {} : { hostBusyShare }),
     }
 }
 
@@ -464,6 +509,21 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         unit: 'jobs/s',
         measure: (evidence) =>
             Object.entries(baselineOf(evidence).claimsPerSecond).map(([key, value]) => ({ key, value })),
+    },
+    {
+        name: 'step_claims_per_second',
+        params: z.object({}).strict(),
+        unit: 'jobs/s',
+        measure: ({ samples, drive, steps }) =>
+            steps.flatMap(({ scale, fromMs, toMs }) => {
+                const step = { from: drive.startedAt + fromMs, to: Math.min(drive.startedAt + toMs, drive.endedAt) }
+                return step.to <= step.from
+                    ? []
+                    : queuesOf(samples).map((queue) => ({
+                          key: `${queue}_${scale}x`,
+                          ...stepClaimRate(samples, queue, step),
+                      }))
+            }),
     },
     {
         name: 'baseline_new_jobs_per_second',
@@ -571,7 +631,12 @@ export function hostSampleOf(at: number, procStat: string): HostSample | undefin
     return { at, busyTicks: totalTicks - ticks[3] - ticks[4], totalTicks }
 }
 
-export type Sampler = { sampledFrom: number; stop(): Promise<Sampled> }
+export type Sampler = {
+    sampledFrom: number
+    taken(): readonly MetricSample[]
+    host(): readonly HostSample[]
+    stop(): Promise<Sampled>
+}
 
 type Target = ReplicaOf & { metricsUrl: string }
 
@@ -649,6 +714,8 @@ export async function startSampler(
     let stopping: Promise<Sampled> | undefined
     return {
         sampledFrom,
+        taken: () => samples,
+        host: () => host,
         stop: () =>
             (stopping ??= (async () => {
                 stopped.abort()

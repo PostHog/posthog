@@ -35,21 +35,33 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from attestations import ReviewedHead, covers, lifted_files, pending_attestations, pending_check_names, pinned_files
+from attestations import (
+    ReviewedHead,
+    applies_to,
+    covers,
+    lifted_files,
+    pending_attestations,
+    pending_check_names,
+    pending_entry,
+    pinned_files,
+)
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
     DENY_EXEMPT_AUTHOR_TEAMS,
     MAX_FILES,
     MAX_LINES,
     POLICY,
+    additive_files,
     assign_tier,
     build_ownership,
     category_fully_exempt,
     classify_files,
+    deny_matches,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
     detect_ownership,
     detect_title_scrutiny_flags,
+    edits_ownership_files,
     has_ci_workflow_changes,
     has_dependency_changes,
     is_allow_listed_only,
@@ -201,12 +213,25 @@ class GateResult:
     details: dict = field(default_factory=dict)
 
 
-def _describe_deny_category(category: str) -> str:
-    """Name a denied category, and for an owner-only one, the teams that stamphog approves there."""
+def _describe_deny_category(category: str, files: list[str] | None = None) -> str:
+    """Name a denied category and the files that matched it, and for an owner-only one, the teams that stamphog approves there."""
+    described = category
+    if files:
+        shown = ", ".join(f"`{_inline_path(f)}`" for f in files[:_DENY_FILES_SHOWN])
+        more = f" and {len(files) - _DENY_FILES_SHOWN} more" if len(files) > _DENY_FILES_SHOWN else ""
+        described += f" in {shown}{more}"
     teams = DENY_EXEMPT_AUTHOR_TEAMS.get(category)
-    if not teams:
-        return category
-    return f"{category} (stamphog approves these paths only for authors on {', '.join(teams)})"
+    if teams:
+        described += f" (stamphog approves these paths only for authors on {', '.join(teams)})"
+    return described
+
+
+_DENY_FILES_SHOWN = 3
+
+
+def _inline_path(path: str) -> str:
+    escaped = path.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t").replace("`", "'")
+    return _sanitize_untrusted(escaped, max_len=120)
 
 
 # ── Pipeline ─────────────────────────────────────────────────────
@@ -326,7 +351,7 @@ class Pipeline:
         unproven = self.classification.get("unattested_files", [])
         if not deny and not unproven:
             return []
-        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths)
+        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths, self.pr.title)
         if any(not any(covers(attestation, path) for attestation in pending) for path in unproven):
             return []
         if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
@@ -345,15 +370,48 @@ class Pipeline:
         return self.pending_lifting_attestations()
 
     @property
-    def _attestations(self) -> tuple[Attestation, ...]:
-        """The policy attestations that count for this PR's author.
+    def _publisher_pinned_attestations(self) -> tuple[Attestation, ...]:
+        """The usable policy attestations that pin their publisher, the only ones an admitted bot and routing count.
 
-        For an admitted bot only an entry that declares `publisher_files` counts, because a job of
-        any PR can post the check of every other entry.
+        A job of any PR can post the check of every other entry. An unusable entry proves nothing, so
+        routing never waits for its check.
         """
+        return tuple(
+            attestation for attestation in POLICY.attestations if attestation.pins_publisher and attestation.usable
+        )
+
+    @property
+    def _attestations(self) -> tuple[Attestation, ...]:
+        """The policy attestations that count for this PR's author."""
         if not self.admitted_bot:
             return POLICY.attestations
-        return tuple(attestation for attestation in POLICY.attestations if attestation.publisher_files)
+        return self._publisher_pinned_attestations
+
+    def attestation_proof(self) -> dict:
+        """What the pinned attestations prove about every path of the diff, for the server's reviewer routing.
+
+        Only an entry that pins its publisher counts, as for an admitted bot (see
+        ``_publisher_pinned_attestations``). ``checks`` names each such entry whose `paths` match a path
+        of the diff and whose `title` matches the PR's, and stays empty unless together they match every
+        path. An entry whose title does not match gets no result, so routing must not wait for it.
+        ``proven`` is True only when their verified proofs name every path, the old path of a rename
+        included.
+        """
+        paths = self.pr.deny_paths
+        matching = [
+            attestation
+            for attestation in self._publisher_pinned_attestations
+            if applies_to(attestation, self.pr.title) and any(covers(attestation, path) for path in paths)
+        ]
+        if not paths or any(not any(covers(attestation, path) for attestation in matching) for path in paths):
+            return {"checks": [], "proven": False}
+        pr = self.pr
+        reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
+        proven = pinned_files(matching, pr.check_runs, paths, reviewed)
+        return {
+            "checks": [{"check": attestation.check, "app_id": attestation.app_id} for attestation in matching],
+            "proven": set(paths) <= proven,
+        }
 
     def refuses_bot_author(self) -> bool:
         """True when the PR author is a bot that neither carve-out admits.
@@ -493,11 +551,15 @@ class Pipeline:
         # A proof may name a rename's old path, so the old path is matched like a changed file.
         pinned = pinned_files(self._attestations, pr.check_runs, pr.deny_paths, reviewed)
         unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
-        pending = pending_attestations(self._attestations, pr.check_runs, file_paths)
-        deny = detect_deny_categories(pr.deny_paths, lifted)
-        exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False) != deny
-        )
+        pending = pending_attestations(self._attestations, pr.check_runs, file_paths, pr.title)
+        additive = additive_files(pr.files)
+        deny_files = deny_matches(pr.deny_paths, lifted, additive=additive)
+        deny = list(deny_files)
+        # Compared with a deny that skips nothing, so a file that a deny exception, an attestation
+        # and an edit_paths addition each skip still counts. Comparing each skip with the other two
+        # applied let one hide another.
+        deny_skipped = detect_deny_categories(pr.deny_paths, apply_exceptions=False) != deny
+        additions_lifted = detect_deny_categories(pr.deny_paths, lifted) != deny
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
@@ -514,6 +576,7 @@ class Pipeline:
             risky_manifests = []
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+            deny_files["deps_toolchain"] = risky_manifests
         denied_before_exemptions = len(deny)
         deny = [
             category
@@ -532,18 +595,28 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
-        # so without this it rides the allow-list to a T0 approval with no reviewer.
+        # An owner-only exemption, a deny exception, an attestation or an addition to an edit_paths
+        # file (an owners.yaml rule) lifts the deny, not the review: a workflow is .yml, so without
+        # this it rides the allow-list to a T0 approval with no reviewer.
         allow_only = (
             is_allow_listed_only(file_paths)
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
-            and not exception_lifted
+            and not deny_skipped
         )
-        is_test = test_only(categories) and not owner_exempted and not exception_lifted
-        ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
-        ownership = detect_ownership(file_paths, ownership_resolvers)
+        is_test = test_only(categories) and not owner_exempted and not deny_skipped
+        # The checkout is the PR head, so a PR that changes an ownership file could name the
+        # author's team as the owner of its own files. Such a PR, which only an addition lift or an
+        # owner exemption lets through, reads ownership at the merge base instead.
+        ownership_from_merge_base = additions_lifted or edits_ownership_files(pr.deny_paths)
+        ownership_resolvers = (
+            self._merge_base_ownership_resolvers()
+            if ownership_from_merge_base
+            else build_ownership(REPO_ROOT, POLICY.ownership)
+        )
+        ownership_unreadable = ownership_resolvers is None
+        ownership = detect_ownership(file_paths, ownership_resolvers or [])
 
         tier = assign_tier(
             deny_categories=deny,
@@ -576,12 +649,13 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
+            "deny_files": {category: deny_files.get(category, []) for category in deny},
             "title_scrutiny_flags": title_flags,
             "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
             "unattested_files": unattested,
             # The server polls GitHub for these checks after a WAIT, so the list names each one by the
-            # check name and App id that a check run carries.
-            "attestations": {"pending": [{"check": a.check, "app_id": a.app_id} for a in pending]},
+            # check name and its publisher: the App id a check run carries, or the workflow that signs it.
+            "attestations": {"pending": [pending_entry(a) for a in pending]},
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
@@ -589,6 +663,8 @@ class Pipeline:
             "manifest_script_changes": risky_manifests,
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
+            "ownership_from_merge_base": ownership_from_merge_base,
+            "ownership_unreadable": ownership_unreadable,
             "folder_policy_prose": self.effective_policy.folder_prose,
             "assurance": {
                 **self._summarize_assurance(),
@@ -747,7 +823,8 @@ class Pipeline:
 
     def _check_deny_list(self) -> tuple[bool, str]:
         deny = self.classification["deny_categories"]
-        matches = ", ".join(_describe_deny_category(c) for c in deny)
+        deny_files = self.classification.get("deny_files") or {}
+        matches = "; ".join(_describe_deny_category(c, deny_files.get(c)) for c in deny)
         risky = self.classification.get("manifest_script_changes", [])
         if risky:
             risky_names = ", ".join(manifest_basenames(risky))
@@ -761,7 +838,7 @@ class Pipeline:
 
         A human author is trusted for the files no check covers. A bot has no such trust, so a file
         outside every proof, a workflow edit for example, refuses the PR. Only a proof from an
-        attestation that declares `publisher_files` counts, because a check that a job of the PR
+        attestation that pins its publisher counts, because a check that a job of the PR
         can post proves nothing about a PR nobody wrote. A rename's old path counts as a file too,
         so content cannot leave a proven path unproven.
         """
@@ -774,13 +851,40 @@ class Pipeline:
             return False, f"no attestation covers: {', '.join(unattested[:5])}"
         return True, "every file attested"
 
+    def _merge_base_ownership_resolvers(self) -> list | None:
+        """The ownership resolvers at the merge base, or None when git or the resolver cannot read it."""
+        merge_base = self.pr.merge_base_sha
+        try:
+            if not merge_base:
+                merge_base = subprocess.run(
+                    ["git", "merge-base", self.pr.base_sha, self.pr.head_sha],
+                    cwd=REPO_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=True,
+                ).stdout.strip()
+            return build_ownership(REPO_ROOT, POLICY.ownership, ref=merge_base)
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            return None
+
     def _summarize_ownership(self) -> str:
         """Build ownership context for the LLM (not a hard gate)."""
+        summary = self._summarize_resolved_ownership()
+        if self.classification.get("ownership_from_merge_base"):
+            summary += (
+                "; read at the merge base, because this PR changes an ownership file. A rule it adds or"
+                " changes that takes paths another team owns, or sets inherit: false or sensitive: false,"
+                " needs that team's review"
+            )
+        self.classification["ownership_summary"] = summary
+        return summary
+
+    def _summarize_resolved_ownership(self) -> str:
         ownership = self.classification["ownership"]
         individuals = ownership.get("individuals", [])
         if ownership["team_count"] == 0 and not individuals:
-            self.classification["ownership_summary"] = "no owned paths touched"
-            return self.classification["ownership_summary"]
+            return "no owned paths touched"
 
         teams = ownership["teams"]
         author = self.pr.author
@@ -803,10 +907,8 @@ class Pipeline:
             parts.append(f"author {author} is not on any owning team")
         if ownership.get("cross_team"):
             parts.append("cross-team change")
-
-        self.classification["ownership_summary"] = "; ".join(parts)
         self.classification["author_on_owning_team"] = len(author_teams) > 0
-        return self.classification["ownership_summary"]
+        return "; ".join(parts)
 
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)
@@ -878,7 +980,9 @@ class Pipeline:
         summary = f"{tier_label} ({self.pr.lines_total}L, {len(self.pr.files)}F, {cl['breadth']}, {cl['commit_type'] or 'unknown'})"
 
         if cl["tier"] == "T2-never":
-            return False, f"classified as T2-never: {summary}"
+            # Only a deny-list match sets T2-never. Size and breadth play no part, so the
+            # message names the deny instead of the size figures.
+            return False, f"T2-never because the deny-list matched {', '.join(cl['deny_categories'])}"
         if cl["tier"] == "T0-deterministic":
             return True, f"T0 auto-approve: {summary}"
         return True, summary

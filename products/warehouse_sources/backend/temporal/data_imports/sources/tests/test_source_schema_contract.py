@@ -90,6 +90,7 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
     "Trino": "network",
     "Vitally": "network",
     "Webflow": "network",
+    "ZohoCRM": "network",
 }
 
 # Sources whose extraction for an unknown schema this test cannot check. Reasons:

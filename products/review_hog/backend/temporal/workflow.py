@@ -624,6 +624,8 @@ class ReviewPRWorkflow:
                         zero_change_skip=meta.zero_change_skip,
                         delta_band=meta.delta_band,
                         coordinator=meta.coordinator,
+                        installation_id=inputs.installation_id,
+                        github_repo_id=inputs.github_repo_id,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -669,6 +671,8 @@ class ReviewPRWorkflow:
                         arm_set=meta.arm_set,
                         zero_change_skip_arm=meta.zero_change_skip,
                         delta_band_arm=meta.delta_band,
+                        devex_lens_routed=meta.devex_lens_routed,
+                        devex_lens_arm=meta.devex_lens,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -854,6 +858,8 @@ class ReviewPRWorkflow:
                         review_mode=inputs.review_mode,
                         trigger_source=inputs.trigger_source,
                         capped_lens_parts=meta.lens_chunk_count if meta.lens_chunks_capped else None,
+                        installation_id=inputs.installation_id,
+                        github_repo_id=inputs.github_repo_id,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_GITHUB_POST_RETRY,
@@ -1101,6 +1107,7 @@ class ReviewPRWorkflow:
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
         # Workflow time, so a replay measures the same durations.
         session_seconds: list[float] = []
+        devex_seconds: list[float] = []
 
         # Each session returns whether it fell back to the control arm, or None in a history from before the result.
         async def _main_session() -> bool | None:
@@ -1134,6 +1141,7 @@ class ReviewPRWorkflow:
                             review_mode=stage.review_mode,
                             flash_reasoning_effort=stage.flash_reasoning_effort,
                             review_design=stage.review_design,
+                            trigger_source=stage.trigger_source,
                             delta_since_head_sha=stage.delta_since_head_sha,
                             arm_set=stage.arm_set,
                             lens=lens,
@@ -1145,7 +1153,8 @@ class ReviewPRWorkflow:
                         retry_policy=_RETRY,
                     )
                 finally:
-                    session_seconds.append((workflow.now() - started).total_seconds())
+                    elapsed = (workflow.now() - started).total_seconds()
+                    (devex_seconds if lens == DEVEX_LENS_NAME else session_seconds).append(elapsed)
 
         # The main session goes first, so it never waits for a semaphore slot behind a lens session.
         main_result, *lens_results = await asyncio.gather(
@@ -1154,12 +1163,17 @@ class ReviewPRWorkflow:
         if isinstance(main_result, BaseException):
             raise main_result
         lens_failures = lens_timeouts = 0
+        devex_failed = devex_timed_out = False
         for (lens, chunk_id), result in zip(lens_units, lens_results):
             if isinstance(result, BaseException):
                 workflow.logger.warning(
                     f"Lens session {lens} part {chunk_id} failed or timed out; its findings are missing: {result!r}"
                 )
-                if isinstance(result, ActivityError) and isinstance(result.cause, ActivityTimeoutError):
+                timed_out = isinstance(result, ActivityError) and isinstance(result.cause, ActivityTimeoutError)
+                if lens == DEVEX_LENS_NAME:
+                    devex_timed_out = timed_out
+                    devex_failed = not timed_out
+                elif timed_out:
                     lens_timeouts += 1
                 else:
                     lens_failures += 1
@@ -1167,7 +1181,14 @@ class ReviewPRWorkflow:
             lens_failures=lens_failures,
             lens_timeouts=lens_timeouts,
             slowest_session_seconds=round(max(session_seconds, default=0.0), 1),
-            arm_fallbacks=sum(result is True for result in (main_result, *lens_results)),
+            arm_fallbacks=sum(
+                result is True
+                for (lens, _), result in [(("main", 1), main_result), *zip(lens_units, lens_results)]
+                if lens != DEVEX_LENS_NAME
+            ),
+            devex_failed=devex_failed if stage.devex_lens else None,
+            devex_timed_out=devex_timed_out if stage.devex_lens else None,
+            devex_session_seconds=round(devex_seconds[0], 1) if devex_seconds else None,
         )
 
     @staticmethod
@@ -1188,6 +1209,7 @@ class ReviewPRWorkflow:
                 review_mode=stage.review_mode,
                 flash_reasoning_effort=stage.flash_reasoning_effort,
                 review_design=stage.review_design,
+                trigger_source=stage.trigger_source,
                 lens_chunk_count=lens_chunk_count,
             ),
             start_to_close_timeout=_SANDBOX_TIMEOUT,

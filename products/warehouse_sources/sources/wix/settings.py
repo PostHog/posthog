@@ -3,6 +3,8 @@ from typing import Any, Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
+PAGE_SIZE = 100
+
 _UPDATED_CREATED_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
         "label": "updatedDate",
@@ -24,7 +26,8 @@ class WixEndpointConfig:
     name: str
     path: str
     # Wix wraps the request criteria under "search" on its search endpoints and "query" on its
-    # query endpoints, and the response carries the cursors under a matching key.
+    # query endpoints, and the response carries the cursors under a matching key. A GET endpoint
+    # takes its sort as dotted query params under this key, for example "sorting.fieldName".
     body_key: str
     data_key: str
     cursors_key: str
@@ -36,6 +39,9 @@ class WixEndpointConfig:
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     paging: Literal["cursor", "offset"] = "cursor"
+    # A GET endpoint takes its paging and sort as query params, not a request body.
+    http_method: Literal["POST", "GET"] = "POST"
+    page_size: int = PAGE_SIZE
     # Top-level request fields sent next to the criteria on every page.
     extra_body: dict[str, Any] = field(default_factory=dict)
     # Set when each result wraps the record under one key; the record's fields become the row root,
@@ -143,6 +149,55 @@ WIX_ENDPOINTS: dict[str, WixEndpointConfig] = {
         permission="Read eCommerce Orders",
         primary_key="orderId",
         partition_key="orderCreatedDate",
+    ),
+    "order_fulfillments": WixEndpointConfig(
+        name="order_fulfillments",
+        path="/ecom/v1/fulfillments/list-by-ids",
+        body_key="orderIds",
+        data_key="ordersWithFulfillments",
+        cursors_key="metadata",
+        parent="orders",
+        sort_field="createdDate",
+        permission="Read eCommerce Orders",
+        primary_key="orderId",
+        partition_key="orderCreatedDate",
+    ),
+    "inventory_items": WixEndpointConfig(
+        name="inventory_items",
+        path="/stores/v3/inventory-items/query",
+        body_key="query",
+        data_key="inventoryItems",
+        cursors_key="pagingMetadata",
+        sort_field="createdDate",
+        permission="Read inventory in v3 catalog",
+        partition_key="createdDate",
+        incremental_fields=list(_UPDATED_CREATED_INCREMENTAL_FIELDS),
+    ),
+    "pricing_plans": WixEndpointConfig(
+        name="pricing_plans",
+        path="/pricing-plans/v3/plans/query",
+        body_key="query",
+        data_key="plans",
+        cursors_key="pagingMetadata",
+        sort_field="createdDate",
+        permission="Read Pricing Plans",
+        partition_key="createdDate",
+        incremental_fields=list(_UPDATED_CREATED_INCREMENTAL_FIELDS),
+    ),
+    "pricing_plan_orders": WixEndpointConfig(
+        name="pricing_plan_orders",
+        path="/pricing-plans/v2/orders",
+        body_key="sorting",
+        data_key="orders",
+        cursors_key="pagingMetadata",
+        # The list has no date filter and pages by offset, at most 50 orders a page. It sorts only
+        # on createdDate or endDate.
+        http_method="GET",
+        paging="offset",
+        page_size=50,
+        sort_field="createdDate",
+        permission="Read Pricing Plans Orders",
+        partition_key="createdDate",
     ),
 }
 

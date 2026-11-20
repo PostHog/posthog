@@ -19,7 +19,7 @@ Each run gets fresh event, trace, span and session ids and recent timestamps, so
 - `units/<id>.json`: one trace or session per file. The id names the shape it covers, for example `openai_agents_web_search_call` or `session_langchain_memory_150_embeddings`. Each file has `title`, `scenario`, `sets`, `why`, a `summary` (event counts, libraries, providers, frameworks, models, content-part types) and `events` (`event`, `offset_ms`, `distinct_id`, `properties` as an SDK sends them).
 - `sets.json`: `core` has one unit per common path for checking by hand, `stress` has the cases that break layouts. Every unit is in `all`.
 - `media/`: images, PDFs, audio and video the units reference. Inline media appears as `⟦media:<file>⟧` inside a `data:` URI or as raw base64, and URL media points at `https://media.example.com/<file>`. Tools that read the units resolve both: the seed command inlines the base64, and a browser test can route `media.example.com` to this directory.
-- `checksums.json`: hashes of every generated file, checked by `test_sample_traces.py`.
+- `checksums.json`: hashes of every generated file, checked by `posthog/test/repo_invariants/test_ai_observability_sample_traces.py`.
 
 ## Provenance
 

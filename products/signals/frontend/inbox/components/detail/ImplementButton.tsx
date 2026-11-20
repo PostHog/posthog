@@ -5,17 +5,17 @@ import { IconCopy, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonMenuOverlay, LemonSelect, lemonToast } from '@posthog/lemon-ui'
 
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import type { ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
+import { type ReportTaskEntry, TERMINAL_RUN_STATUSES } from '../../logics/inboxReportDetailLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { SignalReport } from '../../types'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
@@ -40,9 +40,9 @@ export function ImplementButton({
     reportTaskToOpen,
     openChoicesFromLink = false,
     onChoicesOpenedFromLink,
-}: ImplementButtonProps): JSX.Element | null {
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
+}: ImplementButtonProps): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { user } = useValues(userLogic)
     const {
         disabledReason: githubDisabledReason,
         repairNeeded,
@@ -69,10 +69,10 @@ export function ImplementButton({
         }
     }, [openChoicesFromLink, onChoicesOpenedFromLink])
     useEffect(() => {
-        if (hasPostHogAiAccess && repositoryRequired) {
+        if (repositoryRequired) {
             setChoicesOpen(true)
         }
-    }, [hasPostHogAiAccess, repositoryRequired])
+    }, [repositoryRequired])
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
@@ -137,47 +137,19 @@ export function ImplementButton({
         run(prompt)
     }
 
-    const agentMenuItems = IMPLEMENTATION_AGENTS.map((agent) => ({
-        key: agent.key,
-        label: agent.name,
-        icon: agent.icon,
-        onClick: () => runImplementationPrompt(agent.key, agent.open),
-    }))
-
-    if (!hasPostHogAiAccess) {
-        return (
-            <LemonMenu
-                placement="bottom-end"
-                visible={choicesOpen}
-                onVisibilityChange={setChoicesOpen}
-                items={[
-                    {
-                        label: 'Copy prompt for your agent',
-                        icon: <IconCopy />,
-                        onClick: () =>
-                            runImplementationPrompt('clipboard', (prompt) => {
-                                void copyToClipboard(prompt, 'prompt for your agent')
-                            }),
-                    },
-                    ...agentMenuItems,
-                ]}
-            >
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPullRequest />}
-                    tooltip="Choose an agent to implement this report"
-                    data-attr={surface === 'triage_mode' ? 'inbox-triage-create-pr' : 'inbox-report-create-pr'}
-                >
-                    Implement
-                </LemonButton>
-            </LemonMenu>
-        )
-    }
-
     if (reportTaskToOpen?.task.latest_run) {
         const task = reportTaskToOpen.task
         const run = task.latest_run!
+        const running = !TERMINAL_RUN_STATUSES.includes(run.status)
+        const starter =
+            task.created_by && (task.created_by.uuid === user?.uuid ? 'You' : fullNameOrEmail(task.created_by))
+        // The sidebar looks like a new chat, so say this opens a run that already exists.
+        const tooltip = [
+            starter && `${starter} started this implementation.`,
+            'Opens the existing run in the PostHog AI sidebar. It does not start a new one.',
+        ]
+            .filter(Boolean)
+            .join(' ')
         return (
             <LemonButton
                 type="primary"
@@ -189,10 +161,10 @@ export function ImplementButton({
                     captureButtonClick('view_task')
                     openReportTask(report, task.id, run.id)
                 }}
-                tooltip="Open this task in the PostHog AI sidebar"
+                tooltip={tooltip}
                 data-attr="inbox-report-open-task"
             >
-                View task
+                {running ? 'View running implementation' : 'View implementation'}
             </LemonButton>
         )
     }
@@ -301,7 +273,17 @@ export function ImplementButton({
                                             'aria-label': 'Open prompt in an agent',
                                             dropdown: {
                                                 placement: 'bottom-start',
-                                                overlay: <LemonMenuOverlay items={agentMenuItems} />,
+                                                overlay: (
+                                                    <LemonMenuOverlay
+                                                        items={IMPLEMENTATION_AGENTS.map((agent) => ({
+                                                            key: agent.key,
+                                                            label: agent.name,
+                                                            icon: agent.icon,
+                                                            onClick: () =>
+                                                                runImplementationPrompt(agent.key, agent.open),
+                                                        }))}
+                                                    />
+                                                ),
                                             },
                                         }}
                                     >

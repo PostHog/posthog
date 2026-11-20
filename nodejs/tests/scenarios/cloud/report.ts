@@ -3,9 +3,12 @@ import { z } from 'zod'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { CAPACITY_MINUTES } from '../environment/failover'
+import { seriesOf } from '../environment/metric-data'
 import { EXIT_CODE, Status } from '../runner/status'
-import { SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
+import { ADAPTERS, SCHEMA_VERSION, ScorecardProperties } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
+import { reportToStore } from '../store/client'
 import { Controller, HOURS_PER_MONTH, dollars } from './admission'
 import { Aws } from './aws'
 import { FAILOVER_VALVE } from './card'
@@ -21,7 +24,6 @@ type Capacity = { minutes: Minute[]; gaps: number[] }
 
 const ENVIRONMENT_KIND = 'run-host'
 const TARGET = 'cloud'
-const MIN_ACU = 1
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DEVIATIONS = [
@@ -40,18 +42,6 @@ const HostScorecard = z.object({
             ended_at: z.iso.datetime(),
         })
         .catchall(z.unknown()),
-})
-
-const MetricData = z.object({
-    MetricDataResults: z.array(
-        z.object({
-            Id: z.enum(['max', 'avg']),
-            Timestamps: z.array(z.string()),
-            Values: z.array(z.number()),
-            StatusCode: z.string(),
-            Messages: z.array(z.object({ Code: z.string().optional(), Value: z.string().optional() })).optional(),
-        })
-    ),
 })
 
 const minuteOf = (at: number): number => at - (at % MINUTE_MS)
@@ -82,39 +72,35 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
             Stat,
         },
     }))
-    const { MetricDataResults } = MetricData.parse(
+    const start = minuteOf(from)
+    const end = minuteOf(to) + MINUTE_MS
+    const series = seriesOf(
         await aws.call([
             'cloudwatch',
             'get-metric-data',
             '--start-time',
-            iso(minuteOf(from)),
+            iso(start),
             '--end-time',
-            iso(minuteOf(to) + MINUTE_MS),
+            iso(end),
             '--scan-by',
             'TimestampAscending',
             '--metric-data-queries',
             JSON.stringify(queries),
-        ])
+        ]),
+        {
+            ids: ['max', 'avg'],
+            from: start,
+            to: end,
+            periodMs: MINUTE_MS,
+            floor: 0,
+            subject: (id) => `CloudWatch's ${id} series`,
+        }
     )
-    const incomplete = MetricDataResults.filter(({ StatusCode }) => StatusCode !== 'Complete')
-    if (incomplete.length > 0) {
-        throw new Error(
-            incomplete
-                .map(({ Id, StatusCode, Messages = [] }) =>
-                    [
-                        `CloudWatch answered ${StatusCode} for the ${Id} series`,
-                        ...Messages.map(({ Code, Value }) => Value ?? Code),
-                    ].join(': ')
-                )
-                .join('; ')
-        )
-    }
     const byMinute = new Map<number, Minute>()
-    for (const { Id, Timestamps, Values } of MetricDataResults) {
-        Timestamps.forEach((timestamp, i) => {
-            const at = Date.parse(timestamp)
-            byMinute.set(at, { ...byMinute.get(at), at, [Id]: Values[i] })
-        })
+    for (const [id, points] of Object.entries(series)) {
+        for (const { at, value } of points) {
+            byMinute.set(at, { ...byMinute.get(at), at, [id]: value })
+        }
     }
     const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
     const ends = [...minutes.map(({ at }) => at), ...expected.map(minuteOf)]
@@ -128,7 +114,9 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
     return { minutes, gaps }
 }
 
-function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<string, number | null>; reason?: string } {
+type Judged = { scalars: Record<string, number | null>; readerAtT0: number | null; reason?: string }
+
+function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: CloudProfile['readerAcu']): Judged {
     const t0Minute = minuteOf(t0)
     const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
     const before = maxima.filter(({ at }) => at < t0Minute)
@@ -143,16 +131,41 @@ function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<str
         acu_peak: peak?.max ?? null,
         acu_seconds_to_peak: peak ? (peak.at - t0Minute) / 1000 : null,
     }
+    const readerAtT0 = before.find(({ at }) => at === t0Minute - MINUTE_MS)?.max ?? null
     if (before.length === 0) {
-        return { scalars, reason: 'no reader capacity before T0' }
+        return { scalars, readerAtT0, reason: 'no reader capacity before T0' }
     }
     if (after.length === 0) {
-        return { scalars, reason: 'no measured reader maximum from T0 on' }
+        return { scalars, readerAtT0, reason: 'no measured reader maximum from T0 on' }
     }
-    const above = minutes.filter(({ at, max, avg }) => at < t0Minute && (max ?? avg ?? 0) > MIN_ACU)
-    return above.length === 0
-        ? { scalars }
-        : { scalars, reason: `reader above 1 ACU before T0 (${above.map(({ at }) => iso(at)).join(', ')})` }
+    if (idleMax === undefined) {
+        return {
+            scalars,
+            readerAtT0,
+            reason: 'the cloud profile sets no readerAcu.idleMax, so the reader was not judged',
+        }
+    }
+    const pre = minutes.filter(({ at }) => at < t0Minute)
+    const above = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading > idleMax))
+    const under = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading < min))
+    const inverted = pre.filter(({ max, avg }) => max !== undefined && avg !== undefined && avg > max)
+    const unshown = pre.filter(
+        ({ max, avg }) => max === undefined && avg !== undefined && avg !== min && avg <= idleMax
+    )
+    const watched = Array.from({ length: CAPACITY_MINUTES }, (_, i) => t0Minute - (CAPACITY_MINUTES - i) * MINUTE_MS)
+    const missing = watched.filter((at) => !pre.some((minute) => minute.at === at))
+    const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
+    const reasons = [
+        above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
+        under.length > 0 && `reader capacity under its ${min} ACU minimum before T0 (${listed(under)})`,
+        inverted.length > 0 && `reader average above its maximum before T0 (${listed(inverted)})`,
+        unshown.length > 0 &&
+            `no reader maximum before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
+        missing.length > 0 &&
+            `no reader capacity in the ${CAPACITY_MINUTES} minutes before T0 for ${missing.map(iso).join(', ')}`,
+        readerAtT0 === null && `no reader maximum for the minute before T0 (${iso(t0Minute - MINUTE_MS)})`,
+    ].filter((reason): reason is string => typeof reason === 'string')
+    return reasons.length === 0 ? { scalars, readerAtT0 } : { scalars, readerAtT0, reason: reasons.join('; ') }
 }
 
 function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undefined): [string, number][] {
@@ -172,12 +185,15 @@ function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undef
     ]
 }
 
-function environmentOf(profile: CloudProfile, manifest: Manifest, runnerFingerprint: unknown) {
+function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest: Manifest, runnerFingerprint: unknown) {
+    const { idleMax } = profile.readerAcu
     const environment = {
         environment_kind: ENVIRONMENT_KIND,
         writer_class: profile.writerClass,
         reader_acu_min: profile.readerAcu.min,
         reader_acu_max: profile.readerAcu.max,
+        ...(card.failsOver && idleMax !== undefined && { reader_acu_idle_max: idleMax }),
+        reader_monitoring_interval_seconds: profile.readerMonitoringIntervalSeconds,
         host_class: profile.host.class,
         engine_version: profile.engineVersion,
         pooler_replicas: profile.pooler.replicas,
@@ -228,10 +244,11 @@ export async function report(
             host ? [Date.parse(host.event.started_at), Date.parse(host.event.ended_at)] : []
         )
     )
-    const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0)) : undefined
+    const judged = capacity && t0 ? judgeCapacity(capacity, Date.parse(t0), profile.readerAcu) : undefined
     if (judged?.reason) {
         reasons.push(judged.reason)
     }
+    const readerAtT0 = judged?.readerAtT0 ?? null
     const leftovers = await receiptsOf(evidence, manifest).then(
         (receipts) => {
             const last = receipts.at(-1)
@@ -249,18 +266,26 @@ export async function report(
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)
     const costItems = cost.map(([item, usd]) => `${item}: ${dollars(usd)}`)
     const status: Status = reasons.length > 0 || !host ? 'invalid' : host.event.status
-    const environment = environmentOf(profile, manifest, host?.event.fingerprint)
+    const savedReason = host?.event.status_reason
+    const hostReason =
+        host && host.event.status !== 'passed' && typeof savedReason === 'string' && savedReason
+            ? [`the runner saved a ${host.event.status} scorecard: ${savedReason}`]
+            : []
+    const environment = environmentOf(profile, card, manifest, host?.event.fingerprint)
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
         card_id: card.id,
+        adapters: ADAPTERS,
         ...host?.event,
         ...environment,
+        reader_acu_at_t0: readerAtT0,
         run_id: runId,
         origin: 'cloud-manual',
         target: TARGET,
         started_at: manifest.createdAt,
         status,
-        status_reason: reasons.length > 0 ? reasons.join('; ') : String(host?.event.status_reason ?? ''),
+        status_reason:
+            reasons.length > 0 ? [...reasons, ...hostReason].join('; ') : String(host?.event.status_reason ?? ''),
         ended_at: iso(to),
         duration_s: (to - from) / 1000,
         evidence_dir: `s3://${evidence.name}/${keyOf(runId, 'evidence/')}`,
@@ -274,6 +299,15 @@ export async function report(
         cost_estimate_excluded: EXCLUDED,
     }
     const key = keyOf(runId, 'scorecard.json')
+    if (t0) {
+        controller.print(
+            readerAtT0 !== null
+                ? `The reader sat at ${readerAtT0} ACU in the minute before T0 (${t0}).`
+                : capacity
+                  ? `CloudWatch has no reader maximum for the minute before T0 (${t0}).`
+                  : `Could not read the reader capacity, so its ACU in the minute before T0 (${t0}) is unknown.`
+        )
+    }
     controller.print(`Cost estimate, excluding ${EXCLUDED.join(', ')}:`)
     costItems.forEach((item) => controller.print(`  ${item}`))
     const kept = await evidence.put(key, JSON.stringify(properties)).then(
@@ -293,6 +327,12 @@ export async function report(
         controller.warn(`Could not publish the scorecard to Scenario runs: ${written.problem}`)
     } else {
         controller.print('Scenario runs credentials are not set, so the scorecard is not published.')
+    }
+    const reported = await reportToStore({ scorecard: properties }, controller.env)
+    if (reported.stored) {
+        controller.print('Reported the run to the run store.')
+    } else if (reported.problem) {
+        controller.warn(`Could not report the run to the run store: ${reported.problem}`)
     }
     if (written.problem || (!kept && !written.recorded)) {
         return EXIT_CODE.writeFailed

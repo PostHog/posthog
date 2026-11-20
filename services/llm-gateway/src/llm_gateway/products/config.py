@@ -130,6 +130,8 @@ RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
     BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
     BASETEN_GLM53_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
     BASETEN_GLM53_FLASH_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
+    # The same model on Cloudflare keeps the reservation its Baseten id carries.
+    "@cf/zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
 }
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
@@ -300,6 +302,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset(
             {
                 "@cf/zai-org/glm-5.2",
+                "@cf/zai-org/glm-5.3",
                 "zai-org/glm-5.3",
                 "zai-org/glm-5.3-flash",
                 "deepseek-ai/deepseek-v4-flash-0731",

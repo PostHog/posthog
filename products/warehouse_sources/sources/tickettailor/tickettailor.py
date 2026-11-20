@@ -199,6 +199,7 @@ def _fanout_source(
         db_incremental_field_last_value=None,
         parent_endpoint_extra=_list_endpoint_extra(),
         child_endpoint_extra=_list_endpoint_extra(),
+        page_size_param="limit" if config.sends_limit else None,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
         resume_parent_pagination=True,

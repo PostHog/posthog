@@ -15,6 +15,7 @@ import {
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import type { TableFieldsStatus } from 'scenes/data-management/database/databaseTableListLogic'
 
+import type { BIDataSource } from '~/queries/schema/schema-business-intelligence'
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import type { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
@@ -50,8 +51,8 @@ export interface biConnectionsLogicActions {
     resetConfig: () => {
         value: true
     } // biEditorLogic
-    setDataSource: (source: import('~/queries/schema').BIDataSource) => {
-        source: import('~/queries/schema').BIDataSource
+    setDataSource: (source: BIDataSource) => {
+        source: BIDataSource
     } // biEditorLogic
     hydrateTableFields: (tableNames: string[]) => {
         tableNames: string[]

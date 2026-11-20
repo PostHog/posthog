@@ -1,40 +1,55 @@
+import { IncomingMessage, Server, ServerResponse, createServer } from 'http'
+import { AddressInfo } from 'net'
+
 import { HogFlowScheduleService } from './hogflow-schedule.service'
 
-const mockFetch = jest.fn()
+type DjangoAnswer = { status: number; body: string; delayMs?: number }
 
-jest.mock('~/common/services/internal-fetch', () => ({
-    InternalFetchService: jest.fn().mockImplementation(() => ({
-        fetch: mockFetch,
-    })),
-}))
+const answer = (body: Record<string, unknown>, delayMs = 0): DjangoAnswer => ({
+    status: 200,
+    body: JSON.stringify(body),
+    delayMs,
+})
 
-const config = {
-    INTERNAL_API_BASE_URL: 'http://localhost:8000',
-    INTERNAL_API_SECRET: 'test-secret',
-    HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
-    HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 300_000,
-    HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 600_000,
-} as any
-
-function mockDjangoResponse(body: Record<string, unknown>): void {
-    mockFetch.mockResolvedValue({
-        fetchResponse: {
-            status: 200,
-            text: () => JSON.stringify(body),
-        },
-        fetchError: null,
-    })
-}
+const NOTHING_DUE = answer({ processed: [], initialized: [], failed: [] })
 
 describe('HogFlowScheduleService', () => {
+    let django: Server
+    let djangoUrl: string
+    let nextAnswer: DjangoAnswer
     let service: HogFlowScheduleService
 
-    beforeEach(() => {
-        jest.clearAllMocks()
-        service = new HogFlowScheduleService(config)
-        mockDjangoResponse({ processed: [], initialized: [], failed: [] })
+    const createService = (overrides: Record<string, number> = {}): HogFlowScheduleService =>
+        new HogFlowScheduleService({
+            INTERNAL_API_BASE_URL: djangoUrl,
+            INTERNAL_API_SECRET: 'test-secret',
+            HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
+            HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 300_000,
+            HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 600_000,
+            HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: 10_000,
+            ...overrides,
+        } as any)
+
+    beforeAll(async () => {
+        django = createServer((req: IncomingMessage, res: ServerResponse) => {
+            const { status, body, delayMs } = nextAnswer
+            const timer = setTimeout(() => res.writeHead(status).end(body), delayMs ?? 0)
+            res.on('close', () => clearTimeout(timer))
+        })
+        await new Promise<void>((resolve) => django.listen(0, '127.0.0.1', resolve))
+        djangoUrl = `http://127.0.0.1:${(django.address() as AddressInfo).port}`
+    })
+
+    afterAll(async () => {
+        django.closeAllConnections()
+        await new Promise<void>((resolve) => django.close(() => resolve()))
+    })
+
+    beforeEach(async () => {
+        nextAnswer = NOTHING_DUE
+        service = createService()
         service.start()
-        jest.clearAllMocks()
+        await service.pollAndDispatch()
     })
 
     afterEach(async () => {
@@ -42,50 +57,46 @@ describe('HogFlowScheduleService', () => {
     })
 
     describe('pollAndDispatch', () => {
-        it('returns true on successful poll with processed schedules', async () => {
-            mockDjangoResponse({
-                processed: ['schedule-1', 'schedule-2'],
-                initialized: [],
-                failed: [],
-            })
+        it.each([
+            [
+                'processed schedules',
+                answer({ processed: ['schedule-1', 'schedule-2'], initialized: [], failed: [] }),
+                true,
+            ],
+            ['no due schedules', NOTHING_DUE, true],
+            ['a Django error', { status: 500, body: 'Internal Server Error' }, false],
+        ])('reports whether the poll succeeded for %s', async (_desc, djangoAnswer, succeeded) => {
+            nextAnswer = djangoAnswer
 
-            expect(await service.pollAndDispatch()).toBe(true)
+            expect(await service.pollAndDispatch()).toBe(succeeded)
         })
 
-        it('returns true on successful poll with no due schedules', async () => {
-            mockDjangoResponse({ processed: [], initialized: [], failed: [] })
-
-            expect(await service.pollAndDispatch()).toBe(true)
-        })
-
-        it('returns false when endpoint returns error', async () => {
-            mockFetch.mockResolvedValue({
-                fetchResponse: {
-                    status: 500,
-                    text: () => 'Internal Server Error',
-                },
-                fetchError: null,
+        it('reports a failed poll when Django is unreachable', async () => {
+            const unreachable = new HogFlowScheduleService({
+                ...(service as any).config,
+                INTERNAL_API_BASE_URL: 'http://127.0.0.1:1',
             })
 
-            expect(await service.pollAndDispatch()).toBe(false)
+            expect(await unreachable.pollAndDispatch()).toBe(false)
         })
 
-        it('returns false when fetch fails', async () => {
-            mockFetch.mockResolvedValue({
-                fetchResponse: null,
-                fetchError: new Error('Connection refused'),
-            })
+        it.each([
+            ['succeeds when Django answers within the scheduler request timeout', 1_000, true],
+            ['fails when Django answers after the scheduler request timeout', 50, false],
+        ])('%s', async (_desc, requestTimeoutMs, succeeded) => {
+            const slowPoller = createService({ HOGFLOW_SCHEDULER_REQUEST_TIMEOUT_MS: requestTimeoutMs })
+            nextAnswer = answer({ processed: ['schedule-1'], initialized: [], failed: [] }, 300)
 
-            expect(await service.pollAndDispatch()).toBe(false)
+            expect(await slowPoller.pollAndDispatch()).toBe(succeeded)
         })
     })
 
     describe('backoff', () => {
         it('returns false on failure and true on success', async () => {
-            mockFetch.mockResolvedValue({ fetchResponse: null, fetchError: new Error('down') })
+            nextAnswer = { status: 500, body: 'down' }
             expect(await service.pollAndDispatch()).toBe(false)
 
-            mockDjangoResponse({ processed: [], initialized: [], failed: [] })
+            nextAnswer = NOTHING_DUE
             expect(await service.pollAndDispatch()).toBe(true)
         })
 
@@ -110,7 +121,6 @@ describe('HogFlowScheduleService', () => {
 
     describe('lifecycle', () => {
         it('does not allow double start', () => {
-            mockDjangoResponse({ processed: [], initialized: [], failed: [] })
             const pollPromiseBefore = (service as any).pollPromise
             service.start()
             // Poll promise should be the same instance, not a new one

@@ -539,18 +539,24 @@ def _disk_free_gb() -> float | None:
         return None
 
 
-def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
-    # Agent-driven traffic (e.g. skills running metabase:query) otherwise
-    # swamps human usage stats.
+def invocation_identity_properties() -> dict[str, Any]:
     agent = _detect_agent()
     return {
         "actor": _detect_actor(agent),
         "agent": agent,
         "environment": _detect_environment(),
         "git_hook": _declared("HOGLI_GIT_HOOK") or None,
+        "is_agent": agent is not None,
+    }
+
+
+def _posthog_telemetry_properties(command: str | None = None) -> dict[str, Any]:
+    # Agent-driven traffic (e.g. skills running metabase:query) otherwise
+    # swamps human usage stats.
+    return {
+        **invocation_identity_properties(),
         "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
         "in_flox": os.environ.get("FLOX_ENV") is not None,
-        "is_agent": agent is not None,
         "is_worktree": (REPO_ROOT / ".git").is_file(),
         "worktree_tool": _worktree_tool(REPO_ROOT),
         "worktree_count": _worktree_count(),

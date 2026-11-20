@@ -5,8 +5,11 @@ import pytest
 import time_machine
 from unittest.mock import AsyncMock, call, patch
 
+import httpx
+from anthropic import BadRequestError
 from fakeredis import FakeAsyncRedis
 from redis.exceptions import ConnectionError
+from temporalio.exceptions import ApplicationError
 
 from products.signals.backend.system_one_decision import SignalsDecision
 from products.signals.backend.system_one_prompts import DEFAULT_SYSTEM_ONE_MODEL
@@ -103,6 +106,27 @@ async def test_safety_filter_keeps_forged_delimiters_inside_the_block() -> None:
     assert prompt.endswith("\n</signal>")
     assert "&lt;/signal>" in prompt
     assert prompt.index("Source: github / issue") < prompt.index("<signal>")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("usage_limited", [True, False])
+async def test_provider_usage_limit_skips_activity_retries_without_dropping_signal(usage_limited: bool) -> None:
+    message = "Request refused: specified API usage limits." if usage_limited else "Request refused: invalid model."
+    error = BadRequestError(
+        message,
+        response=httpx.Response(400, request=httpx.Request("POST", "https://example.com/messages")),
+        body={"error": {"type": "internal_error", "message": message}},
+    )
+    with patch(f"{MODULE_PATH}.call_llm", side_effect=error):
+        with pytest.raises(ApplicationError if usage_limited else BadRequestError) as raised:
+            await safety_filter_activity(SafetyFilterInput(team_id=None, description="A sample finding"))
+
+    if usage_limited:
+        assert isinstance(raised.value, ApplicationError)
+        assert raised.value.type == "SafetyFilterProviderUsageLimit"
+        assert raised.value.non_retryable is True
+    else:
+        assert raised.value is error
 
 
 @pytest.mark.asyncio

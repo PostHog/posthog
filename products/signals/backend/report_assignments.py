@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from functools import partial
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from django.db import transaction
 from django.utils import timezone
@@ -46,9 +46,13 @@ from products.signals.backend.report_claims import (
     get_active_claim,
     is_claim_of_person,
     is_claim_of_task_creator,
+    responsible_user,
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.tasks.backend.facade import api as tasks_facade
+
+if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import ImplementationPr
 
 logger = structlog.get_logger(__name__)
 
@@ -418,7 +422,28 @@ def sync_task_pull_request_to_assignments(
         return len(reports)
 
 
-def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged_at: datetime | None = None) -> None:
+def _pr_work_owner(report: SignalReport, prs: Sequence[ImplementationPr]) -> User | None:
+    """The person behind the pull request work: the claim holder, else who attached a PR, else who started its task."""
+    claim = get_active_claim(team_id=report.team_id, report_id=report.id)
+    if claim is not None and (user := responsible_user(claim)) is not None:
+        return user
+    for pr in prs:
+        if pr.attached_by_user is not None:
+            return pr.attached_by_user
+    creators = tasks_facade.get_task_creator_ids([pr.task_id for pr in prs if pr.task_id], [report.team_id])
+    for pr in prs:
+        if pr.task_id and (creator_id := creators.get(pr.task_id)) is not None:
+            return User.objects.filter(id=creator_id).first()
+    return None
+
+
+def _apply_pr_report_state(
+    report: SignalReport,
+    pr_state: str | None,
+    *,
+    merged_at: datetime | None = None,
+    prs: Sequence[ImplementationPr] = (),
+) -> None:
     target = None
     if pr_state == SignalReportAssignment.PrState.MERGED:
         target = SignalReport.Status.RESOLVED
@@ -434,6 +459,8 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
         SignalReport.Status.MONITORING,
     }:
         return
+    # The transition stays a system one. The owner is credited only in the status-change analytics.
+    owner = _pr_work_owner(report, prs)
     try:
         if target == SignalReport.Status.RESOLVED:
             complete_implementation(
@@ -441,6 +468,7 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
                 report_id=report.id,
                 monitoring_started_at=merged_at,
                 attribution=ArtefactAttribution.system(),
+                credited_user=owner,
                 from_pr_merge=True,
             )
             report.refresh_from_db()
@@ -457,6 +485,7 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
     # GitHub already reports this pull request as closed or merged. Without this marker the
     # dismissal receiver queues a redundant close for every report that shares the pull request.
     report._status_from_pr_state = True  # type: ignore[attr-defined]
+    report._credited_user = owner  # type: ignore[attr-defined]
     with transaction.atomic():
         report.save(update_fields=updated_fields)
         if target == SignalReport.Status.SUPPRESSED:
@@ -479,6 +508,32 @@ def _claim_holder(claim: ReportClaim) -> ArtefactAttribution:
     if claim.actor_user_id is not None:
         return ArtefactAttribution.from_user(claim.actor_user_id)
     return ArtefactAttribution.system()
+
+
+def _all_pull_requests_attached(report: SignalReport, details: list[PullRequestDetails]) -> bool:
+    existing_prs = set(
+        SignalReportArtefact.objects.filter(
+            team_id=report.team_id, report_id=report.id, pull_request__isnull=False
+        ).values_list("pull_request__repository", "pull_request__number")
+    )
+    return all((pr.repository, pr.number) in existing_prs for pr in details)
+
+
+def _repeats_attach_under_ended_claim(
+    report: SignalReport, claim_id: str, actor: ArtefactAttribution, details: list[PullRequestDetails]
+) -> bool:
+    """Whether the call only repeats pull requests already attached under a claim that has ended.
+
+    Dismissing releases the claim, so an agent that retries its attach after the dismissal still names the old claim.
+    """
+    if not details or report.effective_status in CLAIMABLE_REPORT_STATUSES:
+        return False
+    claim = SignalReportArtefact.objects.filter(
+        team_id=report.team_id, report_id=report.id, id=claim_id, type="work_claim"
+    ).first()
+    if claim is None or not actor_works_under_claim(claim_from_artefact(claim), actor):
+        return False
+    return _all_pull_requests_attached(report, details)
 
 
 def claim_report(
@@ -517,35 +572,42 @@ def claim_report(
         include_pull_request = bool(details) or actor.task_id is not None
         before = assignment_snapshot(locked_report, assignment, include_pull_request=include_pull_request)
         if claim_id and (assignment is None or str(assignment.claim_id) != claim_id):
+            if not release and _repeats_attach_under_ended_claim(locked_report, claim_id, actor, details):
+                return None
             raise ReportClaimConflict("This claim is no longer active.")
-        if claim_id and assignment is not None and not release and not actor_works_under_claim(assignment, actor):
+        if (
+            claim_id
+            and assignment is not None
+            and not release
+            and not actor_works_under_claim(assignment, actor, user_id=user.id)
+        ):
             raise ReportClaimConflict("This claim belongs to another actor.")
 
         if release:
             if assignment is None:
                 return None
-            if assignment.actor_kind and not actor_can_release_claim(assignment, actor):
+            if assignment.actor_kind and not actor_can_release_claim(assignment, actor, user_id=user.id):
                 raise ReportClaimConflict("Only the current assignee can release this report.")
             release_claim(assignment, actor)
             assignment = None
         else:
             report_status = locked_report.effective_status
             if report_status not in CLAIMABLE_REPORT_STATUSES:
-                existing_prs = set(
-                    SignalReportArtefact.objects.filter(
-                        team_id=report.team_id, report_id=report.id, pull_request__isnull=False
-                    ).values_list("pull_request__repository", "pull_request__number")
-                )
                 if (
                     not takeover
                     and assignment is not None
-                    and actor_works_under_claim(assignment, actor)
-                    and all((pr.repository, pr.number) in existing_prs for pr in details)
+                    and actor_works_under_claim(assignment, actor, user_id=user.id)
+                    and _all_pull_requests_attached(locked_report, details)
                 ):
                     return assignment
                 raise ReportClaimConflict(f"Reports with status '{report_status}' cannot be claimed.")
             took_over = False
-            if assignment is not None and not actor_works_under_claim(assignment, actor):
+            # Another actor of the claim holder resumes their claim, unless it asks to take it over, as when a
+            # person turns their agent's claim into their own.
+            if assignment is not None and (
+                not actor_works_under_claim(assignment, actor, user_id=user.id)
+                or (takeover and not actor_owns_claim(assignment, actor))
+            ):
                 if takeover_claim_id and str(assignment.claim_id) != takeover_claim_id:
                     raise ReportClaimConflict("The report's claim changed. Reload the report and try again.")
                 if not takeover:
@@ -571,6 +633,12 @@ def claim_report(
                 assignment = create_claim(locked_report, actor)
                 if on_new_claim is not None:
                     transaction.on_commit(partial(on_new_claim, takeover=took_over))
+            elif actor.task_id:
+                claim_artefact = SignalReportArtefact.objects.filter(
+                    team_id=report.team_id, id=assignment.claim_id
+                ).first()
+                if claim_artefact is not None:
+                    _associate_task_with_claim(locked_report, actor.task_id, claim_artefact)
 
         for pr_details in details:
             link_pull_request(
