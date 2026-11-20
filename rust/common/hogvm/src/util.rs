@@ -6,6 +6,7 @@ use regex::{Regex, RegexBuilder};
 use serde_json::Value;
 
 use crate::{
+    context::OrderedJson,
     error::VmError,
     values::{HogValue, Num},
     vm::HogVM,
@@ -15,7 +16,10 @@ use crate::{
 // one, and rule patterns are constant across the events they run on — so compile once and reuse.
 // The cache is bounded so dynamically constructed patterns can't grow it without limit, and global
 // (rather than per-VM) so a pattern is compiled at most once fleet-wide instead of once per worker.
-static REGEX_CACHE: Lazy<Cache<(String, bool), Arc<Regex>>> = Lazy::new(|| Cache::new(8192));
+static REGEX_CACHE: Lazy<RegexCache> = Lazy::new(|| RegexCache {
+    cache: Cache::new(8192),
+    compiled_limit: None,
+});
 
 // Patterns longer than this are compiled fresh on every call instead of being cached. A Hog program
 // can build a regex from event properties, so without this an attacker could ingest many unique
@@ -23,56 +27,100 @@ static REGEX_CACHE: Lazy<Cache<(String, bool), Arc<Regex>>> = Lazy::new(|| Cache
 // Real rule patterns are far shorter than this.
 const MAX_CACHEABLE_PATTERN_LEN: usize = 1024;
 
-fn compiled_regex(pattern: &str, case_insensitive: bool) -> Result<Arc<Regex>, VmError> {
-    let compile = || {
-        RegexBuilder::new(pattern)
-            .case_insensitive(case_insensitive)
-            .build()
-            .map(Arc::new)
-            .map_err(|e| VmError::InvalidRegex(pattern.to_string(), e.to_string()))
-    };
+pub struct RegexCache {
+    cache: Cache<(String, bool), Arc<Regex>>,
+    compiled_limit: Option<usize>,
+}
 
-    if pattern.len() > MAX_CACHEABLE_PATTERN_LEN {
-        return compile();
+impl RegexCache {
+    /// For a host that runs untrusted programs: a short pattern can compile to megabytes, so one past `compiled_limit` bytes is compiled on every call and never kept.
+    pub fn bounded(entries: usize, compiled_limit: usize) -> Self {
+        Self {
+            cache: Cache::new(entries),
+            compiled_limit: Some(compiled_limit),
+        }
     }
 
-    // `get_or_insert_with` computes at most once per key even under concurrent first access, so two
-    // threads racing the same cold pattern don't both compile, and a failed compile isn't cached.
-    REGEX_CACHE.get_or_insert_with(&(pattern.to_owned(), case_insensitive), compile)
-}
+    pub(crate) fn global() -> &'static Self {
+        &REGEX_CACHE
+    }
 
-pub fn like(
-    val: impl AsRef<str>,
-    pattern: impl AsRef<str>,
-    case_sensitive: bool,
-) -> Result<bool, VmError> {
-    let pattern = like_to_regex(pattern.as_ref());
-    regex_match(val, pattern, case_sensitive)
-}
+    pub fn contains(&self, pattern: &str, case_insensitive: bool) -> bool {
+        self.cache
+            .get(&(pattern.to_owned(), case_insensitive))
+            .is_some()
+    }
 
-pub fn regex_match(
-    val: impl AsRef<str>,
-    pattern: impl AsRef<str>,
-    case_sensitive: bool,
-) -> Result<bool, VmError> {
-    let regex = compiled_regex(pattern.as_ref(), !case_sensitive)?;
-    Ok(regex.is_match(val.as_ref()))
-}
+    fn compiled(&self, pattern: &str, case_insensitive: bool) -> Result<Arc<Regex>, VmError> {
+        let compile = |limit: Option<usize>| {
+            let mut builder = RegexBuilder::new(pattern);
+            builder.case_insensitive(case_insensitive);
+            if let Some(limit) = limit {
+                builder.size_limit(limit).dfa_size_limit(limit);
+            }
+            builder.build().map(Arc::new)
+        };
+        let invalid = |e: regex::Error| VmError::InvalidRegex(pattern.to_string(), e.to_string());
 
-pub fn regex_extract(
-    haystack: impl AsRef<str>,
-    pattern: impl AsRef<str>,
-) -> Result<String, VmError> {
-    let regex = compiled_regex(pattern.as_ref(), false)?;
-    let Some(captures) = regex.captures(haystack.as_ref()) else {
-        return Ok(String::new());
-    };
-    let result = if regex.captures_len() > 1 {
-        captures.get(1).map(|m| m.as_str()).unwrap_or("")
-    } else {
-        captures.get(0).map(|m| m.as_str()).unwrap_or("")
-    };
-    Ok(result.to_string())
+        if pattern.len() > MAX_CACHEABLE_PATTERN_LEN {
+            return compile(None).map_err(invalid);
+        }
+        let key = (pattern.to_owned(), case_insensitive);
+        let Some(limit) = self.compiled_limit else {
+            // `get_or_insert_with` computes at most once per key under concurrent first access, and a failed compile isn't cached.
+            return self
+                .cache
+                .get_or_insert_with(&key, || compile(None).map_err(invalid));
+        };
+        if let Some(hit) = self.cache.get(&key) {
+            return Ok(hit);
+        }
+        match compile(Some(limit)) {
+            Ok(regex) => {
+                self.cache.insert(key, regex.clone());
+                Ok(regex)
+            }
+            Err(regex::Error::CompiledTooBig(_)) => compile(None).map_err(invalid),
+            Err(error) => Err(invalid(error)),
+        }
+    }
+
+    pub(crate) fn like(
+        &self,
+        val: impl AsRef<str>,
+        pattern: impl AsRef<str>,
+        case_sensitive: bool,
+    ) -> Result<bool, VmError> {
+        let pattern = like_to_regex(pattern.as_ref());
+        self.regex_match(val, pattern, case_sensitive)
+    }
+
+    pub(crate) fn regex_match(
+        &self,
+        val: impl AsRef<str>,
+        pattern: impl AsRef<str>,
+        case_sensitive: bool,
+    ) -> Result<bool, VmError> {
+        let regex = self.compiled(pattern.as_ref(), !case_sensitive)?;
+        Ok(regex.is_match(val.as_ref()))
+    }
+
+    pub(crate) fn regex_extract(
+        &self,
+        haystack: impl AsRef<str>,
+        pattern: impl AsRef<str>,
+    ) -> Result<String, VmError> {
+        let regex = self.compiled(pattern.as_ref(), false)?;
+        let Some(captures) = regex.captures(haystack.as_ref()) else {
+            return Ok(String::new());
+        };
+        let result = if regex.captures_len() > 1 {
+            captures.get(1).map(|m| m.as_str()).unwrap_or("")
+        } else {
+            captures.get(0).map(|m| m.as_str()).unwrap_or("")
+        };
+        Ok(result.to_string())
+    }
 }
 
 fn like_to_regex(pattern: &str) -> String {
@@ -147,7 +195,7 @@ pub fn get_json_nested<'h>(
                 let idx = match raw {
                     0 => return Ok(None),
                     r if r > 0 && r <= len => (r - 1) as usize,
-                    r if r < 0 && -r <= len => (len + r) as usize,
+                    r if r < 0 && r.unsigned_abs() <= len as u64 => (len + r) as usize,
                     _ => return Ok(None),
                 };
                 let Some(found) = values.get(idx) else {
@@ -170,9 +218,62 @@ pub fn get_json_nested<'h>(
     Ok(None)
 }
 
+pub fn get_ordered_nested<'h>(
+    haystack: &'h OrderedJson,
+    mut chain: &[HogValue],
+    vm: &HogVM,
+) -> Result<Option<&'h OrderedJson>, VmError> {
+    let mut current = haystack;
+    while let Some(first) = chain.first() {
+        let next_key = first.deref(&vm.heap)?;
+        current = match current {
+            OrderedJson::Array(values) => {
+                let key: &Num = next_key.try_as()?;
+                if key.is_float() {
+                    return Err(VmError::InvalidIndex);
+                }
+                let raw = key.to_integer();
+                let len = values.len() as i64;
+                let idx = match raw {
+                    r if r > 0 && r <= len => (r - 1) as usize,
+                    r if r < 0 && r.unsigned_abs() <= len as u64 => (len + r) as usize,
+                    _ => return Ok(None),
+                };
+                &values[idx]
+            }
+            OrderedJson::Object(entries) => {
+                let key: &str = next_key.try_as()?;
+                match entries.iter().find(|(k, _)| k == key) {
+                    Some((_, v)) => v,
+                    None => return Ok(None),
+                }
+            }
+            _ => return Ok(None),
+        };
+        chain = &chain[1..];
+    }
+    Ok(Some(current))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn like(val: &str, pattern: &str, case_sensitive: bool) -> Result<bool, VmError> {
+        RegexCache::global().like(val, pattern, case_sensitive)
+    }
+
+    fn regex_match(val: &str, pattern: &str, case_sensitive: bool) -> Result<bool, VmError> {
+        RegexCache::global().regex_match(val, pattern, case_sensitive)
+    }
+
+    fn regex_extract(haystack: &str, pattern: &str) -> Result<String, VmError> {
+        RegexCache::global().regex_extract(haystack, pattern)
+    }
+
+    fn compiled_regex(pattern: &str, case_insensitive: bool) -> Result<Arc<Regex>, VmError> {
+        RegexCache::global().compiled(pattern, case_insensitive)
+    }
 
     #[test]
     fn test_basic_matching() {

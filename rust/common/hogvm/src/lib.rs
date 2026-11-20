@@ -18,6 +18,8 @@ mod vm;
 
 // Execution context
 pub use context::ExecutionContext;
+pub use context::OrderedJson;
+pub use util::RegexCache;
 
 // Programs and modules
 pub use program::ExportedFunction;
@@ -42,6 +44,7 @@ pub use vm::execute_resumable;
 pub use vm::resume;
 
 // Canonical value printing (the `print(...)` oracle), used by the parity harness
+pub use print::assert_native_arguments_fit;
 pub use print::escape_string;
 pub use print::print_hog_string_output;
 pub use print::print_hog_value;
@@ -66,6 +69,8 @@ pub use values::HogValue;
 pub use values::LocalCallable;
 pub use values::Num;
 pub use values::NumOp;
+
+pub use memory::HeapReference;
 
 // Errors
 pub use error::VmError;

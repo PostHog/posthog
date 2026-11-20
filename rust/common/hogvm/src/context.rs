@@ -5,11 +5,24 @@ use std::sync::Arc;
 
 use crate::{
     error::VmError,
+    memory::HeapReference,
     program::{ExportedFunction, Module, Program, Token},
     stl::{hog_stl_map, stl_map, NativeFunction},
-    vm::HogVM,
-    HogLiteral, HogValue,
+    util::RegexCache,
+    vm::{HogVM, MAX_JSON_SERDE_DEPTH},
+    HogLiteral, HogValue, Num,
 };
+
+/// A global whose objects keep their key order, which `serde_json` does not. Keys must be unique.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OrderedJson {
+    Null,
+    Bool(bool),
+    Number(Num),
+    String(Arc<str>),
+    Array(Vec<OrderedJson>),
+    Object(Vec<(String, OrderedJson)>),
+}
 
 /// Function names that always suspend, mirroring the reference VM's `ASYNC_STL`. These are async
 /// regardless of host configuration; `with_async_functions` registers additional ones.
@@ -51,6 +64,7 @@ pub struct ExecutionContext {
     /// the realtime-cohort evaluator needs. Set via [`ExecutionContext::with_coercing_comparisons`].
     pub(crate) coerce_comparisons: bool,
     pub(crate) boolean_text_equality: bool,
+    pub(crate) regex_cache: Option<Arc<RegexCache>>,
     // `Arc`-shared so cloning a default context is a refcount bump, not a deep copy; mutators
     // copy-on-write via `Arc::make_mut`.
     native_fns: Arc<HashMap<String, NativeFunction>>,
@@ -66,6 +80,8 @@ pub struct ExecutionContext {
     // When set, the VM records a per-opcode execution trace (the reference's `telemetry`), surfaced
     // in the snapshot for the playground/debugger. Off by default (it has a per-step cost).
     pub(crate) collect_telemetry: bool,
+    pub(crate) ordered_globals: Option<OrderedJson>,
+    pub(crate) raw_result: bool,
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -92,11 +108,14 @@ impl ExecutionContext {
             max_steps,
             coerce_comparisons: false,
             boolean_text_equality: false,
+            regex_cache: None,
             native_fns: Arc::new(native_fns),
             symbol_table: Arc::new(flatten_modules(&modules)),
             async_fns: HashSet::new(),
             max_async_steps: 0,
             collect_telemetry: false,
+            ordered_globals: None,
+            raw_result: false,
         }
     }
 
@@ -114,11 +133,14 @@ impl ExecutionContext {
             max_steps: 10_000,
             coerce_comparisons: false,
             boolean_text_equality: false,
+            regex_cache: None,
             native_fns: DEFAULT_NATIVE_FNS.clone(),
             symbol_table: DEFAULT_SYMBOL_TABLE.clone(),
             async_fns: HashSet::new(),
             max_async_steps: 0,
             collect_telemetry: false,
+            ordered_globals: None,
+            raw_result: false,
         }
     }
 
@@ -147,6 +169,22 @@ impl ExecutionContext {
         self.globals = globals;
     }
 
+    /// The resumable path does not carry them into a snapshot.
+    pub fn with_ordered_globals(mut self, globals: OrderedJson) -> Self {
+        self.ordered_globals = Some(globals);
+        self
+    }
+
+    pub fn set_ordered_globals(&mut self, globals: OrderedJson) {
+        self.ordered_globals = Some(globals);
+    }
+
+    /// For a host that steps the VM and calls `HogVM::take_result`. `sync_execute` returns null with it.
+    pub fn with_raw_result(mut self) -> Self {
+        self.raw_result = true;
+        self
+    }
+
     /// Swap the program in place to reuse one context across many programs (e.g. catalog conditions).
     pub fn set_program(&mut self, program: Program) {
         self.program = program;
@@ -163,6 +201,11 @@ impl ExecutionContext {
     /// Compare a boolean with a string as the boolean's text, case-sensitively, the way ClickHouse
     /// compares a property it reads as text. Off by default because the Node shadow binding must
     /// match the TS VM, where `false == "variant"` is true.
+    pub fn with_regex_cache(mut self, cache: Arc<RegexCache>) -> Self {
+        self.regex_cache = Some(cache);
+        self
+    }
+
     pub fn with_boolean_text_equality(mut self) -> Self {
         self.boolean_text_equality = true;
         self
@@ -251,7 +294,7 @@ impl ExecutionContext {
         let Some(native_fn) = self.native_fns.get(name) else {
             return Err(VmError::UnknownFunction(name.to_string()));
         };
-        let emplaced = walk_emplacing(vm, native_fn(vm, args)?)?;
+        let emplaced = walk_emplacing(vm, native_fn(vm, args)?, &mut HashSet::new(), 0)?;
         vm.push_stack(emplaced)
     }
 
@@ -312,18 +355,34 @@ impl std::fmt::Display for Symbol {
     }
 }
 
+const MAX_EMPLACE_DEPTH: usize = 2 * MAX_JSON_SERDE_DEPTH;
+
 /// Walk a HogValue and its children recursively to ensure all indexable types (arrays and objects) are heap allocated,
 /// and then return the now-properly-allocated value. This is useful if, for example, you've constructed a HogValue
 /// from a JSON object without mutable access to a VM's heap, and now need to push it into the VM's memory space for the
 /// program to use.
 ///
 /// This is exposed as a utility, but generally ExecutionContext::execute_native_function_call should do what you need.
-fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> {
+fn walk_emplacing(
+    vm: &mut HogVM,
+    value: HogValue,
+    visited: &mut HashSet<HeapReference>,
+    depth: usize,
+) -> Result<HogValue, VmError> {
+    // The walk recurses on the thread's stack, and a stack overflow ends the process.
+    if depth > MAX_EMPLACE_DEPTH {
+        return Err(VmError::OutOfResource(
+            "native result nesting depth".to_string(),
+        ));
+    }
     // Chase the pointer, if this is one, and clone out of it. We hold on to the original pointer
     // so we can swap the walked value back into it after we're done.
     let (literal, existing_location) = match value {
         HogValue::Lit(lit) => (lit, None),
         HogValue::Ref(ptr) => {
+            if !visited.insert(ptr) {
+                return Ok(ptr.into());
+            }
             let val = vm.heap.get(ptr)?.clone();
             (val, Some(ptr))
         }
@@ -349,8 +408,10 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
             let emplaced_arr = if arr.iter().all(is_flat_literal) {
                 rebuild(arr)
             } else {
-                let walked: Result<Vec<HogValue>, _> =
-                    arr.into_iter().map(|i| walk_emplacing(vm, i)).collect();
+                let walked: Result<Vec<HogValue>, _> = arr
+                    .into_iter()
+                    .map(|i| walk_emplacing(vm, i, visited, depth + 1))
+                    .collect();
                 rebuild(walked?)
             };
 
@@ -370,7 +431,7 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
             // Flat children take the `_` arm of the recursive call and come straight back.
             for v in obj.values_mut() {
                 let taken = std::mem::replace(v, HogValue::Lit(HogLiteral::Null));
-                *v = walk_emplacing(vm, taken)?;
+                *v = walk_emplacing(vm, taken, visited, depth + 1)?;
             }
             let emplaced_obj = HogLiteral::Object(obj);
 
