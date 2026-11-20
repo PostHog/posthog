@@ -27,8 +27,8 @@
 // list in `sources` once and answers one `unreadable` list for it, and one container per item.
 // `prepare`, `prepare_maps` and `pack_native` write symbol sets to files for hog to send and let
 // their pairs, maps and binaries go. The others stay in memory until hog closes stdin, which ends
-// the worker. A dry run sends null for `folder` and `out`, and the worker then writes no file and
-// answers a null `path`. PROTOCOL changes whenever a request or an answer does, because hog and
+// the worker. A dry run sends a null `folder`, and the worker then writes no file and answers a
+// null `path`. PROTOCOL changes whenever a request or an answer does, because hog and
 // the worker ship as two files, and WORKER_PROTOCOL in hog/src/error-tracking/worker.ts must
 // equal it.
 
