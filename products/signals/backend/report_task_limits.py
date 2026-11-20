@@ -14,8 +14,8 @@ The payload is keyed by region, because internal flags are shared across US and 
             "users": {"<user uuid>": {"per_day": 300}}},
      "EU": {}}
 
-Each field resolves on its own, most specific entry first: user, team (the request's team id, then its
-parent project id), organization, `default`, then the code constants. Only the allowed number changes; the
+Each field resolves on its own, most specific entry first: user, the request's team id, its parent project
+id, organization, `default`, then the code constants. Only the allowed number changes; the
 counter stays per user, so a raised project limit applies to the user only in that project.
 """
 
@@ -27,9 +27,6 @@ from enum import StrEnum
 from django.conf import settings
 
 from prometheus_client import Counter
-from rest_framework.exceptions import Throttled
-from rest_framework.request import Request
-from rest_framework.views import APIView
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -75,33 +72,13 @@ REPORT_TASK_RUNS_THROTTLED = Counter(
 )
 
 
-def report_task_run_limit_for_request(request: Request, view: APIView, window: ReportTaskRunWindow) -> int:
-    """The limit that applies to the requesting user in the project the request is made in."""
-    try:
-        team = getattr(view, "team", None)
-        user_uuid = getattr(request.user, "uuid", None)
-        limits = resolve_report_task_run_limits(
-            user_uuid=str(user_uuid) if user_uuid else None,
-            team_id=getattr(team, "id", None),
-            parent_team_id=getattr(team, "parent_team_id", None),
-            organization_id=str(team.organization_id) if team is not None else None,
-        )
-    except Exception as error:
-        capture_exception(error)
-        limits = ReportTaskRunLimits()
-    return limits.for_window(window)
-
-
-def report_task_run_throttled(window: ReportTaskRunWindow, limit: int, wait: float | None) -> Throttled:
-    """The 429 to raise when a limit is reached. It names the limit, so a person knows what to ask to raise."""
+def report_task_run_refused(window: ReportTaskRunWindow, limit: int) -> str:
+    """Counts a refused run and returns the 429 detail. It names the limit, so a person knows what to ask to raise."""
     REPORT_TASK_RUNS_THROTTLED.labels(window=window.value).inc()
     period = "an hour" if window == ReportTaskRunWindow.HOUR else "a day"
-    return Throttled(
-        wait=wait,
-        detail=(
-            f"You've reached your limit of {limit} report runs {period}. "
-            "Try again later, or contact support to raise the limit."
-        ),
+    return (
+        f"You've reached your limit of {limit} report runs {period}. "
+        "Try again later, or contact support to raise the limit."
     )
 
 
@@ -115,7 +92,8 @@ def resolve_report_task_run_limits(
     """Never raises. Any failure falls back to the code constants, so the flag cannot block or unblock a request."""
     try:
         return limits_from_payload(
-            read_flag_payload(REPORT_TASK_LIMITS_FLAG, REPORT_TASK_LIMITS_DISTINCT_ID),
+            # Local evaluation only: this runs on every run attempt, and a flag-service call would hold the worker.
+            read_flag_payload(REPORT_TASK_LIMITS_FLAG, REPORT_TASK_LIMITS_DISTINCT_ID, only_evaluate_locally=True),
             region=settings.CLOUD_DEPLOYMENT,
             user_uuid=user_uuid,
             team_ids=[team_id, parent_team_id],
@@ -139,9 +117,9 @@ def limits_from_payload(
         return ReportTaskRunLimits()
 
     layers = [
-        _entry(region_config, "users", [user_uuid]),
-        _entry(region_config, "teams", team_ids),
-        _entry(region_config, "organizations", [organization_id]),
+        _entry(region_config, "users", user_uuid),
+        *(_entry(region_config, "teams", team_id) for team_id in team_ids),
+        _entry(region_config, "organizations", organization_id),
         region_config.get("default"),
     ]
     resolved: dict[str, int] = {}
@@ -151,14 +129,11 @@ def limits_from_payload(
     return ReportTaskRunLimits(**resolved)
 
 
-def _entry(region_config: Mapping, key: str, ids: Iterable[object]) -> object:
+def _entry(region_config: Mapping, key: str, entry_id: object) -> object:
     entries = region_config.get(key)
-    if not isinstance(entries, Mapping):
+    if entry_id is None or not isinstance(entries, Mapping):
         return None
-    for entry_id in ids:
-        if entry_id is not None and isinstance(entry := entries.get(str(entry_id)), Mapping):
-            return entry
-    return None
+    return entries.get(str(entry_id))
 
 
 def _positive_int(layer: object, field: str) -> int | None:

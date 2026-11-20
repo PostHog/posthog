@@ -63,6 +63,7 @@ class TestLimitsFromPayload(SimpleTestCase):
     @parameterized.expand(
         [
             ("parent_project_entry", [9, 5], ReportTaskRunLimits(per_hour=40, per_day=200)),
+            ("team_entry_sets_one_field", [7, 5], ReportTaskRunLimits(per_hour=60, per_day=200)),
             ("organization_entry", [9, None], ReportTaskRunLimits(per_hour=30, per_day=150)),
         ]
     )

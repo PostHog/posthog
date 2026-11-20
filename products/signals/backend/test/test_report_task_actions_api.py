@@ -618,6 +618,20 @@ class TestReportTaskActionsAPI(_ReportActionFixtures):
         ]
         assert responses[2].json()["detail"].startswith("You've reached your limit of 2 report runs a day.")
 
+    def test_a_run_refused_by_both_windows_reports_the_daily_wait(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        reports = [self._report(prompts=["Why does checkout fail?"]) for _ in range(2)]
+
+        with report_task_run_limits_payload({"default": {"per_hour": 1, "per_day": 1}}):
+            responses = [
+                self._run(report, {"action": "suggested_prompt", "suggested_prompt_index": 0}) for report in reports
+            ]
+
+        assert responses[1].status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert responses[1].json()["detail"].startswith("You've reached your limit of 1 report runs a day.")
+        assert int(responses[1]["Retry-After"]) > 60 * 60
+
 
 SCOUT_SKILL = "signals-scout-ci-watch"
 

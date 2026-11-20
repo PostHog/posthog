@@ -1717,13 +1717,15 @@ The `signal-report-task-limits` flag raises them with no deploy. The flag stays 
 }
 ```
 
-- **Precedence:** each field resolves on its own, most specific first: user, team, organization, `default`, then the code constants. A team entry is looked up by the request's team id and then by its parent project id.
+- **Precedence:** each field resolves on its own, most specific first: user, team, organization, `default`, then the code constants. The request's team id and its parent project id are separate team layers, so a field the team entry does not set comes from the parent project's entry.
 - **The counter stays per user.** Only the allowed number changes, and it is the number for the user in the project the request is made in, so a raised project limit does not raise the same person's limit in other projects. A raised limit applies on the next request with no cache reset.
 - **Bounds:** a value is clamped to `MAX_RUNS_PER_HOUR` / `MAX_RUNS_PER_DAY`. A value that is not a positive integer is ignored and the next layer applies.
 - **Fail safe:** a missing flag, an unreadable payload, a missing region or a malformed entry falls back to the code constants, and the exception is captured.
+- **Local evaluation only.** The payload is read from the locally evaluated flag definitions on every run attempt, with no request to the flags service.
 - **Scout runs keep the defaults.** A sandbox token has its own bucket per task, and its scout's daily cap still bounds it.
 
 The 429 detail names the limit that was reached (hourly or daily) and its current value.
+When both limits are reached, the detail names the one with the longest wait, and `Retry-After` carries that wait.
 The Prometheus counter `signals_report_task_runs_throttled` (label `window`) counts refused runs.
 
 ### Self-driving free trial
