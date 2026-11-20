@@ -3,19 +3,29 @@ name: Release hog
 # Releases hog the way release-cli.yml releases posthog-cli. A merged sampo changeset in
 # hog/.sampo/changesets/ starts this workflow, which asks for approval in Slack and in the hog-release
 # environment, then opens a release pull request with the version bump. Merging that pull request
-# deletes the changesets, which starts the workflow again: this time it builds, signs and publishes
-# the version in the hog-publish environment, which has no reviewers and admits only master. That one
-# approval in hog-release covers the release. See hog/README.md, "Releases".
+# writes the changelog and deletes the changesets, which starts the workflow again: this time it
+# builds, signs and publishes the version in the hog-publish environment, which has no reviewers and
+# admits only master. That one approval in hog-release covers the release. See hog/README.md,
+# "Releases".
 #
-# The file name of a changeset says when it releases. weekly-<name>.md, which the hog changeset workflow
-# also uses for MCP and catalog changes, waits for the weekly run, so those cost one approval a week.
-# Any other name, or a manual run, releases everything pending at once. sampo reads every front matter
-# line as a package and a bump, so the file name carries the timing.
+# The file name of a changeset says when it releases. weekly-<name>.md waits for the weekly run, so it
+# costs one approval a week. Any other name, or a manual run, releases everything pending at once. sampo
+# reads every front matter line as a package and a bump, so the file name carries the timing.
+#
+# Every release builds what master has, so it ships every change to code compiled into hog since the last
+# release, changeset or not. The gap job finds those changes, and when the tool catalog can't deliver them
+# and no changeset names their pull requests, prepare-release adds one changeset that lists them. That
+# changeset exists only in the release run, which consumes it, so it never lands on master. A weekly or
+# manual run releases for it alone, and the pull requests that changed compiled files own the release like
+# the ones that added changesets.
 on:
     push:
         branches: [master]
         paths:
             - 'hog/.sampo/changesets/*.md'
+            # A release for compiled changes alone deletes no changeset, so its merge starts the
+            # workflow through the changelog it writes.
+            - 'hog/CHANGELOG.md'
     schedule:
         - cron: '0 14 * * 2'
     workflow_dispatch:
@@ -58,6 +68,11 @@ env:
         .github/actions/pnpm-install
         .github/actions/setup-pnpm
         .github/workflows/release-hog.yml
+    # The git blob of the first hog/release/check-approvers.sh that takes --files. The approver checks run
+    # the copy from the commit they start at, so a pull request can't weaken the check of its own release.
+    # A copy from before --files counts only the pull requests that added changesets, so the checks run
+    # this blob instead. Being content-addressed, it can't change without a change to this workflow.
+    COMPILED_OWNERS_CHECKER_BLOB: 32b0dc07ab07b27f472aa156ec67a4c51f0555e7
 
 jobs:
     check-changesets:
@@ -104,10 +119,175 @@ jobs:
                       echo "Every pending changeset is named weekly-<name>.md, so they wait for the weekly release"
                   fi
 
+    # Builds hog and the CLI library to learn which files they compile in, which takes running the
+    # repository's code and dependencies. So this job holds no secret and no write token, and passes what
+    # it finds on as outputs. It runs on the weekly and manual runs, which release for compiled changes
+    # alone, and before every release a changeset starts, because each release ships these changes and
+    # their pull requests own it. In the run a release pull request's merge starts, it waits for the tag
+    # that promote creates, so changesets that merged while that pull request waited start the next
+    # release from it.
+    gap:
+        name: Find what changed in hog since the last release
+        needs: [check-changesets, release, promote]
+        if: >-
+            always() && needs.check-changesets.result == 'success'
+            && (needs.release.outputs.is-release != 'true' || needs.promote.result == 'success')
+            && (github.event_name != 'push' || needs.check-changesets.outputs.release-now == 'true')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        outputs:
+            needed: ${{ steps.changeset.outputs.needed }}
+            bump: ${{ steps.gap.outputs.bump }}
+            changeset: ${{ steps.changeset.outputs.changeset }}
+            compiled-files: ${{ steps.gap.outputs.compiled-files }}
+        steps:
+            # The whole tree, so the check below can tell when the release build's sparse checkout misses a
+            # compiled file, and the history back to the last release.
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Find the last release
+              id: base
+              run: |
+                  set -euo pipefail
+                  last_tag="hog/v$(jq -r '.version' hog/package.json)"
+                  if ! base=$(git rev-parse -q --verify "refs/tags/$last_tag^{commit}"); then
+                      echo "::error::$last_tag, the tag of the last hog release, doesn't exist, so there is nothing to compare with. If that release is still publishing, re-run the failed jobs after it finishes."
+                      exit 1
+                  fi
+                  if ! git merge-base --is-ancestor "$base" HEAD; then
+                      echo "::error::$last_tag isn't on master"
+                      exit 1
+                  fi
+                  {
+                      echo "tag=$last_tag"
+                      echo "commit=$base"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter='hog...' install --frozen-lockfile
+
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: ${{ env.BUN_VERSION }}
+
+            # Both builds write a metafile listing every source file they compile in.
+            - name: Build hog and the CLI library
+              working-directory: hog
+              run: |
+                  pnpm run build:mcp
+                  bun build src/index.ts --target=bun --outdir "$RUNNER_TEMP/hog-bundle" --metafile=dist/hog.metafile.json
+
+            - name: Check what the catalog can't deliver
+              id: gap
+              working-directory: hog
+              env:
+                  BASE: ${{ steps.base.outputs.commit }}
+                  LAST_TAG: ${{ steps.base.outputs.tag }}
+              run: |
+                  set -euo pipefail
+                  result=$(bun release/catalog-gap.ts --base "$BASE")
+                  echo "$result" > "$RUNNER_TEMP/catalog-gap.json"
+                  echo "$result" | jq '{needsRelease, bump, reasons, outsideReleaseCheckout}'
+
+                  delimiter="files_$(openssl rand -hex 8)"
+                  {
+                      echo "bump=$(echo "$result" | jq -r '.bump')"
+                      echo "compiled-files<<$delimiter"
+                      echo "$result" | jq -r '.compiled[]'
+                      echo "$delimiter"
+                  } >> "$GITHUB_OUTPUT"
+
+                  {
+                      echo "### Compiled into hog since $LAST_TAG, and not in the tool catalog"
+                      echo "<pre>"
+                      echo "$result" | jq -r '.reasons[] | "\(.file): \(.why)" | gsub("[\\r\\n]"; " ") | @html'
+                      echo "</pre>"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            # The release build checks out only what its sparse checkout names, so a compiled file outside
+            # it fails the build after the release is approved and its pull request merged.
+            - name: Check the release build checks out every compiled file
+              run: |
+                  set -euo pipefail
+                  outside=$(jq -r '.outsideReleaseCheckout[]' "$RUNNER_TEMP/catalog-gap.json")
+                  if [ -n "$outside" ]; then
+                      echo "::error::hog compiles in files that the sparse checkout of the build job in .github/workflows/release-hog.yml leaves out, so the release build would fail. Add a pattern for each, and the path to HOG_SOURCE_PATHS:"
+                      echo "$outside"
+                      exit 1
+                  fi
+
+            # A pull request that added a changeset already has its line in the changelog, which covers the
+            # weekly-pr-<number>.md changesets CI used to add. Every other pull request that changed one of
+            # the files gets a line in one generated changeset.
+            - name: List the pull requests without a changeset
+              id: changeset
+              env:
+                  BASE: ${{ steps.base.outputs.commit }}
+                  LAST_TAG: ${{ steps.base.outputs.tag }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  if [ "$(jq -r '.needsRelease' "$RUNNER_TEMP/catalog-gap.json")" != true ]; then
+                      echo "needed=false" >> "$GITHUB_OUTPUT"
+                      echo "Nothing compiled into hog since $LAST_TAG needs a release"
+                      exit 0
+                  fi
+
+                  pathspecs=()
+                  while IFS= read -r path; do
+                      pathspecs+=(":(literal)$path")
+                  done < <(jq -r '.reasons[].file' "$RUNNER_TEMP/catalog-gap.json")
+                  changed=$(git log --reverse --format=%H "$BASE..HEAD" -- "${pathspecs[@]}")
+                  with_changeset=$(git log --no-renames --diff-filter=AM --format=%H "$BASE..HEAD" -- 'hog/.sampo/changesets/*.md')
+                  without=$(grep -vxF -f <(printf '%s\n' "$with_changeset") <<<"$changed" || true)
+                  if [ -z "$without" ]; then
+                      echo "needed=false" >> "$GITHUB_OUTPUT"
+                      echo "Every pull request that changed these files since $LAST_TAG added a changeset"
+                      exit 0
+                  fi
+
+                  # A squash merge's subject is the pull request title followed by (#<number>).
+                  lines=$(while read -r sha; do
+                      subject=$(git log -1 --format=%s "$sha")
+                      if [[ "$subject" =~ ^(.*)\ \(#([0-9]+)\)$ ]]; then
+                          printf -- '- [#%s](https://github.com/%s/pull/%s) %s\n' "${BASH_REMATCH[2]}" "$REPOSITORY" "${BASH_REMATCH[2]}" "${BASH_REMATCH[1]}"
+                      else
+                          printf -- '- [%s](https://github.com/%s/commit/%s) %s\n' "${sha:0:11}" "$REPOSITORY" "$sha" "$subject"
+                      fi
+                  done <<<"$without")
+
+                  delimiter="changeset_$(openssl rand -hex 8)"
+                  {
+                      echo "needed=true"
+                      echo "changeset<<$delimiter"
+                      echo "Changes built into hog since ${LAST_TAG#hog/}, from these pull requests:"
+                      echo
+                      echo "$lines"
+                      echo "$delimiter"
+                  } >> "$GITHUB_OUTPUT"
+                  {
+                      echo "### Pull requests the generated changeset lists"
+                      echo
+                      echo "$lines"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
     notify-approval-needed:
         name: Notify Slack - Approval Needed
-        needs: check-changesets
-        if: needs.check-changesets.outputs.release-now == 'true'
+        needs: [check-changesets, gap]
+        # always(), because gap's own needs include publishing jobs that are skipped when nothing publishes.
+        if: >-
+            always() && needs.gap.result == 'success'
+            && (needs.check-changesets.outputs.release-now == 'true' || needs.gap.outputs.needed == 'true')
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
@@ -136,6 +316,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
+                  COMPILED_FILES: ${{ needs.gap.outputs.compiled-files }}
               run: |
                   set -euo pipefail
                   last_tag="hog/v$(jq -r '.version' hog/package.json)"
@@ -144,11 +325,18 @@ jobs:
                   checker="$RUNNER_TEMP/check-approvers.sh"
                   gh api -H "Accept: application/vnd.github.raw" \
                       "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$base" >"$checker"
-                  if ! grep -q -- '--report' "$checker"; then
-                      echo "The approver check at $last_tag has no report mode, so the message names nobody"
-                      exit 0
+                  if ! grep -q -- '--files' "$checker"; then
+                      git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
                   fi
-                  bash "$checker" --report "$base" HEAD
+
+                  # The gap job ran repository code, so its list is checked before git reads it.
+                  files="$RUNNER_TEMP/compiled-files.txt"
+                  printf '%s\n' "$COMPILED_FILES" | sed '/^$/d' >"$files"
+                  if [ ! -s "$files" ] || grep -qvE '^[A-Za-z0-9._@+/-]+$' "$files"; then
+                      echo "::error::The gap job listed no compiled files, or names that aren't plain paths"
+                      exit 1
+                  fi
+                  bash "$checker" --report --files "$files" "$base" HEAD
 
             - name: Build Slack payload
               id: payload
@@ -183,10 +371,10 @@ jobs:
                           {type: "header", text: {type: "plain_text", text: "🚀 hog release approval needed", emoji: true}},
                           {type: "section", text: {type: "mrkdwn", text: "A hog release is ready for approval in `\($ENV.REPOSITORY)`."}}
                         ]
-                        + (if $ENV.PRS_MRKDWN != "" then [{type: "section", text: {type: "mrkdwn", verbatim: true, text: "*Changesets from:*\n\($ENV.PRS_MRKDWN | fit("\n"))"}}] else [] end)
+                        + (if $ENV.PRS_MRKDWN != "" then [{type: "section", text: {type: "mrkdwn", verbatim: true, text: "*Ships changes from:*\n\($ENV.PRS_MRKDWN | fit("\n"))"}}] else [] end)
                         + (if $ENV.OWNERS_MRKDWN != "" then [
                             {type: "section", text: {type: "mrkdwn", text: "⛔ *Cannot approve this release:* \($ENV.OWNERS_MRKDWN | fit(", "))"}},
-                            {type: "context", elements: [{type: "mrkdwn", text: "Whoever opened, merged or pushed commits to a pull request whose changeset this release ships can'"'"'t approve it."}]}
+                            {type: "context", elements: [{type: "mrkdwn", text: "Whoever opened, merged or pushed commits to a pull request this release ships, through a changeset or a change to code compiled into hog, can'"'"'t approve it."}]}
                           ] else [] end)
                         + (if $ENV.USER_GROUP != "" then [{type: "section", text: {type: "mrkdwn", text: "<!subteam^\($ENV.USER_GROUP)> Please review and approve the release."}}] else [] end)
                         + [{
@@ -218,9 +406,12 @@ jobs:
 
     prepare-release:
         name: Prepare hog release pull request
-        needs: [check-changesets, notify-approval-needed]
-        # always(), so a Slack outage doesn't stop the release, while slack_ts stays available.
-        if: always() && needs.check-changesets.outputs.release-now == 'true'
+        needs: [check-changesets, gap, notify-approval-needed]
+        # always(), so a Slack outage doesn't stop the release, while slack_ts stays available. The gap
+        # job lists the compiled files whose pull requests own the release, so nothing releases without it.
+        if: >-
+            always() && needs.gap.result == 'success'
+            && (needs.check-changesets.outputs.release-now == 'true' || needs.gap.outputs.needed == 'true')
         runs-on: ubuntu-24.04
         timeout-minutes: 30
         environment: hog-release
@@ -254,14 +445,18 @@ jobs:
               run: git pull --ff-only origin master
 
             # Nobody who opened, merged or pushed commits to a pull request that added one of the
-            # released changesets may approve the release. It runs before the releaser token exists. The
-            # range ends at the commit checked out here. The release job checks what merged after it,
-            # while the release pull request waited in the merge queue.
-            - name: Check approvers against the owners of the released changesets
+            # released changesets, or changed a file compiled into hog, may approve the release. It runs
+            # before the releaser token exists. The range ends at the commit checked out here, which can
+            # be newer than the one the gap job built: the compiled files it listed still name every
+            # change since, because a new file only compiles in through an edit to one already listed.
+            # The late-approvers job checks what merged after it, while the release pull request waited in
+            # the merge queue.
+            - name: Check approvers against the owners of the released changes
               id: range-guard
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
+                  COMPILED_FILES: ${{ needs.gap.outputs.compiled-files }}
               run: |
                   set -euo pipefail
 
@@ -290,10 +485,22 @@ jobs:
                       echo "::error::$last_tag has no hog/release/check-approvers.sh to run"
                       exit 1
                   fi
+                  if ! grep -q -- '--files' "$checker"; then
+                      echo "The approver check at $last_tag predates --files, so blob $COMPILED_OWNERS_CHECKER_BLOB runs instead"
+                      git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
+                  fi
                   chmod +x "$checker"
 
+                  # The gap job ran repository code, so its list is checked before git reads it.
+                  files="$RUNNER_TEMP/compiled-files.txt"
+                  printf '%s\n' "$COMPILED_FILES" | sed '/^$/d' >"$files"
+                  if [ ! -s "$files" ] || grep -qvE '^[A-Za-z0-9._@+/-]+$' "$files"; then
+                      echo "::error::The gap job listed no compiled files, or names that aren't plain paths"
+                      exit 1
+                  fi
+
                   mapfile -t approver_list <<<"$approvers"
-                  if ! "$checker" "$base" HEAD "${approver_list[@]}"; then
+                  if ! "$checker" --files "$files" "$base" HEAD "${approver_list[@]}"; then
                       echo "::error::Re-run the failed jobs and have someone else approve."
                       exit 1
                   fi
@@ -306,8 +513,28 @@ jobs:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they opened, merged or pushed commits to a pull request whose changeset this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
+                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they opened, merged or pushed commits to a pull request this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
                   emoji_reaction: 'no_entry'
+
+            # Written into this checkout only. sampo consumes it below, and the guard on the files the
+            # release changes accepts it because a consumed changeset leaves nothing behind, or moves to
+            # hog/.sampo/prerelease/ while the version is a prerelease.
+            - name: Add the changeset for compiled changes
+              id: compiled-changeset
+              if: needs.gap.outputs.needed == 'true'
+              env:
+                  BUMP: ${{ needs.gap.outputs.bump }}
+                  CHANGESET: ${{ needs.gap.outputs.changeset }}
+              run: |
+                  set -euo pipefail
+                  if [ "$BUMP" != patch ] && [ "$BUMP" != minor ]; then
+                      echo "::error::The gap job returned an unexpected bump, $BUMP"
+                      exit 1
+                  fi
+                  path="hog/.sampo/changesets/compiled-since-v$(jq -r '.version' hog/package.json).md"
+                  printf -- '---\nnpm/hog: %s\n---\n\n%s\n' "$BUMP" "$CHANGESET" >"$path"
+                  echo "path=$path" >> "$GITHUB_OUTPUT"
+                  cat "$path"
 
             - name: Get the hog releaser token
               id: app-token
@@ -396,6 +623,8 @@ jobs:
             - name: Check release changes
               id: check-changes
               if: steps.prepare-release.outputs.new-version != ''
+              env:
+                  GENERATED: ${{ steps.compiled-changeset.outputs.path }}
               run: |
                   changed_files=$(git status --porcelain --untracked-files=all | awk '{ print $NF }')
                   if [ -z "$changed_files" ]; then
@@ -410,10 +639,16 @@ jobs:
                       exit 1
                   fi
 
+                  # Committed, it would wait on master and release the same pull requests again.
+                  if [ -n "$GENERATED" ] && [ -e "$GENERATED" ]; then
+                      echo "::error::Sampo did not consume the changeset for compiled changes, $GENERATED"
+                      exit 1
+                  fi
+
                   echo "committed=true" >> "$GITHUB_OUTPUT"
 
             # master moves every few minutes, so only a hog changeset that landed during prep matters: it
-            # would miss this release. The release job's approver check covers every other merge.
+            # would miss this release. The late-approvers job checks every other merge.
             - name: Ensure no hog changeset landed during release prep
               if: steps.check-changes.outputs.committed == 'true'
               run: |
@@ -638,10 +873,10 @@ jobs:
                   message: ${{ steps.check-rejection.outputs.message }}
                   emoji_reaction: 'no_entry_sign'
 
-    # A merged release pull request deletes the consumed changesets, or moves them to
-    # hog/.sampo/prerelease/, which starts this workflow again. Only that release commit continues to
-    # publishing. Changesets that merged while the release pull request waited stay on master, and
-    # prepare-release starts the next release from them in the same run.
+    # A merged release pull request writes the changelog and deletes the consumed changesets, or moves
+    # them to hog/.sampo/prerelease/, which starts this workflow again. Only that release commit
+    # continues to publishing. Changesets that merged while the release pull request waited stay on
+    # master, and prepare-release starts the next release from them in the same run.
     release:
         name: Identify merged hog release
         needs: check-changesets
@@ -650,19 +885,19 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
-            # The approvals of the run that prepared the release, which the late approver check reads.
-            actions: read
             contents: read
             pull-requests: read
         outputs:
             is-release: ${{ steps.release-metadata.outputs.is-release }}
             version: ${{ steps.release-metadata.outputs.version }}
+            prepare-run: ${{ steps.release-metadata.outputs.prepare-run }}
+            approved-commit: ${{ steps.release-metadata.outputs.approved-commit }}
             release-tag: ${{ steps.release-metadata.outputs.release-tag }}
             release-commit: ${{ steps.release-metadata.outputs.release-commit }}
             build-date: ${{ steps.release-metadata.outputs.build-date }}
             slack-ts: ${{ steps.release-metadata.outputs.slack-ts }}
         steps:
-            # The history, for the approver check of what merged while the release pull request waited.
+            # The release commit's parent, to compare what landed with it.
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -755,21 +990,13 @@ jobs:
                       echo "$unexpected"
                       exit 1
                   fi
-                  # sampo deletes the changesets of a stable release, and moves those of a prerelease to
-                  # hog/.sampo/prerelease/ unchanged, which GitHub reports as a rename.
-                  consumed=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" --jq '
-                      .[] | select(
-                          (.status == "removed" and (.filename | test("^hog/\\.sampo/changesets/[^/]+\\.md$")))
-                          or (.status == "renamed"
-                              and ((.previous_filename // "") | test("^hog/\\.sampo/changesets/[^/]+\\.md$"))
-                              and (.filename | test("^hog/\\.sampo/prerelease/[^/]+\\.md$")))
-                      ) | .filename')
-                  if [ -z "$consumed" ]; then
-                      echo "::error::The hog release pull request did not consume a changeset"
+                  # A release for compiled changes alone consumes a changeset that never reached master, so
+                  # the version bump, not a deleted changeset, is what marks a release.
+                  version=$(jq -r '.version' hog/package.json)
+                  if [ "$(git show "$RELEASE_COMMIT^1:hog/package.json" | jq -r '.version')" = "$version" ]; then
+                      echo "::error::The hog release pull request doesn't change the version"
                       exit 1
                   fi
-
-                  version=$(jq -r '.version' hog/package.json)
                   release_tag="hog/v$version"
                   # A tag on this commit means an earlier run got that far. Publishing again is safe,
                   # because every step skips what is already published.
@@ -800,49 +1027,6 @@ jobs:
                       echo "slack-ts=$slack_ts"
                   } >> "$GITHUB_OUTPUT"
 
-            # prepare-release checked its approvers against hog changes up to the commit it released
-            # from. Changes that merged while the release pull request waited in the queue ship too.
-            - name: Check approvers against changes merged after the approval
-              id: late-range-guard
-              if: steps.release-metadata.outputs.is-release == 'true'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
-                  RELEASE_COMMIT: ${{ github.sha }}
-                  PREPARE_RUN: ${{ steps.release-metadata.outputs.prepare-run }}
-                  APPROVED_COMMIT: ${{ steps.release-metadata.outputs.approved-commit }}
-              run: |
-                  set -euo pipefail
-
-                  run_path=$(gh api "repos/$REPOSITORY/actions/runs/$PREPARE_RUN" --jq '.path')
-                  if [ "$run_path" != .github/workflows/release-hog.yml ]; then
-                      echo "::error::Run $PREPARE_RUN, which the release commit names, isn't a Release hog run"
-                      exit 1
-                  fi
-                  approvers=$(gh api "repos/$REPOSITORY/actions/runs/$PREPARE_RUN/approvals" \
-                      --jq '[.[] | select(.state == "approved") | .user.login] | unique | .[]')
-                  if [ -z "$approvers" ]; then
-                      echo "::error::Run $PREPARE_RUN has no approval in hog-release to check"
-                      exit 1
-                  fi
-                  if ! git merge-base --is-ancestor "$APPROVED_COMMIT" "$RELEASE_COMMIT^1"; then
-                      echo "::error::The commit the release was approved at, $APPROVED_COMMIT, isn't on master"
-                      exit 1
-                  fi
-
-                  # The check runs as it was at the approved commit, so a change to it that merged
-                  # while the release pull request waited can't clear its own author.
-                  checker="$RUNNER_TEMP/check-approvers.sh"
-                  gh api -H "Accept: application/vnd.github.raw" \
-                      "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$APPROVED_COMMIT" >"$checker"
-                  chmod +x "$checker"
-
-                  mapfile -t approver_list <<<"$approvers"
-                  if ! "$checker" "$APPROVED_COMMIT" "$RELEASE_COMMIT^1" "${approver_list[@]}"; then
-                      echo "::error::The release can't publish. Revert the release pull request, which restores its changesets and starts a new release for someone else to approve."
-                      exit 1
-                  fi
-
             - name: Notify Slack - Publish needs approval
               if: steps.release-metadata.outputs.slack-ts != ''
               continue-on-error: true
@@ -860,6 +1044,8 @@ jobs:
         if: needs.release.outputs.is-release == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 30
+        outputs:
+            compiled-files: ${{ steps.compiled.outputs.files }}
         steps:
             # The workspace packages pnpm installs for hog, and the product files build:mcp bundles or
             # copies in (services/mcp/scripts/copy-instructions.ts). A missing one fails the build.
@@ -930,13 +1116,104 @@ jobs:
                   path: hog/dist/release/bin/
                   if-no-files-found: error
 
+            # For the late-approvers job, which needs a token this job doesn't get while it runs the build.
+            - name: List the files compiled into hog
+              id: compiled
+              working-directory: hog
+              run: |
+                  set -euo pipefail
+                  bun build src/index.ts --target=bun --outdir "$RUNNER_TEMP/hog-bundle" --metafile=dist/hog.metafile.json
+                  delimiter="files_$(openssl rand -hex 8)"
+                  {
+                      echo "files<<$delimiter"
+                      bun release/catalog-gap.ts --list-compiled
+                      echo "$delimiter"
+                  } >> "$GITHUB_OUTPUT"
+
+    # prepare-release checked its approvers against the changes up to the commit it released from.
+    # Changes that merged while the release pull request waited in the queue ship too, so their owners
+    # can't have approved it either. Publishing waits for this check.
+    late-approvers:
+        name: Check approvers against changes merged after the approval
+        needs: [release, build]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            # The approvals of the run that prepared the release.
+            actions: read
+            contents: read
+            pull-requests: read
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+                  sparse-checkout: |
+                      hog/package.json
+                  sparse-checkout-cone-mode: false
+
+            - name: Check approvers against changes merged after the approval
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  RELEASE_COMMIT: ${{ needs.release.outputs.release-commit }}
+                  PREPARE_RUN: ${{ needs.release.outputs.prepare-run }}
+                  APPROVED_COMMIT: ${{ needs.release.outputs.approved-commit }}
+                  COMPILED_FILES: ${{ needs.build.outputs.compiled-files }}
+              run: |
+                  set -euo pipefail
+
+                  run_path=$(gh api "repos/$REPOSITORY/actions/runs/$PREPARE_RUN" --jq '.path')
+                  if [ "$run_path" != .github/workflows/release-hog.yml ]; then
+                      echo "::error::Run $PREPARE_RUN, which the release commit names, isn't a Release hog run"
+                      exit 1
+                  fi
+                  approvers=$(gh api "repos/$REPOSITORY/actions/runs/$PREPARE_RUN/approvals" \
+                      --jq '[.[] | select(.state == "approved") | .user.login] | unique | .[]')
+                  if [ -z "$approvers" ]; then
+                      echo "::error::Run $PREPARE_RUN has no approval in hog-release to check"
+                      exit 1
+                  fi
+                  if ! git merge-base --is-ancestor "$APPROVED_COMMIT" "$RELEASE_COMMIT^1"; then
+                      echo "::error::The commit the release was approved at, $APPROVED_COMMIT, isn't on master"
+                      exit 1
+                  fi
+
+                  # The check runs as it was at the approved commit, so a change to it that merged
+                  # while the release pull request waited can't clear its own author.
+                  checker="$RUNNER_TEMP/check-approvers.sh"
+                  gh api -H "Accept: application/vnd.github.raw" \
+                      "repos/$REPOSITORY/contents/hog/release/check-approvers.sh?ref=$APPROVED_COMMIT" >"$checker"
+                  if ! grep -q -- '--files' "$checker"; then
+                      echo "The approver check at $APPROVED_COMMIT predates --files, so blob $COMPILED_OWNERS_CHECKER_BLOB runs instead"
+                      git cat-file blob "$COMPILED_OWNERS_CHECKER_BLOB" >"$checker"
+                  fi
+                  chmod +x "$checker"
+
+                  # The build job ran repository code, so its list is checked before git reads it.
+                  files="$RUNNER_TEMP/compiled-files.txt"
+                  printf '%s\n' "$COMPILED_FILES" | sed '/^$/d' >"$files"
+                  if [ ! -s "$files" ] || grep -qvE '^[A-Za-z0-9._@+/-]+$' "$files"; then
+                      echo "::error::The build job listed no compiled files, or names that aren't plain paths"
+                      exit 1
+                  fi
+
+                  mapfile -t approver_list <<<"$approvers"
+                  if ! "$checker" --files "$files" "$APPROVED_COMMIT" "$RELEASE_COMMIT^1" "${approver_list[@]}"; then
+                      echo "::error::The release can't publish. Revert the release pull request, which restores any changesets it consumed, then run the Release hog workflow by hand so someone else approves a new release."
+                      exit 1
+                  fi
+
     # Signing, packaging and the upload under hog/v<version>/ run here. hog-publish holds the Apple
     # secrets and the App key, and the release bucket's role trusts only this environment. It has no
     # reviewers: the approval happened in hog-release, before the version bump. Nothing here runs the
     # build, because a run executes every bundled dependency next to these secrets.
     publish:
         name: Sign, package and upload
-        needs: [release, build]
+        needs: [release, build, late-approvers]
         runs-on: macos-15
         timeout-minutes: 60
         environment: hog-publish
@@ -1470,12 +1747,13 @@ jobs:
     # cancelled.
     notify-publish-failed:
         name: Notify - Publish failed
-        needs: [release, build, publish, check-macos-build, promote]
+        needs: [release, build, late-approvers, publish, check-macos-build, promote]
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
             always() && (contains(fromJSON('["failure", "cancelled"]'), needs.release.result)
             || contains(fromJSON('["failure", "cancelled"]'), needs.build.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.late-approvers.result)
             || contains(fromJSON('["failure", "cancelled"]'), needs.publish.result)
             || contains(fromJSON('["failure", "cancelled"]'), needs.check-macos-build.result)
             || contains(fromJSON('["failure", "cancelled"]'), needs.promote.result))

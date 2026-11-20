@@ -1,21 +1,34 @@
 #!/usr/bin/env bash
-# Usage: check-approvers.sh <first commit> <last commit> <approver>...
-#        check-approvers.sh --report <first commit> <last commit>
+# Usage: check-approvers.sh [--files <list>] <first commit> <last commit> <approver>...
+#        check-approvers.sh --report [--files <list>] <first commit> <last commit>
 #
 # The owners of a release are the people who opened, merged or wrote commits in a pull request that
-# added, renamed or edited a hog changeset between the two commits. The check fails when an approver is one of them, and
-# writes `violations=<who (#pull requests)>` to GITHUB_OUTPUT. --report checks nobody and writes the
-# pull requests and their owners as Slack mrkdwn instead, as `prs_mrkdwn` and `owners_mrkdwn`. Every
-# lookup that fails stops the script, because a check that can't run can't clear anyone.
+# added, renamed or edited a hog changeset between the two commits. With --files, a pull request that
+# changed one of the paths listed in that file, one per line, also counts: the release workflow lists the
+# files compiled into hog, because their changes ship whether or not a changeset names them. The check
+# fails when an approver is one of the owners, and writes `violations=<who (#pull requests)>` to
+# GITHUB_OUTPUT. --report checks nobody and writes the pull requests and their owners as Slack mrkdwn
+# instead, as `prs_mrkdwn` and `owners_mrkdwn`. Every lookup that fails stops the script, because a check
+# that can't run can't clear anyone.
 #
 # Needs GH_TOKEN and REPOSITORY, and the history of both commits in the checkout.
 set -euo pipefail
 
 report=false
-if [ "${1:-}" = --report ]; then
-    report=true
-    shift
-fi
+files=""
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        --report)
+            report=true
+            shift
+            ;;
+        --files)
+            files=$2
+            shift 2
+            ;;
+        *) break ;;
+    esac
+done
 base=$1
 head=$2
 shift 2
@@ -27,6 +40,19 @@ fi
 # Without rename detection, a rename is an add, so a pull request that renames a changeset to change
 # when it releases, or edits its text, owns the release too.
 commits=$(git log --no-renames --diff-filter=AM --format=%H "$base..$head" -- 'hog/.sampo/changesets/*.md')
+if [ -n "$files" ]; then
+    # :(literal) keeps a path that holds a glob character from matching other files.
+    pathspecs=()
+    while IFS= read -r path; do
+        [ -n "$path" ] && pathspecs+=(":(literal)$path")
+    done <"$files"
+    if [ "${#pathspecs[@]}" -eq 0 ]; then
+        echo "::error::$files lists no files"
+        exit 1
+    fi
+    commits+=$'\n'$(git log --format=%H "$base..$head" -- "${pathspecs[@]}")
+fi
+commits=$(sed '/^$/d' <<<"$commits" | sort -u)
 shas=()
 if [ -n "$commits" ]; then
     mapfile -t shas <<<"$commits"
@@ -152,6 +178,6 @@ for approver in "$@"; do
 done
 if [ -n "$blocked" ]; then
     echo "violations=$blocked" >>"$GITHUB_OUTPUT"
-    echo "::error::These approvers opened, merged or wrote commits in a pull request whose changeset this release ships: $blocked"
+    echo "::error::These approvers opened, merged or wrote commits in a pull request this release ships: $blocked"
     exit 1
 fi

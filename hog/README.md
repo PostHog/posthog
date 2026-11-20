@@ -450,7 +450,13 @@ hog reads credentials only from the sources above. Runs from source keep their k
 hog releases the way posthog-cli does: a sampo changeset says what changed, and a person approves each release.
 The `Release hog` workflow (`.github/workflows/release-hog.yml`) runs it, and `release/` holds its scripts.
 
-A pull request that changes code compiled into hog, which the downloadable tool catalog can't deliver, needs a changeset. The `hog changeset` workflow adds one when the pull request has none: a patch, or a minor when the catalog format version changed, with the pull request title as the text. On a fork it fails with the command to run. `release/catalog-gap.ts` decides, from the build metafiles of hog and the CLI library.
+A change to code compiled into hog that the downloadable tool catalog can't deliver, such as a change to the MCP code the CLI library bundles, needs no changeset of its own.
+Every release builds master, so it ships those changes anyway.
+Before each release, and on each weekly run, the workflow builds hog and the CLI library and runs `release/catalog-gap.ts` against the last release tag, which reads the build metafiles to find the compiled files the catalog can't deliver.
+When a pull request changed one of them and added no changeset, the release adds one changeset that lists every such pull request by number and title: a patch, or a minor when the catalog format version changed.
+That changeset exists only in the release run and never lands on master.
+The weekly run releases for it alone, so those changes reach users within a week.
+The same job fails when the sparse checkout of the release build leaves out a compiled file, since that build would fail after the approval.
 
 To add a changeset yourself, run from `hog/`:
 
@@ -467,23 +473,23 @@ The file name says when the changeset releases:
 | `weekly-<name>.md` | In the weekly run, on Tuesdays at 14:00 UTC |
 | Any other name     | When its pull request merges                |
 
-Name a changeset `weekly-<name>.md` when the change can wait, so it costs no approval of its own. The `hog changeset` workflow names the changesets it adds for MCP and catalog changes `weekly-pr-<number>.md`, so they wait too. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
+Name a changeset `weekly-<name>.md` when the change can wait, so it costs no approval of its own. The `weekly-pr-<number>.md` changesets that CI once added wait the same way. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
 
 When a release starts, the workflow:
 
-1. Posts an approval request in the hog releases Slack channel, naming the pull requests whose changesets the release ships and who can't approve it.
-2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that added one of those changesets can approve. The check runs as the last release tag has `hog/release/check-approvers.sh`, so a change to the rule applies from the release after the one that ships it.
-3. Runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
+1. Posts an approval request in the hog releases Slack channel, naming the pull requests the release ships and who can't approve it.
+2. Waits for approval in the `hog-release` environment. Nobody who opened, merged or pushed commits to a pull request that added one of those changesets, or changed a file compiled into hog, can approve. The check runs as the last release tag has `hog/release/check-approvers.sh`, so a change to the rule applies from the release after the one that ships it. A tag whose copy predates `--files`, the option that counts compiled files, runs the copy the workflow names by its git blob in `COMPILED_OWNERS_CHECKER_BLOB` instead.
+3. Adds the changeset for compiled changes when the release needs one, then runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
 
 Merging the release pull request runs the workflow again, which:
 
-4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on the changesets that merged while the release pull request waited, since their code ships in the build. When an approver owns one of them, nothing publishes: revert the release pull request, which restores its changesets and starts a new release.
+4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on the changesets and compiled changes that merged while the release pull request waited, since their code ships in the build. When an approver owns one of them, nothing publishes: revert the release pull request, which restores the changesets it consumed, and run the `Release hog` workflow by hand so someone else approves a new release.
 5. Compiles every target, with the version and the release commit's date as the build date.
 6. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
 7. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
 8. Publishes the npm packages, platform packages first, and waits until npm serves each one. npm takes minutes to serve a new version, and an install in that window gets `hog` without its binary. Then it checks that a clean `npm install hog@<version>` installs that version and the Linux x64 binary this run built, comparing the bytes without running them. Only after that does it create the GitHub release and the `hog/v<version>` tag, and point `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it. One release at a time does this step.
 
-A release takes two merges, the changeset and then the release pull request, and one approval.
+A release takes two merges, the change and then the release pull request, and one approval.
 
 - Re-run the failed jobs to finish a release that stopped. Files under a version never change: once a version's upload is complete, a rerun reuses its files instead of signing again. An upload that stopped halfway starts over. GitHub, npm and the formula skip what they already have.
 - Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back, and a manifest the workflow can't read stops the release instead.

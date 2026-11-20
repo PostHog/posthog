@@ -1,5 +1,6 @@
-// Whether a pull request changes code compiled into hog that the downloadable tool catalog can't deliver.
-// The compiled files come from the build metafiles. Run with --base <commit>; prints the result as JSON.
+// Whether the commits since <base> change code compiled into hog that the downloadable tool catalog can't
+// deliver. The compiled files come from the build metafiles. Run with --base <commit>, usually the last release
+// tag; prints the result as JSON. --list-compiled prints only the compiled files, one per line.
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -12,7 +13,8 @@ import { parseJsonOrUndefined } from '../src/core/json'
 
 export const CATALOG_TOOLS_JSON = 'services/mcp/schema/cli-catalog-tools.json'
 export const CATALOG_SCHEMA = 'services/mcp/src/cli/catalog/schema.ts'
-const WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
+const RELEASE_WORKFLOW = '.github/workflows/release-hog.yml'
+const RELEASE_BUILD_JOB = 'build'
 const GENERATED_TOOLS_DIR = 'services/mcp/src/tools/generated/'
 // Generated, but code rather than catalog data: the barrel, the hook registry and the query wrappers.
 const GENERATED_CODE = new Set(['index.ts', 'hooks.ts', 'query-wrappers.ts'])
@@ -41,7 +43,16 @@ export interface GapInput {
 
 const JsonObject = z.record(z.string(), z.unknown())
 const Metafile = z.object({ inputs: z.record(z.string(), z.unknown()) })
-const Workflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
+const Workflow = z.object({
+    jobs: z.record(
+        z.string(),
+        z.object({
+            steps: z.array(
+                z.object({ uses: z.string().optional(), with: z.record(z.string(), z.unknown()).optional() })
+            ),
+        })
+    ),
+})
 
 function jsonObject(text: string | undefined): Record<string, unknown> {
     return (text && parseJsonOrUndefined(text, JsonObject)) || {}
@@ -120,6 +131,10 @@ export function compiledFiles(metafiles: { path: string; root: string }[], repoR
     for (const { path, root } of metafiles) {
         const inputs = parseJsonOrUndefined(readFileSync(path, 'utf8'), Metafile)?.inputs ?? {}
         for (const input of Object.keys(inputs)) {
+            // A module a build plugin makes up, like `cf-stub:cloudflare:workers`, is no file in the repository.
+            if (input.includes(':')) {
+                continue
+            }
             const file = relative(repoRoot, resolve(root, input)).split('\\').join(posix.sep)
             if (!file.startsWith('..') && !file.includes('node_modules/') && !file.startsWith('services/mcp/dist/')) {
                 files.add(file)
@@ -129,16 +144,41 @@ export function compiledFiles(metafiles: { path: string; root: string }[], repoR
     return files
 }
 
-// Patterns apply in order, and a later `!pattern` excludes again, as GitHub applies them.
-export function untriggeredFiles(compiled: Set<string>, workflow: string): string[] {
-    const patterns = Workflow.parse(parseYaml(workflow)).on.pull_request.paths
-    return [...compiled].filter(
-        (file) =>
-            !patterns.reduce((matched, pattern) => {
-                const negated = pattern.startsWith('!')
-                return new Bun.Glob(negated ? pattern.slice(1) : pattern).match(file) ? !negated : matched
-            }, false)
-    )
+export function releaseCheckoutPatterns(workflow: string): string[] {
+    const steps = Workflow.parse(parseYaml(workflow)).jobs[RELEASE_BUILD_JOB]?.steps ?? []
+    const sparse = steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.with?.['sparse-checkout']
+    if (typeof sparse !== 'string') {
+        throw new Error(`The ${RELEASE_BUILD_JOB} job of ${RELEASE_WORKFLOW} has no sparse checkout to check.`)
+    }
+    return sparse
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+}
+
+// The patterns are git's non-cone sparse-checkout patterns, and the release build's are all anchored. A
+// pattern matches a path or any folder above it, `name/` matches only folders, and the last matching pattern
+// decides, so `!/*/` can drop every top-level folder that an earlier `/*` took in.
+export function outsideCheckout(compiled: Set<string>, patterns: string[]): string[] {
+    const rules = patterns.map((pattern) => {
+        const negated = pattern.startsWith('!')
+        const body = negated ? pattern.slice(1) : pattern
+        if (!body.startsWith('/')) {
+            throw new Error(`Only anchored sparse-checkout patterns are supported, not ${pattern}.`)
+        }
+        const folderOnly = body.endsWith('/')
+        return { negated, folderOnly, glob: new Bun.Glob(body.slice(1, folderOnly ? -1 : undefined)) }
+    })
+
+    return [...compiled].filter((file) => {
+        const parts = file.split('/')
+        const folders = parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join('/'))
+        const included = rules.reduce((current, rule) => {
+            const candidates = rule.folderOnly ? folders : [...folders, file]
+            return candidates.some((candidate) => rule.glob.match(candidate)) ? !rule.negated : current
+        }, false)
+        return !included
+    })
 }
 
 // Generated schema files are larger than execFileSync's default 1 MiB output buffer.
@@ -164,6 +204,7 @@ if (import.meta.main) {
     const { values } = parseArgs({
         options: {
             base: { type: 'string' },
+            'list-compiled': { type: 'boolean', default: false },
             'hog-metafile': { type: 'string', default: resolve(repoRoot, 'hog/dist/hog.metafile.json') },
             'mcp-metafile': {
                 type: 'string',
@@ -175,8 +216,8 @@ if (import.meta.main) {
             },
         },
     })
-    if (!values.base) {
-        console.error('Pass the commit the pull request branches from with --base.')
+    if (!values.base && !values['list-compiled']) {
+        console.error('Pass the commit to compare with, usually the last release tag, with --base.')
         process.exit(1)
     }
 
@@ -191,14 +232,26 @@ if (import.meta.main) {
         }
     }
 
-    const read = readAt(repoRoot)
     const compiled = compiledFiles(metafiles, repoRoot)
+    if (values['list-compiled'] || !values.base) {
+        process.stdout.write(
+            [...compiled]
+                .sort()
+                .map((file) => `${file}\n`)
+                .join('')
+        )
+        process.exit(0)
+    }
+
+    const read = readAt(repoRoot)
     const result = findCatalogGaps({
         changed: git(repoRoot, 'diff', '--name-only', `${values.base}...HEAD`).split('\n').filter(Boolean),
         compiled,
         readBase: read(values.base),
         readHead: read('HEAD'),
     })
-    const untriggered = untriggeredFiles(compiled, readFileSync(resolve(repoRoot, WORKFLOW), 'utf8'))
-    process.stdout.write(`${JSON.stringify({ ...result, untriggered })}\n`)
+    const patterns = releaseCheckoutPatterns(readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8'))
+    process.stdout.write(
+        `${JSON.stringify({ ...result, compiled: [...compiled].sort(), outsideReleaseCheckout: outsideCheckout(compiled, patterns) })}\n`
+    )
 }

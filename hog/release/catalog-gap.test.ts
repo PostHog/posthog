@@ -10,8 +10,9 @@ import {
     compiledFiles,
     findCatalogGaps,
     type GapResult,
+    outsideCheckout,
     readAt,
-    untriggeredFiles,
+    releaseCheckoutPatterns,
 } from './catalog-gap'
 
 const GENERATED = 'services/mcp/src/tools/generated/actions.ts'
@@ -104,6 +105,7 @@ test('reads compiled files from metafiles relative to the folder each build ran 
                 '../../node_modules/.pnpm/zod/index.js': {},
                 'dist/cli-library.mjs': {},
                 '../../hog/src/version.ts': {},
+                'cf-stub:cloudflare:workers': {},
             },
         })
     )
@@ -131,26 +133,35 @@ test('reads a file larger than the default subprocess buffer, and only a missing
     expect(() => read('no-such-commit')('tool-definitions.json')).toThrow()
 })
 
-test('lists compiled files the workflow trigger paths miss', () => {
+test('lists compiled files the release build checkout leaves out', () => {
     const workflow = [
-        'on:',
-        '    pull_request:',
-        '        paths:',
-        "            - 'hog/**'",
-        "            - 'products/*/mcp/**'",
-        "            - 'products/notebooks/*'",
-        "            - '!products/notebooks/*.md'",
+        'jobs:',
+        '    build:',
+        '        steps:',
+        '            - uses: actions/checkout@0000000000000000000000000000000000000000',
+        '              with:',
+        '                  sparse-checkout: |',
+        '                      /*',
+        '                      !/*/',
+        '                      /hog/',
+        '                      /products/notebooks/',
+        '                      !/products/notebooks/frontend/',
+        '                      /products/product_analytics/mcp/',
+        '            - run: bun test',
     ].join('\n')
     const compiled = new Set([
+        'package.json',
         'hog/src/cli.ts',
-        'products/product_analytics/mcp/apps/chart.ts',
         'products/notebooks/notebook-widget-catalog.json',
-        'products/notebooks/README.md',
         'products/notebooks/frontend/widget.ts',
+        'products/product_analytics/mcp/apps/chart.ts',
+        'products/error_tracking/mcp/tools.ts',
+        'services/mcp/src/cli/library.ts',
     ])
 
-    expect(untriggeredFiles(compiled, workflow)).toEqual([
-        'products/notebooks/README.md',
+    expect(outsideCheckout(compiled, releaseCheckoutPatterns(workflow))).toEqual([
         'products/notebooks/frontend/widget.ts',
+        'products/error_tracking/mcp/tools.ts',
+        'services/mcp/src/cli/library.ts',
     ])
 })
