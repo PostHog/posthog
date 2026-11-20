@@ -319,10 +319,15 @@ def load_session_metadata(team_id: int, sessions: list[SessionRow]) -> SessionMe
     return viewports, persons
 
 
-async def resolve_s3_credentials(
-    team_id: int, destination: ExportDestination, run_id: str
-) -> tuple[AWSCredentials, Callable[[], Coroutine[Any, Any, AWSCredentials]], str]:
-    """Return the assumed role's credentials, how to refresh them and the role's AWS account ID."""
+@frozen
+class RoleCredentials:
+    credentials: AWSCredentials
+    refresh_using: Callable[[], Coroutine[Any, Any, AWSCredentials]]
+    owner_account_id: str
+
+
+async def resolve_s3_credentials(team_id: int, destination: ExportDestination, run_id: str) -> RoleCredentials:
+    """Assume the customer's role, scoped to this run's folder in their bucket."""
     integration = await get_s3_integration(destination.integration_id, team_id)
     aws_role_arn: str | None = getattr(integration, "aws_role_arn", None)
     if not aws_role_arn:
@@ -335,7 +340,9 @@ async def resolve_s3_credentials(
         session_name=f"PostHog-replay-export-{team_id}",
         policy_statements=policy_statements(destination, team_id, run_id, aws_role_arn),
     )
-    return await refresh_using(), refresh_using, role_account_id(aws_role_arn)
+    return RoleCredentials(
+        credentials=await refresh_using(), refresh_using=refresh_using, owner_account_id=role_account_id(aws_role_arn)
+    )
 
 
 def role_account_id(aws_role_arn: str) -> str:
@@ -424,9 +431,9 @@ class CustomerBucket:
 @contextlib.asynccontextmanager
 async def customer_bucket(team_id: int, destination: ExportDestination, run_id: str) -> AsyncIterator[CustomerBucket]:
     try:
-        credentials, refresh_using, owner_account_id = await resolve_s3_credentials(team_id, destination, run_id)
-        async with s3_client(credentials, destination.region, refresh_using=refresh_using) as client:
-            yield CustomerBucket(client, destination, owner_account_id)
+        role = await resolve_s3_credentials(team_id, destination, run_id)
+        async with s3_client(role.credentials, destination.region, refresh_using=role.refresh_using) as client:
+            yield CustomerBucket(client, destination, role.owner_account_id)
     except NON_RETRYABLE_ERRORS as e:
         raise ApplicationError(str(e), non_retryable=True) from e
 
