@@ -194,6 +194,26 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertIsNotNone(saved_query["latest_history_id"])
 
+    def test_edit_raw_managed_trino_view_query(self) -> None:
+        query = {"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True}
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="hub_occupancy",
+            query={**query, "query": 'SELECT * FROM "warehouse_catalog".production.hub_occupancy'},
+        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}",
+                {
+                    "query": {**query, "query": 'SELECT hub_id FROM "warehouse_catalog".production.hub_occupancy'},
+                    "types": [["hub_id", "Int64"]],
+                    "soft_update": True,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+
     def test_create_raw_managed_trino_view(self) -> None:
         trino_sql = 'SELECT * FROM "warehouse_catalog".production.hub_occupancy'
         with patch("posthoganalytics.feature_enabled", return_value=True):
@@ -321,6 +341,45 @@ class TestSavedQuery(APIBaseTest):
         existing.refresh_from_db()
         self.assertEqual(existing.query, {"kind": "HogQLQuery", "query": "SELECT 1 AS x"})
         self.assertFalse(Node.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        [
+            ("create", "team_rule", 201),
+            ("create", "own_rule", 403),
+            ("rename", "team_rule", 200),
+            ("rename", "own_rule", 403),
+        ]
+    )
+    def test_creating_or_renaming_a_view_follows_property_access(self, change: str, rule: str, expected: int) -> None:
+        set_member_property_access(
+            team=self.team,
+            membership=self.organization_membership,
+            access="restricted" if rule == "team_rule" else "granted",
+        )
+        if rule == "own_rule":
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name="member_note", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=definition,
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+        url = f"/api/environments/{self.team.id}/warehouse_saved_queries/"
+        if change == "create":
+            response = self.client.post(
+                url,
+                {"name": "event_names", "query": {"kind": "HogQLQuery", "query": "SELECT event FROM events"}},
+                format="json",
+            )
+        else:
+            view = DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="event_names", query={"kind": "HogQLQuery", "query": "SELECT 1 AS x"}
+            )
+            response = self.client.patch(f"{url}{view.id}", {"name": "event_names_old"}, format="json")
+
+        self.assertEqual(response.status_code, expected, response.content)
 
     @parameterized.expand(
         [
