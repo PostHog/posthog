@@ -531,6 +531,7 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
                 "posthog-rs",
                 "PostHog/posthog-rs",
                 [
+                    _release("posthog-rs-ffi-v0.30.0", "2026-08-01T00:00:00Z"),
                     _release("0.29.0", "2026-08-01T00:00:00Z"),
                     _release("v0.5.1", "2025-08-30T00:00:00Z"),
                 ],

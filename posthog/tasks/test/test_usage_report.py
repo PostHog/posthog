@@ -1950,7 +1950,7 @@ class TestQueryUsageReportSQL:
         ]
         main_results = iter(
             [
-                [(1, metric, 2) for metric in sdk_metrics],
+                [(1, metric, 2 + index) for index, metric in enumerate(sdk_metrics)],
                 [(1, metric, 3) for metric in sdk_metrics] + [(2, "godot_events", 7)],
             ]
         )
@@ -1963,8 +1963,8 @@ class TestQueryUsageReportSQL:
 
         result = get_all_event_metrics_in_period(begin, begin + timedelta(days=1))
 
-        for metric in sdk_metrics:
-            expected = {1: 5, 2: 7} if metric == "godot_events" else {1: 5}
+        for index, metric in enumerate(sdk_metrics):
+            expected = {1: 5 + index, 2: 7} if metric == "godot_events" else {1: 5 + index}
             assert dict(result[metric]) == expected
         for metric in ["rust_events", "go_events", "ruby_events", "unity_events"]:
             assert result[metric] == []
