@@ -273,7 +273,11 @@ def _post_pr_opened_notification_once(
     )
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.facade.api import _is_pull_request_url_for_task
+    from products.tasks.backend.logic.services.compute_quota import organization_deactivated
     from products.tasks.backend.logic.services.slack_pr_cards import pr_card_reply_target
+
+    if organization_deactivated(task_run.team_id):
+        return
 
     mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
     already_delivered = mapping is not None and report_slack_thread_pr_notified(
