@@ -61,9 +61,11 @@ function searchPage(offset: number, limit: number): AnomalySearchResponseApi {
 describe('anomaliesTabLogic', () => {
     let logic: ReturnType<typeof anomaliesTabLogic.build>
     let status: number
+    let requestedParams: URLSearchParams[]
 
     beforeEach(() => {
         status = 200
+        requestedParams = []
         useMocks({
             get: {
                 [SEARCH_URL]: ({ request }) => {
@@ -71,6 +73,7 @@ describe('anomaliesTabLogic', () => {
                         return [status, { detail: 'Not found.' }]
                     }
                     const params = new URL(request.url).searchParams
+                    requestedParams.push(params)
                     return [200, searchPage(Number(params.get('offset')), Number(params.get('limit')))]
                 },
             },
@@ -104,6 +107,22 @@ describe('anomaliesTabLogic', () => {
             `series-${ANOMALIES_PAGE_SIZE}`,
         ])
         expect(logic.values.hasMore).toBe(false)
+    })
+
+    it("searches the person's own insights by default and every insight after switching to everyone's", async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        logic = anomaliesTabLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setFilters({ mine: false })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedParams.map((params) => params.get('mine'))).toEqual(['true', null])
+        expect(capture).toHaveBeenCalledWith(
+            'anomalies tab filter changed',
+            expect.objectContaining({ changed: ['mine'], mine: false })
+        )
     })
 
     it('collapses expanded insights when the filters change', async () => {

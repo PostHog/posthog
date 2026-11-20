@@ -329,6 +329,14 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     return logic.insight_ids_modified_since(team_ids=team_ids, since=since)
 
 
+def insight_ids_created_or_viewed_by(*, team_id: int, user_id: int, viewed_since: datetime) -> set[int]:
+    """Insights of this team the user created, or viewed since the given time, in two queries.
+
+    Deleted insights the user created are left out. A viewed insight can be deleted, so callers still check access.
+    """
+    return logic.insight_ids_created_or_viewed_by(team_id=team_id, user_id=user_id, viewed_since=viewed_since)
+
+
 def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
     """Live insights of this team whose name contains ``search``, ignoring case, in one query.
 

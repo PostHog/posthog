@@ -143,6 +143,7 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
                 insight_id: params.insight_id,
                 interval: params.interval,
                 limit: params.limit,
+                mine: params.mine,
                 offset: params.offset,
                 only_flagged: params.only_flagged,
                 order: params.order,

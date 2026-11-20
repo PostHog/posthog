@@ -21,6 +21,11 @@ const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterva
     { value: SignalsAnomaliesSearchRetrieveInterval.Month, label: 'Monthly' },
 ]
 
+const SCOPE_OPTIONS: LemonSelectOptions<boolean> = [
+    { value: true, label: 'My insights' },
+    { value: false, label: "Everyone's insights" },
+]
+
 const ORDER_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveOrder> = [
     { value: SignalsAnomaliesSearchRetrieveOrder.Recent, label: 'Most recent' },
     { value: SignalsAnomaliesSearchRetrieveOrder.Rate, label: 'Highest anomaly rate' },
@@ -33,6 +38,13 @@ export function AnomaliesFilters(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
+            <LemonSelect
+                size="small"
+                value={filters.mine}
+                options={SCOPE_OPTIONS}
+                onChange={(mine) => setFilters({ mine })}
+                data-attr="anomalies-tab-scope"
+            />
             <LemonInput
                 type="search"
                 size="small"

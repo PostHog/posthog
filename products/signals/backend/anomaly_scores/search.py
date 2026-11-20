@@ -26,7 +26,11 @@ from products.dashboards.backend.facade.api import (
     viewable_dashboard_ref,
 )
 from products.dashboards.backend.facade.contracts import DashboardRef
-from products.product_analytics.backend.facade.api import insight_ids_named_like, viewable_insights
+from products.product_analytics.backend.facade.api import (
+    insight_ids_created_or_viewed_by,
+    insight_ids_named_like,
+    viewable_insights,
+)
 from products.product_analytics.backend.facade.contracts import ViewableInsight
 from products.signals.backend.anomaly_scores.config import (
     MAX_LIMITS,
@@ -116,6 +120,8 @@ class AnomalySearchFilters:
     offset: int = 0
     # Part of an insight name, matched ignoring case.
     search: str | None = None
+    # Only insights the user created, or viewed within the window that makes an insight active for scoring.
+    mine: bool = False
     # Adds the scored buckets of each series row in the chart window of its interval, at the cost of one more query.
     include_points: bool = False
 
@@ -267,13 +273,18 @@ def _viewable_dashboards(team: Team, user: User, insight_ids: Collection[int]) -
     return {insight_id: tuple(ref for ref in refs if ref.id in viewable) for insight_id, refs in by_insight.items()}
 
 
-def _requested_insight_ids(team: Team, user: User, filters: AnomalySearchFilters) -> set[int] | None:
+def _requested_insight_ids(
+    team: Team, user: User, filters: AnomalySearchFilters, *, viewed_since: datetime.datetime
+) -> set[int] | None:
     """The insights the filters allow, or None for every insight."""
     insight_ids: set[int] | None = None
+    if filters.mine:
+        insight_ids = insight_ids_created_or_viewed_by(team_id=team.id, user_id=user.id, viewed_since=viewed_since)
     if filters.dashboard_id is not None:
         if viewable_dashboard_ref(filters.dashboard_id, team=team, user=user) is None:
             raise AnomalyDashboardNotFound()
-        insight_ids = set(live_tile_insight_ids(filters.dashboard_id))
+        on_dashboard = set(live_tile_insight_ids(filters.dashboard_id))
+        insight_ids = on_dashboard if insight_ids is None else insight_ids & on_dashboard
     if filters.insight_id is not None:
         insight_ids = {filters.insight_id} if insight_ids is None else insight_ids & {filters.insight_id}
     if filters.search:
@@ -308,7 +319,9 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
     """The anomaly rate of each series in the range, in the requested order, by series or by insight."""
     config = parse_config(read_payload())
     off_message = _scoring_off_message(config, team)
-    requested = _requested_insight_ids(team, user, filters)
+    requested = _requested_insight_ids(
+        team, user, filters, viewed_since=now - datetime.timedelta(days=config.active_window_days)
+    )
     intervals = (filters.interval,) if filters.interval is not None else config.intervals
     watched = {insight.insight_id for insight in active_insights([team.id], intervals, now, config.active_window_days)}
     if requested is not None:

@@ -15,10 +15,11 @@ from posthog.schema import IntervalType
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
 from products.signals.backend.anomaly_scores.read import FlaggedPoint, SeriesSummary, prior_rate, rank_series, rollup
@@ -428,6 +429,44 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             body = self._get("search", date_from="2026-10-19", search=search).json()
 
         assert [row["series_key"] for row in body["series"]] == expected
+
+    @parameterized.expand(
+        [
+            ("mine", True, 1_000, ["created", "viewed"]),
+            ("mine_filtered_after_the_read_when_many_insights_match", True, 0, ["created", "viewed"]),
+            ("everyone", False, 1_000, ["created", "others", "signups", "viewed", "viewed_long_ago"]),
+        ]
+    )
+    def test_search_keeps_insights_the_user_created_or_viewed_recently(
+        self, _name: str, mine: bool, max_scoped: int, expected: list[str]
+    ) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        created = Insight.objects.create(team=self.team, name="Created", saved=True, created_by=self.user)
+        viewed = Insight.objects.create(team=self.team, name="Viewed", saved=True, created_by=other)
+        viewed_long_ago = Insight.objects.create(team=self.team, name="Old", saved=True, created_by=other)
+        others = Insight.objects.create(team=self.team, name="Others", saved=True, created_by=other)
+        record_insight_views(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={
+                viewed.id: NOW - datetime.timedelta(days=89),
+                viewed_long_ago.id: NOW - datetime.timedelta(days=91),
+            },
+        )
+        record_insight_views(team_id=self.team.id, user_id=other.id, last_viewed_at_by_insight_id={others.id: NOW})
+        for series_key, insight in (
+            ("signups", self.insight),
+            ("created", created),
+            ("viewed", viewed),
+            ("viewed_long_ago", viewed_long_ago),
+            ("others", others),
+        ):
+            self._score(_day(22), score=0.99, flag=1, series_key=series_key, insight=insight)
+
+        with patch("products.signals.backend.anomaly_scores.search.MAX_SCOPED_INSIGHTS", max_scoped):
+            body = self._get("search", date_from="2026-10-19", mine=mine).json()
+
+        assert sorted(row["series_key"] for row in body["series"]) == expected
 
     @parameterized.expand(
         [
