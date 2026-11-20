@@ -24,15 +24,24 @@
                         "type": "string"
                     },
                     "matcher": {
-                        "description": "How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property).",
+                        "description": "How the condition matches: 'contains' (case-insensitive substring of `pattern`), 'regex' (RE2 `pattern`), 'exact' (case-sensitive equality with `pattern`), or 'cidr' (the IP falls in any range in `patterns`, only valid with the `$ip` property).",
                         "type": "string"
                     },
                     "pattern": {
-                        "description": "Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24.",
+                        "description": "Value matched against the property named by `key`. Required for every matcher except 'cidr'.",
                         "type": "string"
+                    },
+                    "patterns": {
+                        "description": "IP ranges for the 'cidr' matcher. The condition matches when the IP falls in any of them. Each entry is a CIDR range like 192.0.2.0/24, a netmask range like 192.0.2.0/255.255.255.0, a bare address, or a start-end range like 192.0.2.10-192.0.2.40. At most 500 entries.",
+                        "items": {
+                            "maxLength": 200,
+                            "type": "string"
+                        },
+                        "maxItems": 500,
+                        "type": "array"
                     }
                 },
-                "required": ["key", "matcher", "pattern"],
+                "required": ["key", "matcher"],
                 "type": "object"
             },
             "type": "array"
