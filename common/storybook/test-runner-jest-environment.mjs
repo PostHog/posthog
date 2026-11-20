@@ -54,6 +54,9 @@ class CustomEnvironment extends BaseEnvironment {
                 this.scriptFiles.set(scriptId, url ? url.split('?')[0].split('/').pop() : 'inline')
             })
             await this.pageSession.send('Debugger.enable')
+            // With breakpoints active, a `debugger` statement in story or dependency code pauses the page and
+            // nothing resumes it. Debugger.pause still pauses the page when breakpoints are inactive.
+            await this.pageSession.send('Debugger.setBreakpointsActive', { active: false })
         } catch {
             this.pageSession = null
         }
