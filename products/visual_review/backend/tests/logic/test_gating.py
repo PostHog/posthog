@@ -1,5 +1,7 @@
 """Unit tests for logic/gating.py — Quarantine stamping and resolution accounting."""
 
+from datetime import timedelta
+
 import pytest
 
 from django.utils import timezone
@@ -141,6 +143,71 @@ class TestQuarantineStamping:
 
         snapshot.refresh_from_db()
         assert snapshot.is_quarantined is expect_quarantined
+
+    def _lift_history(self, repo, team, mocker):
+        from products.visual_review.backend.models import QuarantinedIdentifier
+
+        # Each commit maps to the commits in its history. m1 to m5 are successive default-branch heads.
+        history = {f"m{n}": {f"m{k}" for k in range(1, n + 1)} for n in range(1, 6)}
+        history["branch-from-m2"] = {"m1", "m2", "branch-from-m2"}
+        requests: list[tuple[str, str]] = []
+
+        def merge_base(github, repo_full_name, base, head):
+            requests.append((base, head))
+            return base if base in history[head] else "m0"
+
+        mocker.patch.object(github_api, "get_github_integration_for_repo")
+        mocker.patch.object(github_api, "_get_merge_base_sha", side_effect=merge_base)
+
+        now = timezone.now()
+        for identifier, lift_commit, hours_ago in [("Story-a", "m1", 3), ("Story-b", "m2", 2), ("Story-c", "m3", 1)]:
+            QuarantinedIdentifier.objects.create(
+                repo=repo,
+                team_id=team.id,
+                identifier=identifier,
+                run_type=RunType.STORYBOOK,
+                reason="flaky",
+                expires_at=now - timedelta(hours=hours_ago),
+                lifted_at_sha=lift_commit,
+            )
+        return now, requests
+
+    def _run_at_commit(self, repo, commit_sha):
+        run, _ = runs.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha=commit_sha,
+                branch="feature",
+                pr_number=1,
+                snapshots=[
+                    SnapshotManifestItem(identifier=identifier, content_hash=f"h-{identifier}")
+                    for identifier in ["Story-a", "Story-b", "Story-c"]
+                ],
+            ),
+            team_id=repo.team_id,
+        )
+        return run
+
+    @pytest.mark.parametrize(
+        ("run_commit", "expect_lifted_after"),
+        [("m4", set()), ("branch-from-m2", {"Story-c"})],
+        ids=["run-contains-every-lift", "branch-forked-before-newest-lift"],
+    )
+    def test_lift_scope_follows_the_run_history(self, repo, team, mocker, run_commit, expect_lifted_after):
+        now, _ = self._lift_history(repo, team, mocker)
+
+        run = self._run_at_commit(repo, run_commit)
+
+        assert quarantine.identifiers_lifted_after_commit(run, now=now) == expect_lifted_after
+
+    def test_lift_scope_asks_github_about_a_default_branch_run_once(self, repo, team, mocker):
+        now, requests = self._lift_history(repo, team, mocker)
+        quarantine.identifiers_lifted_after_commit(self._run_at_commit(repo, "m4"), now=now)
+        requests.clear()
+
+        assert quarantine.identifiers_lifted_after_commit(self._run_at_commit(repo, "m5"), now=now) == set()
+        assert requests == [("m3", "m5")]
 
     def test_quarantine_excludes_from_changed_count(self, repo, team, mocker):
         from products.visual_review.backend.models import QuarantinedIdentifier
