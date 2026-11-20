@@ -57667,6 +57667,18 @@ export namespace Schemas {
       install_url?: string | null;
     }
 
+    /**
+     * Response when the team's GitHub App installation is suspended or uninstalled.
+     */
+    export interface GitHubInstallationUnavailableError {
+      /** Stable code for a suspended or uninstalled GitHub App installation. */
+      readonly code: string;
+      /** What happened to the GitHub connection, and who can fix it. */
+      readonly error: string;
+      /** Project integrations settings where a project admin can reconnect GitHub. */
+      readonly remediation_url: string;
+    }
+
     export interface GitHubLinkExistingRequest {
       /**
          * Discovery response ID for diagnostics only; grants no authority.
