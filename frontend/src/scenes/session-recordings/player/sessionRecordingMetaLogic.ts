@@ -87,7 +87,7 @@ export interface sessionRecordingMetaLogicActions {
                   sources: Pick<SessionRecordingSnapshotSource, 'blob_key' | 'source'>[]
               }
     } // snapshotLogic
-    setSnapshots: (snapshots: import('@common/replay-shared/src').RecordingSnapshot[]) => {
+    setSnapshots: (snapshots: RecordingSnapshot[]) => {
         snapshots: RecordingSnapshot[]
     } // snapshotLogic
     loadRecordingFromFile: (recording: LoadedSessionRecordingFile) => {

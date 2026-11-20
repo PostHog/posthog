@@ -36,6 +36,8 @@ export default defineConfig({
             // api-extractor to follow and inline their .d.ts trees
             // instead of treating them as externals.
             rollupTypes: true,
+            // API Extractor ships the full standard library. The classic API wrapper only forwards JavaScript calls.
+            rollupOptions: { typescriptCompilerFolder: undefined },
             bundledPackages: ['@posthog/quill-primitives', '@posthog/quill-components', '@posthog/quill-blocks'],
         }),
     ],
