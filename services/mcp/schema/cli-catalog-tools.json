@@ -38890,6 +38890,47 @@
             "validators": []
         }
     },
+    "organization-create": {
+        "name": "organization-create",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/organizations/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "name",
+                    "key": "name"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": {
+                "kind": "pick",
+                "fields": ["id", "name", "slug", "teams.*.id", "teams.*.name", "teams.*.project_id"],
+                "selectable": false
+            },
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "organization-events-retention-deletion-count": {
         "name": "organization-events-retention-deletion-count",
         "kind": "http",
