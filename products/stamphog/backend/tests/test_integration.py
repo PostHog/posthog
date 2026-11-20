@@ -44,6 +44,7 @@ from products.stamphog.backend.logic.channel_resolution import (
 from products.stamphog.backend.logic.engine_pregate import EnginePregateError, GateAttestation, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
+from products.stamphog.backend.logic.workflow_proofs import RunOrder
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import (
@@ -61,6 +62,7 @@ from products.stamphog.backend.temporal.activities import (
     ReviewSandboxInput,
     StamphogReviewInput,
     _attest_gates,
+    _seen_workflow_runs,
     destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -2426,6 +2428,36 @@ def test_a_wait_on_attestation_checks_is_reviewed_again_only_when_all_of_them_re
     assert new_runs.count() == (0 if newer_run else expected_starts)
     assert start.call_count == expected_starts
     assert all(run.output.get("attestation_check_wake") for run in new_runs)
+
+
+def _verified(name: str, run_id: int, run_attempt: int = 1) -> dict:
+    return {"name": "Dependency proof", "stamphog_workflow_proof": name, "stamphog_workflow_run": [run_id, run_attempt]}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_review_reads_the_newest_publisher_run_that_reviews_of_the_same_head_verified(team) -> None:
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=131, author_login="renovate[bot]"
+    )
+    other = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=132, author_login="renovate[bot]"
+    )
+    stored = [
+        (pull_request, "sha131", [_verified("dependency_proof", 76), {"name": "Migration risk", "app": {"id": 1}}]),
+        (pull_request, "sha131", [_verified("dependency_proof", 77, 2)]),
+        (pull_request, "sha131", []),
+        # Another head, or another pull request, says nothing about this head's results.
+        (pull_request, "sha131-older", [_verified("dependency_proof", 90)]),
+        (other, "sha131", [_verified("dependency_proof", 91)]),
+    ]
+    for owner, head_sha, check_runs in stored:
+        ReviewRun.objects.for_team(team.id).create(
+            team_id=team.id, pull_request=owner, head_sha=head_sha, output={"check_runs": check_runs}
+        )
+    current = ReviewRun.objects.for_team(team.id).create(team_id=team.id, pull_request=pull_request, head_sha="sha131")
+
+    assert _seen_workflow_runs(current) == {"dependency_proof": RunOrder(run_id=77, run_attempt=2)}
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

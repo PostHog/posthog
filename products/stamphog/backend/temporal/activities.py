@@ -113,7 +113,7 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
-from products.stamphog.backend.logic.workflow_proofs import proven_check_runs
+from products.stamphog.backend.logic.workflow_proofs import RunOrder, proven_check_runs, seen_runs
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     queue_routing_after_verdict,
@@ -220,6 +220,21 @@ def _output_merge(updates: dict[str, Any]) -> Func:
         arg_joiner=" || ",
         output_field=JSONField(),
     )
+
+
+def _seen_workflow_runs(run: ReviewRun) -> dict[str, RunOrder]:
+    """The newest run of each workflow publisher that a review of this head verified, from the writer.
+
+    A writer's job can hide a newer result, so a review must not let an older one decide once a
+    review has seen the newer one.
+    """
+    stored = (
+        ReviewRun.objects.for_team(run.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request_id=run.pull_request_id, head_sha=run.head_sha)
+        .values_list("output__check_runs", flat=True)
+    )
+    return seen_runs(stored)
 
 
 def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
@@ -585,6 +600,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
                 head_sha=run.head_sha,
                 check_runs=check_runs_future.result(),
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+                seen=_seen_workflow_runs(run),
             )
         history: ReviewHistory = history_future.result()
 
@@ -1026,6 +1042,7 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
                 head_sha=run.head_sha,
                 check_runs=client.get_check_runs(repo, run.head_sha),
                 policy=policy_files.get(STAMPHOG_POLICY_ENTRYPOINT),
+                seen=_seen_workflow_runs(run),
             )
         except Exception:
             activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")

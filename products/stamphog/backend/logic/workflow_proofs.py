@@ -32,7 +32,9 @@ expiry is not checked. The audience binds the token to one result, so an old tok
 it signed. Three limits remain:
 - A writer's job can edit a newer result's check run and post an older result of the same PR, head
   and merge base again. That result proved the same inputs with code the pins still hold, so this
-  matters only for a publisher that can answer differently on the same inputs.
+  matters only for a publisher that can answer differently on the same inputs. Each verified result
+  records its run, and a review refuses a result older than one an earlier review of the head
+  verified (`seen_runs`), so only a result hidden before any review read it can bring an older one back.
 - A key that GitHub removes from its published set fails every result it signed. The entry then
   waits until the publisher runs again.
 - A writer who floods a head with check runs or check suites past GitHub's listing limits keeps the
@@ -41,7 +43,7 @@ it signed. Three limits remain:
 
 import re
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 
 import jwt
 import structlog
@@ -82,6 +84,8 @@ _UNREADABLE = (StamphogGitHubError, GitHubRateLimitError, GitHubEgressBudgetExha
 _LISTED_CHECK_SUITES = 1000
 _TOKEN_RE = re.compile(r"<!--\s*stamphog-oidc:v1\s+([A-Za-z0-9_.-]+)\s*-->")
 _ID_RE = re.compile(r"[1-9][0-9]{0,19}")
+# Where a verified result records its run, so a later review of the head knows the newest one seen.
+SEEN_RUN_KEY = "stamphog_workflow_run"
 _SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 
@@ -110,6 +114,23 @@ class RunOrder:
 
     run_id: int
     run_attempt: int
+
+
+def seen_runs(stored_check_runs: Iterable[object]) -> dict[str, RunOrder]:
+    """The newest run of each workflow publisher among the check run lists earlier reviews of a head stored."""
+    seen: dict[str, RunOrder] = {}
+    for check_runs in stored_check_runs:
+        for check_run in check_runs if isinstance(check_runs, list) else []:
+            name = check_run.get(WORKFLOW_PROOF_KEY) if isinstance(check_run, dict) else None
+            run = check_run.get(SEEN_RUN_KEY) if isinstance(check_run, dict) else None
+            if not isinstance(name, str) or not isinstance(run, list) or len(run) != 2:
+                continue
+            if not all(type(part) is int for part in run):
+                continue
+            order = RunOrder(run_id=run[0], run_attempt=run[1])
+            if name not in seen or order > seen[name]:
+                seen[name] = order
+    return seen
 
 
 def _claimed_run(token: str) -> RunOrder:
@@ -163,8 +184,10 @@ class WorkflowProofs:
         head_sha: str,
         priority: Priority = Priority.CRITICAL,
         signing_key: Callable[[str], PyJWK] = _github_signing_key,
+        seen: Mapping[str, RunOrder] | None = None,
     ) -> None:
         self._client = client
+        self._seen = seen or {}
         self._repo = repo
         self._pr_number = pr_number
         self._head_sha = head_sha
@@ -303,6 +326,9 @@ class WorkflowProofs:
                     continue
                 if any(run > result.run for run in unchecked):
                     raise StamphogGitHubError(f"A newer {publisher.check!r} result is signed with an unreadable key")
+                # A writer's job can hide the newest result, by renaming its check run or stripping its token.
+                if result.run < self._seen.get(publisher.name, result.run):
+                    raise StamphogGitHubError(f"A {publisher.check!r} result that an earlier review verified is gone")
                 return result
         except _UNREADABLE:
             logger.warning("stamphog_workflow_proof_unreadable", repo=self._repo, entry=publisher.name)
@@ -348,6 +374,7 @@ class WorkflowProofs:
             "output": {"summary": (signed.check_run.get("output") or {}).get("summary") or ""},
             "pinned_blobs_current": code_is_current,
             WORKFLOW_PROOF_KEY: publisher.name,
+            SEEN_RUN_KEY: [signed.run.run_id, signed.run.run_attempt],
         }
 
     def has_result(self, publisher: WorkflowPublisher) -> bool:
@@ -368,13 +395,15 @@ def proven_check_runs(
     head_sha: str,
     check_runs: list[dict],
     policy: str | None,
+    seen: Mapping[str, RunOrder] | None = None,
 ) -> list[dict]:
     """The head's check runs with each workflow publisher's verified result added, and each App's pins checked.
 
     Both review paths, the context read and the posting-time gate attestation, build the engine's
-    check runs here, so they cannot verify differently.
+    check runs here, so they cannot verify differently. `seen` holds the newest run of each publisher
+    that an earlier review of the head verified.
     """
-    proofs = WorkflowProofs(client, repo, pr_number=pr_number, head_sha=head_sha)
+    proofs = WorkflowProofs(client, repo, pr_number=pr_number, head_sha=head_sha, seen=seen)
     for publisher in workflow_publishers(policy):
         verified = proofs.verified_result(publisher)
         if verified is not None:

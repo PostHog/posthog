@@ -225,6 +225,7 @@ A change to the verification keeps these true:
 - A success lifts only while the run's commit (`job_workflow_sha`) and the default branch hold the same workflow file and pinned paths, recorded as `pinned_blobs_current`.
 - A read that fails leaves the entry pending, never a completed result that lifts nothing. The poll wakes only when `verified_result` returns a result, the same test that ends the engine's wait.
 - Both review paths, the context fetch and `_attest_gates`, build the engine's check runs through `proven_check_runs`, and the App pin check skips the verified result.
+- Each verified result records its run, and both review paths pass `proven_check_runs` the newest run that reviews of the head verified (`_seen_workflow_runs`, a writer-pinned read). An older result never decides once a newer one was seen, because a writer's job can hide the newer check run.
 
 ## The manual trigger (the one exception to label mode)
 
