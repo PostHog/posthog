@@ -17,6 +17,7 @@ import { EmailSenderPicker } from './EmailSenderPicker'
 import { emailTemplaterLogic } from './emailTemplaterLogic'
 import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
 import { sandboxSenderHint } from './sandboxSenderOptions'
+import { TestSenderRow } from './TestSenderRow'
 
 /** The From row: pick senders in one click, and set a custom name, address, or reply-to only when needed. */
 export function EmailSenderRow(): JSX.Element {
@@ -77,33 +78,7 @@ export function EmailSenderRow(): JSX.Element {
     }
 
     if (sandbox?.selected && sandbox.onlySender) {
-        const unverified = senders.map((sender) => sender.config?.email ?? sender.display_name ?? `Sender ${sender.id}`)
-        return (
-            <EmailHeaderRow label="From" className="py-1">
-                <div className="flex-1 min-w-0" data-attr="workflow-email-test-sender">
-                    <div className="truncate">PostHog test sender</div>
-                    <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
-                        <span className="min-w-0 truncate">{sandboxSenderHint(sandbox)}</span>
-                        {unverified.length > 0 ? (
-                            <span className="min-w-0 break-words text-warning">
-                                {`${unverified.join(', ')} ${unverified.length === 1 ? "isn't" : "aren't"} verified yet.`}
-                            </span>
-                        ) : null}
-                    </div>
-                </div>
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    className="shrink-0"
-                    to={urls.workflows('channels')}
-                    targetBlank
-                    icon={<IconExternal />}
-                    data-attr="workflow-email-test-sender-add"
-                >
-                    Add new email sender
-                </LemonButton>
-            </EmailHeaderRow>
-        )
+        return <TestSenderRow sandbox={sandbox} senders={senders} />
     }
 
     if (!sandbox && !integrationsLoading && senders.length === 0) {
