@@ -151,11 +151,12 @@ def git(run: Runner, *args: str) -> str:
 
 
 def find_base(run: Runner) -> str:
-    # `git rev-list --parents` prints the commit, then each parent. A merge commit has two.
-    fields = git(run, "rev-list", "--parents", "-n", "1", "HEAD").split()
-    if len(fields) != 3:
+    # `git cat-file` prints the commit object itself. `git rev-list` hides the parents of a shallow commit.
+    header = git(run, "cat-file", "-p", "HEAD").split("\n\n", 1)[0]
+    parents = [line.split()[1] for line in header.splitlines() if line.startswith("parent ")]
+    if len(parents) != 2:
         raise CannotVerify("HEAD is not a merge commit, so it has no base to compare against")
-    return fields[1]
+    return parents[0]
 
 
 def environment_changes(run: Runner, base: str) -> list[str]:
@@ -167,8 +168,12 @@ def environment_changes(run: Runner, base: str) -> list[str]:
     ]
 
 
-def checkout_base(run: Runner, base: str) -> None:
+def fetch_base(run: Runner, base: str) -> None:
+    # The shard's checkout is shallow, so the base commit and its tree are not local yet.
     git(run, "fetch", "--no-tags", "--depth=1", "origin", base)
+
+
+def checkout_base(run: Runner, base: str) -> None:
     git(run, "checkout", "--force", "--detach", base)
     head = git(run, "rev-parse", "HEAD").strip()
     if head != base:
@@ -208,6 +213,7 @@ def check(
         print(f"  {test_id}")
 
     base = find_base(run)
+    fetch_base(run, base)
     changed = environment_changes(run, base)
     if changed:
         raise CannotVerify(

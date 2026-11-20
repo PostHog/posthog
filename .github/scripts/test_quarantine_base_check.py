@@ -25,37 +25,42 @@ def sh(cwd: Path, *args: str) -> str:
 
 class Scenario:
     def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        self.src = tmp_path / "src"
         self.root = tmp_path / "work"
         self.origin = tmp_path / "origin.git"
         self.out = tmp_path / "out"
         self.settings = tmp_path / "settings.env"
         self.settings.write_text(SETTINGS)
         self.junit = tmp_path / "junit-core.xml"
-        self.root.mkdir()
+        self.src.mkdir()
         sh(tmp_path, "git", "init", "--bare", str(self.origin))
-        sh(self.root, "git", "init", "-b", "master")
-        sh(self.root, "git", "config", "user.email", "t@example.com")
-        sh(self.root, "git", "config", "user.name", "t")
-        sh(self.root, "git", "remote", "add", "origin", f"file://{self.origin}")
+        sh(self.src, "git", "init", "-b", "master")
+        sh(self.src, "git", "config", "user.email", "t@example.com")
+        sh(self.src, "git", "config", "user.name", "t")
+        sh(self.src, "git", "remote", "add", "origin", f"file://{self.origin}")
         monkeypatch.setattr(qbc, "BASE_PYTEST_FLAGS", ("-q",))
         monkeypatch.setattr(qbc, "RETRY_FLAGS", ())
 
     def write(self, files: dict[str, str]) -> None:
         for name, content in files.items():
-            path = self.root / name
+            path = self.src / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
-        sh(self.root, "git", "add", "-A")
-        sh(self.root, "git", "commit", "-m", "change")
+        sh(self.src, "git", "add", "-A")
+        sh(self.src, "git", "commit", "-m", "change")
 
-    def build(self, base: dict[str, str], pr: dict[str, str]) -> None:
+    def build(self, base: dict[str, str], pr: dict[str, str], head: str = "merge") -> None:
         self.write({"pytest.ini": "[pytest]\njunit_family = xunit1\n", "posthog/conftest.py": "", **base})
-        sh(self.root, "git", "push", "origin", "master")
-        sh(self.root, "git", "checkout", "-b", "pr")
+        sh(self.src, "git", "push", "origin", "master")
+        sh(self.src, "git", "checkout", "-b", "pr")
         self.write(pr)
-        sh(self.root, "git", "checkout", "master")
-        sh(self.root, "git", "merge", "--no-ff", "-m", "merge", "pr")
-        # The shard's own pytest run on the merge commit produces the report the gate masks.
+        sh(self.src, "git", "push", "origin", "pr")
+        sh(self.src, "git", "checkout", "master")
+        sh(self.src, "git", "merge", "--no-ff", "-m", "merge", "pr")
+        sh(self.src, "git", "push", "origin", "master:merge")
+        # A shallow clone of the head, like the shard's checkout: the base commit is not local.
+        sh(self.src, "git", "clone", "--depth", "1", "--branch", head, f"file://{self.origin}", str(self.root))
+        # The shard's own pytest run on the head produces the report the gate masks.
         subprocess.run(
             [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={self.junit}", "tests"],
             cwd=self.root,
@@ -149,8 +154,7 @@ def test_pr_that_changes_the_database_or_packages_is_not_masked(scenario, path):
 
 
 def test_head_that_is_not_a_merge_commit_is_not_masked(scenario):
-    scenario.build({"tests/test_x.py": FAILING}, {"tests/test_y.py": PASSING})
-    sh(scenario.root, "git", "reset", "--hard", "HEAD^")
+    scenario.build({"tests/test_x.py": FAILING}, {"tests/test_y.py": PASSING}, head="pr")
     with pytest.raises(qbc.CannotVerify, match="not a merge commit"):
         scenario.check()
 
@@ -190,10 +194,17 @@ def test_event_without_a_base_keeps_the_gate_result(scenario, event):
     assert scenario.check(event) == []
 
 
-@pytest.mark.parametrize("base,expected_exit", [(PASSING, 1), (FAILING, 0)])
-def test_main_exit_code_follows_whether_the_failure_is_pre_existing(scenario, monkeypatch, base, expected_exit):
-    scenario.build({"tests/test_x.py": base}, {"tests/test_x.py": FAILING, "tests/test_y.py": PASSING})
-    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
-    monkeypatch.chdir(scenario.root)
-    argv = ["--junit", str(scenario.junit), "--settings", str(scenario.settings), "--out-dir", str(scenario.out)]
-    assert qbc.main(argv, scenario.run) == expected_exit
+@pytest.mark.parametrize(
+    "outcome,expected_exit",
+    [([], 0), (["tests/test_x.py::test_a"], 1), (qbc.CannotVerify("x"), 1)],
+    ids=["pre-existing", "regression", "cannot-verify"],
+)
+def test_main_exit_code_follows_the_check_result(monkeypatch, outcome, expected_exit):
+    def fake_check(*args):
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(qbc, "check", fake_check)
+    argv = ["--junit", "j.xml", "--settings", "s.env", "--out-dir", "out"]
+    assert qbc.main(argv) == expected_exit
