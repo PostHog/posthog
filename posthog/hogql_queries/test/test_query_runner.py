@@ -63,7 +63,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query_stats import get_active, record
+from posthog.hogql.query_stats import get_active, notify_query_started, record
 
 from posthog.api.services.query import _run_query_runner
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -1215,6 +1215,32 @@ class TestQueryRunner(BaseTest):
         assert isinstance(response, TheTestCachedBasicQueryResponse)
         assert response.is_cached is False
         assert response.results[0] == ["row", 1, 2, 3]
+
+    @time_machine.travel("2023-02-04T13:37:42Z", tick=False)
+    def test_key_planned_before_the_user_is_set_does_not_serve_unrestricted_results(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        TestQueryRunner = self.setup_test_query_runner_class()
+        TestQueryRunner(query={"some_attr": "bla"}, team=self.team).run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+        )
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        runner.plan_cache_key()
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
+
+        assert isinstance(response, CacheMissResponse)
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
@@ -2902,7 +2928,6 @@ class TestQuerySingleFlightRunner(BaseTest):
                 FlightWait(outcome="failed", failure=SharedFailure(message="x", class_name="RenamedInANewerDeploy")),
             ),
             ("leader_vanished", FlightWait(outcome="released")),
-            ("wait_timed_out", FlightWait(outcome="timeout")),
             ("published_entry_never_landed", FlightWait(outcome="done", last_refresh=datetime(2026, 1, 1, tzinfo=UTC))),
         ]
     )
@@ -2920,13 +2945,57 @@ class TestQuerySingleFlightRunner(BaseTest):
                     runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         mock_calculate.assert_not_called()
 
-    def test_follower_runs_alone_when_the_flight_is_unavailable(self):
+    @parameterized.expand(
+        [
+            ("flight_unavailable", FlightWait(outcome="unavailable")),
+            ("leader_held_the_lock_past_the_follower_wait", FlightWait(outcome="timeout")),
+        ]
+    )
+    def test_follower_runs_alone_when_the_leader_cannot_serve_it(self, _name, wait_result):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
-        self._become_follower(FlightWait(outcome="unavailable"))
+        self._become_follower(wait_result)
         with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert response.is_cached is False
+
+    @parameterized.expand([("flight_unavailable", "unavailable"), ("leader_held_the_lock_past_the_wait", "timeout")])
+    def test_follower_that_would_run_alone_respects_a_breaker_opened_while_it_waited(self, _name, outcome):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        failure_cache = QueryFailureCache(runner.get_cache_key())
+
+        def breaker_opens_during_the_wait(*args: Any, **kwargs: Any) -> FlightWait:
+            for _ in range(KIND_POLICIES["timeout"].open_threshold):
+                failure_cache.record_failure("timeout", "timed out", budget=BUDGET_INTERACTIVE)
+            return FlightWait(outcome=outcome)
+
+        self._become_follower(breaker_opens_during_the_wait)
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            with mock.patch.object(runner_class, "_calculate", autospec=True) as mock_calculate:
+                with self.assertRaises(ClickHouseQueryTimeOut):
+                    runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        mock_calculate.assert_not_called()
+
+    def test_leader_tells_followers_once_its_calculation_starts_a_clickhouse_query(self):
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        querying_key = self._flight_of(runner).querying_key
+        calculate = runner_class._calculate
+        marked_while_calculating: list[bool] = []
+
+        def calculate_with_a_clickhouse_query(runner_self: Any) -> Any:
+            notify_query_started()
+            marked_while_calculating.append(bool(qc_storage.query_cache_raw_client().exists(querying_key)))
+            return calculate(runner_self)
+
+        with mock.patch("posthoganalytics.feature_enabled", side_effect=_single_flight_flag):
+            with mock.patch.object(
+                runner_class, "_calculate", autospec=True, side_effect=calculate_with_a_clickhouse_query
+            ):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert marked_while_calculating == [True]
+        assert not qc_storage.query_cache_raw_client().exists(querying_key)
 
     @parameterized.expand(
         [

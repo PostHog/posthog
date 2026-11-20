@@ -1,5 +1,4 @@
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING
 
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import bump_stuck_counter_activity
 
@@ -78,6 +77,9 @@ from products.replay_vision.backend.temporal.vision_alerts import (
 )
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     ApplyScannerWorkflow,
     BackfillScannerWorkflow,
@@ -92,7 +94,7 @@ WORKFLOWS = [
     SweepScannerWorkflow,
     VisionAlertCheckWorkflow,
 ]
-ACTIVITIES: list[Callable[..., Any]] = [
+ACTIVITIES: list[ActivityDefinition] = [
     # ApplyScannerWorkflow bumps the rasterizer's stuck counter on this queue when a render times out.
     bump_stuck_counter_activity,
     discover_due_vision_alerts_activity,

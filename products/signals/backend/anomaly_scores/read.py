@@ -38,6 +38,14 @@ MAX_SERIES = 10_000
 MAX_BUCKETS = 2_000
 # Enough for an hourly series over 14 days, or a daily series over a year.
 MAX_SERIES_POINTS = 400
+# The buckets a chart shows before the end of its window, by interval. It does not follow the requested range,
+# so a short range still charts enough history to judge a flag. Each stays within MAX_SERIES_POINTS.
+CHART_BUCKETS: Mapping[IntervalType, int] = {
+    IntervalType.HOUR: 7 * 24,
+    IntervalType.DAY: 14,
+    IntervalType.WEEK: 26,
+    IntervalType.MONTH: 24,
+}
 # Each rate shrinks toward its baseline by this many buckets, so 1 flagged of 1 scored does not top a ranking.
 PRIOR_BUCKETS = 10
 # The prior when no series of the project has a scored baseline: about what a 0.95 threshold flags on noise.
@@ -228,8 +236,8 @@ class SeriesImportance:
 class _RankKey:
     """Sorts smallest first, field by field, so each measure is negated to put the largest first."""
 
-    # 0 for every series unless the newest flag sorts first. Not negated, because fewer buckets ago is newer.
-    flag_buckets_ago: float
+    # 0 for every series unless the newest flag sorts first.
+    negative_flag_end: float
     # 0 for every series unless the anomaly rate sorts first.
     negative_rate: float
     negative_lift: float
@@ -471,19 +479,25 @@ def latest_buckets(
     return ScoredBuckets(buckets=buckets, truncated=len(rows) > limit)
 
 
+def chart_from(interval: IntervalType, date_to: datetime.datetime) -> datetime.datetime:
+    """The start of the chart window of a series with this interval that ends at ``date_to``."""
+    return date_to - interval_spec(interval).period * CHART_BUCKETS[interval]
+
+
 def series_points(
     team: Team,
     *,
-    date_from: datetime.datetime,
     date_to: datetime.datetime,
-    series: Collection[tuple[int, str]],
+    series: Mapping[tuple[int, str], IntervalType],
 ) -> dict[tuple[int, str], list[SeriesPoint]]:
-    """The newest ``MAX_SERIES_POINTS`` scored buckets of each ``(insight_id, series_key)`` in the range, oldest first.
+    """The scored buckets of each ``(insight_id, series_key)`` in the chart window of its interval, oldest first.
 
     Warm-up rows are left out. A bucket that was not scored has no point, so a gap stays a gap.
+    Each series keeps at most its newest ``MAX_SERIES_POINTS`` buckets.
     """
     if not series:
         return {}
+    starts = {key: chart_from(interval, date_to) for key, interval in series.items()}
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     response = execute_hogql_query(
         _POINTS_QUERY,
@@ -491,7 +505,7 @@ def series_points(
         query_type="AnomalyScoresSeriesPoints",
         placeholders={
             **_placeholders(
-                since=date_from,
+                since=min(starts.values()),
                 until=date_to,
                 insight_ids={insight_id for insight_id, _ in series},
                 series_key=None,
@@ -507,10 +521,12 @@ def series_points(
     timezone = team.timezone_info
     points: dict[tuple[int, str], list[SeriesPoint]] = {key: [] for key in series}
     for insight_id, key, start, value, flag in reversed(rows):
+        bucket_start = _local(start, timezone)
         # The scope matches insights and keys apart, so a key of another insight on the page can match too.
-        if (insight_id, key) in points:
+        # One scan covers the longest window on the page, so each series drops the buckets before its own window.
+        if (insight_id, key) in points and bucket_start >= starts[(insight_id, key)]:
             points[(insight_id, key)].append(
-                SeriesPoint(bucket_start=_local(start, timezone), value=_float(value), flag=bool(flag))
+                SeriesPoint(bucket_start=bucket_start, value=_float(value), flag=bool(flag))
             )
     return points
 
@@ -564,17 +580,6 @@ def rate_lift(summary: SeriesSummary, prior: float) -> float:
     return rate - smoothed_baseline
 
 
-def _buckets_between(older: datetime.datetime, newer: datetime.datetime, interval: IntervalType) -> int:
-    """Whole buckets from one bucket start to a later one of the same interval, in the project's timezone."""
-    if interval == IntervalType.HOUR:
-        # Aware datetimes with the same timezone subtract as wall-clock times, so step in UTC across DST changes.
-        return round((newer.astimezone(datetime.UTC) - older.astimezone(datetime.UTC)).total_seconds() / 3600)
-    if interval == IntervalType.MONTH:
-        return (newer.year - older.year) * 12 + newer.month - older.month
-    days = (newer.date() - older.date()).days
-    return days // 7 if interval == IntervalType.WEEK else days
-
-
 def rank_series(
     series: Sequence[SeriesSummary],
     *,
@@ -586,25 +591,20 @@ def rank_series(
     """Most anomalous first, using only measures that compare across series and intervals.
 
     Rate lift first, then flagged buckets, then the newest flag, then the insight's importance.
-    With ``recent_first``, the fewest buckets since the newest flag sorts first, and a series without a flag sorts
-    last. Buckets count back from the newest bucket of any series of the same interval, so the latest hour ties the
-    latest day, and a series that stopped being scored does not keep its last flag current.
+    With ``recent_first``, the newest flagged bucket that ended last sorts first, and a series without a flag sorts
+    last. It compares bucket ends, not starts, so a day that ended at midnight is newer than an hour that ended
+    before it.
     With ``rate_first``, the anomaly rate in the range sorts first, as a person reads it off a row.
     """
     unknown = SeriesImportance(on_dashboard=False, viewers=0)
-    newest: dict[IntervalType, datetime.datetime] = {}
-    for summary in series:
-        newest[summary.interval] = max(summary.newest_bucket, newest.get(summary.interval, summary.newest_bucket))
 
     def key(summary: SeriesSummary) -> _RankKey:
         last_flagged = summary.last_flagged_bucket
         negative_last_flagged = -last_flagged.timestamp() if last_flagged else math.inf
-        flag_buckets_ago = (
-            _buckets_between(last_flagged, newest[summary.interval], summary.interval) if last_flagged else math.inf
-        )
+        negative_flag_end = -bucket_end(last_flagged, summary.interval).timestamp() if last_flagged else math.inf
         insight_importance = importance.get(summary.insight_id, unknown)
         return _RankKey(
-            flag_buckets_ago=flag_buckets_ago if recent_first else 0.0,
+            negative_flag_end=negative_flag_end if recent_first else 0.0,
             negative_rate=-(summary.anomaly_rate or 0.0) if rate_first else 0.0,
             negative_lift=-rate_lift(summary, prior),
             negative_flagged_buckets=-summary.flagged_buckets,

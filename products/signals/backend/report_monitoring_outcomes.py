@@ -61,6 +61,16 @@ def _member_results(
     ]
 
 
+# The outcome read on inbox rows tells how a period ended from these exact strings, so change them together.
+AGGREGATION_REASONS: dict[str, str] = {
+    MonitoringAggregation.WAITING: "Verification is waiting for the remaining follow-up checks.",
+    MonitoringAggregation.PASSED: "All follow-up checks passed with sufficient evidence.",
+    MonitoringAggregation.FAILED: "A follow-up check failed with sufficient evidence.",
+    MonitoringAggregation.ASSESSMENT_REQUIRED: "Final verification needs a report-level assessment.",
+}
+ALL_CHECKS_CANCELLED_REASON = "All follow-up checks were canceled, so the report was resolved without verification."
+
+
 def _cancelled_checks(report_id: UUID | OuterRef) -> QuerySet[SignalReportCheck]:
     return SignalReportCheck.objects.unscoped().filter(report_id=report_id, status=SignalReportCheck.Status.CANCELLED)
 
@@ -131,14 +141,9 @@ def aggregate_monitoring_attempt(*, team_id: int, report_id: UUID, attempt_id: U
             "aggregation_result_ids",
             "aggregation_cancelled_check_count",
         ]
-        reason = {
-            MonitoringAggregation.WAITING: "Verification is waiting for the remaining follow-up checks.",
-            MonitoringAggregation.PASSED: "All follow-up checks passed with sufficient evidence.",
-            MonitoringAggregation.FAILED: "A follow-up check failed with sufficient evidence.",
-            MonitoringAggregation.ASSESSMENT_REQUIRED: "Final verification needs a report-level assessment.",
-        }[decision]
+        reason = AGGREGATION_REASONS[decision]
         if states and all(state == MonitoringMemberState.CANCELLED for state in states.values()):
-            reason = "All follow-up checks were canceled, so the report was resolved without verification."
+            reason = ALL_CHECKS_CANCELLED_REASON
         attempt.aggregation_reason = reason
         fields.append("aggregation_reason")
         if decision == MonitoringAggregation.ASSESSMENT_REQUIRED and attempt.assessment_requested_at is None:

@@ -10,8 +10,6 @@ from llm_gateway.config import get_settings
 
 logger = structlog.get_logger(__name__)
 
-GLM_MODAL_FLAG = "tasks-glm-modal-inference"
-
 _flag_cache: TTLCache[tuple[str, str], bool] = TTLCache(maxsize=10_000, ttl=60)
 # Global per-flag backoff so an evaluation outage doesn't stack one blocking roundtrip per new user.
 _flag_unavailable_cache: TTLCache[str, bool] = TTLCache(maxsize=100, ttl=5)

@@ -15,6 +15,8 @@ import type {
     AlertPatternPreviewRequestApi,
     AlertPatternPreviewResponseApi,
     AnomalyInsightResponseApi,
+    AnomalyPointsRequestApi,
+    AnomalyPointsResponseApi,
     AnomalySearchResponseApi,
     CancelReportCheckRequestApi,
     CommitDiffResponseApi,
@@ -136,6 +138,7 @@ import type {
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
+    SignalReportTagOptionsApi,
     SignalReportTaskActionListResponseApi,
     SignalReportTaskActionRunRequestApi,
     SignalReportTaskActionRunResponseApi,
@@ -337,6 +340,27 @@ export const signalsAnomaliesInsightRetrieve = async (
     return apiMutator<AnomalyInsightResponseApi>(getSignalsAnomaliesInsightRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsAnomaliesPointsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/anomalies/points/`
+}
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the chart points of anomaly series
+ */
+export const signalsAnomaliesPointsCreate = async (
+    projectId: string,
+    anomalyPointsRequestApi: AnomalyPointsRequestApi,
+    options?: RequestInit
+): Promise<AnomalyPointsResponseApi> => {
+    return apiMutator<AnomalyPointsResponseApi>(getSignalsAnomaliesPointsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(anomalyPointsRequestApi),
     })
 }
 
@@ -717,7 +741,7 @@ export const getSignalsReportsActionsRunCreateUrl = (projectId: string, id: stri
 }
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. `implement` starts the run the inbox's Implement button starts: it claims the report, and the pull request it opens is attached to the report. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. A task sandbox cannot start an action, except a scout run that a person granted the action in the scout's settings.
  * @summary Start a report action as a background agent run
  */
 export const signalsReportsActionsRunCreate = async (
@@ -1908,6 +1932,23 @@ export const signalsReportsSourceMetadataCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportSourceMetadataRequestApi),
+    })
+}
+
+export const getSignalsReportsTagOptionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/tag_options/`
+}
+
+/**
+ * @summary List the team's most-used report tags
+ */
+export const signalsReportsTagOptionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalReportTagOptionsApi> => {
+    return apiMutator<SignalReportTagOptionsApi>(getSignalsReportsTagOptionsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -3310,7 +3351,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 1000.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries whose key starts with a prefix, and `skill_name` to keep the entries one scout (or `pipeline:*` stage) created. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Entries whose `expires_at` has passed are excluded unless `include_expired=true`, and are hard-deleted by a daily janitor once their expiry is more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the entry's earlier versions, newest first, including those of a deleted key. Results capped at 1000.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (
@@ -3329,7 +3370,7 @@ export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
 }
 
 /**
- * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted.
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. Pass `if_updated_at` to write only when the entry is still the one you read.
  * @summary Remember a scratchpad entry
  */
 export const signalsScoutScratchpadRemember = async (

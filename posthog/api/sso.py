@@ -1,11 +1,15 @@
 import json
+import time
 import base64
+from hashlib import sha256
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.http.response import HttpResponse
 from django.urls.base import reverse
+from django.utils.crypto import constant_time_compare, get_random_string
 
 import structlog
 import posthoganalytics
@@ -24,6 +28,8 @@ from social_core.backends.saml import (
     SAMLIdentityProvider,
 )
 from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_core.storage import PartialMixin, UserProtocol
+from social_core.strategy import HttpResponseProtocol
 from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
 from social_django.utils import load_backend, load_strategy
@@ -31,7 +37,7 @@ from social_django.utils import load_backend, load_strategy
 from posthog.api.scim.utils import mask_email
 from posthog.constants import AvailableFeature
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR
+from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR, saml_identity_issuer, validate_idp_partial
 from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -80,6 +86,7 @@ def saml_metadata_view(request, *args, **kwargs):
 
 # OASIS SAML bindings cap RelayState at 80 bytes; the cache TTL only needs to outlast the IdP round trip.
 SAML_RELAY_STATE_CACHE_TTL_SECONDS = 60 * 10
+SAML_BROWSER_COOKIE = "__Host-posthog-saml-browser"
 
 
 def _saml_relay_state_cache_key(key: str) -> str:
@@ -119,9 +126,26 @@ class MultitenantSAMLAuth(SAMLAuth):
     each organization can have multiple verified domains each with its own SAML configuration.
     """
 
+    authentication_started_at: int | None = None
+    authentication_issuer: str | None = None
+    browser_verified = False
+
+    def continue_pipeline(self, partial: PartialMixin) -> UserProtocol | HttpResponseProtocol | None:
+        validate_idp_partial(self, partial)
+        return super().continue_pipeline(partial)
+
     def auth_complete(self, *args, **kwargs):
+        self.authentication_started_at = int(time.time())
         # attempt to recover from missing relay state in idp-initiated SAML
         self._recover_idp_initiated_relay_state()
+        data = self.strategy.request_data()
+        relay_state = self.parse_relay_state(data.get("RelayState") or "")
+        # The Lax session cookie is absent on cross-site ACS posts; a separate cookie binds
+        # first-time mailbox proof to the browser that initiated sign-in.
+        nonce = cast(DjangoStrategy, self.strategy).request.COOKIES.get(SAML_BROWSER_COOKIE, "")
+        self.browser_verified = bool(nonce) and constant_time_compare(
+            sha256(nonce.encode()).hexdigest(), relay_state.get("browser", "")
+        )
 
         try:
             result = super().auth_complete(*args, **kwargs)
@@ -189,7 +213,9 @@ class MultitenantSAMLAuth(SAMLAuth):
         # A miss still routes the pre-cache JSON payload, an IdP-supplied value, or an expired key
         # through the base parser, which sends the last two to the IdP-initiated recovery.
         stored = _load_saml_relay_state(relay_state_str)
-        return stored if stored is not None else super().parse_relay_state(relay_state_str)
+        state = stored if stored is not None else super().parse_relay_state(relay_state_str)
+        state.pop(DjangoStrategy.SESSION_SAVE_KEY, None)
+        return state
 
     def _relay_state_points_to_config(self, relay_state_str: str | None) -> bool:
         if not relay_state_str:
@@ -259,9 +285,11 @@ class MultitenantSAMLAuth(SAMLAuth):
                 "Your organization does not have the required license to use SAML.",
             )
 
-        if not idp_config.saml_relay_state:
+        if not idp_config.saml_relay_state or not idp_config.saml_entity_id or not idp_config.saml_x509_cert:
             raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
+        # Paused logins must retain the exact signing configuration handed to the SAML validator.
+        self.authentication_issuer = saml_identity_issuer(idp_config.saml_entity_id, idp_config.saml_x509_cert)
         return SAMLIdentityProvider(
             self,
             idp_config.saml_relay_state,
@@ -276,7 +304,14 @@ class MultitenantSAMLAuth(SAMLAuth):
         if not email:
             raise AuthMissingParameter(self, "email")
 
-        idp_configs = list(IdentityProviderConfig.objects.saml_for_email(email)[:2])
+        configs = IdentityProviderConfig.objects.saml_for_email(email)
+        # Cached frontend bundles send idp=posthog_custom, so config selection needs its own parameter.
+        if selected_idp := self.strategy.request_data().get("idp_config"):
+            try:
+                configs = configs.filter(saml_relay_state=UUID(str(selected_idp)))
+            except ValueError:
+                raise AuthFailed(self, "SAML not configured for this user.")
+        idp_configs = list(configs[:2])
         if len(idp_configs) == 0:
             saml_logger.warning("saml_not_configured", **_saml_log_context(email))
             raise AuthFailed(self, "SAML not configured for this user.")
@@ -300,7 +335,13 @@ class MultitenantSAMLAuth(SAMLAuth):
         # We deliberately omit the session key that upstream `SAMLAuth.auth_url` also packs into
         # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
         # redirect, and `next` alone is enough to recover the redirect without it.
-        relay_state = {"idp": identity_provider.name, "next": self.data.get("next")}
+        nonce = get_random_string(64)
+        self.strategy.session_set("saml_browser_nonce", nonce)
+        relay_state = {
+            "idp": identity_provider.name,
+            "next": self.data.get("next"),
+            "browser": sha256(nonce.encode()).hexdigest(),
+        }
         return auth.login(return_to=_store_saml_relay_state(relay_state))
 
     def _get_attr(
@@ -380,6 +421,11 @@ class MultitenantSAMLAuth(SAMLAuth):
         Ensures the email domain from the SAML assertion is consistent with
         the OrganizationDomain that owns this IdP configuration.
         """
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            raise AuthFailed(self, "The identity provider did not assert a valid email address.")
+
         idp_name = response.get("idp_name")
         if not idp_name:
             saml_logger.warning(
@@ -433,14 +479,16 @@ class MultitenantSAMLAuth(SAMLAuth):
             "Authentication failed. The email domain from your identity provider does not match the configured domain.",
         )
 
+    def get_identity_subject(self, details, response):
+        USER_ID_ATTRIBUTES = ["name_id", "NAME_ID", "nameId", OID_USERID]
+        return self._get_attr(response["attributes"], USER_ID_ATTRIBUTES)
+
     def get_user_id(self, details, response):
         """
         Overridden to find user ID across multiple attribute names.
         Get the permanent ID for this user from the response.
         """
-        USER_ID_ATTRIBUTES = ["name_id", "NAME_ID", "nameId", OID_USERID]
-        uid = self._get_attr(response["attributes"], USER_ID_ATTRIBUTES)
-        return f"{response['idp_name']}:{uid}"
+        return f"{response['idp_name']}:{self.get_identity_subject(details, response)}"
 
 
 class CustomGoogleOAuth2(GoogleOAuth2):

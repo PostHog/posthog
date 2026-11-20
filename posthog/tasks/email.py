@@ -28,6 +28,7 @@ from posthog.email import (
     get_email_team_and_org_context,
     is_email_available,
     is_http_email_service_available,
+    raise_if_delivery_rejected,
     single_line,
 )
 from posthog.event_usage import groups
@@ -604,8 +605,11 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_code_based_verification(user_id: int, code: str) -> None:
-    """Send the 6-digit login verification code."""
+def send_code_based_verification(user_id: int, code: str, to_email: str | None = None) -> None:
+    """Send the 6-digit login verification code.
+
+    `to_email` pins IdP approval to the account mailbox so an asserted address cannot
+    redirect its proof. Password logins leave it None."""
     user: User = User.objects.get(pk=user_id)
 
     message = EmailMessage(
@@ -620,9 +624,11 @@ def send_code_based_verification(user_id: int, code: str) -> None:
             "site_url": settings.SITE_URL,
         },
     )
-    message.add_user_recipient(user)
-    if message.send(send_async=False):
+    message.add_user_recipient(user, email_override=to_email)
+    if message.send(send_async=False, retry=to_email is None):
         raise EmailRecipientUndeliverableError("the login code email was refused as undeliverable")
+    if to_email is not None:
+        raise_if_delivery_rejected(message.campaign_key, to_email)
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
@@ -2174,7 +2180,9 @@ def send_personal_api_keys_changed_by_org_admin(
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, more_info: str) -> None:
+def send_feature_flags_secure_api_key_exposed(
+    team_id: int, mask_value: str, more_info: str, signing_secret_replaced: bool = False
+) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -2186,15 +2194,16 @@ def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, mor
     message = EmailMessage(
         use_http=True,
         campaign_key=f"feature-flags-secure-api-key-exposed-{team.uuid}-{timezone.now().timestamp()}",
-        subject=f"Feature Flags Secure API key has been exposed for {team.name}",
+        subject=f"Legacy feature flags secret key has been revoked for {team.name}",
         template_name="feature_flags_secure_api_key_exposed",
         template_context={
-            # "preheader": "Project secret API key has been exposed",
-            "preheader": "Feature Flags Secure API key has been exposed",
+            "preheader": "Legacy feature flags secret key has been revoked",
             "project_name": team.name,
             "more_info": more_info,
             "mask_value": mask_value,
-            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/project-feature-flags",
+            "url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-secret-api-keys",
+            "conversations_settings_url": f"{settings.SITE_URL}/project/{team.pk}/settings/environment-conversations",
+            "signing_secret_replaced": signing_secret_replaced,
             **get_email_team_and_org_context(team=team),
         },
     )
