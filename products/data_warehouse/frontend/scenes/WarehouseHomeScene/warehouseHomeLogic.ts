@@ -207,9 +207,24 @@ export const warehouseHomeLogic = kea<warehouseHomeLogicType>([
             },
         ],
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadSavedQueryCount()
         actions.loadWarehouseHomeHealthIssues()
         actions.loadWarehouseHomeRecentRuns()
+        // Syncs finish while the user is in another tab, so health and runs reload on return instead of on a timer.
+        cache.disposables.add(
+            () => {
+                const onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'visible') {
+                        actions.loadWarehouseHomeHealthIssues()
+                        actions.loadWarehouseHomeRecentRuns()
+                    }
+                }
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+            },
+            'reloadOnVisible',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

@@ -106,6 +106,36 @@ describe('warehouseHomeLogic', () => {
         ])
     })
 
+    it('reloads health and runs when the tab becomes visible again', async () => {
+        let issues = ISSUES
+        let running = [{ id: 'r1', status: 'Running' }]
+        useWarehouseHomeMocks({
+            '/api/projects/:team_id/data_warehouse/data_health_issues/': () => [200, issues],
+            '/api/projects/:team_id/data_warehouse/running_activity/': () => [
+                200,
+                { results: running, next: null, previous: null },
+            ],
+        })
+        const setVisibility = (state: DocumentVisibilityState): void => {
+            Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        const logic = warehouseHomeLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        issues = { count: 0, results: [] }
+        running = []
+        setVisibility('hidden')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.warehouseIssues?.map((issue) => issue.id)).toEqual(['2', '1'])
+
+        setVisibility('visible')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.warehouseIssues).toEqual([])
+        expect(logic.values.recentRuns).toEqual([])
+    })
+
     test.each<[ProductSetupStatus, string]>([
         ['loading', 'loading'],
         ['unknown', 'todo'],
