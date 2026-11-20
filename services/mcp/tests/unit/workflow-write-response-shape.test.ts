@@ -70,8 +70,18 @@ describe('workflow write response shape', () => {
     const testSenderLive = [{ code: 'test_sender_live', message: 'Set up your sending domain.' }]
     const id = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
 
+    const routes = [
+        'the MCP server',
+        'the CLI',
+        'the CLI with a catalog cached before workflows-enable joined it',
+    ] as const
+    const withoutEnableEntry = (): ReturnType<typeof buildCliCatalog> => {
+        const catalog = buildCliCatalog(null)
+        return { ...catalog, tools: catalog.tools.filter((tool) => tool.name !== 'workflows-enable') }
+    }
+
     async function throughRoute(
-        route: 'the MCP server' | 'the CLI',
+        route: (typeof routes)[number],
         name: string,
         input: Record<string, unknown>,
         response: unknown
@@ -95,8 +105,10 @@ describe('workflow write response shape', () => {
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
         try {
-            if (route === 'the CLI') {
-                const library = createApiToolLibrary({ catalog: buildCliCatalog(null) })
+            if (route !== 'the MCP server') {
+                const library = createApiToolLibrary({
+                    catalog: route === 'the CLI' ? buildCliCatalog(null) : withoutEnableEntry(),
+                })
                 const catalog = library.catalog()
                 expect(catalog.source).toBe('downloaded')
                 expect(catalog.dropped.map((tool) => tool.name)).not.toContain(name)
@@ -129,7 +141,6 @@ describe('workflow write response shape', () => {
         }
     }
 
-    const routes = ['the MCP server', 'the CLI'] as const
     const throughEachRoute = <Rest extends unknown[]>(
         rows: [string, ...Rest][]
     ): [string, (typeof routes)[number], ...Rest][] =>
