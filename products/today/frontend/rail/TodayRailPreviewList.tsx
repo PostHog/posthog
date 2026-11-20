@@ -48,7 +48,7 @@ export function TodayRailPreviewList({
             {sections.length > 0 && (
                 <ScrollArea
                     className="min-h-0"
-                    viewportClassName="max-h-96 max-h-[min(24rem,calc(var(--available-height,100vh)-4rem))] overscroll-contain"
+                    viewportClassName="max-h-[min(20rem,calc(var(--available-height,20rem)-3rem))] overscroll-contain"
                 >
                     <div className="px-1 pb-1">
                         {sections.map((section, index) => (
