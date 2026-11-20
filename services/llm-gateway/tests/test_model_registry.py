@@ -352,7 +352,8 @@ class TestCloudflareModelAdvertising:
         ):
             models = get_available_models("django")
             cf = [m for m in models if m.id.startswith("@cf/")]
-            assert {m.id for m in cf} == set(CLOUDFLARE_ALLOWED_MODELS)
+            # GLM 5.2 needs Baseten or Modal now that Cloudflare retired it.
+            assert {m.id for m in cf} == set(CLOUDFLARE_ALLOWED_MODELS) - {"@cf/zai-org/glm-5.2"}
             assert all(m.provider == "cloudflare" for m in cf)
 
     def test_cf_models_absent_when_not_configured(self):
@@ -372,7 +373,7 @@ class TestCloudflareModelAdvertising:
         # posthog_code's allowlist includes @cf/zai-org/glm-5.2 but not the other CF model(s).
         with patch(
             "llm_gateway.services.model_registry.get_settings",
-            return_value=create_mock_settings(cloudflare=True),
+            return_value=create_mock_settings(cloudflare=True, baseten=True),
         ):
             assert self._cf_ids("posthog_code") == {"@cf/zai-org/glm-5.2"}
 
@@ -479,7 +480,9 @@ class TestIsModelAvailable:
         "model_id,product,cloudflare,modal,expected",
         [
             # CF creds present + model priced/allowed -> available.
-            ("@cf/zai-org/glm-5.2", "django", True, False, True),
+            ("@cf/zai-org/glm-5.3", "django", True, False, True),
+            # Cloudflare retired GLM 5.2, so CF creds alone don't serve it.
+            ("@cf/zai-org/glm-5.2", "django", True, False, False),
             # Same model, but no backend configured -> the runtime gate refuses it.
             ("@cf/zai-org/glm-5.2", "django", False, False, False),
             # No CF creds, but Modal serves GLM -> still available.
@@ -488,8 +491,8 @@ class TestIsModelAvailable:
             ("@cf/moonshotai/kimi-k2.6", "django", False, True, False),
             # CF configured but the product allowlist excludes this CF model -> unavailable.
             ("@cf/moonshotai/kimi-k2.6", "posthog_code", True, False, False),
-            # CF configured and the product allowlist includes it -> available.
-            ("@cf/zai-org/glm-5.2", "posthog_code", True, False, True),
+            # The product allowlist includes it and Modal serves it -> available.
+            ("@cf/zai-org/glm-5.2", "posthog_code", True, True, True),
         ],
     )
     def test_cf_model_availability_gated_on_creds(

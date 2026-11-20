@@ -299,7 +299,7 @@ class TestChatCompletionsEndpoint:
         response = authenticated_client.post(
             "/django/v1/chat/completions",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "messages": [{"role": "user", "content": "Hello"}],
             },
             headers={"Authorization": "Bearer phx_test_key"},
@@ -337,7 +337,7 @@ class TestChatCompletionsEndpoint:
             "POST",
             "/django/v1/chat/completions",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "stream": True,
             },
@@ -476,7 +476,7 @@ class TestResponsesRoutedModels:
         response = authenticated_client.post(
             "/django/v1/responses",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
             },
             headers={"Authorization": "Bearer phx_test_key"},
@@ -539,7 +539,7 @@ class TestResponsesRoutedModels:
             "POST",
             "/django/v1/responses",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
                 "stream": True,
             },
@@ -593,7 +593,7 @@ class TestResponsesRoutedModels:
         response = authenticated_client.post(
             "/django/v1/responses",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
                 "previous_response_id": "resp_abc123",
             },
@@ -621,7 +621,7 @@ class TestResponsesRoutedModels:
         response = authenticated_client.post(
             "/django/v1/responses",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
                 "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}],
             },

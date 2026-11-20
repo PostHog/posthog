@@ -650,7 +650,7 @@ class TestAnthropicMessagesEndpoint:
                 response = authenticated_client.post(
                     "/django/v1/messages",
                     json={
-                        "model": "@cf/zai-org/glm-5.2",
+                        "model": "@cf/zai-org/glm-5.3",
                         "messages": [{"role": "user", "content": "Hello"}],
                     },
                     headers={
@@ -686,7 +686,7 @@ class TestAnthropicMessagesEndpoint:
                 response = authenticated_client.post(
                     "/django/v1/messages",
                     json={
-                        "model": "@cf/zai-org/glm-5.2",
+                        "model": "@cf/zai-org/glm-5.3",
                         "messages": [{"role": "user", "content": "find issues"}],
                         "tools": [
                             {
@@ -705,7 +705,7 @@ class TestAnthropicMessagesEndpoint:
         # Must never reach the real Anthropic path with a `@cf/` model.
         mock_anthropic.assert_not_called()
         forwarded = mock_make_call.return_value.call_args.kwargs
-        assert forwarded["model"] == "@cf/zai-org/glm-5.2"
+        assert forwarded["model"] == "@cf/zai-org/glm-5.3"
         assert forwarded["tools"][0]["name"] == "emit_signal"
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
@@ -737,7 +737,7 @@ class TestAnthropicMessagesEndpoint:
                     "POST",
                     "/django/v1/messages",
                     json={
-                        "model": "@cf/zai-org/glm-5.2",
+                        "model": "@cf/zai-org/glm-5.3",
                         "messages": [{"role": "user", "content": "Hello"}],
                         "stream": True,
                     },
@@ -1563,7 +1563,7 @@ class TestAnthropicCountTokensEndpoint:
         response = authenticated_client.post(
             "/django/v1/messages/count_tokens",
             json={
-                "model": "@cf/zai-org/glm-5.2",
+                "model": "@cf/zai-org/glm-5.3",
                 "messages": [{"role": "user", "content": "Hello"}],
             },
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
@@ -1586,7 +1586,7 @@ class TestAnthropicCountTokensEndpoint:
             response = authenticated_client.post(
                 "/django/v1/messages/count_tokens",
                 json={
-                    "model": "@cf/zai-org/glm-5.2",
+                    "model": "@cf/zai-org/glm-5.3",
                     "messages": [{"role": "user", "content": "Hello"}],
                 },
                 # No X-PostHog-Provider header -> defaults to anthropic, as a claude-runtime scout sends.

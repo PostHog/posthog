@@ -10,6 +10,7 @@ from llm_gateway.baseten import (
     BASETEN_EXCLUSIVE_MODELS,
     BASETEN_GLM53_FLASH_PUBLIC_MODEL,
     BASETEN_GLM53_PUBLIC_MODEL,
+    BASETEN_PUBLIC_MODEL,
     is_baseten_configured,
 )
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, is_cloudflare_configured
@@ -85,10 +86,16 @@ def _cloudflare_configured() -> bool:
 
 
 def _glm_backend_configured(model_id: str) -> bool:
-    """A `@cf/` model is servable when Cloudflare or its Modal equivalent is configured."""
-    if _cloudflare_configured():
+    """Whether the backend that serves this `@cf/` model is configured.
+
+    GLM 5.2 runs on Baseten or Modal because Cloudflare retired it; other `@cf/` models run on Cloudflare.
+    """
+    settings = get_settings()
+    if model_id == BASETEN_PUBLIC_MODEL and is_baseten_configured(settings):
         return True
-    return model_id in MODAL_ALLOWED_MODELS and is_modal_configured(get_settings())
+    if model_id in MODAL_ALLOWED_MODELS:
+        return is_modal_configured(settings)
+    return _cloudflare_configured()
 
 
 def _is_text_generation_model(cost_data: ModelCost) -> bool:

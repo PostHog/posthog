@@ -210,7 +210,7 @@ Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, E
 The gateway exposes models consistently across Anthropic Messages, chat/completions, and Responses while choosing their inference provider internally in `src/llm_gateway/inference_routing.py`.
 
 - **GLM 5.2** (`@cf/zai-org/glm-5.2`) runs on Baseten or Modal.
-  Cloudflare Workers AI retired it on 2026-11-20, so a GLM 5.2 request that falls through to Cloudflare fails.
+  Cloudflare Workers AI retired it on 2026-11-20, so the gateway never sends it to Cloudflare.
 - **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop.
   Cloudflare also serves it as `@cf/zai-org/glm-5.3`, its recommended replacement for the retired GLM 5.2. That id is a separate model in the gateway and is not limited to those products.
   The deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
@@ -227,16 +227,10 @@ Provider configuration:
 - **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
 - **Baseten** (an OpenAI-compatible endpoint) - configure `LLM_GATEWAY_BASETEN_API_BASE` and `LLM_GATEWAY_BASETEN_API_KEY`.
 
-GLM 5.2 traffic goes to Baseten whenever its API key is configured. No feature flag gates this, and caller-forwarded flag headers cannot select Baseten. Modal serves GLM 5.2 only while the Baseten key is absent. Removing that key is a safe rollback only when Modal takes all GLM traffic, because Cloudflare no longer serves the model.
+GLM 5.2 traffic goes to Baseten whenever its API key is configured. No feature flag gates this, and caller-forwarded flag headers cannot select a backend.
+Without the Baseten key, Modal serves all GLM 5.2 traffic, so removing that key is the rollback. With neither configured, GLM 5.2 requests fail with a 503 and the model drops out of `/v1/models`.
 
-Two knobs opt traffic into Modal (OR semantics, both default off):
-
-- The `tasks-glm-modal-inference` feature flag, evaluated server-side against PostHog (`LLM_GATEWAY_POSTHOG_PROJECT_TOKEN`/`_HOST`) with a short per-user cache and a brief global backoff when evaluation fails. Caller-forwarded flag headers are not trusted for routing.
-- `LLM_GATEWAY_GLM_MODAL_TRAFFIC_FRACTION` (0..1, default 0), bucketed deterministically by user id; `LLM_GATEWAY_GLM_MODAL_PRODUCT_TRAFFIC_FRACTIONS` (e.g. `{"posthog_code": 0.25}`) overrides it per product.
-
-If Cloudflare credentials are absent, Modal serves all GLM traffic regardless of the knobs.
-
-There are no cross-backend retries: a Modal-side failure surfaces to the caller unchanged (each backend's health stays independently visible under its `provider` metric label), and rollback is turning the flag/fraction back down.
+There are no cross-backend retries: a backend failure surfaces to the caller unchanged, and each backend's health stays independently visible under its `provider` metric label.
 Smoke scripts: `scripts/glm_cf_smoke.py` (GLM 5.3 on Cloudflare) and `scripts/glm_modal_smoke.py` (GLM 5.2 on Modal).
 
 ## Products

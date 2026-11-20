@@ -5,7 +5,6 @@ from fastapi import HTTPException
 
 from llm_gateway.baseten import BASETEN_MODELS
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
-from llm_gateway.flags import GLM_MODAL_FLAG
 from llm_gateway.inference_routing import is_inference_routed_model
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.products.config import (
@@ -681,11 +680,9 @@ class TestModelAccessFlag:
         assert get_required_model_flag(model) is None
 
     def test_every_gated_model_has_its_own_flag(self):
-        # An entitlement must not be widened for one model by proxy of another, and the GLM
-        # Baseten routing flag is not an entitlement at all.
+        # An entitlement must not be widened for one model by proxy of another.
         flags = list(MODEL_ACCESS_FLAGS.values())
         assert len(flags) == len(set(flags))
-        assert GLM_MODAL_FLAG not in flags
 
     @pytest.mark.parametrize(
         "model",

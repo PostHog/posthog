@@ -19,10 +19,10 @@ from llm_gateway.inference_routing import (
     send_inference_responses,
 )
 from llm_gateway.modal import make_modal_anthropic_call
-from llm_gateway.request_context import RequestContext, set_request_context
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
 GLM53_MODEL = "zai-org/glm-5.3"
+CLOUDFLARE_GLM53_MODEL = "@cf/zai-org/glm-5.3"
 GLM53_FLASH_MODEL = "zai-org/glm-5.3-flash"
 DEEPSEEK_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
 UNPRICED_CF_MODEL = "@cf/meta/llama-3.3-70b-instruct"
@@ -55,38 +55,55 @@ def _settings(**overrides: Any) -> Settings:
 async def _send(
     settings: Settings,
     handle: AsyncMock,
-    flag: bool | None = None,
     send_fn: Any = send_inference_anthropic_messages,
     product: str = PRODUCT,
     request_data: dict[str, Any] | None = None,
-) -> tuple[Any, AsyncMock]:
-    evaluate = AsyncMock(return_value=flag)
+) -> Any:
     with (
         patch("llm_gateway.inference_routing.get_settings", return_value=settings),
         patch("llm_gateway.inference_routing.handle_llm_request", handle),
-        patch("llm_gateway.inference_routing.evaluate_flag", evaluate),
     ):
-        result = await send_fn(
+        return await send_fn(
             request_data or {"model": GLM_MODEL, "messages": [{"role": "user", "content": "hi"}]},
             _user(),
             False,
             product,
         )
-    return result, evaluate
 
 
 def _called_providers(handle: AsyncMock) -> list[str]:
     return [call.kwargs["provider_config"].name for call in handle.call_args_list]
 
 
-async def test_routes_to_cloudflare_by_default() -> None:
+async def test_glm52_routes_to_modal_without_baseten() -> None:
     handle = AsyncMock(return_value={"ok": True})
-    result, _ = await _send(_settings(), handle)
+    result = await _send(_settings(), handle)
     assert result == {"ok": True}
-    assert _called_providers(handle) == ["cloudflare"]
+    assert _called_providers(handle) == ["modal"]
     # The public model id must reach handle_llm_request unchanged — it drives metrics and the
     # unsupported-model gate.
     assert handle.call_args.kwargs["model"] == GLM_MODEL
+
+
+async def test_glm52_never_falls_back_to_cloudflare() -> None:
+    # Cloudflare retired GLM 5.2, so a missing Baseten and Modal backend is a configuration error.
+    handle = AsyncMock(return_value={"ok": True})
+
+    with pytest.raises(HTTPException) as exc_info:
+        await _send(_settings(modal_api_base=None), handle)
+
+    assert exc_info.value.status_code == 503
+    handle.assert_not_called()
+
+
+async def test_cloudflare_served_model_routes_to_cloudflare() -> None:
+    handle = AsyncMock(return_value={"ok": True})
+    request = {"model": CLOUDFLARE_GLM53_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+
+    await _send(_settings(baseten_api_key="baseten-key"), handle, request_data=request)
+
+    assert _called_providers(handle) == ["cloudflare"]
+    assert handle.call_args.kwargs["model"] == CLOUDFLARE_GLM53_MODEL
 
 
 @pytest.mark.parametrize("effort", ["high", "max"])
@@ -119,25 +136,6 @@ def test_drops_clear_thinking_when_no_effort_enables_thinking() -> None:
     assert "context_management" not in normalize_glm_anthropic_request(request, product=PRODUCT)
 
 
-async def test_routes_to_modal_when_fraction_one_without_flag_roundtrip() -> None:
-    # A guaranteed-Modal route must not pay (or depend on) a remote flag evaluation.
-    handle = AsyncMock(return_value={"ok": True})
-    result, evaluate = await _send(_settings(glm_modal_traffic_fraction=1.0), handle)
-    assert result == {"ok": True}
-    assert _called_providers(handle) == ["modal"]
-    assert handle.call_args.kwargs["model"] == GLM_MODEL
-    evaluate.assert_not_called()
-
-
-async def test_modal_only_configuration_routes_to_modal() -> None:
-    # With Cloudflare creds absent, GLM is still advertised (it has a Modal backend) — routing must
-    # not send those requests to Cloudflare's 503, whatever the flag/fraction say.
-    handle = AsyncMock(return_value={"ok": True})
-    _, evaluate = await _send(_settings(cloudflare_api_key=None, cloudflare_account_id=None), handle, flag=False)
-    assert _called_providers(handle) == ["modal"]
-    evaluate.assert_not_called()
-
-
 @pytest.mark.parametrize(("send_fn", "modal_endpoint", "cloudflare_endpoint"), SURFACES)
 async def test_each_surface_routes_to_its_provider_configs(
     send_fn: Any, modal_endpoint: str, cloudflare_endpoint: str
@@ -145,43 +143,25 @@ async def test_each_surface_routes_to_its_provider_configs(
     # Every GLM surface must dispatch to its own per-backend ProviderConfig — a mixed-up pairing
     # would mislabel metrics and use the wrong litellm adapter.
     handle = AsyncMock(return_value={"ok": True})
-    _, _ = await _send(_settings(glm_modal_traffic_fraction=1.0), handle, send_fn=send_fn)
+    await _send(_settings(), handle, send_fn=send_fn)
     assert handle.call_args.kwargs["provider_config"].endpoint_name == modal_endpoint
 
     handle.reset_mock()
-    _, _ = await _send(_settings(), handle, send_fn=send_fn)
+    request = {"model": CLOUDFLARE_GLM53_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+    await _send(_settings(), handle, send_fn=send_fn, request_data=request)
     assert handle.call_args.kwargs["provider_config"].endpoint_name == cloudflare_endpoint
-
-
-@pytest.mark.parametrize("product", ["twig", "array", "custom_image_scans"])
-async def test_alias_products_ramp_through_canonical_fraction(product: str) -> None:
-    # These requests must follow posthog_code's per-product ramp end to end.
-    handle = AsyncMock(return_value={"ok": True})
-    settings = _settings(glm_modal_product_traffic_fractions={"posthog_code": 1.0})
-    _, evaluate = await _send(settings, handle, product=product)
-    assert _called_providers(handle) == ["modal"]
-    evaluate.assert_not_called()
-
-
-async def test_flag_opts_into_modal_at_fraction_zero() -> None:
-    handle = AsyncMock(return_value={"ok": True})
-    await _send(_settings(), handle, flag=True)
-    assert _called_providers(handle) == ["modal"]
 
 
 @pytest.mark.parametrize(
     ("send_fn", "endpoint"), [(row[0], f"baseten_{row[2].removeprefix('cloudflare_')}") for row in SURFACES]
 )
 async def test_configured_baseten_serves_public_glm_on_each_surface(send_fn: Any, endpoint: str) -> None:
-    # Public GLM goes to Baseten on configuration alone, so the route must not depend on (or pay
-    # for) a remote flag evaluation.
     handle = AsyncMock(return_value={"ok": True})
     settings = _settings(baseten_api_key="baseten-key")
 
-    _, evaluate = await _send(settings, handle, send_fn=send_fn)
+    await _send(settings, handle, send_fn=send_fn)
 
     assert handle.call_args.kwargs["provider_config"].endpoint_name == endpoint
-    evaluate.assert_not_called()
 
 
 @pytest.mark.parametrize("model", [DEEPSEEK_MODEL, GLM53_MODEL, GLM53_FLASH_MODEL])
@@ -194,11 +174,10 @@ async def test_baseten_exclusive_models_route_each_surface_directly_to_baseten(
     handle = AsyncMock(return_value={"ok": True})
     request = {"model": model, "messages": [{"role": "user", "content": "hi"}]}
 
-    _, evaluate = await _send(_settings(baseten_api_key="baseten-key"), handle, send_fn=send_fn, request_data=request)
+    await _send(_settings(baseten_api_key="baseten-key"), handle, send_fn=send_fn, request_data=request)
 
     assert handle.call_args.kwargs["provider_config"].endpoint_name == endpoint
     assert handle.call_args.kwargs["model"] == model
-    evaluate.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -242,14 +221,6 @@ async def test_baseten_exclusive_glm_still_applies_anthropic_normalization(model
     assert handle.call_args.kwargs["request_data"] == {**request, "thinking": {"type": "adaptive"}}
 
 
-async def test_modal_flag_is_evaluated_without_baseten_credentials() -> None:
-    handle = AsyncMock(return_value={"ok": True})
-
-    _, evaluate = await _send(_settings(), handle, flag=False)
-
-    evaluate.assert_awaited_once_with("tasks-glm-modal-inference", "d-1")
-
-
 async def test_configured_baseten_does_not_capture_other_cloudflare_models() -> None:
     handle = AsyncMock(return_value={"ok": True})
     request = {"model": UNPRICED_CF_MODEL, "messages": [{"role": "user", "content": "hi"}]}
@@ -262,19 +233,10 @@ async def test_configured_baseten_does_not_capture_other_cloudflare_models() -> 
     handle.assert_not_called()
 
 
-async def test_forwarded_flag_header_cannot_force_modal() -> None:
-    # x-posthog-flag-* headers come from any authenticated caller — they must not override the
-    # server-side flag/fraction, or a client could pin itself to a backend operators turned off.
-    handle = AsyncMock(return_value={"ok": True})
-    set_request_context(RequestContext(request_id="test", posthog_flags={"tasks-glm-modal-inference": "true"}))
-    _, _ = await _send(_settings(), handle, flag=False)
-    assert _called_providers(handle) == ["cloudflare"]
-
-
 @pytest.mark.parametrize(
     ("settings", "expected_provider"),
     [
-        (_settings(glm_modal_traffic_fraction=1.0), "modal"),
+        (_settings(), "modal"),
         (_settings(baseten_api_key="baseten-key"), "baseten"),
     ],
 )
