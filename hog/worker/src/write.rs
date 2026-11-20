@@ -13,6 +13,8 @@ use crate::{node, trace::Trace};
 
 const TEMPORARY_SUFFIX: &str = "tmp";
 const BACKUP_SUFFIX: &str = "bak";
+#[cfg(unix)]
+const PRIVATE_MODE: u32 = 0o600;
 
 pub struct Staged {
     temporary: PathBuf,
@@ -47,6 +49,27 @@ fn check_writable(target: &Path) -> io::Result<()> {
     Ok(())
 }
 
+// Owner-only until the target's permissions are copied over, so a map the owner keeps private is
+// never readable by others while it is written.
+#[cfg(unix)]
+fn create_private(path: &Path) -> io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(PRIVATE_MODE)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn create_private(path: &Path) -> io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+}
+
 pub fn stage(path: &Path, contents: &[u8]) -> Result<Staged, String> {
     let target = dunce::canonicalize(path).map_err(|error| node::message(&error, "lstat", path))?;
     check_writable(&target).map_err(|error| node::message(&error, "access", &target))?;
@@ -55,10 +78,7 @@ pub fn stage(path: &Path, contents: &[u8]) -> Result<Staged, String> {
         .permissions();
 
     let temporary = sibling_name(&target, TEMPORARY_SUFFIX);
-    let written = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
+    let written = create_private(&temporary)
         .and_then(|mut file| file.write_all(contents))
         .and_then(|_| fs::set_permissions(&temporary, permissions));
     if let Err(error) = written {
@@ -112,7 +132,12 @@ pub fn commit(staged: Vec<Staged>, trace: &Trace) -> Result<(), String> {
 
     if let Some(failed) = swapped.iter().position(Result::is_err) {
         let target = rest[failed].target.clone();
-        // Back in reverse order, so a shared target ends with its first, original contents.
+        // A target on a file system that can't swap, such as a second mount, falls back to backups.
+        let unsupported = swapped
+            .iter()
+            .any(|result| result.as_ref().is_err_and(is_unsupported));
+        // Back in reverse order, so a shared target ends with its first, original contents. A
+        // staged path that could not swap back still holds the original, so it is kept.
         let done: Vec<&Staged> = std::iter::once(first)
             .chain(
                 rest.iter()
@@ -121,21 +146,52 @@ pub fn commit(staged: Vec<Staged>, trace: &Trace) -> Result<(), String> {
                     .map(|(file, _)| file),
             )
             .collect();
-        for file in done.iter().rev() {
-            let _ = swap(&file.temporary, &file.target);
+        let stranded: Vec<&Staged> = done
+            .into_iter()
+            .rev()
+            .filter(|file| swap(&file.temporary, &file.target).is_err())
+            .collect();
+        if stranded.is_empty() && unsupported {
+            return commit_with_backups(staged, trace);
         }
-        discard(&staged);
+        let kept: HashSet<&PathBuf> = stranded.iter().map(|file| &file.temporary).collect();
+        discard_except(&staged, &kept);
 
         let error = swapped.into_iter().nth(failed).and_then(Result::err);
-        return Err(error.map_or_else(
+        let message = error.map_or_else(
             || format!("hog-worker couldn't replace {}", target.display()),
             |error| node::message(&error, "rename", &target),
-        ));
+        );
+        let stranded = stranded.iter().map(|file| (&file.target, &file.temporary));
+        return Err(with_stranded(message, stranded));
     }
 
     discard(&staged);
     trace.mark("commit: clean up");
     Ok(())
+}
+
+fn discard_except(staged: &[Staged], kept: &HashSet<&PathBuf>) {
+    staged
+        .par_iter()
+        .filter(|file| !kept.contains(&file.temporary))
+        .for_each(|file| {
+            let _ = fs::remove_file(&file.temporary);
+        });
+}
+
+// Names each file that could not be put back and the path that still holds its original contents.
+fn with_stranded<'a>(
+    message: String,
+    stranded: impl Iterator<Item = (&'a PathBuf, &'a PathBuf)>,
+) -> String {
+    stranded.fold(message, |message, (target, original)| {
+        format!(
+            "{message}. {} couldn't be restored, and its original contents are in {}",
+            target.display(),
+            original.display()
+        )
+    })
 }
 
 fn has_shared_targets(staged: &[Staged]) -> bool {
@@ -202,8 +258,8 @@ fn swap(_: &Path, _: &Path) -> io::Result<()> {
     Err(io::ErrorKind::Unsupported.into())
 }
 
-// Each target is first hard-linked to a backup, so a failed rename puts every target back without
-// holding the old contents in memory.
+// Each target is first hard-linked to a backup, so a failed rename puts the replaced targets back
+// without holding the old contents in memory.
 fn commit_with_backups(staged: Vec<Staged>, trace: &Trace) -> Result<(), String> {
     let mut seen = HashSet::new();
     let unique: Vec<&PathBuf> = staged
@@ -217,39 +273,118 @@ fn commit_with_backups(staged: Vec<Staged>, trace: &Trace) -> Result<(), String>
         .map(|target| (sibling_name(target, BACKUP_SUFFIX), (*target).clone()))
         .collect();
 
-    let rename = |file: &Staged| {
-        fs::rename(&file.temporary, &file.target)
-            .map_err(|error| node::message(&error, "rename", &file.target))
-    };
-    let result = backups
+    let backed_up: Vec<Result<(), String>> = backups
         .par_iter()
-        .try_for_each(|(backup, target)| {
+        .map(|(backup, target)| {
             fs::hard_link(target, backup)
                 .or_else(|_| fs::copy(target, backup).map(|_| ()))
                 .map_err(|error| node::message(&error, "link", target))
         })
-        .and_then(|_| {
-            trace.mark("commit: back up");
-            if shared {
-                staged.iter().try_for_each(rename)
-            } else {
-                staged.par_iter().try_for_each(rename)
+        .collect();
+    // No target changed yet, so every backup goes, including one a failed copy left cut short.
+    if let Some(message) = backed_up.into_iter().find_map(Result::err) {
+        remove_backups(&backups, &HashSet::new());
+        discard(&staged);
+        return Err(message);
+    }
+    trace.mark("commit: back up");
+
+    let rename = |file: &Staged| {
+        fs::rename(&file.temporary, &file.target)
+            .map_err(|error| node::message(&error, "rename", &file.target))
+    };
+    let renamed: Vec<Result<(), String>> = if shared {
+        let mut renamed = Vec::with_capacity(staged.len());
+        for file in &staged {
+            let result = rename(file);
+            let failed = result.is_err();
+            renamed.push(result);
+            if failed {
+                break;
             }
-        });
+        }
+        renamed
+    } else {
+        staged.par_iter().map(rename).collect()
+    };
     trace.mark("commit: rename");
 
-    if result.is_err() {
-        // Renaming a backup over a target that still links the same file leaves the backup, so
-        // the backups are removed after.
-        backups.par_iter().for_each(|(backup, target)| {
-            let _ = fs::rename(backup, target);
-        });
-        discard(&staged);
-    }
-    backups.par_iter().for_each(|(backup, _)| {
-        let _ = fs::remove_file(backup);
-    });
+    let Some(message) = renamed.iter().find_map(|result| result.clone().err()) else {
+        remove_backups(&backups, &HashSet::new());
+        trace.mark("commit: clean up");
+        return Ok(());
+    };
+
+    // Only the targets a rename replaced go back. A backup that can't be put back still holds the
+    // original, so it stays.
+    let replaced: HashSet<&PathBuf> = staged
+        .iter()
+        .zip(&renamed)
+        .filter(|(_, result)| result.is_ok())
+        .map(|(file, _)| &file.target)
+        .collect();
+    let stranded: Vec<&(PathBuf, PathBuf)> = backups
+        .iter()
+        .filter(|(backup, target)| replaced.contains(target) && fs::rename(backup, target).is_err())
+        .collect();
+    let kept: HashSet<&PathBuf> = stranded.iter().map(|(backup, _)| backup).collect();
+    remove_backups(&backups, &kept);
+    discard(&staged);
     trace.mark("commit: clean up");
 
-    result
+    Err(with_stranded(
+        message,
+        stranded.iter().map(|(backup, target)| (target, backup)),
+    ))
+}
+
+fn remove_backups(backups: &[(PathBuf, PathBuf)], kept: &HashSet<&PathBuf>) {
+    backups
+        .par_iter()
+        .filter(|(backup, _)| !kept.contains(backup))
+        .for_each(|(backup, _)| {
+            let _ = fs::remove_file(backup);
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch() -> PathBuf {
+        let folder =
+            std::env::temp_dir().join(format!("hog-worker-write-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&folder).expect("the scratch folder is created");
+        folder
+    }
+
+    #[test]
+    fn a_failed_rename_puts_back_what_was_replaced_and_leaves_no_files() {
+        let folder = scratch();
+        let bundle = folder.join("app.js");
+        let map = folder.join("app.js.map");
+        fs::write(&bundle, "original").unwrap();
+        fs::write(&map, "original map").unwrap();
+        // A staged file that is gone makes its rename fail after the backups and the other rename.
+        let staged = vec![
+            stage(&bundle, b"injected").unwrap(),
+            Staged {
+                temporary: sibling_name(&map, TEMPORARY_SUFFIX),
+                target: map.clone(),
+            },
+        ];
+
+        let result = commit_with_backups(staged, &Trace::from_environment());
+
+        assert!(result.is_err());
+        assert_eq!(fs::read_to_string(&bundle).unwrap(), "original");
+        assert_eq!(fs::read_to_string(&map).unwrap(), "original map");
+        let mut left: Vec<String> = fs::read_dir(&folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["app.js", "app.js.map"]);
+        fs::remove_dir_all(folder).unwrap();
+    }
 }
