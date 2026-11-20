@@ -16,7 +16,7 @@ from contextvars import copy_context
 from datetime import datetime
 from functools import partial
 from queue import Empty, Queue
-from threading import BoundedSemaphore, Event, Lock, Thread
+from threading import BoundedSemaphore, Event, Lock, Semaphore, Thread
 from time import monotonic
 from typing import Any, Optional
 
@@ -61,6 +61,8 @@ WORKERS_PER_BATCH = 4
 MAX_CONCURRENT_BATCHES = 8
 HEARTBEAT_SECONDS = 10.0
 MAX_READY_BYTES = 128 * 1024 * 1024
+CACHE_READ_CHUNK = 25
+MAX_UNREAD_LINES = WORKERS_PER_BATCH
 CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
@@ -241,6 +243,7 @@ class QueryBatch:
         self._to_refresh: list[ResolvedQuery] = []
         self._lock = Lock()
         self._idle = Event()
+        self._unread = Semaphore(MAX_UNREAD_LINES)
         self._read_cache(inputs)
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
@@ -267,11 +270,36 @@ class QueryBatch:
 
         to_run: list[int] = []
         to_refresh: list[int] = []
-        served: dict[tuple[str, bool, bool], bytes] = {}
+        served: dict[tuple[str, bool, bool, str], bytes] = {}
+        indices = list(resolved)
+        for chunk_start in range(0, len(indices), CACHE_READ_CHUNK):
+            chunk = indices[chunk_start : chunk_start + CACHE_READ_CHUNK]
+            if self._ready_bytes >= MAX_READY_BYTES:
+                # Past the budget, later entries are never fetched, so their blobs are not downloaded either.
+                for index in chunk:
+                    self._add_ready({"i": index, "error": _TOO_LARGE})
+                continue
+            self._read_chunk(inputs, resolved, chunk, plan, to_run, to_refresh, served)
+
+        self._to_refresh = [resolved[index] for index in to_refresh]
+        for index in to_run:
+            query_id = f"{self._client_query_id}-{index}"
+            self._jobs.append((index, query_id, partial(self._run, index, resolved[index], query_id)))
+
+    def _read_chunk(
+        self,
+        inputs: Sequence[QueryBatchInput],
+        resolved: dict[int, ResolvedQuery],
+        chunk: list[int],
+        plan: Callable[[int], PlannedQuery | None],
+        to_run: list[int],
+        to_refresh: list[int],
+        served: dict[tuple[str, bool, bool, str], bytes],
+    ) -> None:
         with planned_cache_reads(
-            team=self._team, distinct_id=str(self._user.distinct_id), keys=list(resolved), plan=plan
+            team=self._team, distinct_id=str(self._user.distinct_id), keys=chunk, plan=plan
         ) as planned_queries:
-            for index in resolved:
+            for index in chunk:
                 item = inputs[index]
                 planned = planned_queries.get(index)
                 if planned is None:
@@ -284,7 +312,13 @@ class QueryBatch:
                 if not item.cache_only and planned.query_runner.requires_fresh_calculation():
                     to_run.append(index)
                     continue
-                same_entry = (planned.cache_key, item.swr, item.cache_only)
+                # The cache key leaves out series names, which a hit patches per query, so the query is part of the key.
+                same_entry = (
+                    planned.cache_key,
+                    item.swr,
+                    item.cache_only,
+                    json.dumps(planned.upgraded_query, sort_keys=True, default=str),
+                )
                 if same_entry in served:
                     self.ready.append((index, served[same_entry]))
                     continue
@@ -317,11 +351,6 @@ class QueryBatch:
                 served[same_entry] = self._add_ready(_result_line(index, response, hit=True, stale=stale))
                 if stale and item.swr and not item.cache_only:
                     to_refresh.append(index)
-
-        self._to_refresh = [resolved[index] for index in to_refresh]
-        for index in to_run:
-            query_id = f"{self._client_query_id}-{index}"
-            self._jobs.append((index, query_id, partial(self._run, index, resolved[index], query_id)))
 
     def _add_ready(self, line: dict[str, Any]) -> bytes:
         body = SafeJSONRenderer().render({key: value for key, value in line.items() if key != "i"})
@@ -418,6 +447,12 @@ class QueryBatch:
                 tags["api_queries_budgeted"] = True
             with tags_context(**tags):
                 line = job()
+            # Waits while the client is behind, so a slow reader holds a few results, not every finished one.
+            while not self._unread.acquire(timeout=1.0):
+                with self._lock:
+                    cancelled = self._cancelled
+                if cancelled:
+                    return
             self._emit(line)
         finally:
             with self._lock:
@@ -510,6 +545,7 @@ class QueryBatch:
                     continue
                 remaining -= 1
                 yield self._encode(line)
+                self._unread.release()
             complete = True
         finally:
             self._close(complete)
@@ -535,6 +571,7 @@ class QueryBatch:
                     continue
                 remaining -= 1
                 yield self._encode(line)
+                self._unread.release()
             complete = True
         finally:
             # A thread of its own: cancelling on the cluster blocks, and slow queries can fill the loop's executor.
