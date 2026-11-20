@@ -100,11 +100,12 @@ _LOGS_KIND_OF_CHANGE: Final[dict[ControlChangeKind, LogsAlertEvent.Kind]] = {
     ControlChangeKind.UNSNOOZE: LogsAlertEvent.Kind.UNSNOOZE,
     ControlChangeKind.RESET: LogsAlertEvent.Kind.RESET,
     ControlChangeKind.CONFIG_CHANGE: LogsAlertEvent.Kind.THRESHOLD_CHANGE,
+    ControlChangeKind.HANDBACK: LogsAlertEvent.Kind.HANDBACK,
 }
-_CHANGE_OF_LOGS_KIND: Final[dict[str, ControlChangeKind]] = {
+CHANGE_OF_LOGS_KIND: Final[dict[str, ControlChangeKind]] = {
     logs_kind.value: change for change, logs_kind in _LOGS_KIND_OF_CHANGE.items()
 }
-PLATFORM_CONTROL_KINDS: Final = frozenset(_CHANGE_OF_LOGS_KIND)
+PLATFORM_CONTROL_KINDS: Final = frozenset(CHANGE_OF_LOGS_KIND)
 
 
 @frozen
@@ -137,7 +138,7 @@ def platform_control_rows(
 
     Raises when ClickHouse fails.
     """
-    changes = [_CHANGE_OF_LOGS_KIND[kind] for kind in kinds if kind in _CHANGE_OF_LOGS_KIND]
+    changes = [CHANGE_OF_LOGS_KIND[kind] for kind in kinds if kind in CHANGE_OF_LOGS_KIND]
     page = control_changes_by_public_id(team_id=team_id, public_id=alert_id, kinds=changes, limit=limit)
     if page is None:
         return None

@@ -1,6 +1,7 @@
 import json
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -9,6 +10,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.management import call_command
 from django.db import OperationalError, connection, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -4091,6 +4093,51 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
             )
             for e in response.json()["results"]
         ] == expected
+
+    def _copy_history(self, *flags: str) -> str:
+        out = StringIO()
+        call_command("copy_logs_alert_history_to_platform", "--team-id", str(self.team.id), *flags, stdout=out)
+        return out.getvalue()
+
+    def _control_events(self) -> list[tuple[Any, ...]]:
+        response = self.client.get(f"{self.base_url}{self.alert.id}/events/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return [
+            (e["kind"], e["created_at"], e["state_before"], e["state_after"])
+            for e in response.json()["results"]
+            if e["kind"] != LogsAlertEvent.Kind.CHECK
+        ]
+
+    def test_copied_control_history_shows_the_same_events_once_the_logs_rows_are_gone(self) -> None:
+        old_kinds = [
+            (LogsAlertEvent.Kind.ENABLE, "not_firing"),
+            (LogsAlertEvent.Kind.SNOOZE, "snoozed"),
+            (LogsAlertEvent.Kind.UNSNOOZE, "not_firing"),
+            (LogsAlertEvent.Kind.THRESHOLD_CHANGE, "not_firing"),
+            (LogsAlertEvent.Kind.RESET, "not_firing"),
+            (LogsAlertEvent.Kind.HANDBACK, "firing"),
+            (LogsAlertEvent.Kind.DISABLE, "not_firing"),
+        ]
+        for hours_ago, (kind, state_after) in zip(range(20, 13, -1), old_kinds):
+            self._logs_event(kind, hours_ago=hours_ago, state_after=state_after)
+        # The platform records this change itself, and the logs API records it a second time.
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(f"{self.base_url}{self.alert.id}/", {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        before = self._control_events()
+        assert len(before) == len(old_kinds) + 1
+
+        assert "7 to copy, 0 copied" in self._copy_history()
+        assert "1 recorded by the platform, 7 to copy, 7 copied" in self._copy_history("--apply")
+        assert "7 copied before, 1 recorded by the platform, 0 to copy, 0 copied" in self._copy_history("--check")
+        LogsAlertEvent.objects.filter(alert=self.alert).delete()
+
+        assert self._control_events() == before
+
+    def test_an_alert_without_control_history_copies_nothing(self) -> None:
+        assert "0 legacy, 0 copied before, 0 recorded by the platform, 0 to copy, 0 copied" in self._copy_history(
+            "--apply"
+        )
 
     def test_events_reject_a_page_ending_past_the_merge_bound(self) -> None:
         response = self.client.get(f"{self.base_url}{self.alert.id}/events/?offset=10000&limit=1")

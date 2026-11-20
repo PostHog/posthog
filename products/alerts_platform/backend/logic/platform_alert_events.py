@@ -26,6 +26,7 @@ import structlog
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.contracts import (
@@ -190,6 +191,22 @@ def insert_events(
         )
         return 0
     return len(rows)
+
+
+def insert_backfilled_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
+    """Records rows a backfill built, as one insert. Raises on a ClickHouse failure, because a
+    backfill that dropped rows silently would report a copy that never landed."""
+    if not rows:
+        return
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    sync_execute(
+        _INSERT_SQL,
+        [row.as_row() for row in rows],
+        settings={"insert_deduplication_token": _deduplication_token(team_id, rows)},
+        team_id=team_id,
+        workload=Workload.OFFLINE,  # a backfill command, no person waits for it
+        ch_user=ClickHouseUser.ALERTS_PLATFORM,
+    )
 
 
 _ANNOUNCED_ROWS = f"""
