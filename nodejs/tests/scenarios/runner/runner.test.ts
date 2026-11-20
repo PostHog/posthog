@@ -1591,7 +1591,7 @@ describe('runner through seed, drive and judge', () => {
         30_000
     )
 
-    it('waits for the live writer CPU read of a step still being judged before a ramp that did not converge returns', async () => {
+    it('reports the verdict of a live writer CPU read still pending when a ramp that did not converge ends', async () => {
         const runId = randomUUID()
         const manifestFile = path.join(cacheHome, 'manifest.json')
         writeFileSync(
@@ -1614,7 +1614,9 @@ describe('runner through seed, drive and judge', () => {
                     return Promise.resolve([])
                 }
                 readStarted()
-                return new Promise((resolve) => (release = () => resolve([])))
+                return new Promise(
+                    (_resolve, reject) => (release = () => reject(new Error('CloudWatch throttled the read')))
+                )
             },
         }
         const writerCpu = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card.bars.filter(
@@ -1637,19 +1639,17 @@ describe('runner through seed, drive and judge', () => {
             }),
             NEVER_ABORTED
         )
-        const first = await Promise.race([started.then(() => 'read'), running.then(() => 'returned')])
-        const whileHeld = await Promise.race([
-            running.then(() => 'returned'),
-            new Promise<string>((resolve) => setTimeout(() => resolve('pending'), 2000)),
-        ])
+        await Promise.race([started, running])
         release()
         const result = await running
         results.push(result)
 
-        expect({ first, whileHeld, convergence: result.convergence?.converged }).toEqual({
-            first: 'read',
-            whileHeld: 'pending',
+        expect({ convergence: result.convergence?.converged, ramp: result.ramp }).toEqual({
             convergence: false,
+            ramp: expect.objectContaining({
+                end: 'harness_limit',
+                reason: expect.stringContaining('CloudWatch throttled the read'),
+            }),
         })
     }, 60_000)
 

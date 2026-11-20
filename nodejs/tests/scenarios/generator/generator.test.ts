@@ -537,7 +537,7 @@ describe('drive', () => {
                         at: expect.any(String),
                         part: null,
                     },
-                    reason: 'the live judge failed at the 1x step: CloudWatch is down',
+                    reason: 'writer_cpu_under was not judged: CloudWatch is down in the 1x step',
                 },
             },
         ],
