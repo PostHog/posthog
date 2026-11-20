@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 99 enabled ops
+ * PostHog API - MCP 98 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -4171,52 +4171,4 @@ export const TaggersListQueryParams = () => zod.object({
             'Ordering\n\n\* `created_at` - Created At\n\* `-created_at` - Created At (descending)\n\* `updated_at` - Updated At\n\* `-updated_at` - Updated At (descending)\n\* `name` - Name\n\* `-name` - Name (descending)'
         ),
     search: zod.string().optional().describe('Search in name or description'),
-})
-
-/**
- * Test Hog tagger code against sample events without saving.
- */
-export const TaggersTestHogCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const taggersTestHogCreateBodySampleCountDefault = 5
-export const taggersTestHogCreateBodySampleCountMax = 10
-
-export const taggersTestHogCreateBodyTagsItemNameMax = 100
-
-export const taggersTestHogCreateBodyTagsItemDescriptionDefault = ``
-export const taggersTestHogCreateBodyTagsItemDescriptionMax = 500
-
-export const TaggersTestHogCreateBody = () => zod.object({
-    source: zod
-        .string()
-        .min(1)
-        .describe('Hog source code to test. Return a tag name string, a list of tag name strings, or null.'),
-    sample_count: zod
-        .number()
-        .min(1)
-        .max(taggersTestHogCreateBodySampleCountMax)
-        .default(taggersTestHogCreateBodySampleCountDefault)
-        .describe('Number of recent $ai_generation events to test against (1-10, default 5).'),
-    tags: zod
-        .array(
-            zod.object({
-                name: zod
-                    .string()
-                    .max(taggersTestHogCreateBodyTagsItemNameMax)
-                    .describe('Tag identifier to allow in Hog test results.'),
-                description: zod
-                    .string()
-                    .max(taggersTestHogCreateBodyTagsItemDescriptionMax)
-                    .default(taggersTestHogCreateBodyTagsItemDescriptionDefault)
-                    .describe('Optional description for the tag.'),
-            })
-        )
-        .optional()
-        .describe('Optional tag whitelist. Returned tags outside this list are filtered out.'),
 })

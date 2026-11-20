@@ -1805,22 +1805,6 @@ tools:
             classify generations, create a categorical evaluation with llma-evaluation-create instead.
         feature_flag: llm-analytics-tags
         url_prefix: /ai-evals/taggers
-    llma-tagger-test-hog:
-        operation: taggers_test_hog_create
-        enabled: true
-        scopes:
-            - tagger:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: false
-        title: Test Hog tagger code
-        description: >
-            Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should
-            return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned
-            tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout
-            reasoning, and any execution error for each sampled event.
-        feature_flag: llm-analytics-tags
     llma-trace-review-create:
         operation: llm_analytics_trace_reviews_create
         enabled: true

@@ -61,29 +61,8 @@ export interface EvaluationConditionSet {
 
 export type EvaluationInfo = Pick<Evaluation, 'id' | 'team_id'>
 
-/** Shared interface for condition matching — used by both evaluations and taggers. */
+/** Shared interface for condition matching. */
 export interface Matchable {
     enabled: boolean
     conditions: EvaluationConditionSet[]
 }
-
-export interface Tagger {
-    id: string
-    team_id: number
-    name: string
-    description?: string
-    enabled: boolean
-    tagger_type: string
-    tagger_config: {
-        prompt: string
-        tags: { name: string; description?: string }[]
-        min_tags: number
-        max_tags: number | null
-    }
-    conditions: EvaluationConditionSet[]
-    provider_key_id?: string | null
-    created_at: string
-    updated_at: string
-}
-
-export type TaggerInfo = Pick<Tagger, 'id' | 'team_id'>

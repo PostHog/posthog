@@ -1210,11 +1210,6 @@
     "task_queues": "VIDEO_EXPORT_TASK_QUEUE"
   },
   {
-    "temporal_workflow_type": "run-tagger",
-    "product": "temporal/ai_observability",
-    "task_queues": "LLMA_EVALS_TASK_QUEUE"
-  },
-  {
     "temporal_workflow_type": "run-trace-evaluation",
     "product": "temporal/ai_observability",
     "task_queues": "LLMA_EVALS_TASK_QUEUE"

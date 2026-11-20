@@ -34535,51 +34535,6 @@
             "validators": []
         }
     },
-    "llma-tagger-test-hog": {
-        "name": "llma-tagger-test-hog",
-        "kind": "http",
-        "requires": [],
-        "hooks": null,
-        "uiApp": null,
-        "request": {
-            "method": "POST",
-            "path": "/api/projects/{project_id}/taggers/test_hog/",
-            "pathParams": [],
-            "fallbacks": [],
-            "query": null,
-            "body": [
-                {
-                    "param": "source",
-                    "key": "source"
-                },
-                {
-                    "param": "sample_count",
-                    "key": "sample_count"
-                },
-                {
-                    "param": "tags",
-                    "key": "tags"
-                }
-            ],
-            "injectBody": {},
-            "softDelete": null,
-            "transformBody": false
-        },
-        "response": {
-            "list": false,
-            "filter": null,
-            "stripNulls": false,
-            "enrich": null,
-            "agentNote": null,
-            "informational": null,
-            "textInclude": []
-        },
-        "input": {
-            "aliases": {},
-            "casts": {},
-            "validators": []
-        }
-    },
     "llma-trace-review-create": {
         "name": "llma-trace-review-create",
         "kind": "http",

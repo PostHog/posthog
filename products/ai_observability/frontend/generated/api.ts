@@ -151,7 +151,6 @@ import type {
     PatchedReviewQueueItemUpdateApi,
     PatchedReviewQueueUpdateApi,
     PatchedScoreDefinitionMetadataApi,
-    PatchedTaggerUpdateApi,
     PatchedTraceReviewUpdateApi,
     PersonalSpendAnalysisResponseApi,
     ProviderKeyDependentConfigsApi,
@@ -168,12 +167,9 @@ import type {
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
-    TaggerUpdateApi,
     TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
-    TestHogTaggerRequestApi,
-    TestHogTaggerResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
@@ -3962,75 +3958,5 @@ export const taggersRetrieve = async (projectId: string, id: string, options?: R
     return apiMutator<TaggerApi>(getTaggersRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getTaggersUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersUpdate = async (
-    projectId: string,
-    id: string,
-    taggerUpdateApi: TaggerUpdateApi,
-    options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taggerUpdateApi),
-    })
-}
-
-export const getTaggersPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedTaggerUpdateApi?: PatchedTaggerUpdateApi,
-    options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTaggerUpdateApi),
-    })
-}
-
-export const getTaggersDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const taggersDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
-    return apiMutator<unknown>(getTaggersDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getTaggersTestHogCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/taggers/test_hog/`
-}
-
-/**
- * Test Hog tagger code against sample events without saving.
- */
-export const taggersTestHogCreate = async (
-    projectId: string,
-    testHogTaggerRequestApi: TestHogTaggerRequestApi,
-    options?: RequestInit
-): Promise<TestHogTaggerResponseApi> => {
-    return apiMutator<TestHogTaggerResponseApi>(getTaggersTestHogCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(testHogTaggerRequestApi),
     })
 }

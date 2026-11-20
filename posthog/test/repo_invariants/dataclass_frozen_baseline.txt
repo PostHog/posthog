@@ -526,7 +526,6 @@
 3 posthog/tasks/ai_observability_usage_report.py
 3 posthog/temporal/ai_observability/evaluation_clustering/coordinator.py
 3 posthog/temporal/ai_observability/run_aggregate_evaluation.py
-3 posthog/temporal/ai_observability/run_tagger.py
 3 posthog/temporal/ai_observability/shared_activities.py
 3 posthog/temporal/cleanup_property_definitions/types.py
 3 posthog/temporal/delete_persons/delete_persons_workflow.py

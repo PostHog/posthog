@@ -11400,22 +11400,6 @@
         },
         "feature_flag": "llm-analytics-tags"
     },
-    "llma-tagger-test-hog": {
-        "description": "Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout reasoning, and any execution error for each sampled event.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Test Hog tagger code",
-        "title": "Test Hog tagger code",
-        "required_scopes": ["tagger:read"],
-        "api_operations": ["POST /api/projects/{project_id}/taggers/test_hog/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-tags"
-    },
     "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
         "category": "AI observability",

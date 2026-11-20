@@ -6524,9 +6524,6 @@ export const LLMCompletionProviderEnumApi = {
     OpenaiCompatible: 'openai_compatible',
 } as const
 
-/**
- * Nested serializer for model configuration.
- */
 export interface TaggerModelConfigurationApi {
     /** LLM provider to use for this tagger.
      *
@@ -6546,30 +6543,29 @@ export interface TaggerModelConfigurationApi {
      */
     model: string
     /**
-     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
+     * LLM provider key UUID pinned for this tagger, or null when none is pinned.
      * @nullable
      */
-    provider_key_id?: string | null
+    provider_key_id: string | null
     /** @nullable */
     readonly provider_key_name: string | null
 }
 
 export interface TaggerApi {
     readonly id: string
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
+    readonly name: string
+    readonly description: string
+    readonly enabled: boolean
+    readonly tagger_type: TaggerTypeEnumApi
     /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationApi | null
+    readonly tagger_config: TaggerConfigApi
+    /** Conditions that scoped when the tagger ran */
+    readonly conditions: readonly TaggerConditionApi[]
+    readonly model_configuration: TaggerModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly created_by: UserBasicApi
-    deleted?: boolean
+    readonly deleted: boolean
     /**
      * The evaluation that replaced this tagger when it was migrated. Null until then.
      * @nullable
@@ -6584,118 +6580,6 @@ export interface PaginatedTaggerListApi {
     /** @nullable */
     previous?: string | null
     results: TaggerApi[]
-}
-
-export interface TaggerModelConfigurationWriteApi {
-    /** LLM provider to use for this tagger.
-     *
-     * * `openai` - Openai
-     * * `anthropic` - Anthropic
-     * * `gemini` - Gemini
-     * * `openrouter` - Openrouter
-     * * `fireworks` - Fireworks
-     * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI
-     * * `minimax` - MiniMax
-     * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMCompletionProviderEnumApi
-    /**
-     * Provider model identifier to use for this tagger.
-     * @maxLength 100
-     */
-    model: string
-    /**
-     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
-     * @nullable
-     */
-    provider_key_id?: string | null
-}
-
-export interface TaggerUpdateApi {
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
-    deleted?: boolean
-}
-
-export interface PatchedTaggerUpdateApi {
-    /** @maxLength 400 */
-    name?: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config?: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
-    deleted?: boolean
-}
-
-export interface TestHogTaggerTagApi {
-    /**
-     * Tag identifier to allow in Hog test results.
-     * @maxLength 100
-     */
-    name: string
-    /**
-     * Optional description for the tag.
-     * @maxLength 500
-     */
-    description?: string
-}
-
-export interface TestHogTaggerRequestApi {
-    /**
-     * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
-     * @minLength 1
-     */
-    source: string
-    /**
-     * Number of recent $ai_generation events to test against (1-10, default 5).
-     * @minimum 1
-     * @maximum 10
-     */
-    sample_count?: number
-    /** Optional tag whitelist. Returned tags outside this list are filtered out. */
-    tags?: TestHogTaggerTagApi[]
-}
-
-export interface TestHogTaggerResultItemApi {
-    /** UUID of the sampled $ai_generation event. */
-    event_uuid: string
-    /**
-     * Trace ID if available.
-     * @nullable
-     */
-    trace_id?: string | null
-    /** First 200 characters of the generation input. */
-    input_preview: string
-    /** First 200 characters of the generation output. */
-    output_preview: string
-    /** Tag names returned by the Hog code. */
-    tags: string[]
-    /** Text written to stdout by the Hog code. */
-    reasoning: string
-    /**
-     * Error message if the Hog code failed.
-     * @nullable
-     */
-    error?: string | null
-}
-
-export interface TestHogTaggerResponseApi {
-    /** Per-event Hog tagger test results. */
-    results: TestHogTaggerResultItemApi[]
-    /** Optional message, for example when no recent AI events were found. */
-    message?: string
 }
 
 export type LlmAnalyticsPersonalSpendListParams = {

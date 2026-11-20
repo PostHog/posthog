@@ -1,13 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 
-import { AnyPropertyFilter } from '~/types'
-
-import { LLMProvider } from '../settings/llmProviderKeysLogic'
-
 /**
  * Pick an hour-vs-day bucket interval for a chart series based on the
- * date-from string. Shared across tagger logics so list/detail/metrics
- * charts all bucket identically.
+ * date-from string. Shared by the tagger list and detail charts so they
+ * bucket identically.
  */
 export function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day' {
     if (!dateFrom) {
@@ -26,54 +22,4 @@ export function getIntervalFromDateRange(dateFrom: string | null): 'hour' | 'day
     }
     const duration = dayjs.duration(dayjs().diff(dayjs(dateFrom)))
     return duration.asDays() <= 1 ? 'hour' : 'day'
-}
-
-export interface TagDefinition {
-    name: string
-    description?: string
-}
-
-export type TaggerType = 'llm' | 'hog'
-
-export interface LLMTaggerConfig {
-    prompt: string
-    tags: TagDefinition[]
-    min_tags: number
-    max_tags: number | null
-}
-
-export interface HogTaggerConfig {
-    source: string
-    bytecode?: unknown[]
-    tags: TagDefinition[]
-}
-
-export type TaggerConfig = LLMTaggerConfig | HogTaggerConfig
-
-export interface ModelConfiguration {
-    provider: LLMProvider
-    model: string
-    provider_key_id: string | null
-    provider_key_name?: string | null
-}
-
-export interface TaggerConditionSet {
-    id: string
-    rollout_percentage: number
-    properties: AnyPropertyFilter[]
-}
-
-export interface Tagger {
-    id: string
-    name: string
-    description?: string
-    enabled: boolean
-    tagger_type: TaggerType
-    tagger_config: TaggerConfig
-    conditions: TaggerConditionSet[]
-    model_configuration: ModelConfiguration | null
-    created_at: string
-    updated_at: string
-    deleted?: boolean
-    migrated_to_evaluation_id?: string | null
 }

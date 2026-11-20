@@ -3,12 +3,13 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { TaggerApi } from '../generated/api.schemas'
 import { llmTaggersLogic } from './llmTaggersLogic'
-import { Tagger, TaggerType } from './types'
 
-const makeTagger = (overrides: Partial<Tagger> & { id: string; name: string }): Tagger => ({
-    enabled: true,
-    tagger_type: 'llm' as TaggerType,
+const makeTagger = (overrides: Partial<TaggerApi> & { id: string; name: string }): TaggerApi => ({
+    description: '',
+    enabled: false,
+    tagger_type: 'llm',
     tagger_config: {
         prompt: 'Test prompt',
         tags: [{ name: 'test-tag', description: 'A test tag' }],
@@ -19,10 +20,13 @@ const makeTagger = (overrides: Partial<Tagger> & { id: string; name: string }): 
     model_configuration: null,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
+    created_by: { id: 1, uuid: 'user-1', email: 'test@example.com', hedgehog_config: null },
+    deleted: false,
+    migrated_to_evaluation_id: null,
     ...overrides,
 })
 
-const mockTaggers: Tagger[] = [
+const mockTaggers: TaggerApi[] = [
     makeTagger({ id: 'tagger-1', name: 'Topic tags', description: 'Tag topics' }),
     makeTagger({
         id: 'tagger-2',
@@ -49,15 +53,6 @@ const mockTaggers: Tagger[] = [
     }),
 ]
 
-const providerKeyMocks = {
-    '/api/environments/:team_id/llm_analytics/provider_keys/': { results: [] },
-    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-        active_provider_key: null,
-        created_at: '2024-01-01T00:00:00Z',
-        updated_at: '2024-01-01T00:00:00Z',
-    },
-}
-
 describe('llmTaggersLogic', () => {
     let logic: ReturnType<typeof llmTaggersLogic.build>
 
@@ -65,8 +60,7 @@ describe('llmTaggersLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    ...providerKeyMocks,
-                    '/api/environments/:team_id/taggers/': { results: mockTaggers },
+                    '/api/projects/:team_id/taggers/': { results: mockTaggers },
                 },
             })
             initKeaTests()
@@ -96,48 +90,11 @@ describe('llmTaggersLogic', () => {
         })
     })
 
-    describe('loading an empty tagger list', () => {
-        let createCalls: number
-
-        beforeEach(() => {
-            createCalls = 0
-            useMocks({
-                get: {
-                    ...providerKeyMocks,
-                    '/api/environments/:team_id/taggers/': { results: [] },
-                },
-                post: {
-                    '/api/environments/:team_id/taggers/': () => {
-                        createCalls++
-                        return [201, {}]
-                    },
-                },
-            })
-            initKeaTests()
-            logic = llmTaggersLogic()
-            logic.mount()
-        })
-
-        afterEach(() => {
-            logic?.unmount()
-        })
-
-        it('does not create taggers when the list is empty', async () => {
-            await expectLogic(logic).toDispatchActions(['loadTaggersSuccess']).toMatchValues({
-                taggers: [],
-                taggersLoading: false,
-            })
-
-            expect(createCalls).toBe(0)
-        })
-    })
-
     describe('filteredTaggers selector', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    ...providerKeyMocks,
-                    '/api/environments/:team_id/taggers/': { results: mockTaggers },
+                    '/api/projects/:team_id/taggers/': { results: mockTaggers },
                 },
             })
             initKeaTests()
@@ -203,38 +160,6 @@ describe('llmTaggersLogic', () => {
             await expectLogic(logic).toMatchValues({
                 filteredTaggers: [],
             })
-        })
-    })
-
-    describe('toggleTaggerEnabled', () => {
-        beforeEach(() => {
-            useMocks({
-                get: {
-                    ...providerKeyMocks,
-                    '/api/environments/:team_id/taggers/': { results: mockTaggers },
-                    '/api/environments/:team_id/taggers/:id/': mockTaggers[0],
-                },
-                patch: {
-                    '/api/environments/:team_id/taggers/:id/': () => {
-                        return [200, { ...mockTaggers[0], enabled: !mockTaggers[0].enabled }]
-                    },
-                },
-            })
-            initKeaTests()
-            logic = llmTaggersLogic()
-            logic.mount()
-        })
-
-        afterEach(() => {
-            logic?.unmount()
-        })
-
-        it('reloads taggers after toggling', async () => {
-            await expectLogic(logic).toDispatchActions(['loadTaggersSuccess'])
-
-            logic.actions.toggleTaggerEnabled('tagger-1')
-
-            await expectLogic(logic).toDispatchActions(['toggleTaggerEnabled', 'loadTaggers', 'loadTaggersSuccess'])
         })
     })
 })
