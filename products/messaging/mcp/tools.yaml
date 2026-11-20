@@ -192,7 +192,6 @@ tools:
             Get how the project sends a Supabase project's auth emails through PostHog email templates, including the
             hook URL to paste into Supabase and every email type it can map. Call this before
             supabase-auth-emails-settings-update, because that tool replaces the whole template mapping.
-        feature_flag: workflows-supabase-auth-emails
     supabase-auth-emails-settings-update:
         operation: messaging_supabase_auth_emails_settings_partial_update
         enabled: true
@@ -209,7 +208,6 @@ tools:
             supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook
             secret. Never invent one. Map the core emails before the user turns on the hook in Supabase. Load the
             setting-up-supabase-auth-emails skill before you set up or change the connection.
-        feature_flag: workflows-supabase-auth-emails
         response:
             exclude:
                 - email_types
@@ -229,7 +227,6 @@ tools:
             call skips types that still have one. Needs a verified email sender on the project. Edit the templates
             afterwards with the email template tools. Load the setting-up-supabase-auth-emails skill before you set up
             the connection.
-        feature_flag: workflows-supabase-auth-emails
         response:
             exclude:
                 - email_types

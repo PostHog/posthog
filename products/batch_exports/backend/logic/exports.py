@@ -49,6 +49,7 @@ from products.batch_exports.backend.facade.enums import (
 from products.batch_exports.backend.hogql_source import load_hogql_modifiers, validate_hogql_query_for_batch_export
 from products.batch_exports.backend.logic.runs import to_run_detail
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportSource
+from products.batch_exports.backend.saved_restrictions import remove_saved_restrictions
 
 # S3-family destinations that may authenticate via an Integration, mapped to
 # the linked integration's kind. Adding a future S3-family destination (e.g. a
@@ -656,7 +657,7 @@ def _to_configuration(batch_export: BatchExport, *, include_latest_runs: bool) -
         primary_key=tuple(batch_export.primary_key) if batch_export.primary_key is not None else None,
         version_key=tuple(batch_export.version_key) if batch_export.version_key is not None else None,
         incremental_mode=batch_export.incremental_mode,
-        schema=batch_export.schema,
+        schema=remove_saved_restrictions(batch_export.schema),
         filters=batch_export.filters,
         timezone=batch_export.timezone,
         offset_day=batch_export.offset_day,

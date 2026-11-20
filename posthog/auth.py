@@ -446,8 +446,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
 def _extract_phs_token(request: Union[HttpRequest, Request]) -> Optional[str]:
     """
     Find a `phs_` secret token in the request Authorization header (Bearer scheme).
-    Used by both TeamSecretTokenAuthentication (legacy Team.secret_api_token) and
-    ProjectSecretAPIKeyAuthentication (PSAK model).
+    Used by ProjectSecretAPIKeyAuthentication (PSAK model).
     """
     if "authorization" in request.headers:
         authorization_match = re.match(r"^Bearer\s+(.+)$", request.headers["authorization"])
@@ -457,66 +456,6 @@ def _extract_phs_token(request: Union[HttpRequest, Request]) -> Optional[str]:
                 return token
 
     return None
-
-
-class TeamSecretTokenUser(SyntheticUser):
-    """
-    Synthetic user returned by TeamSecretTokenAuthentication when authenticating
-    via the legacy team-level Team.secret_api_token field.
-    """
-
-    def __init__(self, team):
-        super().__init__(team, distinct_id=f"team-secret-token-{team.id}")
-
-
-class TeamSecretTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
-    """
-    Authenticates using the legacy team-level Team.secret_api_token field.
-
-    This is not a ProjectSecretAPIKey (PSAK) model authenticator — it validates the
-    `phs_*` token against the legacy per-team secret stored on the Team row. It's
-    intended for endpoints that were gated before PSAK existed.
-
-    When authenticated, returns a synthetic TeamSecretTokenUser with the team
-    attached, so downstream permission code can resolve team context without a
-    real User.
-
-    The token is read from the Authorization header (Bearer scheme) only.
-    """
-
-    keyword = "Bearer"
-    activity_credential_type = "team_secret_token"
-
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        if not settings.ACCEPT_TEAM_SECRET_TOKENS:
-            return None
-
-        secret_api_token = _extract_phs_token(request)
-
-        if not secret_api_token:
-            return None
-
-        try:
-            Team = apps.get_model(app_label="posthog", model_name="Team")
-            team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
-
-            if team is None:
-                return None
-
-            tag_authentication(
-                user_id=None,
-                team_id=team.id,
-                access_method=AccessMethod.TEAM_SECRET_TOKEN,
-            )
-            self.record_activity_actor(None)
-
-            return (TeamSecretTokenUser(team), None)
-        except Team.DoesNotExist:
-            return None
-
-    @classmethod
-    def authenticate_header(cls, request) -> str:
-        return cls.keyword
 
 
 class ProjectSecretAPIKeyUser(SyntheticUser):
@@ -542,7 +481,6 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
     """
     Authenticates a ProjectSecretAPIKey (PSAK) model record via its SHA256 hash.
 
-    Does NOT fall back to Team.secret_api_token — that's TeamSecretTokenAuthentication.
     Intended for endpoints that enforce PSAK scopes via APIScopePermission.
 
     PSAK scopes grant project-wide access within the scoped resource type. They do
@@ -551,9 +489,6 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
     keyword = "Bearer"
     activity_credential_type = "project_secret_key"
-    # True on routes where a backfilled PSAK (#63111) mirroring the team's legacy token
-    # must fall through to the route's legacy branch; transitional until #66179.
-    defer_migrated_team_tokens = False
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         token = _extract_phs_token(request)
@@ -562,13 +497,6 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
         psak = find_project_secret_api_key(token)
         if psak is None:
-            return None
-
-        if (
-            self.defer_migrated_team_tokens
-            and settings.ACCEPT_TEAM_SECRET_TOKENS
-            and token in (psak.team.secret_api_token, psak.team.secret_api_token_backup)
-        ):
             return None
 
         now = timezone.now()

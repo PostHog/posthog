@@ -9,6 +9,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime
 from email.utils import parseaddr
 from functools import partial
@@ -213,18 +214,6 @@ class ResendImportProvider(ImportProvider):
         ),
         new_people_step("Resend"),
         ImportStepSpec(
-            key="contact_properties",
-            label="Contact properties",
-            description=(
-                "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
-                "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
-                "PostHog reads about 7,000 contacts an hour. Each person updated counts as one event."
-            ),
-            count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
-            requires=("contacts",),
-            needs=("contacts",),
-        ),
-        ImportStepSpec(
             key=DOMAIN_SETUP_STEP,
             label="Add sending domains",
             description=(
@@ -276,6 +265,19 @@ class ResendImportProvider(ImportProvider):
                 "because PostHog signs mail with its own keys, so each one needs new DNS records."
             ),
             count_labels=(("ready", "Ready to send from PostHog"), ("needs_setup", "Need new DNS records")),
+        ),
+        # Last, because its slow scan can outlast the run, and the next import picks it up where it stopped.
+        ImportStepSpec(
+            key="contact_properties",
+            label="Contact properties",
+            description=(
+                "Copies each contact's custom properties, such as a plan or company, to their person where PostHog "
+                "has no value yet. Needs Contacts selected too. Resend only shares these one contact at a time, so "
+                "PostHog reads about 7,000 contacts an hour. Each person updated counts as one event."
+            ),
+            count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
+            requires=("contacts",),
+            needs=("contacts",),
         ),
     )
 
@@ -491,15 +493,21 @@ def _timestamp(value: Any) -> datetime | None:
 def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[ImportPage]:
     # Each list's cohort fills in one go, so the step reads every contact before it saves, and a retry reads them again.
     contacts = ContactCollector()
+    unsubscribed: set[str] = set()
     for page in client.pages("/contacts"):
         _collect(contacts, page.data)
+        unsubscribed.update(
+            email.lower()
+            for contact in page.data
+            if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
+        )
     everyone = contacts.everyone
     yield ImportPage(
         processed=len(everyone),
         save=partial(
             save_contact_lists,
             context,
-            _everyone(everyone),
+            replace(_everyone(everyone), non_members=frozenset(unsubscribed)),
             (),
             contacts.other_spellings,
         ),
@@ -764,7 +772,7 @@ def _resolve_sender(raw_from: Any, senders: Mapping[str, IntegrationRecord]) -> 
     configured_name = str(record.config.get("name") or "") if record is not None else ""
     return _Sender(
         address=literal_liquid(address),
-        name=literal_liquid(display_name) or configured_name,
+        name=literal_liquid(display_name or configured_name),
         raw_address=address,
         record=record,
     )

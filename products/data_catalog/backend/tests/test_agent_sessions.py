@@ -299,7 +299,9 @@ class TestCandidateChainsQuery(ClickhouseTestMixin, BaseTest):
         assert [[piece.piece_id for piece in chain] for chain in chains] == [["described", "answered"]]
 
     def test_pieces_chain_within_the_gap_and_a_chain_needs_a_data_tool(self) -> None:
-        self._call("first", AT, **{"$mcp_conversation_id": "thread"})
+        # The final "é" takes two bytes and ends one byte past the cut, so a cut by bytes leaves invalid UTF-8.
+        intent = "x" * (agent_sessions.MAX_INTENT_CHARS - 1) + "é"
+        self._call("first", AT, **{"$mcp_conversation_id": "thread", "$mcp_intent": intent})
         self._call("second", AT + timedelta(minutes=10), tool="metric-list")
         self._call("later", AT + timedelta(hours=2))
         self._call("resumed", AT + timedelta(hours=4), **{"$mcp_conversation_id": "thread"})

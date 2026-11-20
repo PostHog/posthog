@@ -191,6 +191,13 @@ describe('taskTrackerSceneLogic', () => {
             jest.useRealTimers()
             await expectLogic(warm).toFinishAllListeners()
             expect(cancelledWarmRuns).toEqual(repository || description ? [] : ['warm-run'])
+
+            jest.useFakeTimers()
+            logic.actions.setComposerFocused(true)
+            jest.advanceTimersByTime(700)
+            jest.useRealTimers()
+            await expectLogic(warm).toFinishAllListeners()
+            expect(warmBodies).toHaveLength(repository ? 0 : 1)
         }
     )
 

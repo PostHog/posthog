@@ -2609,6 +2609,18 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == expected_status
         assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
 
+    def test_key_search_returns_an_expired_marker_and_remember_reports_the_revived_expiry(self) -> None:
+        self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
+        SignalScratchpad.objects.filter(team=self.team, key="k1").update(expires_at=timezone.now() - timedelta(days=1))
+
+        [marker] = self.client.get(self._list_url(), {"key": "k1"}).json()
+        prefix_search = self.client.get(self._list_url(), {"key_prefix": "k"}).json()
+        revived = self.client.post(self._list_url(), data={"key": "k1", "content": "v2"}, format="json").json()
+
+        assert (marker["content"], marker["expired"], marker["last_changed_by_skill"]) == ("", True, None)
+        assert prefix_search == []
+        assert revived["revived_expiry"]["expires_at"] == marker["expires_at"]
+
     def test_search_filters_by_creating_skill(self) -> None:
         errors_run = _make_run(self.team, skill_name="signals-scout-errors")
         flags_run = _make_run(self.team, skill_name="signals-scout-flags")
@@ -2619,6 +2631,15 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [row["key"] for row in response.json()] == ["errors"]
+
+    def test_search_filters_by_key_prefix(self) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="report:checkout", content="v")
+        SignalScratchpad.objects.create(team=self.team, key="dedupe:checkout", content="filed as report:checkout")
+
+        response = self.client.get(self._list_url(), {"key_prefix": "report:"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["report:checkout"]
 
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")

@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { LinkedSignalReport, SignalScoutEmission, SignalScoutRunSummary } from '../../../types'
+import { useInboxReportDetailUrl } from '../../../utils/inboxReportUrls'
 import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
 import { ScoutTimestamp } from './ScoutTimestamp'
@@ -57,6 +58,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
 }): JSX.Element {
     const [expanded, setExpanded] = useState(isDeepLinked)
     const cardRef = useRef<HTMLDivElement>(null)
+    const reportUrl = useInboxReportDetailUrl()
 
     // A deep-linked finding may mount after the URL is already settled (emissions load async), so
     // bring it into view and open it once it appears. Keyed on the finding id so re-selecting a
@@ -147,7 +149,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
 
                 {report && (
                     <Link
-                        to={urls.inboxReport('reports', report.id)}
+                        to={reportUrl(report.id)}
                         className="mt-2 inline-flex max-w-full items-center gap-1 rounded bg-primary-highlight px-2 py-0.5 text-xs font-medium text-primary"
                         onClick={() =>
                             captureScoutAction({
