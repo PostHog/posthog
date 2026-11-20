@@ -81,11 +81,11 @@ def _redact_schema_changes(changes: list[Change]) -> list[Change]:
     redacted: list[Change] = []
     for change in changes:
         if change.field == "schema":
+            # Keep the change even when the redacted values match, so a save that only changed restrictions is
+            # still logged with its actor.
             change = dataclasses.replace(
                 change, before=_redact_schema(change.before), after=_redact_schema(change.after)
             )
-            if change.before == change.after:
-                continue
         redacted.append(change)
     return redacted
 

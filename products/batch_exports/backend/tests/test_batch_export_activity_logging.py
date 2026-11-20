@@ -145,29 +145,39 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             activity_storage.clear_user()
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_batch_export_schema_change_leaves_out_the_restrictions_it_was_saved_with(self):
+    def test_batch_export_schema_changes_are_logged_without_the_restrictions_they_were_saved_with(self):
         from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
-        with patch(
-            "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
-            return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
-        ):
-            schema = build_events_query_schema(self.team.pk, None, "SELECT properties AS props, event FROM events")
+        schemas = []
+        for restricted in (["secret"], ["secret", "ssn"]):
+            with patch(
+                "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+                return_value={
+                    RestrictedProperty(name=name, property_type=PropertyDefinition.Type.EVENT) for name in restricted
+                },
+            ):
+                schemas.append(build_events_query_schema(self.team.pk, None, "SELECT properties AS props FROM events"))
         activity_storage.set_user(self.user)
         try:
             batch_export = self.create_batch_export(name="Custom Schema Export")
-            self.update_batch_export(batch_export["id"], {"schema": schema})
+            for schema in schemas:
+                self.update_batch_export(batch_export["id"], {"schema": schema})
         finally:
             activity_storage.clear_user()
 
-        activity_log = ActivityLog.objects.filter(
-            scope="BatchExport", activity="updated", item_id=batch_export["id"]
-        ).first()
-        assert activity_log is not None and activity_log.detail is not None
-        schema_change = next(change for change in activity_log.detail["changes"] if change["field"] == "schema")
-        assert schema_change["after"]["hogql_query"] == schema["hogql_query"]
-        assert "secret" not in json.dumps(schema_change)
+        schema_changes = [
+            change
+            for activity_log in ActivityLog.objects.filter(
+                scope="BatchExport", activity="updated", item_id=batch_export["id"]
+            )
+            for change in activity_log.detail["changes"]
+            if change["field"] == "schema"
+        ]
+        assert len(schema_changes) == 2
+        assert all(change["after"]["hogql_query"] == schemas[0]["hogql_query"] for change in schema_changes)
+        assert "secret" not in json.dumps(schema_changes)
+        assert "ssn" not in json.dumps(schema_changes)
 
     def test_batch_export_signal_handler_delete(self):
         from posthog.models.activity_logging.activity_log import ActivityLog
