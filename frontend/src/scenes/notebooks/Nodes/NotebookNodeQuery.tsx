@@ -32,8 +32,8 @@ import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/
 import { isEventsQuery, isSavedInsightNode } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { notebookCohortFilterLogic } from 'products/notebooks/frontend/notebookCohortFilterLogic'
-import { NotebookCohortQueryPreview } from 'products/notebooks/frontend/NotebookCohortQueryPreview'
+import { NotebookFilteredQuery } from 'products/notebooks/frontend/NotebookFilteredQuery'
+import { notebookFilterLogic } from 'products/notebooks/frontend/notebookFilterLogic'
 import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'
 import type { InsightDataframeAttributes } from 'products/notebooks/frontend/notebookInsightDataframeLogic'
 
@@ -84,20 +84,21 @@ function Component(props: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.E
     const node = useRequiredNotebookNode()
     const { notebookLogic, expanded } = useValues(node)
     const { shortId, isShared } = useValues(notebookLogic)
-    const { previewCohort } = useValues(notebookCohortFilterLogic({ shortId }))
+    const { filters } = useValues(notebookFilterLogic({ shortId }))
     const panel = useComponentPanelState()
 
-    if (isShared || !previewCohort) {
+    if (isShared || !filters) {
         return <NotebookQueryOutput {...props} />
     }
     if (!(panel?.showViewPanel ?? expanded)) {
         return null
     }
     return (
-        <NotebookCohortQueryPreview
+        <NotebookFilteredQuery
             shortId={shortId}
             nodeId={props.attributes.nodeId}
-            cohortId={previewCohort.id}
+            filters={filters}
+            unfiltered={<NotebookQueryOutput {...props} />}
             query={getResolvedNotebookQuery(props.attributes)}
         />
     )

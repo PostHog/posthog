@@ -5,8 +5,9 @@ import { createElement } from 'react'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { notebookCohortFilterLogic } from 'products/notebooks/frontend/notebookCohortFilterLogic'
+import { notebookFilterLogic } from 'products/notebooks/frontend/notebookFilterLogic'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeType } from '../types'
@@ -77,7 +78,7 @@ describe('NotebookNodeQuery', () => {
         }
     })
 
-    it('requeries the insight when a viewer switches cohorts without editing the notebook', async () => {
+    it('requeries the insight when a viewer combines notebook filters without editing the notebook', async () => {
         const requested: unknown[] = []
         useMocks({
             post: {
@@ -91,7 +92,7 @@ describe('NotebookNodeQuery', () => {
         initKeaTests()
         const shortId = 'template-cohort-preview'
         const notebook = notebookLogic({ shortId })
-        const preview = notebookCohortFilterLogic({ shortId })
+        const preview = notebookFilterLogic({ shortId })
         const attributes = {
             nodeId: 'signups',
             isDefaultFilterApplied: true,
@@ -118,7 +119,19 @@ describe('NotebookNodeQuery', () => {
         const unmountNode = node.mount()
         const unmountPreview = preview.mount()
         try {
-            preview.actions.setPreviewCohort({ id: 17, name: 'First cohort' })
+            const cohort = {
+                type: PropertyFilterType.Cohort,
+                key: 'id',
+                operator: PropertyOperator.In,
+                value: 17,
+            } as const
+            const person = {
+                type: PropertyFilterType.Person as const,
+                key: 'plan',
+                operator: PropertyOperator.Exact,
+                value: ['basic'],
+            }
+            preview.actions.setFilters({ properties: [cohort] })
             render(
                 createElement(
                     NotebookNodeContext.Provider,
@@ -129,12 +142,10 @@ describe('NotebookNodeQuery', () => {
             await waitFor(() =>
                 expect(requested).toContainEqual([{ type: 'cohort', key: 'id', operator: 'in', value: 17 }])
             )
-            act(() => preview.actions.setPreviewCohort({ id: 42, name: 'Second cohort' }))
-            await waitFor(() =>
-                expect(requested).toContainEqual([{ type: 'cohort', key: 'id', operator: 'in', value: 42 }])
-            )
+            act(() => preview.actions.setFilters({ properties: [cohort, person] }))
+            await waitFor(() => expect(requested).toContainEqual([cohort, person]))
             expect(attributes).toEqual(originalAttributes)
-            act(() => preview.actions.setPreviewCohort(null))
+            act(() => preview.actions.setFilters(null))
             expect(await screen.findByText('Refresh')).toBeTruthy()
         } finally {
             cleanup()

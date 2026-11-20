@@ -36,7 +36,7 @@ import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-
 
 import { NotebookBtwLayout } from 'products/notebooks/frontend/NotebookBtwLayout'
 import { notebookBtwLogic } from 'products/notebooks/frontend/notebookBtwLogic'
-import { NotebookCohortFilter } from 'products/notebooks/frontend/NotebookCohortFilter'
+import { NotebookFiltersBar } from 'products/notebooks/frontend/NotebookFiltersBar'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { notebookWidgetCatalog, NotebookWidgetPickerKind } from '../notebookWidgetCatalog'
@@ -802,7 +802,7 @@ export function MarkdownNotebookV2({
                                 {jupyterMode && isEditable ? (
                                     <NotebookJupyterToolbar collapsedContainer={collapsedToolbarContainer} />
                                 ) : null}
-                                <NotebookCohortFilter />
+                                <NotebookFiltersBar />
                                 <NotebookVariablesBar />
                             </>
                         }

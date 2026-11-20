@@ -9,17 +9,19 @@ import { Query } from '~/queries/Query/Query'
 import { QuerySchema } from '~/queries/schema/schema-general'
 import { isSavedInsightNode } from '~/queries/utils'
 
-import { getNotebookCohortQuery } from './notebookCohortPreview'
+import { getFilteredNotebookQuery, notebookFilteredBlockKey, NotebookFilters } from './notebookFilters'
 
-export function NotebookCohortQueryPreview({
+export function NotebookFilteredQuery({
     shortId,
     nodeId,
-    cohortId,
+    filters,
+    unfiltered,
     query,
 }: {
     shortId: string
     nodeId: string
-    cohortId: number
+    filters: NotebookFilters
+    unfiltered: JSX.Element
     query: QuerySchema
 }): JSX.Element {
     const savedId = isSavedInsightNode(query) ? query.shortId : null
@@ -27,15 +29,20 @@ export function NotebookCohortQueryPreview({
     if (savedId && !insight.query && insightLoading) {
         return <LemonSkeleton className="h-full w-full" />
     }
-    const filtered = getNotebookCohortQuery(savedId ? insight.query : query, cohortId)
+    const filtered = getFilteredNotebookQuery(savedId ? insight.query : query, filters)
     if (!filtered) {
-        return <div className="p-3 text-secondary">Clear the cohort filter to view this query.</div>
+        return (
+            <div className="flex h-full flex-col">
+                <LemonTag className="self-start">Notebook filters don’t apply to this query</LemonTag>
+                {unfiltered}
+            </div>
+        )
     }
-    const key = `notebook-cohort-${shortId}-${nodeId}-${cohortId}`
+    const key = notebookFilteredBlockKey(shortId, nodeId, filters)
     return (
         <div className="flex h-full flex-col">
             <LemonTag className="self-start" type="highlight">
-                Cohort preview
+                Notebook filters applied
             </LemonTag>
             <Query key={key} uniqueKey={key} query={{ ...filtered, full: false, embedded: true }} embedded readOnly />
         </div>
