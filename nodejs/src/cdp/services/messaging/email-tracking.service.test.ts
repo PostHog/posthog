@@ -288,6 +288,16 @@ describe('EmailTrackingService', () => {
                     `<a href="https://example.com" title=a\u00a0b='c ses:tags="phl:0">Bob's</a>`,
                 ],
                 [
+                    'a single-quoted href holding an href assignment, before an opted-out link',
+                    `<a href='https://example.com/?u=href="a'>a</a><a href="https://example.com/b" data-ph-no-track>b</a>`,
+                    `<a href='https://example.com/?u=href="a' ses:tags="phl:0">a</a><a href="https://example.com/b" data-ph-no-track ses:no-track>b</a>`,
+                ],
+                [
+                    'a double-quoted href holding an href assignment, before an opted-out link',
+                    `<a href="https://example.com/?u=href='a">a</a><a href='https://example.com/b' data-ph-no-track>b</a>`,
+                    `<a href="https://example.com/?u=href='a" ses:tags="phl:0">a</a><a href='https://example.com/b' data-ph-no-track ses:no-track>b</a>`,
+                ],
+                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
@@ -480,7 +490,7 @@ describe('EmailTrackingService', () => {
                 [
                     'two valid hrefs',
                     `<a href="https://example.com/a" href='https://example.com/b'>x</a>`,
-                    'https://example.com/b',
+                    'https://example.com/a',
                 ],
                 [
                     'a javascript: href after a valid one',
@@ -488,7 +498,7 @@ describe('EmailTrackingService', () => {
                     'https://example.com/a',
                 ],
                 ['a quoted href holding a >', '<a href="https://example.com/?a>b">x</a>', 'https://example.com/?a%3Eb'],
-            ])('should redirect a tracked link in %s to its last trackable href', async (_name, anchor, expected) => {
+            ])('should redirect a tracked link in %s to its first href', async (_name, anchor, expected) => {
                 const html = addTrackingToEmail(
                     `<body>${anchor}</body>`,
                     { functionId: hogFunction.id, id: invocationId, teamId: team.id, state: {} } as any,
