@@ -1,11 +1,19 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
+from uuid import uuid4
 
-from posthog.test.base import APIBaseTest, QueryMatchingTest
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest.mock import ANY, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
+from dateutil.parser import isoparse
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
@@ -15,6 +23,46 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
+
+
+class TestOrganizationMemberMcpUsage(ClickhouseTestMixin, APIBaseTest):
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_members_get_latest_successful_tool_call_for_their_organization(self):
+        now = timezone.now().replace(microsecond=0)
+        last_used = now - timedelta(hours=2)
+        properties = {
+            "$mcp_organization_id": str(self.organization.id),
+            "mcp_runtime": "hono",
+            "$mcp_scope_preset": "user",
+            "$mcp_tool_name": "execute-sql",
+            "$mcp_is_error": False,
+        }
+        event_variants: list[tuple[datetime, dict[str, str | bool]]] = [
+            (now - timedelta(hours=3), {}),
+            (last_used, {}),
+            (now, {"$mcp_is_error": True}),
+            (now, {"$mcp_organization_id": str(uuid4())}),
+            (now, {"$mcp_scope_preset": "sandbox"}),
+            (now, {"$mcp_tool_name": "exec"}),
+            (now, {"mcp_runtime": "cli"}),
+        ]
+        for timestamp, overrides in event_variants:
+            _create_event(
+                event="$mcp_tool_call",
+                team=self.team,
+                distinct_id=self.user.distinct_id,
+                timestamp=timestamp,
+                properties={**properties, **overrides},
+            )
+        flush_persons_and_events()
+
+        with patch("posthog.api.organization_member_mcp_usage.INTERNAL_ANALYTICS_TEAM_ID", self.team.id):
+            response = self.client.get("/api/organizations/@current/members/mcp_usage/")
+
+        assert response.status_code == status.HTTP_200_OK
+        (result,) = response.json()["results"]
+        assert result["organization_membership_id"] == str(self.organization_membership.id)
+        assert isoparse(result["last_mcp_used_at"]) == last_used
 
 
 class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
@@ -80,6 +128,34 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.organization.members_can_see_org_members = False
         self.organization.save()
         return project_mate, outsider, admin
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_mcp_usage_only_returns_visible_members(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+        timestamp = timezone.now()
+
+        with patch("posthog.api.organization_member.get_last_mcp_use_by_member") as get_usage:
+            get_usage.return_value = {
+                user.distinct_id: timestamp for user in [self.user, project_mate, outsider, admin]
+            }
+            response = self.client.get("/api/organizations/@current/members/mcp_usage/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {result["organization_membership_id"] for result in response.json()["results"]} == {
+            str(self.organization_membership.id),
+            str(project_mate.organization_memberships.get(organization=self.organization).id),
+        }
+        organization_id, distinct_ids = get_usage.call_args.args
+        assert organization_id == self.organization.id
+        assert set(distinct_ids) == {self.user.distinct_id, project_mate.distinct_id}
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    def test_mcp_usage_is_unavailable_outside_us_cloud(self):
+        with patch("posthog.api.organization_member.get_last_mcp_use_by_member") as get_usage:
+            response = self.client.get("/api/organizations/@current/members/mcp_usage/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        get_usage.assert_not_called()
 
     def test_members_only_see_project_mates_when_org_restricts_member_list_visibility(self):
         project_mate, outsider, admin = self._restrict_member_list_visibility()

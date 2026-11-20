@@ -32,6 +32,7 @@ import type {
     OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
+    OrganizationMemberMcpUsageResponseApi,
     OrganizationPersonalAPIKeyActionResultApi,
     OrganizationPersonalAPIKeyBulkActionResultApi,
     OrganizationPersonalAPIKeyRollAllRequestApi,
@@ -358,6 +359,23 @@ export const membersScopedApiKeysRetrieve = async (
     options?: RequestInit
 ): Promise<OrganizationMemberApi> => {
     return apiMutator<OrganizationMemberApi>(getMembersScopedApiKeysRetrieveUrl(organizationId, userUuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMembersMcpUsageRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/members/mcp_usage/`
+}
+
+/**
+ * The latest recorded use of PostHog MCP for visible members in the past 90 days (US Cloud).
+ */
+export const membersMcpUsageRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationMemberMcpUsageResponseApi> => {
+    return apiMutator<OrganizationMemberMcpUsageResponseApi>(getMembersMcpUsageRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })

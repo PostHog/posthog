@@ -567,6 +567,18 @@ export interface MemberOffboardingResourceApi {
     url: string | null
 }
 
+export interface OrganizationMemberMcpUsageApi {
+    /** The organization membership ID. */
+    organization_membership_id: string
+    /** The latest recorded successful MCP tool call. */
+    last_mcp_used_at: string
+}
+
+export interface OrganizationMemberMcpUsageResponseApi {
+    /** Visible members with recorded MCP use in the past 90 days. */
+    results: OrganizationMemberMcpUsageApi[]
+}
+
 export interface OrganizationPersonalAPIKeyOwnerApi {
     /** First name of the key's owner. */
     readonly first_name: string
