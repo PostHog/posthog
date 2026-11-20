@@ -38,6 +38,7 @@ from products.signals.backend.billing import (
     mark_report_billing_exempt,
     system_billing_exempt_reason,
 )
+from products.signals.backend.constants import BEST_MATCH_REASON_PREFIX
 from products.signals.backend.default_owner import resolve_signals_enabler
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
@@ -1272,6 +1273,10 @@ def _resolve_autostart_assignee(
     identity time) is excluded too — an owner added after the stamp must not slip through as a stale
     ``False``.
 
+    A scout's best-match pick (its ``reason`` starts with `BEST_MATCH_REASON_PREFIX`) is excluded
+    too: it names someone near the affected file or team, not someone tied to the behavior, so it
+    routes the report without becoming the runner.
+
     Walks *reviewers_content* in order (most relevant first). A reviewer's effective threshold is
     their personal autonomy setting when present, otherwise the team default (itself "all
     priorities"/P4 when the team has no config row). A lower rank means higher priority. Returns
@@ -1287,6 +1292,7 @@ def _resolve_autostart_assignee(
         for r in reviewers_content
         if not r.get("is_skill_owner")
         and not r.get("is_default_owner")
+        and not (r.get("reason") or "").lstrip().lower().startswith(BEST_MATCH_REASON_PREFIX.lower())
         and (not r.get("is_research_selected") or r.get("user_uuid") in confirmed_uuids)
         and not owners.covers(user_uuid=r.get("user_uuid"), github_login=r.get("github_login"))
     ]
