@@ -515,6 +515,8 @@ impl ServiceConfig {
                 hog_timeout_ms: get_number(&node, "LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS"),
                 message_budget_ms: get_number(&node, "LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS"),
                 batch_budget_ms: get_number(&node, "LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS"),
+                // A task past its timeout replays the batch, so half of that time stays for the rest of the batch.
+                batch_ceiling_ms: get_number(&node, "CONSUMER_BACKGROUND_TASK_TIMEOUT_MS") / 2.0,
                 max_error_logs_per_function_per_message: get_number(
                     &node,
                     "LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION",

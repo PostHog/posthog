@@ -34,40 +34,48 @@ pub struct LogsTransformerConfig {
     pub hog_timeout_ms: f64,
     pub message_budget_ms: f64,
     pub batch_budget_ms: f64,
+    pub batch_ceiling_ms: f64,
     pub max_error_logs_per_function_per_message: usize,
 }
 
 /// Each team spends its own share, so one team's slow functions cannot skip another team's transformations.
+/// The ceiling bounds the sum of the shares, because that sum grows with the number of teams in a batch.
 #[derive(Debug)]
 pub struct TransformationBatchBudget {
+    team_ms: f64,
+    ceiling_ms: f64,
+    spend: Mutex<BatchSpend>,
+}
+
+#[derive(Debug, Default)]
+struct BatchSpend {
     total_ms: f64,
-    used_ms_by_team: Mutex<HashMap<i64, f64>>,
+    by_team: HashMap<i64, f64>,
 }
 
 impl TransformationBatchBudget {
-    pub fn new(total_ms: f64) -> Self {
+    pub fn new(team_ms: f64, ceiling_ms: f64) -> Self {
         Self {
-            total_ms,
-            used_ms_by_team: Mutex::new(HashMap::new()),
+            team_ms,
+            ceiling_ms,
+            spend: Mutex::default(),
         }
     }
 
     pub fn exhausted(&self, team_id: i64) -> bool {
-        let used = self.used_ms_by_team.lock().unwrap();
-        used.get(&team_id).copied().unwrap_or(0.0) >= self.total_ms
+        let spend = self.spend.lock().unwrap();
+        spend.total_ms >= self.ceiling_ms
+            || spend.by_team.get(&team_id).copied().unwrap_or(0.0) >= self.team_ms
     }
 
     pub fn add(&self, team_id: i64, ms: f64) {
-        *self
-            .used_ms_by_team
-            .lock()
-            .unwrap()
-            .entry(team_id)
-            .or_insert(0.0) += ms;
+        let mut spend = self.spend.lock().unwrap();
+        spend.total_ms += ms;
+        *spend.by_team.entry(team_id).or_insert(0.0) += ms;
     }
 
     pub fn used_ms(&self) -> f64 {
-        self.used_ms_by_team.lock().unwrap().values().sum()
+        self.spend.lock().unwrap().total_ms
     }
 }
 
@@ -474,7 +482,10 @@ impl LogsTransformerService {
 #[async_trait]
 impl LogsTransformer for LogsTransformerService {
     fn start_batch(&self) -> Arc<TransformationBatchBudget> {
-        Arc::new(TransformationBatchBudget::new(self.config.batch_budget_ms))
+        Arc::new(TransformationBatchBudget::new(
+            self.config.batch_budget_ms,
+            self.config.batch_ceiling_ms,
+        ))
     }
 
     async fn team_has_transformations(&self, team_id: i64) -> anyhow::Result<bool> {

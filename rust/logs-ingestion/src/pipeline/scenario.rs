@@ -542,6 +542,7 @@ fn scenario_transformer(
             hog_timeout_ms: setting("LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS"),
             message_budget_ms: setting("LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS"),
             batch_budget_ms: setting("LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS"),
+            batch_ceiling_ms: f64::INFINITY,
             max_error_logs_per_function_per_message: setting(
                 "LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION",
             ) as usize,

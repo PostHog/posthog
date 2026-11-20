@@ -105,6 +105,7 @@ fn service(
         hog_timeout_ms,
         message_budget_ms: 60_000.0,
         batch_budget_ms: 600_000.0,
+        batch_ceiling_ms: f64::INFINITY,
         max_error_logs_per_function_per_message: 3,
     };
     (
@@ -158,7 +159,7 @@ async fn the_batch_budget_is_shared_across_messages_of_one_team_only() {
         ])),
         60_000.0,
     );
-    let budget = Arc::new(TransformationBatchBudget::new(0.0001));
+    let budget = Arc::new(TransformationBatchBudget::new(0.0001, f64::INFINITY));
     let mut first = vec![record("api")];
     service
         .transform_records(TEAM_ID, &mut first, Some(budget.clone()))
@@ -191,6 +192,25 @@ async fn the_batch_budget_is_shared_across_messages_of_one_team_only() {
         None
     );
     assert!(budget.used_ms() > used_by_first_team);
+}
+
+#[tokio::test]
+async fn the_batch_ceiling_stops_every_team() {
+    let (service, _) = service(
+        Arc::new(StaticHogFunctions(vec![function(BUSY, "{}", None)])),
+        60_000.0,
+    );
+    let budget = Arc::new(TransformationBatchBudget::new(60_000.0, 0.0001));
+    budget.add(TEAM_ID + 1, 1.0);
+    let mut records = vec![record("api")];
+    service
+        .transform_records(TEAM_ID, &mut records, Some(budget))
+        .await
+        .unwrap();
+    assert_eq!(
+        attribute(&records[0], "posthog.transformations_skipped").as_deref(),
+        Some("\"budget\"")
+    );
 }
 
 #[tokio::test]
@@ -310,8 +330,7 @@ const REPLACE_EMPTY: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "body", 
 const STARS: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "body", 32, "stars", 32, "inputs", 1, 2, 46, 36, 0, 38, 35]"#;
 // let rec := record; rec.attributes.m := (-4611686018427387904 * 2) % -1; return rec
 const MIN_MOD: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "attributes", 45, 32, "m", 33, -1, 33, 2, 33, -4611686018427387904, 8, 10, 46, 36, 0, 38, 35]"#;
-// let n := 0; for (let i := 0; i < 300; i := i + 1) { n := n + length(keys(record.attributes)) }
-// let rec := record; rec.attributes.n := n; return rec
+// let n := 0; 300 times: n := n + length(keys(record.attributes)); let rec := record; rec.attributes.n := n; return rec
 const REREAD: &str = r#"["_H", 1, 33, 0, 33, 0, 33, 300, 36, 1, 15, 40, 26, 32, "attributes", 32, "record", 1, 2, 2, "keys", 1, 2, "length", 1, 36, 0, 6, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -33, 35, 32, "record", 1, 1, 36, 1, 32, "attributes", 45, 32, "n", 36, 0, 46, 36, 1, 38, 35, 35]"#;
 // let a := {'x': 1}; for (let i := 0; i < 22; i := i + 1) { a := {'l': a, 'r': a} }; print(a); return record
 const DAG: &str = r#"["_H", 1, 32, "x", 33, 1, 42, 1, 33, 0, 33, 22, 36, 1, 15, 40, 21, 32, "l", 36, 0, 32, "r", 36, 0, 42, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -28, 35, 36, 0, 2, "print", 1, 35, 32, "record", 1, 1, 38, 35]"#;
@@ -391,7 +410,7 @@ async fn a_failed_input_template_spends_the_budgets() {
         Arc::new(StaticHogFunctions(vec![function(IDENTITY, &inputs, None)])),
         5.0,
     );
-    let budget = Arc::new(TransformationBatchBudget::new(0.0001));
+    let budget = Arc::new(TransformationBatchBudget::new(0.0001, f64::INFINITY));
     let mut records = vec![record("api"), record("api")];
     service
         .transform_records(TEAM_ID, &mut records, Some(budget))
@@ -404,8 +423,7 @@ async fn a_failed_input_template_spends_the_budgets() {
     );
 }
 
-// let arr := range(64); for (let i := 1; i <= 64; i := i + 1) { arr[i] := record.body }
-// let rec := record; rec.attributes.h := sha256HmacChainHex(arr); return rec
+// let arr := range(64); for i in 1..=64: arr[i] := record.body; let rec := record; rec.attributes.h := sha256HmacChainHex(arr); return rec
 const HASH_MANY_BODIES: &str = r#"["_H", 1, 33, 64, 2, "range", 1, 33, 1, 33, 64, 36, 1, 16, 40, 20, 36, 0, 36, 1, 32, "body", 32, "record", 1, 2, 46, 33, 1, 36, 1, 6, 37, 1, 39, -27, 35, 32, "record", 1, 1, 36, 1, 32, "attributes", 45, 32, "h", 36, 0, 2, "sha256HmacChainHex", 1, 46, 36, 1, 38, 35, 35]"#;
 
 #[tokio::test]
@@ -415,6 +433,19 @@ async fn a_native_call_does_not_read_many_references_to_one_large_string() {
         "b".repeat(900 * 1024)
     ))));
     let records = run_one(function(HASH_MANY_BODIES, "{}", None), vec![staged]).await;
+    assert!(failed(&records[0]));
+}
+
+// fun make(big) { return (x) -> big }; let held := []; 20 times: held := arrayPushBack(held, make(concat(record.body, 'x')))
+const HOLD_BODIES_IN_CLOSURES: &str = r#"["_H", 1, 52, "make", 1, 0, 13, 52, "lambda", 1, 1, 3, 55, 0, 38, 53, 1, true, 0, 38, 53, 0, 43, 0, 33, 0, 33, 20, 36, 2, 15, 40, 31, 36, 1, 32, "body", 32, "record", 1, 2, 32, "x", 2, "concat", 2, 36, 0, 54, 1, 2, "arrayPushBack", 2, 37, 1, 33, 1, 36, 2, 6, 37, 2, 39, -38, 35, 32, "record", 1, 1, 38, 35, 35]"#;
+
+#[tokio::test]
+async fn strings_that_closures_capture_count_toward_the_memory_limit() {
+    let staged = StagedRecord::fresh(record_from_js(&js(&format!(
+        r#"{{"uuid": "u", "body": "{}"}}"#,
+        "b".repeat(900 * 1024)
+    ))));
+    let records = run_one(function(HOLD_BODIES_IN_CLOSURES, "{}", None), vec![staged]).await;
     assert!(failed(&records[0]));
 }
 
@@ -447,7 +478,7 @@ async fn messages_of_a_batch_run_one_at_a_time_against_the_batch_budget() {
         Arc::new(StaticHogFunctions(vec![function(BUSY, "{}", None)])),
         60_000.0,
     );
-    let budget = Arc::new(TransformationBatchBudget::new(0.0001));
+    let budget = Arc::new(TransformationBatchBudget::new(0.0001, f64::INFINITY));
     let mut messages: Vec<Vec<StagedRecord>> = (0..8).map(|_| vec![record("api")]).collect();
     futures::future::join_all(
         messages

@@ -166,8 +166,7 @@ pub fn globals(project: &OrderedJson, record: &OrderedJson, inputs: OrderedJson)
     ])
 }
 
-/// A short secret that occurs in the marker, such as `*`, multiplies the length on every later pass,
-/// so `None` stops a result past the memory limit. Such a value is far over the record cap anyway.
+/// A short secret in the marker, such as `*`, multiplies the length on every later pass, so `None` stops a result past the memory limit.
 pub fn redact_string(value: &str, sensitive: &[String]) -> Option<String> {
     let mut out = value.to_string();
     for s in sensitive.iter().filter(|s| !s.is_empty()) {
@@ -640,8 +639,7 @@ pub fn apply_transform_result(record: &mut LogRecord, result: &JsValue) -> Appli
     Applied::Mutated
 }
 
-/// Other keys are never read, so a cycle there is harmless. Top-level keys are redacted too, as
-/// `redactSensitiveStrings` rewrites every key.
+/// Other keys are never read, so a cycle there is harmless. `redactSensitiveStrings` rewrites every key, so top-level keys are redacted too.
 fn result_fields(vm: &HogVM, value: &HogValue, sensitive: &[String]) -> JsValue {
     let invalid = JsValue::Number(0.0);
     let Ok(literal) = value.deref(&vm.heap) else {
