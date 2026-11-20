@@ -122,11 +122,12 @@ jobs:
                       exit 0
                   fi
 
-                  # Reasons come from the pull request's code, so each is one line without control or direction
-                  # characters, HTML-escaped inside <pre>, and the list is capped.
+                  # Reasons come from the pull request's code, so every character outside printable ASCII becomes
+                  # "?", which also keeps each on one line, before it is HTML-escaped inside <pre>. The list is
+                  # capped. The other values in the comment passed fixed patterns in the step above.
                   reasons=$(jq -rs '
                       .[0].reasons as $all
-                      | ($all[:20][] | gsub("[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]"; " ") | .[:300] | @html),
+                      | ($all[:20][] | gsub("[^ -~]"; "?") | .[:300] | @html),
                         (if ($all | length) > 20 then "…and \(($all | length) - 20) more" else empty end)
                   ' "$RUNNER_TEMP/result/result.json")
                   minor=""
