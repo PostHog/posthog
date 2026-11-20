@@ -2,7 +2,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
 import { WEBHOOK_ACTION } from '../generator/traffic'
-import type { TruthSource } from '../judge/truth'
+import type { TruthRead, TruthSource } from '../judge/truth'
 import { TRUTH_PAGE_LIMIT, TruthRecord } from '../provider-edge/truth'
 import type { DevConfig } from './config'
 
@@ -32,8 +32,9 @@ export function receiptTruth(config: DevConfig, runId: string, now = Date.now): 
     const records: TruthRecord[] = []
     const seen = new Set<string>()
     let readAt = -Infinity
-    const refresh = async (timeoutMs?: number): Promise<void> => {
-        if (now() - readAt < QUERY_EVERY_MS) {
+    // A caller that bounds its wait, the live log, reads the last answer, so the judge owns each query and its errors.
+    const refresh = async (read?: TruthRead): Promise<void> => {
+        if (read?.timeoutMs !== undefined || now() - readAt < QUERY_EVERY_MS) {
             return
         }
         readAt = now()
@@ -46,7 +47,6 @@ export function receiptTruth(config: DevConfig, runId: string, now = Date.now): 
                     query: { kind: 'HogQLQuery', query: RECEIPTS, values: { run_id: runId } },
                     refresh: 'force_blocking',
                 }),
-                timeoutMs,
             },
             'receipts query'
         )) as { results: [string, number, string][] }
@@ -72,11 +72,11 @@ export function receiptTruth(config: DevConfig, runId: string, now = Date.now): 
     }
     return {
         head: async (read) => {
-            await refresh(read?.timeoutMs)
+            await refresh(read)
             return records.length
         },
         after: async (cursor, read) => {
-            await refresh(read?.timeoutMs)
+            await refresh(read)
             const page = records.slice(cursor, cursor + (read?.limit ?? TRUTH_PAGE_LIMIT))
             return { records: page, next: page.at(-1)?.seq ?? cursor }
         },

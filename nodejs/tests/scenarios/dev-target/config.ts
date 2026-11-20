@@ -55,11 +55,7 @@ export function devConfigOf(env: NodeJS.ProcessEnv): DevConfig {
     return {
         host: origin('DEV_TARGET_HOST'),
         capture: origin('DEV_TARGET_CAPTURE'),
-        offers: {
-            teamId: team('DEV_TARGET_OFFERS_TEAM_ID'),
-            token,
-            workflowId,
-        },
+        offers: { teamId: team('DEV_TARGET_OFFERS_TEAM_ID'), token, workflowId },
         receiptsTeamId: team('DEV_TARGET_RECEIPTS_TEAM_ID'),
         key,
     }

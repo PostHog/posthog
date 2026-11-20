@@ -63,7 +63,7 @@ async function fakeDev(state: { receipts: Receipt[]; series: Record<string, numb
 describe('dev reads', () => {
     const AT = Date.UTC(2026, 10, 20, 14, 38, 33, 636)
 
-    it('turns the receipts of its own run into truth records, once each, querying at most every 30s', async () => {
+    it('turns the receipts of its own run into truth records, once each, querying at most every 30s and only for the judge', async () => {
         const state = {
             receipts: [{ runId: 'run-a', unitId: 'run-a-1', at: AT, uuid: 'r1' }],
             series: {},
@@ -83,6 +83,7 @@ describe('dev reads', () => {
             clock = QUERY_EVERY_MS - 1
             expect((await truth.after(1)).records).toEqual([])
             clock = QUERY_EVERY_MS
+            expect(await truth.head({ timeoutMs: 500 })).toBe(1)
             const page = await truth.after(0)
 
             expect(page).toEqual({

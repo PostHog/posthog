@@ -9,7 +9,7 @@ const DEV_RUNS: Record<string, string[]> = {
     invariants: ['at_least_once', 'duplicate_sends'],
     measure: ['delivery_latency_ms'],
 }
-const DEV_CAPS = { ratePerSecond: 10, units: 2000, driveMs: 10 * 60_000 }
+const DEV_CAPS = { ratePerSecond: 10, units: 2000, driveMs: 10 * 60_000, stepMs: 60_000 }
 
 function devProblems({ drive, invariants, measure, bars, valves, setup }: Card, profile: Profile): string[] {
     const used: Record<string, string[]> = {
@@ -43,6 +43,9 @@ function devProblems({ drive, invariants, measure, bars, valves, setup }: Card, 
         ...(peak <= DEV_CAPS.ratePerSecond ? [] : [`drive: ${peak} units a second is above the dev cap`]),
         ...(units <= DEV_CAPS.units ? [] : [`drive: ${units} units is above the dev cap`]),
         ...(durationMs(drive.for) <= DEV_CAPS.driveMs ? [] : ['drive.for: dev drives for 10m at most']),
+        ...((drive.ramp ?? []).every((step) => durationMs(step.for) >= DEV_CAPS.stepMs)
+            ? []
+            : ['drive.ramp: each dev step lasts 1m at least, so rounding cannot bunch offers into a burst']),
     ]
 }
 

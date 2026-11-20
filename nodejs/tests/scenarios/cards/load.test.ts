@@ -463,6 +463,22 @@ describe('load', () => {
         ],
         ['a drive longer than 10m', { ...devCard, drive: { ...devCard.drive, for: '11m' } }, devAt(1), 'drive.for: '],
         [
+            'a ramp step shorter than a minute, where rounding bunches offers',
+            {
+                ...devCard,
+                drive: {
+                    ...devCard.drive,
+                    for: '90s',
+                    ramp: [
+                        { scale: 1, for: '1m' },
+                        { scale: 2, for: '30s' },
+                    ],
+                },
+            },
+            devProfile,
+            'drive.ramp: each dev step lasts 1m at least',
+        ],
+        [
             'a drive that stops on a break, whose repeated steps no cap counts',
             {
                 ...devCard,
