@@ -1781,7 +1781,7 @@ Note (2026-11-19): Parsed the v2 OpenAPI spec from the docs repo and diffed ever
 
 ## AzureDevOps — **thin**
 
-Today (23): `build_definitions`, `build_timeline_records`, `builds`, `commits`, `pipeline_runs`, `pipelines`, `projects`, `pull_request_reviewers`, `pull_request_thread_comments`, `pull_request_threads`, `pull_request_work_items`, `pull_requests`, `release_deployments`, `releases`, `repositories`, `team_members`, `teams`, `test_runs`, `work_item_classification_nodes`, `work_item_revisions`, `work_item_type_states`, `work_item_types`, `work_iterations`
+Today (24): `build_definitions`, `build_timeline_records`, `builds`, `commits`, `pipeline_runs`, `pipelines`, `projects`, `pull_request_iteration_statuses`, `pull_request_reviewers`, `pull_request_thread_comments`, `pull_request_threads`, `pull_request_work_items`, `pull_requests`, `release_deployments`, `releases`, `repositories`, `team_members`, `teams`, `test_runs`, `work_item_classification_nodes`, `work_item_revisions`, `work_item_type_states`, `work_item_types`, `work_iterations`
 
 Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/master/specification>
 
@@ -1789,7 +1789,7 @@ Diffed against: <https://github.com/MicrosoftDocs/vsts-rest-api-specs/tree/maste
 - [x] `git Pull Request Threads + Thread Comments` — review discussion and timestamps - required for review latency and cycle time on the PRs we already sync (high)
 - [x] `git Pull Request Reviewers (and Pull Request Iteration Statuses)` — approval votes per reviewer; the membership table that turns pull_requests into review analytics (high)
 - [x] `core Teams (GET /_apis/teams, /projects/{projectId}/teams) and Team Members` — lookup resolving team ownership for projects, work items and boards (high)
-- [ ] `git Pull Request Iteration Statuses (GET .../pullRequests/{pullRequestId}/iterations/{iterationId}/statuses)` — per-iteration policy and status checks; needs a fan-out one level deeper than the reviewers table above (medium)
+- [x] `git Pull Request Iteration Statuses (GET .../pullRequests/{pullRequestId}/iterations/{iterationId}/statuses)` — per-iteration policy and status checks; needs a fan-out one level deeper than the reviewers table above (medium); landed as `pull_request_iteration_statuses`, full refresh, because the status listing takes no time filter
 - [x] `build Definitions (GET /{project}/_apis/build/definitions)` — lookup resolving definition.id carried on every build row we already sync (high)
 - [x] `build Timeline (GET /{project}/_apis/build/builds/{buildId}/timeline/{timelineId})` — per-job/step records and durations - where build time actually goes (high)
 - [x] `release Releases + release Deployments` — deployment frequency and environment promotion history; entirely absent today (high)
@@ -10462,7 +10462,7 @@ Note: Enumerated every /reference/get_v2-\* route from the ReadMe-hosted referen
 
 ## Notion — gaps
 
-Today (6): `blocks`, `comments`, `databases`, `pages`, `permission_groups`, `users`
+Today (9): `agent_credit_usage`, `blocks`, `comments`, `databases`, `pages`, `permission_group_members`, `permission_groups`, `user_credit_usage`, `users`
 
 Diffed against: <https://developers.notion.com/openapi-adminApi.json>
 
@@ -10470,10 +10470,10 @@ Diffed against: <https://developers.notion.com/openapi-adminApi.json>
 
 Re-audited 2026-11-19 against: <https://developers.notion.com/llms.txt>
 
-- [ ] `Permission group members (GET /v1/spaces/{space_id}/groups/{group_id}/members)` — Join table of users in each permission group we already sync, with owner or member role (medium)
-- [ ] `Credit usage per user (GET /v1/spaces/{space_id}/users/credit_usage)` — Notion credit usage and limits per member in the current billing period, joins to users (medium)
-- [ ] `Query meeting notes (POST /v1/blocks/meeting_notes/query)` — Meeting note blocks with status, calendar and recording metadata (medium)
-- [ ] `Credit usage per agent (GET /v1/spaces/{space_id}/agents/credit_usage)` — Credit spend by agent, split by credit type (low)
+- [x] `Permission group members (GET /v1/spaces/{space_id}/groups/{group_id}/members)` — Join table of users in each permission group we already sync, with owner or member role (medium). Added as `permission_group_members`.
+- [x] `Credit usage per user (GET /v1/spaces/{space_id}/users/credit_usage)` — Notion credit usage and limits per member in the current billing period, joins to users (medium). Added as `user_credit_usage`.
+- [ ] `Query meeting notes (POST /v1/blocks/meeting_notes/query)` — Meeting note blocks with status, calendar and recording metadata (medium). Skipped: no pagination (at most 50 notes per call), only meetings the integration's user attended, and the `blocks` table already holds `meeting_notes` blocks.
+- [x] `Credit usage per agent (GET /v1/spaces/{space_id}/agents/credit_usage)` — Credit spend by agent, split by credit type (low). Added as `agent_credit_usage`.
 - [ ] `List views (GET /v1/views)` — View definitions per database we already sync (low)
 - [ ] `Credit access policies (GET /v1/spaces/{space_id}/policies/credit_access; GET .../{policy_id}/assignments)` — Credit limit policies and who they cover (low)
 

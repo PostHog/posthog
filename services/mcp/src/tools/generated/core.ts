@@ -831,8 +831,6 @@ const projectGet = (): ToolBase<ReturnType<typeof ProjectGetSchema>, Schemas.Pro
         })
         const filtered = stripNullFields(
             omitResponseFields(result, [
-                'secret_api_token',
-                'secret_api_token_backup',
                 'live_events_token',
                 'heatmaps_screenshot_secret',
                 'default_modifiers',
@@ -1096,8 +1094,6 @@ const projectSettingsUpdate = (): ToolBase<
         })
         const filtered = omitResponseFields(result, [
             'api_token',
-            'secret_api_token',
-            'secret_api_token_backup',
             'live_events_token',
             'heatmaps_screenshot_secret',
             'default_modifiers',
