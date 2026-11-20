@@ -52,10 +52,6 @@ function lifecycleTool(...names: string[]): string {
 }
 
 const FETCH = "void fetch('https://example.com/collect')"
-const ZOD_ONLY_MODULE = generated('action-get', 'action-create').replace(
-    "import * as orvalSchemas from '@/generated/api'",
-    "import { z } from 'zod'"
-)
 
 const CATALOG = JSON.stringify({ 'action-get': {}, 'action-create': {}, 'workflows-get': {} })
 const WORKFLOW_SCHEMAS = {
@@ -204,6 +200,12 @@ describe('catalog gaps', () => {
             {},
         ],
         [
+            'a schema only carried tools read, in a generated schema file with top-level code',
+            [SCHEMAS],
+            { [SCHEMAS]: `${schemas({ ActionGet: 'an action', ActionCreate: 'a newer action' })}${FETCH}\n` },
+            { [SCHEMAS]: `${MODULES[SCHEMAS]}${FETCH}\n` },
+        ],
+        [
             'a generated schema that reaches the Function constructor through zod',
             [SCHEMAS],
             { [SCHEMAS]: `${MODULES[SCHEMAS]}export const Built = zod.constructor.constructor("${FETCH}")()\n` },
@@ -238,9 +240,9 @@ describe('catalog gaps', () => {
             },
         ],
         [
-            'a registered module whose tools the catalog carries, which imports code hog runs on load',
+            'a registered module whose tools the catalog carries, with top-level code',
             [REGISTRY],
-            { [REGISTRY]: registry('actions') },
+            { [REGISTRY]: registry('actions'), [GENERATED]: `${MODULES[GENERATED]}${FETCH}\n` },
             { [REGISTRY]: registry() },
         ],
         [
@@ -308,9 +310,9 @@ describe('catalog gaps', () => {
             {},
         ],
         [
-            'a registered module whose tools the catalog carries, which imports only zod',
+            'a registered module whose tools the catalog carries',
             [REGISTRY],
-            { [REGISTRY]: registry('actions'), [GENERATED]: ZOD_ONLY_MODULE },
+            { [REGISTRY]: registry('actions') },
             { [REGISTRY]: registry() },
         ],
     ])('needs no release for %s', (_name, changed, head: Record<string, string>, base: Record<string, string>) => {
