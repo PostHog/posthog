@@ -3798,6 +3798,14 @@ class SignalReportFilterQuerySerializer(serializers.Serializer):
 
 
 class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
+    plan = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Keep only the steps of this plan report, in plan order: the same reports, in the same order, as "
+            "`plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other "
+            "filters still apply. A report with no steps returns an empty page."
+        ),
+    )
     ranking_id = serializers.UUIDField(
         required=False,
         help_text=(
