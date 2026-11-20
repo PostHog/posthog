@@ -142,7 +142,8 @@ export interface logsAlertNotificationDetailSceneLogicMeta {
             destinationGroup: LogsAlertDestinationGroup | null,
             recentSends: LogsAlertDestinationSendApi[] | null,
             recentSendsLoading: boolean,
-            recentSendsError: boolean
+            recentSendsError: boolean,
+            alertSettled: boolean
         ) => boolean
         eventLabelByHogFunctionId: (destinationGroup: LogsAlertDestinationGroup | null) => Record<string, string>
         messageCustomized: (
