@@ -56,7 +56,11 @@ For example, from the repository root:
 revision=$(git rev-parse HEAD)
 source_dir=$(mktemp -d "${TMPDIR:-/tmp}/posthog-mobile-build.XXXXXX")
 git archive "$revision" products/mobile | tar -xf - -C "$source_dir"
-(cd "$source_dir/products/mobile" && sh scripts/eas-build.sh --profile simulator-review --platform ios --non-interactive --no-wait --message "Simulator review $revision")
+(
+    cd "$source_dir/products/mobile" &&
+        pnpm install --frozen-lockfile &&
+        sh scripts/eas-build.sh --profile simulator-review --platform ios --non-interactive --no-wait --message "Simulator review $revision"
+)
 ```
 
 Use `--platform android` for the APK when it is needed.
