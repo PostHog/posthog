@@ -1824,8 +1824,12 @@ jobs:
             # the step summary splits the rows that block from the rows that only report. The full
             # view (`--all`) lists every row, which the default view can cut short. The script only
             # reports; hoglint's exit decides the step. It runs before the scaffold, which edits
-            # tracked files that compare would read as part of the change.
+            # tracked files that compare would read as part of the change. Exit 1 (violations) and 2
+            # (a blocking incomplete result or a config error) come from the tree, so they are a
+            # deterministic failure. Any other status (3: hoglint could not run, 124 or 137: the
+            # timeout) sets `transient`, so the job fails without cancelling the rest of the run.
             - name: Check boundaries (hoglint)
+              id: hoglint
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"
                   errors="$RUNNER_TEMP/hoglint-stderr.txt"
@@ -1837,6 +1841,10 @@ jobs:
                       timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
                       python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" || true
                   fi
+                  case "$status" in
+                      0 | 1 | 2) ;;
+                      *) echo "transient=true" >> "$GITHUB_OUTPUT" ;;
+                  esac
                   exit "$status"
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
@@ -1844,7 +1852,15 @@ jobs:
             # included. Bootstrap writes the product's level line into this job's copy of the
             # ledger, so a plain check also proves that bootstrap leaves the ledger complete.
             - name: Check the scaffold product (hoglint)
-              run: hoglint check
+              id: hoglint-scaffold
+              run: |
+                  status=0
+                  hoglint check || status=$?
+                  case "$status" in
+                      0 | 1 | 2) ;;
+                      *) echo "transient=true" >> "$GITHUB_OUTPUT" ;;
+                  esac
+                  exit "$status"
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
             # secrets — fork PRs get validated too (the --live slug check runs in
@@ -1894,9 +1910,10 @@ jobs:
               run: python .github/scripts/check-new-events-schema-targets.py --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
+            # A hoglint step that could not finish says so with `transient`, and is not one.
             - name: Flag deterministic failure
               id: deterministic-failure
-              if: failure() && steps.setup-complete.outcome == 'success'
+              if: failure() && steps.setup-complete.outcome == 'success' && steps.hoglint.outputs.transient != 'true' && steps.hoglint-scaffold.outputs.transient != 'true'
               run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
 
     cancel-backend-on-repo-check-failure:
