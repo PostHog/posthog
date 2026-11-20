@@ -1,5 +1,4 @@
-// Phase timings on stderr when HOG_WORKER_TRACE is set, for finding where a large build spends
-// its time.
+// Phase timings on stderr when HOG_WORKER_TRACE is set, to find where a large build spends time.
 
 use std::{sync::Mutex, time::Instant};
 

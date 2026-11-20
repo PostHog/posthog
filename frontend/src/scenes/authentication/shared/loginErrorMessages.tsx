@@ -35,6 +35,7 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     google_sso_enforced: 'Your organization does not allow this authentication method. Please log in with Google.',
     github_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitHub.',
     gitlab_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitLab.',
+    chatgpt_sso_enforced: 'Your organization does not allow this authentication method. Please log in with ChatGPT.',
     // our catch-all case, so the message is generic
     sso_enforced: "Please log in with your organization's required SSO method.",
     verified_domain_required:

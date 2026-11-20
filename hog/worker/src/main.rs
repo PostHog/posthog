@@ -63,11 +63,8 @@ use trace::Trace;
 
 const PROTOCOL: u32 = 1;
 
-// The request could not be read, or names a pair the worker does not hold. A bug in hog.
 const BAD_REQUEST: &str = "bad_request";
-// The injection itself failed, for example on a sourcemap the decoder rejects.
 const INJECT_FAILED: &str = "inject_failed";
-// A file could not be written. hog reports the message as it reported its own write failures.
 const WRITE_FAILED: &str = "write_failed";
 // A file hog asked about could not be read.
 const READ_FAILED: &str = "read_failed";
@@ -137,9 +134,7 @@ enum Request {
 #[derive(Deserialize)]
 struct Candidate {
     path: String,
-    // Named like a bundle, so discovery asks whether its sourcemap exists.
     bundle: bool,
-    // Named like a sourcemap, so discovery asks whether the Hermes compiler composed it.
     map: bool,
     // Named like a ProGuard mapping, so discovery asks whether it reads as one.
     mapping: bool,
@@ -207,11 +202,9 @@ struct CssCandidateAnswer {
 enum PairAnswer {
     Read(PairState),
     Skipped { skipped: String },
-    // The bundle has no sourcemap after all. hog leaves it out without a message.
     Missing(()),
 }
 
-// What hog needs to know about a pair to decide what happens to it next.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PairState {
@@ -486,8 +479,7 @@ impl Worker {
         }
     }
 
-    // Every pair is written, changed or not, which puts every map in canonical form as posthog-cli
-    // does.
+    // Unchanged pairs are written too, so every map ends in posthog-cli's canonical form.
     fn save(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
         let pairs = self.take_all(ids)?;
 

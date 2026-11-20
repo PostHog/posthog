@@ -267,7 +267,7 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
 
     @responses.activate
     def test_reports_why_ses_refused_the_identity_list_and_still_fails_the_run(self) -> None:
-        responses.post(f"{ERROR_TRACKING_HOST}/batch/", json={"status": 1})
+        responses.post(f"{ERROR_TRACKING_HOST}/i/v1/analytics/events", json={"results": {}})
         self.world.faults.inject("sesv2.list_email_identities", AwsFault.ACCESS_DENIED)
 
         with (

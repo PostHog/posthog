@@ -20,7 +20,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 file: 'build.gradle',
                                 code: dedent`
                                     dependencies {
-                                        implementation("com.posthog:posthog-android:3.+")
+                                        implementation("com.posthog:posthog-android:4.+")
                                     }
                                 `,
                             },
@@ -28,8 +28,8 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     />
                     <CalloutBox type="fyi" title="SDK version">
                         <Markdown>
-                            Session replay requires PostHog Android SDK version 3.4.0 or higher. We recommend always
-                            using the latest version.
+                            This setup requires PostHog Android SDK version 3.72.0 or higher. We recommend always using
+                            the latest version.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -74,7 +74,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             super.onCreate()
 
                                             val config = PostHogAndroidConfig(
-                                                apiKey = POSTHOG_TOKEN,
+                                                projectToken = POSTHOG_TOKEN,
                                                 host = POSTHOG_HOST
                                             )
 
@@ -96,16 +96,15 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             // requires SDK version 3.32.0 or higher.
                                             config.sessionReplayConfig.captureLogcat = true
 
-                                            // Whether replays are created using high quality screenshots. Default is false.
-                                            // If disabled, replays are created using wireframes instead.
-                                            // The screenshot may contain sensitive information, so use with caution
-                                            config.sessionReplayConfig.screenshot = false
+                                            // Replays are recorded as masked screenshots, so mask anything sensitive.
+                                            // Before SDK version 4.0, also set config.sessionReplayConfig.screenshot = true,
+                                            // otherwise replays are recorded as wireframes.
 
-                                            // Experimental screenshot settings require SDK 3.63.0+ and screenshot = true.
+                                            // Experimental screenshot settings require SDK version 3.63.0 or higher.
                                             // We recommend the values below to balance performance and image quality.
                                             // Lower resolution and RGB_565 reduce capture time and memory use.
 
-                                            // Scale each screenshot dimension from 0.1 to 1.0. Default is 1.0.
+                                            // Scale each screenshot dimension from 0.1 to 1.0. With no value, SDK 3.74.0+ captures one pixel per dp.
                                             config.sessionReplayConfig.screenshotScale = 0.5f
 
                                             // RGB_565 uses two bytes per pixel instead of four, with lower color precision
@@ -140,7 +139,8 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     </Markdown>
                     <CalloutBox type="fyi" title="Requirements">
                         <Markdown>
-                            Requires Android API 26 or higher. Jetpack Compose is only supported if `screenshot` is
+                            Requires Android API 26 or higher. SDK version 4.0 and later record Jetpack Compose screens
+                            as screenshots. Earlier versions only support Jetpack Compose if the `screenshot` option is
                             enabled.
                         </Markdown>
                     </CalloutBox>

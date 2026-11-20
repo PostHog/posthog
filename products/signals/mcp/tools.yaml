@@ -109,10 +109,15 @@ tools:
             before series that flag often, because a series that is usually quiet and now flags matters more than one
             that always flags. Pass `order: recent` for the series whose newest flagged bucket ended last first, so an
             hourly series flagged a few hours ago sorts above a daily series flagged yesterday. Pass `search` to keep
-            only insights whose name contains the text. When `has_more` is true, read the next page with `offset` set to
-            `offset + limit`. When `series_capped` is true, the project has more scored series than one search reads, so
-            some matching series are missing from every page: narrow the date range, or pass `insight_id`,
-            `dashboard_id` or `search`. A 404 means anomaly search is not available for this project.
+            only insights whose name contains the text. A noise filter is on by default: it hides flagged series whose
+            anomaly rate over the chart window of their interval is above 10% (`max_anomaly_rate: 0.1`), because a
+            series flagged that often is noisy, not unusual. A series with fewer than 10 scored buckets in its chart
+            window is never hidden. `hidden_series` says how many series the filter hid; they are not in the rows, the
+            insight counts or `has_more`. Pass a higher `max_anomaly_rate` to see more, or 1 to turn the filter off.
+            When `has_more` is true, read the next page with `offset` set to `offset + limit`. When `series_capped` is
+            true, the project has more scored series than one search reads, so some matching series are missing from
+            every page: narrow the date range, or pass `insight_id`, `dashboard_id` or `search`. A 404 means anomaly
+            search is not available for this project.
         exclude_params:
             - include_points
         feature_flag: anomalies-search
@@ -730,6 +735,82 @@ tools:
             id:
                 aliases:
                     - survivor_report_id
+    inbox-reports-plan-step-dependencies-update:
+        operation: signals_reports_plan_steps_depends_on_update
+        enabled: true
+        scopes:
+            - inbox:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Replace what an inbox plan step builds on
+        description: >
+            Replace the set of other plan steps that one step builds on (its `depends_on` links). The URL names the
+            plan, and `step_id` names the step. Pass the full new set: steps you leave out no longer count as
+            prerequisites, and an empty list means the step builds on none. Each id must be another step of the same
+            plan, and a set that makes a dependency loop is rejected. Links from the step to reports outside the plan
+            are unchanged. Returns the plan report, with the new set in `plan.steps`.
+        param_overrides:
+            id:
+                description: Id of the plan report.
+                aliases:
+                    - plan_report_id
+        feature_flag: inbox-plan-edits-mcp
+        feature_flag_behavior: enable
+    inbox-reports-plan-steps-add:
+        operation: signals_reports_plan_steps_create
+        enabled: true
+        scopes:
+            - inbox:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{params.id}'
+        title: Add a step to an inbox plan
+        description: >
+            Add an existing report as a step of a plan. The URL names the plan report, and `report_id` names the step. A
+            report becomes a plan when it gets its first step, so this also starts a plan. A plan resolves only when all
+            of its linked steps are resolved or archived, so link every report that is part of the work, not only the
+            first one. Pass `depends_on` with the ids of steps already in the plan that the new step builds on. The step
+            goes last in plan order. A report can be a step of one plan only: remove it from its current plan first with
+            inbox-reports-plan-steps-remove. Returns 400 when the step is the plan itself, is not a report in this
+            project, or would make a loop of links, and 409 when it is already a step. Returns the plan report, with the
+            new step in `plan.steps`.
+        param_overrides:
+            id:
+                description: Id of the plan report.
+                aliases:
+                    - plan_report_id
+        feature_flag: inbox-plan-edits-mcp
+        feature_flag_behavior: enable
+    inbox-reports-plan-steps-remove:
+        operation: signals_reports_plan_steps_destroy
+        enabled: true
+        scopes:
+            - inbox:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Remove a step from an inbox plan
+        description: >
+            Remove a report from a plan. The URL names the plan, and `step_id` names the step. This deletes the step's
+            link to the plan and the `depends_on` links between the step and the plan's other steps. It does not change
+            the step report: its status, pull requests, and claim stay. A note on both reports records the removal, with
+            `reason` when you give one. When every step left in the plan is resolved or archived, the plan resolves or
+            archives too. Returns 409 when the report is not a step of this plan. Returns the plan report, without the
+            step in `plan.steps`.
+        param_overrides:
+            id:
+                description: Id of the plan report.
+                aliases:
+                    - plan_report_id
+        feature_flag: inbox-plan-edits-mcp
+        feature_flag_behavior: enable
     inbox-reports-retrieve:
         operation: signals_reports_retrieve
         enabled: true
@@ -749,7 +830,9 @@ tools:
             has the ranking model's predictions and the key of the model that made them; inbox-ranking-outcomes-list
             explains them. Read the full work log with inbox-report-artefacts-list before acting. The raw underlying
             signals need a HogQL query (see the 'signals' skill). A report may be claimed in potential, candidate,
-            in_progress, pending_input, ready, or failed state.
+            in_progress, pending_input, ready, or failed state. `plan` is the plan the report leads or belongs to, and
+            `plan.steps` lists its steps in order. When the inbox-reports-plan-steps tools are available, use them to
+            add or remove a step, and inbox-reports-plan-step-dependencies-update to change what a step builds on.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
