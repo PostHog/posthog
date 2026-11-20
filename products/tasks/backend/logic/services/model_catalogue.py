@@ -23,7 +23,12 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from products.tasks.backend import model_catalog
-from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
+from products.tasks.backend.logic.services.gateway_model_pin import (
+    admitted_listing,
+    agent_models,
+    model_allowed_by_product_pin,
+    offered_listing,
+)
 from products.tasks.backend.logic.services.gateway_models import GatewayModel, known_gateway_models, list_gateway_models
 from products.tasks.backend.model_catalog import COST_BASELINE_MODEL
 
@@ -121,8 +126,8 @@ def _listing() -> tuple[GatewayModel, ...]:
 def listed_model(model: str | None) -> GatewayModel | None:
     if not model:
         return None
-    normalized = model_catalog.normalize_model_id(model)
-    return next((listed for listed in _listing() if listed.id == normalized), None)
+    listed_id = model_catalog.gateway_model_id(model)
+    return next((listed for listed in _listing() if listed.id == listed_id), None)
 
 
 def _runtime_adapter(listed: GatewayModel) -> str | None:
@@ -180,11 +185,11 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
     a run to a model the gateway would reject anyway.
     """
     listing = list_gateway_models(product)
-    return _choices((listed for listed in listing if model_allowed_by_product_pin(product, listed.id)), listing)
+    return _choices(offered_listing(product, listing), listing)
 
 
 def runnable_model_choices(product: Product) -> tuple[ModelChoice, ...]:
-    return tuple(choice for choice in catalog_model_choices() if model_allowed_by_product_pin(product, choice.model))
+    return product_model_choices(product, offered_only=False)
 
 
 def plan_model_choices(product: Product, plan_pin: str) -> tuple[ModelChoice, ...]:
@@ -224,14 +229,23 @@ def display_name_for_model(model: str) -> str:
     return _display_name(listed) if listed else _name_from_id(model)
 
 
-def catalog_model_choices() -> tuple[ModelChoice, ...]:
+def known_model_choices() -> tuple[ModelChoice, ...]:
     listing = _listing()
-    listed_by_id = {listed.id: listed for listed in listing}
-    return _choices((listed_by_id[entry.id] for entry in model_catalog.MODELS if entry.id in listed_by_id), listing)
+    return _choices(agent_models(listing), listing)
+
+
+def product_model_choices(product: str, *, offered_only: bool) -> tuple[ModelChoice, ...]:
+    listing = _listing()
+    rows = offered_listing(product, listing) if offered_only else admitted_listing(product, listing)
+    return _choices(rows, listing)
 
 
 def offered_model_choices() -> tuple[ModelChoice, ...]:
-    return tuple(choice for choice in catalog_model_choices() if model_catalog.is_offered_model(choice.model))
+    return product_model_choices(TASK_RUN_GATEWAY_PRODUCT, offered_only=True)
+
+
+def models_for_runtime_adapter(runtime_adapter: str) -> tuple[str, ...]:
+    return tuple(listed.id for listed in agent_models(_listing()) if _runtime_adapter(listed) == runtime_adapter)
 
 
 def runtime_adapter_for(model: str | None) -> str | None:
@@ -266,9 +280,11 @@ __all__ = [
     "ModelChoice",
     "RuntimeGroup",
     "available_model_choices",
-    "catalog_model_choices",
+    "known_model_choices",
+    "models_for_runtime_adapter",
     "offered_model_choices",
     "plan_model_choices",
+    "product_model_choices",
     "runnable_model_choices",
     "display_name_for_model",
     "filter_unsupported_effort",

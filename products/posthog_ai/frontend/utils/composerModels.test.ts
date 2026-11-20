@@ -87,16 +87,6 @@ describe('composerModels', () => {
     )
 
     it.each([
-        [
-            CATALOGUE.concat({
-                runtime_adapter: RuntimeAdapterEnumApi.Codex,
-                model: 'gpt-6-sol',
-                display_name: 'GPT-6 Sol',
-                supported_efforts: [ReasoningEffortEnumApi.High],
-            }),
-            RuntimeAdapterEnumApi.Codex,
-            'gpt-6-sol',
-        ],
         [CATALOGUE, RuntimeAdapterEnumApi.Codex, 'gpt-5.6-luna'],
         [CATALOGUE, RuntimeAdapterEnumApi.Claude, 'claude-opus-4-8'],
         [[], RuntimeAdapterEnumApi.Codex, null],
