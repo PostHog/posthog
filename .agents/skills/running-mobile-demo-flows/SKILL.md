@@ -2,10 +2,9 @@
 name: running-mobile-demo-flows
 description: >
   Runs the PostHog mobile app's Argent demo flows (demo-smoke and views-smoke) on a local iOS simulator
-  against a bundled Release build, and reads their results. Use before reporting a change under
-  products/mobile that touches a screen, navigation, the demo fixtures, a testID, or a flow file as done,
-  and when asked to smoke-test the mobile app. CI does not run these flows, so the local run is the only
-  UI check a change gets.
+  against a bundled Release build, and reads their results. Use for screen, navigation, demo fixture,
+  testID, and flow changes under products/mobile, and when asked to smoke-test the app.
+  Run both before merge. A draft PR can list them as pending.
 ---
 
 # Running mobile demo flows
@@ -35,16 +34,20 @@ DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fun
 
 ## Run the bundled flows
 
-From `products/mobile`:
+For external PRs, follow the [fresh build requirements](../../../products/mobile/docs/TESTING.md#choose-a-build) for every run, including retries. Keep passing reports from that run with the tested commit. Start the required run during implementation so it can finish alongside screenshot capture and PR preparation.
+Keep one owner for the run. Share a Mac by scheduling bundled build and walkthrough runs one at a time.
+
+From `products/mobile`, install dependencies with `pnpm install --frozen-lockfile` if they are missing or the lockfile changed.
+Then run:
 
 ```sh
 export PATH="/tmp/mobile-argent-tools/node_modules/.bin:$PATH"
 export DO_NOT_TRACK=1
-pnpm install --frozen-lockfile
-bash scripts/ci-argent-build.sh /tmp/mobile-argent-build /tmp/mobile-argent-artifacts
-bash scripts/ci-argent.sh \
-    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHogApp.app \
-    /tmp/mobile-argent-artifacts
+run_dir=$(mktemp -d "${TMPDIR:-/tmp}/posthog-mobile-smoke.XXXXXX")
+bash scripts/ci-argent-build.sh "$run_dir/build" "$run_dir/artifacts" &&
+    bash scripts/ci-argent.sh \
+        "$run_dir/build/Build/Products/Release-iphonesimulator/PostHogApp.app" \
+        "$run_dir/artifacts"
 ```
 
 Budget about 8 minutes for a fresh native build and about 3 minutes for both flows.
@@ -55,13 +58,13 @@ Set `ARGENT_IOS_RUNTIME` to a runtime id from `xcrun simctl list runtimes` to pi
 ## Read the result
 
 - Exit code 0 means both flows passed.
-- On failure, open `/tmp/mobile-argent-artifacts/`: the JSON report has one entry per step, failed steps have a screenshot, and `prebuild.log`, `pods.log` and `build.log` explain a native build failure.
+- On failure, check `$run_dir/artifacts` for the failed step, screenshot, and build logs. If the runner fails before the first step, check the connection and runtime before one fresh retry. Record an unresolved runner failure separately from an app failure.
 - Both flows run even when the first fails. Report each one.
 - An `idle` step can warn that a small part of the screen was still changing, such as the text caret. The next step waits for a stable element, so this warning is expected.
 
 ## Iterate on a flow with the dev client
 
-The bundled build is slow to rebuild. While you edit a flow or a screen, use Metro instead:
+The bundled build is slow to rebuild. While you edit your own flow or screen, use Metro instead:
 
 1. `pnpm ios --port 8181` builds the dev client, boots a simulator and starts Metro.
 2. In the dev menu, turn off **Tools button** and **Fast refresh**. The floating gear swallows taps on the inbox More button, and the refresh banner covers Back and Close.
@@ -76,4 +79,5 @@ If every selector step times out with a ViewInspector RPC error, drive by normal
 
 State which flows ran, the Xcode and runtime versions, and pass or fail per flow.
 Name the failed step and its screenshot path when one failed.
+Hand off the proposed revision and report paths with the result.
 Do not commit `.argent/recordings/` or the artifact directory.

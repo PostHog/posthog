@@ -17,6 +17,87 @@ CI runs typecheck, lint, and tests; see [CI.md](CI.md).
 For inbox pagination, check that an invalid next-page response keeps the loaded reports visible and shows the retry footer.
 Retry after the server returns a valid page and confirm that the remaining reports load.
 
+## Native PR screenshots
+
+Capture matched base and proposed screenshots on iOS and Android for frontend and user-facing behavior changes.
+Use the same app variant, device model, OS version, viewport, orientation, appearance, and demo state within each pair.
+For a new screen, capture its prior entry point on both platforms.
+Keep screenshots from a qualifying run while the commits and capture settings still match.
+A draft can list missing coverage. Attach both pairs before marking it ready for review.
+Track the [bundled demo flows](#demo-flows-before-you-merge) in the PR's testing section.
+
+When agents share the work, assign one PR owner and one owner per device.
+Use separate worktrees, ports, build directories, and artifact directories for each run.
+Capture base and proposed states consecutively on the selected device, with a reset to the same demo state between them.
+Hand off the base and proposed revisions, scenario, device settings, build IDs or bundle revisions, screenshot paths, and check results.
+Check the app and fixture inputs again after a base change.
+
+### Choose a build
+
+For every external PR test, including a retry of the same commit or a test after review, compile a fresh bundled app from the exact commit on each platform under test. For a before-and-after comparison, build each revision in its own empty build directory. Use only the app built for that revision in the current run. This rules out previously installed apps, downloaded builds, and development clients connected to Metro.
+
+Install dependencies, build, and run external changes on a disposable machine without developer credentials or access to internal services. If that environment is unavailable, record the native check as pending.
+
+For your own development, use an available warm local or remote device before starting another.
+For JavaScript-only iteration, use a compatible development client with Metro serving the selected revision.
+Verify the native configuration of both revisions against the client.
+For [repeatable bundled comparisons](#repeatable-screenshot-comparisons), use Release builds from the exact revisions with analytics and OTA updates disabled.
+An Expo native fingerprint alone does not identify the JavaScript embedded in a Release build.
+Use local builds for checks that require production app identity, a physical device, or a runtime the remote service lacks.
+
+### Build on Expo
+
+`simulator-review` targets a bundled iOS Simulator app and an Android APK with the preview app identity.
+`simulator-development` targets a development client for each platform.
+Use the PostHog Expo project only for reviewed internal changes and an approved preview environment free of production credentials.
+These profiles disable OTA updates and analytics and use simulator or Android debug signing.
+If the environment or build inputs cannot be verified, skip the Expo build.
+
+Use the mobile build wrapper with an export of only the reviewed commit.
+For example, from the repository root:
+
+```sh
+revision=$(git rev-parse HEAD)
+source_dir=$(mktemp -d "${TMPDIR:-/tmp}/posthog-mobile-build.XXXXXX")
+git archive "$revision" products/mobile | tar -xf - -C "$source_dir"
+(
+    cd "$source_dir/products/mobile" &&
+        pnpm install --frozen-lockfile &&
+        sh scripts/eas-build.sh --profile simulator-review --platform ios --non-interactive --no-wait --message "Simulator review $revision"
+)
+```
+
+Use `--platform android` for the APK when it is needed.
+Verify the APK contains the emulator's architecture, normally `x86_64`.
+Record the build ID with the revision and platform. For an internal PR whose base lacks the profile, use a verified build of that base commit and variant or capture both revisions locally.
+Once the build finishes, install by build ID so the simulator downloads the artifact directly.
+
+### Run isolated Expo sessions
+
+Check access with `eas simulator:availability --json`.
+Use one project directory per session so the CLI writes separate `.env.eas-simulator` files.
+Set `build_id` to the finished build and `capture_label` to the PR number or branch name.
+From the directory assigned to the iOS capture:
+
+```sh
+umask 077
+eas simulator:start --platform ios --type agent-device --build-id "$build_id" --name "$capture_label iOS screenshots" --no-force --non-interactive --max-duration-minutes 25
+```
+
+Use the Android build ID and `--platform android` in its own directory.
+Record the session ID, verify the controller is on the intended remote device, and stop it with `eas simulator:stop --id "$session_id"`.
+Stop any Metro process owned by the run when finished.
+Expo builds and sessions share account slots. Allow about three minutes in the queue before switching paths when a local device is available. Cancel the queued session by ID before switching.
+If remote capacity is limited, run the platforms in sequence.
+See [Expo session targeting](https://docs.expo.dev/eas/simulators/how-it-works/agent-targeting/).
+
+Use demo fixtures and fresh app state. Keep controller credentials, preview links, and artifact download URLs out of PRs.
+Use bundled builds for remote capture by default. For live refresh, use local Metro or an approved Expo local egress session scoped to the specific Metro port.
+Set `EXPO_PUBLIC_POSTHOG_DISABLED=1` and `EXPO_NO_DOTENV=1` when starting Metro for the remote session.
+Public Metro tunnels expose the bundle to anyone with the URL. Use the local path when scoped egress is unavailable.
+Inspect every image and upload only the approved screenshots with the repository's PR upload tool.
+See [Expo's security model](https://docs.expo.dev/eas/simulators/how-it-works/security-model/).
+
 ## Authenticated local checks
 
 Run the setup in [README.md](../README.md#sign-in-to-the-local-backend) first.
@@ -395,9 +476,10 @@ The step after each one waits for a stable element, so these warnings are expect
 
 ### Demo flows before you merge
 
-CI does not run the simulator flows. Run `demo-smoke` and `views-smoke` locally before you merge a change to a screen,
+Run `demo-smoke` and `views-smoke` using the [build guidance for the PR](#choose-a-build) before you merge a change to a screen,
 navigation, the demo fixtures, or a flow. The `/running-mobile-demo-flows` skill in `.agents/skills/` walks an agent
 through the same steps and the result files.
+A draft PR can record the flows as pending. Update the PR when each result is available.
 
 The scripts below build a bundled Release app with no Metro connection. Argent reads the native view hierarchy,
 so the flows do not need a development build or its overlays.
@@ -414,10 +496,11 @@ then run from `products/mobile`. A dedicated Argent install keeps the runner sep
 ```sh
 DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fund @swmansion/argent@0.30.1
 export PATH="/tmp/mobile-argent-tools/node_modules/.bin:$PATH"
-bash scripts/ci-argent-build.sh /tmp/mobile-argent-build /tmp/mobile-argent-artifacts
-bash scripts/ci-argent.sh \
-    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHogApp.app \
-    /tmp/mobile-argent-artifacts
+run_dir=$(mktemp -d "${TMPDIR:-/tmp}/posthog-mobile-smoke.XXXXXX")
+bash scripts/ci-argent-build.sh "$run_dir/build" "$run_dir/artifacts" &&
+    bash scripts/ci-argent.sh \
+        "$run_dir/build/Build/Products/Release-iphonesimulator/PostHogApp.app" \
+        "$run_dir/artifacts"
 ```
 
 The build regenerates the ignored `ios/` project, so run it in a disposable checkout if you have manual native edits.

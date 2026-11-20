@@ -86,6 +86,14 @@ describe('mobile replay integration', () => {
     afterEach(() => {
         delete process.env.EXPO_PUBLIC_POSTHOG_KEY
         delete process.env.EXPO_PUBLIC_POSTHOG_REPLAY
+        delete process.env.EXPO_PUBLIC_POSTHOG_DISABLED
+    })
+
+    it('keeps analytics off in simulator builds even when a project key is set', () => {
+        const app = setup()
+        process.env.EXPO_PUBLIC_POSTHOG_DISABLED = '1'
+        app.init()
+        expect(app.constructor).not.toHaveBeenCalled()
     })
 
     it.each<SetupOptions>([

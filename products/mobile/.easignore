@@ -14,7 +14,8 @@ coverage/
 *.tsbuildinfo
 expo-env.d.ts
 .env
-.env.local
+.env.*
+/credentials.json
 google-services.json
 .argent/*
 !.argent/flows/

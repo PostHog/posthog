@@ -46,7 +46,7 @@ function superProperties(): Record<string, string | number | null> {
 // Expo inlines `EXPO_PUBLIC_*` variables at build time, so they must be read as literal `process.env` members.
 export function initAnalytics(): void {
     const apiKey = process.env.EXPO_PUBLIC_POSTHOG_KEY
-    if (!apiKey || initialized) {
+    if (!apiKey || initialized || process.env.EXPO_PUBLIC_POSTHOG_DISABLED === '1') {
         return
     }
     initialized = true

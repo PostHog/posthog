@@ -6,7 +6,7 @@ The app is its own pnpm workspace. Run every command from `products/mobile`.
 ## Skills
 
 - Invoke `/requesting-mobile-releases` before you create or edit a file under `releases/requests/`, and when a change touches `package.json`, `pnpm-lock.yaml`, `app.config.ts`, `eas.json`, `plugins/`, `targets/`, `modules/` or any `expo-*` or `react-native-*` dependency. It decides whether the change can ship over the air or needs a native release. A merged request publishes without a human gate.
-- Invoke `/running-mobile-demo-flows` before you report a change to a screen, navigation, the demo fixtures or a flow as done. CI does not run the simulator flows, so the local run is the only UI check.
+- Invoke `/running-mobile-demo-flows` for changes to a screen, navigation, the demo fixtures or a flow. The local bundled flows must pass before merge. A draft can list the checks as pending.
 
 ## Pull request screenshots
 
@@ -29,4 +29,5 @@ A recording may supplement the screenshot pairs to show an interaction.
 Before uploading screenshots, read the [repository PR guidance](../../AGENTS.md#pr-descriptions) for public asset requirements.
 Use demo or invented data.
 
-If either platform's screenshots are unavailable, state the missing coverage in the PR and arrange device testing before marking it ready for review.
+Keep the PR in draft until both platforms' screenshots are attached. Name any missing coverage in the draft.
+For build selection, safe Expo sessions, and screenshot handoffs, see [Testing](docs/TESTING.md#native-pr-screenshots).

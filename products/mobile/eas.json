@@ -30,6 +30,31 @@
                 "APP_VARIANT": "preview"
             }
         },
+        "simulator-review": {
+            "extends": "base",
+            "distribution": "internal",
+            "environment": "preview",
+            "env": {
+                "APP_VARIANT": "preview",
+                "MOBILE_SIMULATOR_BUILD": "1",
+                "EXPO_NO_DOTENV": "1",
+                "EXPO_PUBLIC_POSTHOG_DISABLED": "1"
+            },
+            "ios": {
+                "simulator": true
+            },
+            "android": {
+                "buildType": "apk",
+                "withoutCredentials": true
+            }
+        },
+        "simulator-development": {
+            "extends": "simulator-review",
+            "developmentClient": true,
+            "android": {
+                "gradleCommand": ":app:assembleDebug"
+            }
+        },
         "production": {
             "extends": "base",
             "autoIncrement": true,
