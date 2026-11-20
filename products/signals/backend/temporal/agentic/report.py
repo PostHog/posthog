@@ -846,7 +846,7 @@ def _resolve_report_charts_payload(
 
 
 async def _resolve_suggested_prompts(
-    prompts: Sequence[str], *, team_id: int, report_id: str, signal_id: str | None
+    prompts: Sequence[str], *, team_id: int, report_id: str, signal_id: str | None, title: str, summary: str
 ) -> list[str]:
     """The suggested prompts to store with the run's title and summary.
 
@@ -867,7 +867,12 @@ async def _resolve_suggested_prompts(
         return []
     try:
         safety = await report_safety_judge.judge_suggested_prompts(
-            team_id=team_id, report_id=report_id, signal_id=signal_id, suggested_prompts=normalized
+            team_id=team_id,
+            report_id=report_id,
+            signal_id=signal_id,
+            title=title,
+            summary=summary,
+            suggested_prompts=normalized,
         )
     except LLMRefusalError:
         log.warning("dropping research suggested prompts", reason="safety model refused")
@@ -1492,6 +1497,8 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 team_id=input.team_id,
                 report_id=input.report_id,
                 signal_id=input.signal_id,
+                title=result.title,
+                summary=result.summary,
             )
         logger.info(
             "signals agentic report completed",

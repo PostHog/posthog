@@ -69,7 +69,7 @@ def suggested_prompts_guidance(*, heading: str, field_location: str, whole_set_r
     """
     return f"""{heading} Suggesting follow-up prompts
 
-`suggested_prompts` {field_location} carries prompts the inbox offers above the report's `Ask AI` box: follow-up questions, and next-step actions the reader can send as a request. Clicking one fills the box with it, so the reader can send it as written or edit it first. Nothing is sent on the click. You did the research and know which threads you left open and what should happen next, so this hands the reader that knowledge instead of leaving them to invent a prompt from an empty box.
+`suggested_prompts` {field_location} carries prompts the inbox offers above the report's `Ask AI` box: follow-up questions, and next-step actions the reader can send as a request. Clicking one sends it at once to an agent run that gets the report as context. The reader cannot edit it first, so write each prompt as the exact request to send. You did the research and know which threads you left open and what should happen next, so this hands the reader that knowledge instead of leaving them to invent a prompt from an empty box.
 
 Optional, and worth it only when you can name a prompt worth an agent run. Write none rather than pad to the cap: an obvious prompt the reader would have typed anyway costs them a read and gains nothing, and a report with no suggestions looks exactly as it did before.
 

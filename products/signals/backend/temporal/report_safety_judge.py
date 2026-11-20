@@ -258,6 +258,23 @@ class SafetyJudgeOutput:
     explanation: Optional[str]
 
 
+def report_content_signal(title: str, summary: str) -> SignalData:
+    """Wrap the authored `title` + `summary` as a `SignalData` so the safety judge evaluates the exact
+    prose that will surface (and feed autostart), not just the backing evidence. Prompt-injection can
+    land in the report body itself while the evidence descriptions look benign — this makes the judge
+    see the report text too, so an unsafe title/summary suppresses the report."""
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content=f"{title}\n\n{summary}",
+        source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value,
+        source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value,
+        source_id="report_content",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 def suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | None:
     """Wrap the report's suggested prompts as one `SignalData` so the judge sees them too.
 
@@ -287,19 +304,31 @@ def suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | N
 
 
 async def judge_suggested_prompts(
-    *, team_id: int, report_id: str, signal_id: str | None, suggested_prompts: Sequence[str]
+    *,
+    team_id: int,
+    report_id: str,
+    signal_id: str | None,
+    title: str,
+    summary: str,
+    suggested_prompts: Sequence[str],
 ) -> SafetyJudgeResponse:
-    """Run the safety judge over a suggested-prompt set on its own.
+    """Run the safety judge over a suggested-prompt set and the report text it was written for.
 
     The pipeline judges a report's input signals before research runs, and research writes its
-    prompts after that, so they need their own pass before they are stored. Raises
-    `LLMRefusalError` when the safety model refuses, so the caller decides what a refusal costs.
+    prompts after that, so they need their own pass before they are stored. The generated title and
+    summary go in with them because the agent that runs a clicked prompt gets the report as context:
+    "run the diagnostic command in this report" is harmless alone and unsafe when the summary holds
+    the command. Raises `LLMRefusalError` when the safety model refuses, so the caller decides what a
+    refusal costs.
     """
     prompts_signal = suggested_prompts_signal(suggested_prompts)
     if prompts_signal is None:
         return SafetyJudgeResponse(choice=True, explanation="")
     return await judge_report_safety(
-        team_id=team_id, signals=[prompts_signal], report_id=report_id, signal_id=signal_id
+        team_id=team_id,
+        signals=[report_content_signal(title, summary), prompts_signal],
+        report_id=report_id,
+        signal_id=signal_id,
     )
 
 

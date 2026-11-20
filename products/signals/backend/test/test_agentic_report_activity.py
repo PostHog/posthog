@@ -1786,11 +1786,11 @@ async def test_run_agentic_report_activity_judges_suggested_prompts(
         total_weight=1.3,
         suggested_prompts=["A prompt a scout wrote"],
     )
-    judged: list[str] = []
+    judged: list[list[str]] = []
     judged_signal_ids: list[object] = []
 
     async def judge(team_id: int, signals: list[SignalData], **kwargs: object) -> SafetyJudgeResponse:
-        judged.append(signals[0].content)
+        judged.append([signal.content for signal in signals])
         judged_signal_ids.append(kwargs.get("signal_id"))
         if isinstance(verdict, Exception):
             raise verdict
@@ -1813,8 +1813,11 @@ async def test_run_agentic_report_activity_judges_suggested_prompts(
         assert len(judged) == 1
         # Spend settlement skips the judge's LLM cost when it has no signal to charge.
         assert judged_signal_ids == ["triggering-signal"]
-        assert judged[0].startswith("Suggested prompts")
-        assert judged[0].split("\n\n")[1:] == expected_judged
+        # The clicked prompt's agent reads the report, so the judge must see the report text too.
+        report_text, prompts_text = judged[0]
+        assert report_text == f"{output.title}\n\n{output.summary}"
+        assert prompts_text.startswith("Suggested prompts")
+        assert prompts_text.split("\n\n")[1:] == expected_judged
 
 
 @pytest.mark.asyncio
