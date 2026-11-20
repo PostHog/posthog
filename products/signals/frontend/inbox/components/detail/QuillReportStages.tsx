@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
-import { ReactNode, useState } from 'react'
+import { router } from 'kea-router'
+import { ReactNode } from 'react'
 
 import { Tabs, TabsContent } from '@posthog/quill'
 
@@ -8,11 +9,13 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
+import { QuillReportAskButton } from './QuillReportAskButton'
+import { QuillReportAskComposer } from './QuillReportAskComposer'
 import { QuillReportMeasureStage } from './QuillReportMeasureStage'
 import { QuillReportPrimaryAction } from './QuillReportPrimaryAction'
 import { ReportExecuteStage } from './stages/ReportExecuteStage'
 import { ReportSpecStage } from './stages/ReportSpecStage'
-import { ReportStage, currentReportStage } from './stages/reportStages'
+import { REPORT_STAGES, ReportStage, currentReportStage } from './stages/reportStages'
 import { ReportStageTabs } from './stages/ReportStageTabs'
 
 export interface QuillReportStageSlots {
@@ -36,7 +39,11 @@ export function QuillReportStages({
         inboxReportDetailLogic({ reportId: report.id, report })
     )
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
-    const [stage, setStage] = useState<ReportStage>(() => currentReportStage(report))
+    const { location, searchParams, hashParams } = useValues(router)
+    // The stage in view is in the URL, so a shared link opens the same stage.
+    const stage: ReportStage = REPORT_STAGES.includes(searchParams.stage)
+        ? searchParams.stage
+        : currentReportStage(report)
     const stagedReport = metricsEnabled ? report : { ...report, metrics: undefined }
     const artefacts = reportArtefacts ?? []
 
@@ -44,7 +51,7 @@ export function QuillReportStages({
         <Tabs
             value={stage}
             onValueChange={(value) => {
-                setStage(value as ReportStage)
+                router.actions.replace(location.pathname, { ...searchParams, stage: value }, hashParams)
                 captureInboxReportAction({
                     report,
                     actionType: 'expand_section',
@@ -56,9 +63,13 @@ export function QuillReportStages({
         >
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <ReportStageTabs report={report} />
-                {/* A report in the Measure stage waits on its checks, so it has no primary action. */}
-                {currentReportStage(report) !== 'measure' && <QuillReportPrimaryAction report={report} />}
+                <div className="flex flex-wrap items-center gap-1">
+                    {/* A report in the Measure stage waits on its checks, so it has no primary action. */}
+                    {currentReportStage(report) !== 'measure' && <QuillReportPrimaryAction report={report} />}
+                    <QuillReportAskButton reportId={report.id} />
+                </div>
             </div>
+            <QuillReportAskComposer reportId={report.id} />
             <TabsContent value="spec">
                 <ReportSpecStage report={stagedReport} signals={reportSignals}>
                     {specDetails}
