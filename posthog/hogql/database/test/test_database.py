@@ -69,6 +69,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
+from posthog.hogql.database.schema.traffic_type import create_is_bot_field, log_traffic_fields
 from posthog.hogql.database.sources_cache import (
     SOURCES_CACHE_MAX_ENTRY_WEIGHT,
     SOURCES_CACHE_TTL_SECONDS,
@@ -82,6 +83,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types_from_table
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
@@ -434,6 +436,25 @@ class TestUnknownTableSuggestions(TestCase):
             database.get_table(missing_table)
 
         assert str(error.exception) == expected_message
+
+
+class TestResolveTypesFromTable(TestCase):
+    @parameterized.expand(
+        [
+            ("logs", log_traffic_fields()["$virt_traffic_type"], ast.StringType),
+            ("events", create_is_bot_field("$virt_is_bot"), ast.BooleanType),
+        ]
+    )
+    def test_traffic_field_resolves_to_its_declared_type_without_expanding(
+        self, table_name: str, field: ExpressionField, expected_type: type[ast.ConstantType]
+    ):
+        context = HogQLContext(team_id=1, database=Database())
+
+        resolved = resolve_types_from_table(field.expr, [table_name], context, "hogql")
+
+        assert resolved.type is not None
+        assert isinstance(resolved.type.resolve_constant_type(context), expected_type)
+        assert resolved.to_hogql() == field.expr.to_hogql()
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):
