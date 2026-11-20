@@ -86,7 +86,7 @@ describe('Playlist', () => {
         renderPlaylist({ readOnlyFilters: true })
 
         await waitFor(() => expect(logic.values.sessionRecordingsResponseLoading).toBe(false))
-        expect(screen.queryByRole('button', { name: 'Show all' })).not.toBeInTheDocument()
+        expect(screen.queryByText('Show all')).not.toBeInTheDocument()
         expect(screen.queryByTestId('mock-filters-embed-button')).not.toBeInTheDocument()
         expect(logic.values.filters.session_ids).toEqual(['s1', 's2'])
     })
