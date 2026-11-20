@@ -16,12 +16,43 @@ function isCompressedEvent(ev: unknown): ev is CompressedEventWithTime {
     return typeof ev === 'object' && ev !== null && 'cv' in ev
 }
 
+// A single compressed field never comes near this. It stops a crafted payload from exhausting the tab.
+export const MAX_EXPANDED_FIELD_BYTES = 256 * 1024 * 1024
+
+const readLittleEndian = (bytes: Uint8Array, offset: number, length: number): number => {
+    let value = 0
+    for (let i = length - 1; i >= 0; i--) {
+        value = value * 256 + bytes[offset + i]
+    }
+    return value
+}
+
+// The content size a zstd frame header declares, or undefined when the frame does not declare one.
+function zstdDeclaredSize(raw: Uint8Array): number | undefined {
+    const descriptor = raw[4]
+    const sizeFlag = descriptor >> 6
+    const singleSegment = (descriptor >> 5) & 1
+    const sizeBytes = [singleSegment ? 1 : 0, 2, 4, 8][sizeFlag]
+    if (sizeBytes === 0) {
+        return undefined
+    }
+    const offset = 5 + (singleSegment ? 0 : 1) + [0, 1, 2, 4][descriptor & 3]
+    return readLittleEndian(raw, offset, sizeBytes) + (sizeBytes === 2 ? 256 : 0)
+}
+
 // dispatch to either gzip or zstd based on their standard magic bytes prefix
 function decompressSync(raw: Uint8Array): Uint8Array {
     if (raw[0] === 0x1f && raw[1] === 0x8b) {
+        // fflate allocates exactly the size in the gzip trailer and never grows past it.
+        if (readLittleEndian(raw, raw.byteLength - 4, 4) > MAX_EXPANDED_FIELD_BYTES) {
+            throw new Error('gzip payload declares more than the expanded size limit')
+        }
         return gunzipSync(raw)
     }
     if (raw[0] === 0x28 && raw[1] === 0xb5 && raw[2] === 0x2f && raw[3] === 0xfd) {
+        if ((zstdDeclaredSize(raw) ?? 0) > MAX_EXPANDED_FIELD_BYTES) {
+            throw new Error('zstd payload declares more than the expanded size limit')
+        }
         return zstdDecompressSync(raw)
     }
     throw new Error(

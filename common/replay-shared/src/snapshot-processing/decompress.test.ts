@@ -57,10 +57,23 @@ describe('decompressEvent', () => {
         expect(telemetry.captureException).not.toHaveBeenCalled()
     })
 
-    it('passes the event through and reports when the payload is neither gzip nor zstd', () => {
-        const ev = { cv: '2024-10', type: 2, timestamp: 1, data: 'not a compressed frame' }
+    const oversizedGzip = (): string => {
+        const bytes = gzipSync(strToU8(JSON.stringify(FULL_SNAPSHOT_DATA)))
+        bytes.set([0xff, 0xff, 0xff, 0xff], bytes.byteLength - 4)
+        return toWire(bytes)
+    }
+    // A single-segment frame header declaring 2^40 bytes, with no blocks after it.
+    const oversizedZstd = (): string => toWire(new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 0xe0, 0, 0, 0, 0, 0, 1, 0, 0]))
+
+    it.each([
+        ['neither gzip nor zstd', (): string => 'not a compressed frame', 'neither gzip nor zstd'],
+        ['gzip declaring more than the size limit', oversizedGzip, 'expanded size limit'],
+        ['zstd declaring more than the size limit', oversizedZstd, 'expanded size limit'],
+    ])('passes the event through and reports when the payload is %s', (_label, wire: () => string, reason: string) => {
+        const ev = { cv: '2024-10', type: 2, timestamp: 1, data: wire() }
         const result = decompressEvent(ev, 'session-3', telemetry)
         expect(result).toBe(ev)
         expect(telemetry.captureException).toHaveBeenCalledTimes(1)
+        expect((jest.mocked(telemetry.captureException).mock.calls[0][0] as Error).message).toContain(reason)
     })
 })

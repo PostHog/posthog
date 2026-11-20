@@ -168,6 +168,7 @@ describe('sessionRecordingFilePlaybackLogic', () => {
                 encodeRawExport([new Uint8Array([0xff, 0xff, 0xff, 0xff, 0x0f, 0x00])]),
                 'too large',
             ],
+            ['too many blocks', encodeRawExport(Array.from({ length: 100_001 }, (_, i) => rawBlock(i))), 'too large'],
             [
                 'a header line over 8 MiB',
                 encodeRawExport([rawBlock(0)], {

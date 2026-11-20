@@ -33,6 +33,7 @@ const RAW_EXPORT_MAGIC = new TextEncoder().encode('PHREC1\n')
 
 // Limits for a file a person opens by hand, so a crafted file cannot exhaust the tab before anything renders.
 const MAX_RAW_HEADER_BYTES = 8 * 1024 * 1024
+const MAX_RAW_BLOCKS = 100_000
 const MAX_RAW_BLOCK_EXPANDED_BYTES = 256 * 1024 * 1024
 const MAX_RAW_EXPANDED_BYTES = 1024 * 1024 * 1024
 
@@ -114,6 +115,9 @@ export const parseRawExportedSessionRecording = async (
             throw new Error('File is too large to play back in the browser')
         }
         offset = blockEnd
+        if (blockCount >= MAX_RAW_BLOCKS) {
+            throw new Error('File is too large to play back in the browser')
+        }
     }
     if (blockCount !== header.block_count) {
         throw new Error(`File has ${blockCount} blocks but its header lists ${header.block_count}`)
