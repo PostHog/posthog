@@ -46,6 +46,8 @@ _MAX_TTL_SECONDS = 86400
 _DEFAULT_CAP_USD = Decimal("7")
 _MAX_CAP_USD = Decimal("30")
 _CAP_QUANTUM = Decimal("0.000001")
+# What a run may spend on the gateway's decision route when the setting is unreadable.
+_DEFAULT_DECISION_CAP_USD = Decimal("0.25")
 
 WIZARD_PRODUCT = "wizard"
 
@@ -584,8 +586,9 @@ def mint_wizard_gateway_token(
     setting, which applies only when there is no posture.
     """
     base_url = (settings.WIZARD_GATEWAY_MINT_URL or settings.WIZARD_GATEWAY_URL).rstrip("/").removesuffix("/v1")
+    cap = _cap_usd(cap_usd, program=program, posture=posture)
     body: dict[str, Any] = {
-        "cap_usd": _cap_usd(cap_usd, program=program, posture=posture),
+        "cap_usd": cap,
         "ttl_seconds": _ttl_seconds(posture),
         "product": product,
         "obo": obo,
@@ -595,8 +598,12 @@ def mint_wizard_gateway_token(
         "allowed_efforts": list(policy.efforts),
     }
     if policy.prompt is not None:
-        # The gateway stores the text on the token and injects it into every call.
+        # The gateway stores the text on the token and injects it into every chat call.
+        # A decision takes no prompt, so the gateway holds it under the decision cap instead.
         body["system_prompt"] = policy.prompt.text
+    decision_cap = _decision_cap_usd(cap)
+    if decision_cap is not None:
+        body["decision_cap_usd"] = decision_cap
     try:
         response = requests.post(
             f"{base_url}/v1/tokens",
@@ -686,6 +693,26 @@ def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPostur
             WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="flat_cap_usd").inc()
             cap = _DEFAULT_CAP_USD
     return f"{cap.quantize(_CAP_QUANTUM):f}"
+
+
+def _decision_cap_usd(cap_usd: str) -> str | None:
+    """How much of the run's cap its token may spend on the gateway's decision
+    route, as a fixed-point string no higher than cap_usd, which the gateway
+    requires. None sends no field: an empty or zero setting leaves the token with
+    no decision cap, and the gateway then refuses its decisions.
+    """
+    raw = str(settings.WIZARD_GATEWAY_DECISION_CAP_USD).strip()
+    try:
+        if raw == "" or Decimal(raw) == 0:
+            return None
+    except InvalidOperation:
+        pass
+    decision_cap = _parse_cap(raw)
+    if decision_cap is None:
+        logger.warning("wizard_gateway_token: decision_cap_usd out of contract, using the default", cap=raw)
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="decision_cap_usd").inc()
+        decision_cap = _DEFAULT_DECISION_CAP_USD
+    return f"{min(decision_cap, Decimal(cap_usd)).quantize(_CAP_QUANTUM):f}"
 
 
 def _parse_cap(raw: object) -> Decimal | None:

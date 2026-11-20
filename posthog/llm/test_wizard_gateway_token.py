@@ -50,6 +50,8 @@ MINT_SETTINGS = {
     # assertions indistinguishable.
     "WIZARD_GATEWAY_TOKEN_CAP_USD": "25",
     "WIZARD_GATEWAY_TOKEN_TTL_SECONDS": 86400,
+    # Not _DEFAULT_DECISION_CAP_USD, for the same reason.
+    "WIZARD_GATEWAY_DECISION_CAP_USD": "0.3",
 }
 
 # Trailing whitespace and an accent: the mint must carry the text byte for byte.
@@ -117,6 +119,7 @@ class TestMintWizardGatewayToken:
             "allowed_models": ["gpt-5.6-luna", "claude-sonnet-5"],
             "allowed_efforts": ["none", "high"],
             "system_prompt": PROMPT_TEXT,
+            "decision_cap_usd": "0.300000",
         }
         assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_wizard_secret"}
         assert post.call_args.kwargs["timeout"] > 0
@@ -132,6 +135,30 @@ class TestWizardMintRequest:
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
             mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert post.call_args[0][0] == "https://ai-gateway.us.posthog.com/v1/tokens"
+
+    @pytest.mark.parametrize(
+        "configured,cap,expected",
+        [
+            ("0.3", None, "0.300000"),
+            # The gateway refuses a decision cap above the cap, which would fail every mint.
+            ("0.3", Decimal("0.1"), "0.100000"),
+            # Unreadable: the default, not an uncapped token.
+            ("a quarter", None, "0.250000"),
+            ("-1", None, "0.250000"),
+            # Empty and zero turn the decision cap off.
+            ("", None, None),
+            ("0", None, None),
+            ("0.00", None, None),
+        ],
+    )
+    def test_the_decision_cap_is_sent_inside_the_cap(self, configured, cap, expected):
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        with (
+            override_settings(WIZARD_GATEWAY_DECISION_CAP_USD=configured),
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
+        ):
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY, cap_usd=cap)
+        assert post.call_args.kwargs["json"].get("decision_cap_usd") == expected
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=172800)
     def test_ttl_clamped_to_gateway_ceiling(self):
