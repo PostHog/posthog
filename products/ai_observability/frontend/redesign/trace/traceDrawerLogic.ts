@@ -24,6 +24,7 @@ import { toFullPageListParams } from './traceBackLink'
 import { TRACE_DRAWER_LISTS, TraceDrawerListConfig, TraceDrawerListId } from './traceDrawerLists'
 import { withoutTraceDrawerParams } from './traceDrawerRows'
 import { TraceListRow, uniqueTraces } from './traceListRows'
+import { tracePreloadLogic } from './tracePreloadLogic'
 import { traceViewHostLogic } from './traceViewHostLogic'
 import { traceViewTracking } from './traceViewTracking'
 
@@ -196,6 +197,7 @@ export const traceDrawerLogic = kea<traceDrawerLogicType>([
     props({} as TraceDrawerLogicProps),
     key((props) => props.listId),
     connect((props: TraceDrawerLogicProps) => ({
+        logic: [tracePreloadLogic],
         values: [traceViewHostLogic({ hostId: traceDrawerHostId(props.listId) }), ['requestedStepId']],
         actions: [
             traceViewHostLogic({ hostId: traceDrawerHostId(props.listId) }),
@@ -276,6 +278,7 @@ export const traceDrawerLogic = kea<traceDrawerLogicType>([
         ],
     }),
     listeners(({ actions, cache, values }) => ({
+        setRows: ({ rows }) => tracePreloadLogic.actions.seedRows(rows),
         openRow: ({ row }) => {
             if (row.traceId !== values.openTraceId) {
                 writeUrlParams('push', toDrawerParams(row))

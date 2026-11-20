@@ -1,5 +1,3 @@
-import { Tooltip } from '@posthog/lemon-ui'
-
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import type {
@@ -8,6 +6,7 @@ import type {
     TracePreviewApi,
     TraceSentimentApi,
 } from '../../../generated/api.schemas'
+import { PartialTotal } from '../../shared/components/PartialTotal'
 import { formatCostUsd, formatLatencyMs, formatTokenCounts } from '../../trace/components/formatStats'
 import { ShortTimestamp } from '../../trace/components/ShortTimestamp'
 import type { TraceCellLoad, TraceCellStatus } from '../types'
@@ -44,14 +43,7 @@ function TotalValue({ value, partial }: { value: string | null; partial: boolean
     if (value === null) {
         return <TraceCellValue>{null}</TraceCellValue>
     }
-    if (!partial) {
-        return <span className="whitespace-nowrap">{value}</span>
-    }
-    return (
-        <Tooltip title="Partial. This trace has more steps than the list reads, so its totals, errors and tools come from its earliest steps only.">
-            <span className="cursor-help whitespace-nowrap underline decoration-dotted">{value}</span>
-        </Tooltip>
-    )
+    return <PartialTotal partial={partial}>{value}</PartialTotal>
 }
 
 export function tracesTableColumns({

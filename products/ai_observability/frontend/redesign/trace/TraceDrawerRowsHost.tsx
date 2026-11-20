@@ -8,10 +8,13 @@ import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './traceDrawerLists'
 import { toFullPageUrl, traceDrawerLogic } from './traceDrawerLogic'
 import { TRACE_DRAWER_OPEN_ROW_CLASS, opensTraceDrawer, withoutTraceDrawerParams } from './traceDrawerRows'
 import { TraceListRow } from './traceListRows'
+import { tracePreloadLogic } from './tracePreloadLogic'
 
 export interface TraceDrawerRowProps {
     className?: string
     onClickCapture?: MouseEventHandler<HTMLElement>
+    onMouseEnter?: MouseEventHandler<HTMLElement>
+    onMouseLeave?: MouseEventHandler<HTMLElement>
 }
 
 export interface TraceDrawerRows {
@@ -27,6 +30,7 @@ export function useTraceDrawerRows(
     const logic = traceDrawerLogic({ listId })
     const { openTraceId, openRef } = useValues(logic)
     const { openRow, setRows } = useActions(logic)
+    const { rowEntered, rowLeft } = useActions(tracePreloadLogic)
     const { rowClick } = TRACE_DRAWER_LISTS[listId]
 
     const rowProps = useCallback(
@@ -34,6 +38,7 @@ export function useTraceDrawerRows(
             if (!row) {
                 return {}
             }
+            const prefetches = !!row.defaultStepId && row.traceId !== openTraceId
             return {
                 className: clsx(
                     rowClick && 'cursor-pointer',
@@ -50,12 +55,17 @@ export function useTraceDrawerRows(
                         if (navigationRows) {
                             setRows(navigationRows)
                         }
+                        rowLeft()
                         openRow(row)
                     }
                 },
+                ...(prefetches && {
+                    onMouseEnter: () => rowEntered(row.traceId),
+                    onMouseLeave: () => rowLeft(),
+                }),
             }
         },
-        [linkSelector, openRow, openTraceId, openRef?.stepId, rowClick, navigationRows, setRows]
+        [linkSelector, openRow, openTraceId, openRef?.stepId, rowClick, navigationRows, setRows, rowEntered, rowLeft]
     )
 
     return { openTraceId, rowProps }
