@@ -999,39 +999,25 @@ def _finalize_population_history(
     )
 
 
-def _release_population_claim(
-    cohort: Cohort,
-    *,
-    mode: str | None,
-    finished_replace: tuple[datetime, datetime] | None,
-) -> bool | None:
-    """Release the cohort's population run fields if this attempt still owns them.
+def _check_population_ownership(cohort: Cohort, *, mode: str | None) -> bool | None:
+    """Whether this attempt still owns the cohort's run, checked without clearing anything.
 
-    Returns True when this attempt released its own claim, False when a newer attempt took
-    ownership first, and None when Postgres failed while recording the release.
+    Returns True when its mode and marker are still the stored ones, False when a newer claim or attempt took
+    ownership first, and None when Postgres failed while checking.
     """
-    from products.cohorts.backend.models.util import clear_population_run_fields
+    from products.cohorts.backend.models.util import owns_population_run
 
     owns_cohort: bool | None = None
 
-    def _claim_finalize_ownership() -> None:
+    def _check() -> None:
         nonlocal owns_cohort
-        owns_cohort = clear_population_run_fields(
-            cohort,
-            marker=cohort.population_marker,
-            mode=mode,
-            finished_replace=finished_replace,
-        )
+        owns_cohort = owns_population_run(cohort, marker=cohort.population_marker, mode=mode)
 
-    save_recovery_bookkeeping(
-        _claim_finalize_ownership,
-        cohort_id=cohort.pk,
-        team_id=cohort.team_id,
-    )
+    save_recovery_bookkeeping(_check, cohort_id=cohort.pk, team_id=cohort.team_id)
     return owns_cohort
 
 
-def _finish_owned_population(
+def _delete_failed_replace_attempt(
     cohort: Cohort,
     *,
     log_prefix: str,
@@ -1040,31 +1026,73 @@ def _finish_owned_population(
     copy_started: bool,
     first_marker: datetime | None,
 ) -> None:
-    """Delete uncopied ClickHouse replace rows while the cohort is still locked, then save final cohort state."""
+    """Delete this run's ClickHouse replace rows when it failed before copying any into Postgres.
+
+    Called while the run fields are still stored, so neither a new claim nor the stuck sweep can take the cohort
+    and write rows at or after ``first_marker`` before the delete is submitted. Earlier runs' rows sit below
+    ``first_marker`` and are never touched. Covers BaseException exits (SystemExit, worker shutdown or revoke) too.
+    """
     from products.cohorts.backend.models.util import delete_failed_replace_attempt_rows
 
-    # Run cleanup before _safe_save_cohort_state releases is_calculating so no new replace can claim the cohort
-    # and insert rows before this delete is submitted. Scope to _timestamp >= first_marker so earlier runs'
-    # rows are never touched. Covers BaseException exits (SystemExit, worker shutdown or revoke) too.
-    if replacing and processing_error is not None and not copy_started and first_marker is not None:
-        try:
-            delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, from_marker=first_marker)
-        except Exception:
-            logger.exception(
-                f"{log_prefix}_failed_replace_cleanup_failed",
-                cohort_id=cohort.pk,
-                team_id=cohort.team_id,
-            )
+    if not (replacing and processing_error is not None and not copy_started and first_marker is not None):
+        return
+    try:
+        delete_failed_replace_attempt_rows(cohort.pk, team_id=cohort.team_id, from_marker=first_marker)
+    except Exception:
+        logger.exception(
+            f"{log_prefix}_failed_replace_cleanup_failed",
+            cohort_id=cohort.pk,
+            team_id=cohort.team_id,
+        )
 
-    cohort._safe_save_cohort_state(team_id=cohort.team_id, processing_error=processing_error)
-    cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
-    logger.info(
-        f"{log_prefix}_finished",
-        cohort_id=cohort.pk,
-        team_id=cohort.team_id,
-        is_calculating=cohort.is_calculating,
-        errors_calculating=cohort.errors_calculating,
-    )
+
+def _population_state_update(cohort: Cohort, *, processing_error: BaseException | None) -> dict[str, Any]:
+    """The calculation-state columns a finished population writes, as ``Cohort._safe_save_cohort_state`` writes them."""
+    if processing_error is None:
+        return {
+            "is_calculating": False,
+            "count": cohort.count,
+            "last_calculation": timezone.now(),
+            "errors_calculating": 0,
+        }
+    return {
+        "is_calculating": False,
+        "count": cohort.count,
+        "errors_calculating": F("errors_calculating") + 1,
+        "last_error_at": timezone.now(),
+    }
+
+
+def _release_population_claim(
+    cohort: Cohort,
+    *,
+    mode: str | None,
+    processing_error: BaseException | None,
+    finished_replace: tuple[datetime, datetime] | None,
+) -> bool | None:
+    """Release the run last: clear its fields and save the final cohort state in one update guarded on its mode and marker.
+
+    Until this update lands every run field stays stored, so a kill anywhere before it leaves the sweep to redispatch
+    the run as a replace, with ``population_copy_started`` and ``population_first_marker`` kept. Returns True when
+    the release landed, False when the mode or marker changed since the ownership check and nothing was written, and
+    None when Postgres failed while writing it.
+    """
+    from products.cohorts.backend.models.util import clear_population_run_fields
+
+    released: bool | None = None
+
+    def _release() -> None:
+        nonlocal released
+        released = clear_population_run_fields(
+            cohort,
+            marker=cohort.population_marker,
+            mode=mode,
+            state=_population_state_update(cohort, processing_error=processing_error),
+            finished_replace=finished_replace,
+        )
+
+    save_recovery_bookkeeping(_release, cohort_id=cohort.pk, team_id=cohort.team_id)
+    return released
 
 
 def _replace_floor(cohort: Cohort, marker: datetime) -> datetime:
@@ -1358,19 +1386,21 @@ def _populate_static_cohort(
         # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt, and a
         # superseded attempt leaves all of it to the attempt that replaced it.
         if claimed is not None:
-            copy_started = claimed.population_copy_started
-            first_marker = claimed.population_first_marker
             owns_cohort: bool | None = None
             if superseded is None and retry is None:
                 # Finalize only while this attempt still owns the cohort: its mode and marker are still the
                 # stored ones. Otherwise a newer attempt took over at the last moment, and releasing
-                # is_calculating would release that attempt's run.
-                owns_cohort = _release_population_claim(
-                    claimed,
-                    mode=claimed_mode,
-                    finished_replace=finished_replace if processing_error is None else None,
-                )
+                # is_calculating would release that attempt's run. Nothing is cleared until the release at the end.
+                owns_cohort = _check_population_ownership(claimed, mode=claimed_mode)
                 if owns_cohort is True:
+                    _delete_failed_replace_attempt(
+                        claimed,
+                        log_prefix=log_prefix,
+                        processing_error=processing_error,
+                        replacing=replacing,
+                        copy_started=claimed.population_copy_started,
+                        first_marker=claimed.population_first_marker,
+                    )
                     # Recompute count before closing history so a replace records its new size, not the size before it ran.
                     claimed._refresh_count(team_id=claimed.team_id)
                 elif owns_cohort is False:
@@ -1381,7 +1411,7 @@ def _populate_static_cohort(
                     )
 
             # One history row records one attempt: discard it when a newer attempt took the cohort,
-            # otherwise close it (including on a DB failure during release, where owns_cohort is None).
+            # otherwise close it (including on a DB failure during the ownership check, where owns_cohort is None).
             if history is not None:
                 if superseded is not None or owns_cohort is False:
                     lost_history = history
@@ -1399,14 +1429,25 @@ def _populate_static_cohort(
                     )
 
             if owns_cohort is True:
-                _finish_owned_population(
+                released = _release_population_claim(
                     claimed,
-                    log_prefix=log_prefix,
+                    mode=claimed_mode,
                     processing_error=processing_error,
-                    replacing=replacing,
-                    copy_started=copy_started,
-                    first_marker=first_marker,
+                    finished_replace=finished_replace if processing_error is None else None,
                 )
+                if released is False:
+                    # The sweep reset a claim older than its window after the ownership check, so the run belongs
+                    # to whoever claimed or redispatched it since.
+                    logger.warning(f"{log_prefix}_release_lost", cohort_id=cohort_id, team_id=claimed.team_id)
+                elif released is True:
+                    claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+                    logger.info(
+                        f"{log_prefix}_finished",
+                        cohort_id=cohort_id,
+                        team_id=claimed.team_id,
+                        is_calculating=claimed.is_calculating,
+                        errors_calculating=claimed.errors_calculating,
+                    )
     if settings.DEBUG and processing_error is not None:
         raise processing_error
 

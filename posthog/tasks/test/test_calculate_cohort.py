@@ -1905,7 +1905,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             patch(QUERY_CH_INSERT_PATH, return_value=1),
             patch(PG_SYNC_PATH),
             patch(
-                "products.cohorts.backend.models.util.clear_population_run_fields",
+                "products.cohorts.backend.models.util.owns_population_run",
                 side_effect=[OperationalError("db gone"), OperationalError("db still gone")],
             ) as mock_clear,
             patch("products.cohorts.backend.models.util.capture_exception") as mock_capture,
@@ -3026,13 +3026,16 @@ class TestCohortCalculationTasks(APIBaseTest):
         start = timezone.now().replace(microsecond=0)
         _claim_replace(cohort, claimed_at=start)
 
-        observed_calculating: list[bool] = []
+        observed_state: list[tuple[bool, str | None, bool]] = []
         from products.cohorts.backend.models import util as cohort_util
 
         real_delete = cohort_util.delete_failed_replace_attempt_rows
 
         def spy_delete(*args: Any, **kwargs: Any) -> None:
-            observed_calculating.append(Cohort.objects.values_list("is_calculating", flat=True).get(pk=cohort.pk))
+            stored = Cohort.objects.get(pk=cohort.pk)
+            observed_state.append(
+                (stored.is_calculating, stored.pending_population_mode, stored.population_marker is not None)
+            )
             return real_delete(*args, **kwargs)
 
         with (
@@ -3042,7 +3045,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         ):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
-        self.assertEqual(observed_calculating, [True])
+        # The run fields are still stored when the delete is issued, so neither a claim nor the sweep can take the cohort.
+        self.assertEqual(observed_state, [(True, CohortPopulationMode.REPLACE, True)])
         # Once released, a new replace claim's rows are untouched.
         new_marker = start + timedelta(seconds=20)
         sync_execute(
@@ -3051,6 +3055,84 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [(str(p2.uuid), REPLACE_ROW_OFFSET)])
         self.assertIsNotNone(p1.id)
+
+    def test_stuck_sweep_inside_failed_replace_finalize_leaves_the_run_alone(self) -> None:
+        run = uuid4().hex[:8]
+        create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace finalize window",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        # Not calculated within the hour, so only the run's own claim keeps the sweep away.
+        Cohort.objects.filter(pk=cohort.pk).update(created_at=start - relativedelta(hours=2))
+        _claim_replace(cohort, claimed_at=start)
+
+        from posthog.tasks import calculate_cohort as calculate_cohort_tasks
+
+        real_finalize = calculate_cohort_tasks._finalize_population_history
+
+        def finalize_then_sweep(*args: Any, **kwargs: Any) -> None:
+            real_finalize(*args, **kwargs)
+            reset_stuck_cohorts()
+
+        with (
+            time_machine.travel(start + timedelta(seconds=10), tick=False),
+            patch(PG_SYNC_PATH, side_effect=RuntimeError("fatal before copy")),
+            patch("posthog.tasks.calculate_cohort._finalize_population_history", side_effect=finalize_then_sweep),
+            patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay") as mock_delay,
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        mock_delay.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertEqual(
+            (cohort.is_calculating, cohort.errors_calculating, cohort.pending_population_mode), (False, 1, None)
+        )
+        self.assertEqual(_static_cohort_rows(self.team.pk, cohort.pk), [])
+
+    @parameterized.expand(
+        [
+            ("count_refresh", "products.cohorts.backend.models.cohort.Cohort._refresh_count"),
+            ("history_close", "posthog.tasks.calculate_cohort._finalize_population_history"),
+        ]
+    )
+    def test_kill_inside_replace_finalize_leaves_the_run_for_the_sweep_to_redispatch_as_a_replace(
+        self, _name: str, kill_path: str
+    ) -> None:
+        run = uuid4().hex[:8]
+        create_person(team=self.team, distinct_ids=[f"{run}-p1"], properties={"tag": f"{run}-in"}, uuid=uuid4())
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace killed in finalize",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": f"SELECT id FROM persons WHERE properties.tag = '{run}-in'"},
+        )
+        start = timezone.now().replace(microsecond=0)
+        _claim_replace(cohort, claimed_at=start)
+
+        with time_machine.travel(start + timedelta(seconds=10), tick=False) as clock:
+            with patch(kill_path, side_effect=SystemExit(1)), self.assertRaises(SystemExit):
+                insert_cohort_from_query(cohort.id, self.team.pk)
+            cohort.refresh_from_db()
+            first_marker = cohort.population_first_marker
+            self.assertIsNotNone(first_marker)
+
+            # Past the soft limit and the claim window, the sweep takes the abandoned run.
+            clock.shift(timedelta(hours=6))
+            with patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay") as mock_delay:
+                reset_stuck_cohorts()
+            mock_delay.assert_called_once_with(cohort.pk, self.team.pk)
+
+        cohort.refresh_from_db()
+        self.assertEqual(
+            (cohort.pending_population_mode, cohort.population_copy_started, cohort.population_first_marker),
+            (CohortPopulationMode.REPLACE, True, first_marker),
+        )
 
     def test_failed_append_does_not_run_replace_cleanup(self) -> None:
         run = uuid4().hex[:8]

@@ -1921,23 +1921,33 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     return marker
 
 
+def owns_population_run(cohort: Cohort, *, marker: datetime | None, mode: str | None) -> bool:
+    """Whether ``mode`` and ``marker`` are still the stored ones, so no newer claim or attempt replaced them.
+
+    A newer claim writes its own mode, and a newer attempt its own marker. Nothing is cleared here.
+    """
+    return Cohort.objects.filter(pk=cohort.pk, population_marker=marker, pending_population_mode=mode).exists()
+
+
 def clear_population_run_fields(
     cohort: Cohort,
     *,
     marker: datetime | None,
     mode: str | None,
+    state: dict[str, Any],
     finished_replace: tuple[datetime, datetime] | None = None,
 ) -> bool:
-    """Clear the pending mode and marker if ``mode`` and ``marker`` are still the stored ones.
+    """Release the run: clear its fields and write ``state`` in one update, if ``mode`` and ``marker`` are still stored.
 
-    Returns whether that mode and marker were still stored, so no newer claim or attempt replaced them. A newer claim writes its own
-    mode, and a newer attempt its own marker, so their fields are never cleared here, and the caller
-    must not finalize over them. With both NULL there is nothing to clear, and ownership only needs
-    checking.
+    One update means no reader ever sees ``is_calculating`` still set while the run fields are already cleared, so
+    the stuck sweep can't release the cohort in between and redispatch the run as an append. Returns False, writing
+    nothing, when a newer claim or attempt, or a sweep reset, replaced the mode or marker. A run with both NULL never
+    claimed: it has no fields to clear, and ``state`` is written unconditionally, as it always was.
     """
-    owned = Cohort.objects.filter(pk=cohort.pk, population_marker=marker, pending_population_mode=mode)
     if marker is None and mode is None:
-        return owned.exists()
+        Cohort.objects.filter(pk=cohort.pk).update(**state)
+        return True
+    owned = Cohort.objects.filter(pk=cohort.pk, population_marker=marker, pending_population_mode=mode)
     # A replace that finished records its marker and floor in the same update, so appends and adds ignore the
     # rows it removes from the moment it stops owning the cohort.
     finished = (
@@ -1945,7 +1955,7 @@ def clear_population_run_fields(
         if finished_replace is not None
         else {}
     )
-    if not owned.update(**PENDING_POPULATION_CLEARED, **finished):
+    if not owned.update(**PENDING_POPULATION_CLEARED, **finished, **state):
         return False
     for field, value in {**PENDING_POPULATION_CLEARED, **finished}.items():
         setattr(cohort, field, value)
