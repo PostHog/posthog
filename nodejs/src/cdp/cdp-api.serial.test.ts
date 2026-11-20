@@ -6232,6 +6232,81 @@ describe('CDP API', () => {
             expect([a.body.replayed, b.body.replayed].sort()).toEqual([false, true])
             expect(a.body.invocation_id).toEqual(b.body.invocation_id)
         })
+
+        describe('with its team on the push intake topic', () => {
+            let produceOutput: jest.SpyInstance
+            const producedTo = (output: string) =>
+                produceOutput.mock.calls.filter(([name]) => name === output).map(([, message]) => message)
+
+            beforeEach(() => {
+                produceOutput = jest.spyOn(api['outputs'], 'produce').mockResolvedValue(undefined)
+                api['config'].CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS = String(team.id)
+            })
+
+            afterEach(() => {
+                api['config'].CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS = ''
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
+            })
+
+            it('answers on the broker ack and leaves the insert to the push consumer', async () => {
+                const hogFlow = await insertHogFlow(pushFlow())
+
+                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+                expect(res.status).toEqual(202)
+                expect(res.body).toEqual({ status: 'queued', invocation_id: expect.any(String), replayed: false })
+                expect(producedTo('cdp_intake_transactional_push')).toEqual([
+                    expect.objectContaining({ key: res.body.invocation_id }),
+                ])
+                expect(producedTo('cdp_intake_transactional_email')).toEqual([])
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            it('inserts the run itself when only email teams are on the intake topic', async () => {
+                api['config'].CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS = ''
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = '*'
+                const hogFlow = await insertHogFlow(pushFlow())
+
+                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(producedTo('cdp_intake_transactional_push')).toEqual([])
+            })
+
+            it('answers 503 intake_unavailable when the broker refuses the run', async () => {
+                produceOutput.mockImplementation((output: string) =>
+                    output === 'cdp_intake_transactional_push'
+                        ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
+                        : Promise.resolve()
+                )
+                const hogFlow = await insertHogFlow(pushFlow())
+
+                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+                expect(res.status).toEqual(503)
+                expect(res.body).toEqual({ error: 'intake_unavailable' })
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            it.each([
+                ['inserts it itself while state sealing is off', false, 1, 0],
+                ['produces it sealed while state sealing is on', true, 0, 1],
+            ])('for a sensitive push, %s', async (_name, sealing, inserted, produced) => {
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+                const flow = pushFlow()
+                const step = flow.actions.find((action) => action.type === 'function_push')!
+                step.config = { ...step.config, sensitive: true } as typeof step.config
+                const hogFlow = await insertHogFlow(flow)
+
+                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(inserted)
+                expect(producedTo('cdp_intake_transactional_push')).toHaveLength(produced)
+            })
+        })
     })
 
     describe('transactional email attachment uploads', () => {

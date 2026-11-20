@@ -30,7 +30,7 @@ const nestsDeeperThan = (value: unknown, maxDepth: number): boolean => {
     return false
 }
 
-export const RUN_KINDS = ['transactional-email', 'workflow-webhook'] as const
+export const RUN_KINDS = ['transactional-email', 'workflow-webhook', 'transactional-push'] as const
 export type RunKind = (typeof RUN_KINDS)[number]
 
 export type IntakeDeadLetterReason = 'not_json' | 'schema_invalid'

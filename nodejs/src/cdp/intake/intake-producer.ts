@@ -7,8 +7,10 @@ import { logger } from '~/common/utils/logger'
 import { CdpConfig } from '../config'
 import {
     CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT,
     CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
     CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT,
     CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
     CdpIntakeRunOutput,
 } from '../outputs/outputs'
@@ -29,10 +31,12 @@ const OUTPUT_OF: Record<IntakeCluster, Record<RunKind, IntakeOutput>> = {
     warpstream: {
         'transactional-email': CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
         'workflow-webhook': CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
+        'transactional-push': CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT,
     },
     msk: {
         'transactional-email': CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
         'workflow-webhook': CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
+        'transactional-push': CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT,
     },
 }
 
@@ -55,6 +59,13 @@ export const intakeModeOf = (
     const isAsync = buildIntegerMatcher(config.CDP_INTAKE_KAFKA_ASYNC_TEAMS, true)
     const isShadow = buildIntegerMatcher(config.CDP_INTAKE_KAFKA_SHADOW_TEAMS, true)
     return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
+}
+
+export const pushIntakeModeOf = (
+    config: Pick<CdpConfig, 'CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS'>
+): ((teamId: number) => IntakeMode) => {
+    const isAsync = buildIntegerMatcher(config.CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS, true)
+    return (teamId) => (isAsync(teamId) ? 'async' : 'off')
 }
 
 export const intakeClusterOf = (

@@ -34,6 +34,8 @@ export type TransactionalPushOutcome =
     | 'not_found'
     | 'not_sendable'
     | 'quota_limited'
+    | 'intake_unavailable'
+    | 'message_too_large'
     | 'error'
 
 export const transactionalPushRequestsTotal = new Counter({

@@ -133,6 +133,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpIntakeWorkflowWebhook: true,
             }
+        case PluginServerMode.cdp_intake_transactional_push:
+            return {
+                cdpIntakeTransactionalPush: true,
+            }
         case PluginServerMode.cdp_cyclotron_worker:
             return {
                 cdpCyclotronWorker: true,

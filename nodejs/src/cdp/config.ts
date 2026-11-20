@@ -3,6 +3,7 @@ import {
     KAFKA_CDP_EVENTS_DLQ,
     KAFKA_CDP_INTAKE_DLQ,
     KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL,
+    KAFKA_CDP_INTAKE_TRANSACTIONAL_PUSH,
     KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
     KAFKA_CDP_SES_WEBHOOKS,
     KAFKA_EMAIL_STATUS,
@@ -221,6 +222,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_WEBHOOKS_PRODUCER: CdpProducerName
     CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: string
     CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
+    CDP_INTAKE_TRANSACTIONAL_PUSH_TOPIC: string
     CDP_INTAKE_DLQ_TOPIC: string
     CDP_INTAKE_PRODUCER: CdpProducerName
     // An intake consumer's dead letters, on the cluster it reads from.
@@ -229,6 +231,9 @@ export type CdpConfig = ClickhouseConfig & {
     // each run itself and only measures the produce. Async answers on the broker's ack. Async wins over shadow.
     CDP_INTAKE_KAFKA_SHADOW_TEAMS: string
     CDP_INTAKE_KAFKA_ASYNC_TEAMS: string
+    // Teams whose transactional pushes answer on the push intake topic's ack. Separate from the lists above, so push
+    // moves onto its own topic and consumer without touching email.
+    CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS: string
     CDP_INTAKE_MSK_PRODUCER: CdpProducerName
     // Teams whose intake runs go to the CDP intake MSK cluster instead of WarpStream, in the same format.
     // Ignored without KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST.
@@ -537,11 +542,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL,
         CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
+        CDP_INTAKE_TRANSACTIONAL_PUSH_TOPIC: KAFKA_CDP_INTAKE_TRANSACTIONAL_PUSH,
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
         CDP_INTAKE_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
         CDP_INTAKE_KAFKA_SHADOW_TEAMS: '',
         CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
+        CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS: '',
         CDP_INTAKE_MSK_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
         CDP_INTAKE_MSK_TEAMS: '',
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,

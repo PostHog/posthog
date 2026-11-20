@@ -19,7 +19,13 @@ const ATTEMPT_TIMEOUT_MS = 5_000
 
 const TOPICS: Record<
     RunKind,
-    { topicKey: 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC' | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'; groupId: string }
+    {
+        topicKey:
+            | 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC'
+            | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'
+            | 'CDP_INTAKE_TRANSACTIONAL_PUSH_TOPIC'
+        groupId: string
+    }
 > = {
     'transactional-email': {
         topicKey: 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC',
@@ -28,6 +34,10 @@ const TOPICS: Record<
     'workflow-webhook': {
         topicKey: 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC',
         groupId: 'cdp-intake-workflow-webhook-consumer',
+    },
+    'transactional-push': {
+        topicKey: 'CDP_INTAKE_TRANSACTIONAL_PUSH_TOPIC',
+        groupId: 'cdp-intake-transactional-push-consumer',
     },
 }
 

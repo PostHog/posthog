@@ -32,13 +32,14 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
-import { RunIntake, keyedRunId } from './intake/run-intake'
+import { IntakeProducer, intakeClusterOf, intakeModeOf, pushIntakeModeOf } from './intake/intake-producer'
+import { Committed, Recalled, Run, RunIntake, keyedRunId } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
+import { isLockTimeout } from './services/cyclotron-v2/manager'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
 import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -54,6 +55,7 @@ import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.s
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE, checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
+import { hasSensitiveMessageStep } from './services/hogflows/hogflow-sensitivity'
 import { hasPushActions, matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import {
     SCHEDULED_RUNS_PER_BATCH,
@@ -1771,19 +1773,29 @@ export class CdpApi {
                 claimedFingerprint !== undefined && fingerprints.includes(claimedFingerprint)
                     ? reply('replayed', 202, { status: 'queued', invocation_id: runId, replayed: true })
                     : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
+            const intake = this.transactionalPushIntakeForRequest()
+            // An unsealed sensitive push stays off the topic, because its variables can hold a login code.
+            const isAsync =
+                intake.modeOf(team.id) === 'async' &&
+                (this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE || !hasSensitiveMessageStep(hogFlow))
             // Checked before the workflow, so a retry still gets its answer after someone turns the workflow off.
             if (runId) {
-                let claimed: Awaited<ReturnType<IdempotentJobQueue['findIdempotencyKey']>>
-                try {
-                    claimed = await this.hogflowQueue.findIdempotencyKey(runId)
-                } catch (error) {
-                    logger.error('🔑', 'Transactional push claim lookup failed', {
-                        error: error instanceof Error ? error.message : String(error),
-                    })
-                    return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                const claim = { runId, fingerprint: fingerprints[0] }
+                let recalled: Recalled
+                if (isAsync) {
+                    recalled = await intake.recallWithin(claim, 'transactional-push')
+                } else {
+                    try {
+                        recalled = await intake.recall(claim)
+                    } catch (error) {
+                        logger.error('🔑', 'Transactional push claim lookup failed', {
+                            error: error instanceof Error ? error.message : String(error),
+                        })
+                        return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                    }
                 }
-                if (claimed) {
-                    return answerClaim(claimed.fingerprint)
+                if (recalled.status !== 'absent') {
+                    return answerClaim(recalled.claimedFingerprint)
                 }
             }
             if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active' || !sendsOnlyPush(hogFlow)) {
@@ -1818,22 +1830,37 @@ export class CdpApi {
             if ((await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)).isLimited) {
                 return reply('quota_limited', 429, { error: 'quota_limited' })
             }
-            const rows = this.invocationResultsService.invocationResultsRowsService
-            // Prepared before the insert, because a worker can finish the run before the insert returns. Queued only
-            // once this request owns the run, so a losing request never publishes a row for it.
-            const runningRow = rows.prepareLifecycleRow(invocation, 'running')
-            if (runId) {
-                // Two sends with one key can both pass the lookup above, and the insert lets only one through.
-                const [claim] = await this.hogflowQueue.queueInvocationsIdempotently([
-                    { invocation, fingerprint: fingerprints[0] },
-                ])
-                if (claim.outcome !== 'created') {
-                    return answerClaim(claim.outcome === 'replayed' ? fingerprints[0] : claim.storedFingerprint)
+            const run: Run = runId
+                ? { kind: 'transactional-push', invocation, claim: { fingerprint: fingerprints[0] } }
+                : { kind: 'transactional-push', invocation }
+
+            if (isAsync) {
+                // The intake consumer makes the claim, inserts the run and writes its rows.
+                switch (await intake.produce(run)) {
+                    case 'accepted':
+                        return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
+                    case 'unavailable':
+                        return reply('intake_unavailable', 503, { error: 'intake_unavailable' })
+                    case 'too_large':
+                        return reply('message_too_large', 413, { error: 'message_too_large' })
+                    case 'invalid':
+                        return reply('invalid_request', 400, { error: 'invalid_request' })
                 }
-            } else {
-                await this.hogflowQueue.queueInvocations([invocation])
             }
-            rows.queuePreparedRow(runningRow)
+
+            let committed: Committed
+            try {
+                // Two sends with one key can both pass the lookup above, and the insert lets only one through.
+                ;[committed] = await intake.launch([run], { wait: 'committed' })
+            } catch (error) {
+                if (isLockTimeout(error)) {
+                    return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                }
+                throw error
+            }
+            if (committed.outcome !== 'created') {
+                return answerClaim(committed.outcome === 'replayed' ? fingerprints[0] : committed.claimedFingerprint)
+            }
             // Best-effort rows, so the 202 waits for the hand-off to Kafka but not the acks.
             const { produced } = await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
             void produced.catch((error: unknown) =>
@@ -1848,6 +1875,24 @@ export class CdpApi {
             logger.error('Error queueing transactional push', { error: e instanceof Error ? e.message : String(e) })
             return reply('error', 500, { error: 'internal_error' })
         }
+    }
+
+    // Its own topic and team list, so push moves onto Kafka without touching transactional email.
+    private transactionalPushIntakeForRequest(): RunIntake {
+        return new RunIntake({
+            hogflowQueue: this.hogflowQueue,
+            invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+            intake: {
+                modeOf: pushIntakeModeOf(this.config),
+                producer: new IntakeProducer(
+                    this.outputs,
+                    undefined,
+                    createInvocationSanitizer(this.config).seal,
+                    intakeClusterOf(this.config)
+                ),
+                sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
+            },
+        })
     }
 
     private transactionalSendsForRequest(): TransactionalSends {
