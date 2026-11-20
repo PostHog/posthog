@@ -8,6 +8,7 @@ import { Calendar } from './calendar-grid'
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
 import { SegmentedDateInput, type DateFormatOrder } from './segmented-date-input'
 import { Day } from './use-calendar'
+import { useMediaQuery } from './use-media-query'
 
 export type { DateFormatOrder } from './segmented-date-input'
 
@@ -26,18 +27,6 @@ const DATE_FORMATS: Record<DateFormatOrder, string> = {
 // Tailwind `lg` breakpoint — matches the `lg:` classes that switch this picker
 // between a single calendar and the side-by-side dual-calendar layout.
 const LG_QUERY = '(min-width: 64rem)'
-
-function useMediaQuery(query: string): boolean {
-    const [matches, setMatches] = React.useState(false)
-    React.useEffect(() => {
-        const mql = window.matchMedia(query)
-        const update = (): void => setMatches(mql.matches)
-        update()
-        mql.addEventListener('change', update)
-        return () => mql.removeEventListener('change', update)
-    }, [query])
-    return matches
-}
 
 export interface DateTimeValue {
     start: Date

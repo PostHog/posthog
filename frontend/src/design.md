@@ -111,6 +111,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 
 ### Components (`@posthog/quill`)
 
+- Credenza (Trigger, Content, Header, Title, Description, Body, Footer, Close)
 - DataTable (`selectable` for the checkbox variant)
 - DatePicker, DateTimePicker (quickRanges, CUSTOM_RANGE)
 - useCalendar
@@ -247,6 +248,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - PreviewCard: hover/focus preview of a link destination
   - Dialog: focused task that blocks the page
     - Footer: max 2 buttons; CTA last (right on desktop), variant `primary`, default size; Cancel before it
+  - Credenza: a Dialog on a wide viewport and a bottom Drawer below 768px, from one set of parts. Use it for a dialog that phones must also use; the footer rule of Dialog applies
   - AlertDialog: confirm a destructive or irreversible action
     - Footer: max 2 buttons; CTA last, variant `destructive-outline` if destructive, else `primary`; default size
   - Drawer: <TODO: align purpose with primitives/AGENTS.md>

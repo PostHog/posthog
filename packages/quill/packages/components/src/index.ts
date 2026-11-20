@@ -8,6 +8,18 @@
 // top of Table primitives. Opinionated wrappers you'd otherwise hand-roll
 // in every app.
 
+export {
+    Credenza,
+    CredenzaBody,
+    CredenzaClose,
+    CredenzaContent,
+    CredenzaDescription,
+    CredenzaFooter,
+    CredenzaHeader,
+    CredenzaTitle,
+    CredenzaTrigger,
+    type CredenzaProps,
+} from './credenza'
 export { DataTable, type DataTableProps } from './data-table'
 export {
     FilterCheckboxSubMenu,
