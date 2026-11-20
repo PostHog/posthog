@@ -20,12 +20,15 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.access import DashboardAccessMethod
@@ -251,21 +254,46 @@ class TestDashboardRunInsights(APIBaseTest):
 
         self.assertEqual(body["results"][0]["insight"]["warnings"], [warning])
 
-    @parameterized.expand([("json",), ("optimized",)])
+    @parameterized.expand(
+        [
+            (output_format, error)
+            for output_format in ("json", "optimized")
+            for error in (
+                ExposedHogQLError("Unable to resolve field: nonexistent"),
+                UserAccessControlError("metrics", "viewer"),
+            )
+        ]
+    )
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    def test_a_tile_that_fails_to_run_says_why(self, output_format: str, mock_calculate: MagicMock) -> None:
-        mock_calculate.side_effect = ValueError("The `metrics` feature flag is not enabled")
+    def test_a_tile_that_fails_to_run_says_why(
+        self, output_format: str, error: Exception, mock_calculate: MagicMock
+    ) -> None:
+        mock_calculate.side_effect = error
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
 
         insight = self._run(dashboard_id, output_format=output_format)["results"][0]["insight"]
 
         self.assertIsNone(insight["result"])
-        self.assertEqual(insight["error"], "The `metrics` feature flag is not enabled")
+        self.assertEqual(insight["error"], str(error))
+
+    @parameterized.expand([("json",), ("optimized",)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_an_unexpected_failure_hides_its_internal_detail(
+        self, output_format: str, mock_calculate: MagicMock
+    ) -> None:
+        mock_calculate.side_effect = RuntimeError("Code: 241. DB::Exception: Memory limit exceeded on ch-internal-host")
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+
+        insight = self._run(dashboard_id, output_format=output_format)["results"][0]["insight"]
+
+        self.assertIsNone(insight["result"])
+        self.assertEqual(insight["error"], "The insight could not be run.")
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_a_long_error_is_held_to_its_cap_in_optimized_output(self, mock_calculate: MagicMock) -> None:
-        mock_calculate.side_effect = ValueError("x" * (RUN_INSIGHTS_MAX_ERROR_CHARS * 4))
+        mock_calculate.side_effect = ExposedHogQLError("x" * (RUN_INSIGHTS_MAX_ERROR_CHARS * 4))
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
 

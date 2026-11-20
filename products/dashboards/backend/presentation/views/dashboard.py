@@ -8,7 +8,7 @@ import contextvars
 from collections.abc import AsyncGenerator, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from functools import lru_cache, partial
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
@@ -46,6 +46,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework.exceptions import APIException
 from rest_framework.fields import empty
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -56,6 +57,7 @@ from rest_framework.utils.serializer_helpers import ReturnDict
 
 from posthog.schema import InsightVizNode
 
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.multi_query import is_query_sharing_enabled
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -80,6 +82,7 @@ from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX, AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
@@ -125,6 +128,7 @@ from posthog.utils import (
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControl,
+    UserAccessControlError,
     access_level_satisfied_for_resource,
 )
 from products.access_control.backend.presentation.access_control import (
@@ -251,6 +255,7 @@ from products.product_analytics.backend.presentation.insight import (
 )
 from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
 
+from common.hogvm.python.utils import HogVMException
 from ee.hogai.utils.aio import async_to_sync
 
 if TYPE_CHECKING:
@@ -1269,6 +1274,18 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
         return representation
 
 
+# The failures whose message is written for the person running the query, as /query surfaces them.
+_USER_SAFE_INSIGHT_ERRORS = (
+    ExposedHogQLError,
+    ExposedCHQueryError,
+    HogVMException,
+    UserAccessControlError,
+    APIException,
+)
+
+_INSIGHT_RUN_FAILED_MESSAGE = "The insight could not be run."
+
+
 class InsightResultSerializer(InsightSerializer):
     """InsightSerializer restricted to identifiers, the result, and the warnings about that result."""
 
@@ -1301,7 +1318,29 @@ class InsightResultSerializer(InsightSerializer):
         query_status = self.insight_result(insight).query_status
         if not isinstance(query_status, dict) or not query_status.get("error"):
             return None
-        return query_status.get("error_message") or "The insight could not be run."
+        return query_status.get("error_message") or _INSIGHT_RUN_FAILED_MESSAGE
+
+    def _degraded_insight_result(
+        self,
+        insight: Insight,
+        dashboard: Any,
+        *,
+        error: Exception,
+        error_message: str,
+        error_code: str | None,
+        last_refresh: datetime | None,
+    ) -> InsightResult:
+        # The parent keeps `str(error)` for any failure, which can carry raw ClickHouse or backend detail.
+        if error_code != QueryErrorCategory.RATE_LIMITED and not isinstance(error, _USER_SAFE_INSIGHT_ERRORS):
+            error_message = _INSIGHT_RUN_FAILED_MESSAGE
+        return super()._degraded_insight_result(
+            insight,
+            dashboard,
+            error=error,
+            error_message=error_message,
+            error_code=error_code,
+            last_refresh=last_refresh,
+        )
 
     def to_representation(self, instance: Insight):
         # Skip InsightSerializer.to_representation which references fields
