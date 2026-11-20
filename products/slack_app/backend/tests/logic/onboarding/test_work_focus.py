@@ -23,6 +23,7 @@ from products.slack_app.backend.logic.daily_focus import (
     daily_focus_footer_block,
     resolve_daily_focus,
 )
+from products.slack_app.backend.logic.onboarding.daily_summary import SummaryThread
 from products.slack_app.backend.logic.onboarding.work_focus import (
     WorkFocus,
     WorkFocusRateLimited,
@@ -485,6 +486,64 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
     assert slack["writer"].call_args.kwargs["properties"]["slack_app_flow"] == "slack_app_daily_focus"
     # The run fetched the timezone again, so Tuesday's run moves to 09:00 in New York.
     assert SlackDailyFocus.objects.unscoped().get().next_run_at == datetime(2026, 11, 10, 14, 0, tzinfo=UTC)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("quiet_inbox", [False, True], ids=["suggestions and summary", "summary only"])
+def test_a_daily_run_opens_with_what_moved_in_the_shared_channels(
+    quiet_inbox: bool, org_team_user, link_user, slack: dict[str, MagicMock]
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    link_user(user, user_scopes="search:read.public")
+    _turn_on_daily(integration)
+    thread = SummaryThread(
+        channel_id="C1",
+        ts="1700.1",
+        text="<@U_LEAD>: we are rolling back the release\n<@U_OTHER>: on it",
+        involves_person=False,
+        permalink="https://example.slack.com/archives/C1/p17001",
+    )
+    if quiet_inbox:
+        slack["ranker"].return_value.decide.side_effect = None
+        slack["ranker"].return_value.decide.return_value = SystemOneResult(model="jev", answers={}, input_tokens=None)
+    written = _written(
+        []
+        if quiet_inbox
+        else [{"offer": "Churn by plan looks off. Want me to dig in?", "request": REQUEST, "source": 1}]
+    )
+    written.choices[0].message.content = json.dumps(
+        {
+            **json.loads(written.choices[0].message.content),
+            "summary": [{"text": "<@U_LEAD> rolled back the release.", "source": 1}],
+        }
+    )
+    slack["writer"].return_value.with_options.return_value.chat.completions.create.return_value = written
+
+    with (
+        patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True),
+        patch(f"{WORK_FOCUS}.is_slack_app_daily_summary_enabled", return_value=True),
+        patch(f"{WORK_FOCUS}.summary_threads", return_value=[thread]) as threads,
+        patch(f"{WORK_FOCUS}.SlackIntegration") as bot_integration,
+        time_machine.travel(datetime(2026, 11, 9, 9, 0, tzinfo=UTC), tick=False),
+    ):
+        bot_integration.return_value.missing_scopes.return_value = frozenset()
+        assert find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE, run_at=RUN_AT) == "sent"
+
+    assert threads.call_args.kwargs["since"] == SINCE
+    prompt = slack["writer"].return_value.with_options.return_value.chat.completions.create.call_args.kwargs[
+        "messages"
+    ][1]["content"]
+    assert "<threads>\n[1] in <#C1>:\n<@U_LEAD>: we are rolling back" in prompt
+    blocks = bot_integration.return_value.client.chat_postMessage.call_args.kwargs["blocks"]
+    text = all_block_text(blocks)
+    # A quiet inbox still gets the news from its channels, without an empty "Where I can help".
+    assert (
+        "*What happened*\n• <@U_LEAD> rolled back the release. <https://example.slack.com/archives/C1/p17001|[1]>"
+        in text
+    )
+    assert ("*Where I can help*" in text) is not quiet_inbox
+    assert "I read your messages and the channels we share since Friday" in text
 
 
 @pytest.mark.django_db
