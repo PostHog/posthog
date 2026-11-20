@@ -13,7 +13,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     product_pin,
 )
 from products.tasks.backend.logic.services.gateway_models import GatewayModel
-from products.tasks.backend.logic.services.model_catalogue import served_runtime_adapter_for
+from products.tasks.backend.logic.services.model_catalogue import family_model_choices, served_runtime_adapter_for
 
 _PIN_LISTING = "products.tasks.backend.logic.services.gateway_model_pin.list_gateway_models"
 _CATALOGUE_LISTING = "products.tasks.backend.logic.services.model_catalogue.list_gateway_models"
@@ -175,6 +175,19 @@ def test_runtime_comes_from_the_catalog_then_the_cached_listing(model: str | Non
     listing = (_V3, GatewayModel(id="gemini-4-neon", owned_by="google", context_window=1000000, family="gemini"))
     with patch("products.tasks.backend.logic.services.model_catalogue.cached_gateway_models", return_value=listing):
         assert served_runtime_adapter_for(model) == expected
+
+
+@pytest.mark.parametrize(
+    "offered_only,expected",
+    [(True, ["gpt-6.4-sol", "gpt-6.5-sol"]), (False, ["gpt-6.3-sol", "gpt-6.4-sol", "gpt-6.5-sol"])],
+    ids=["versions_a_picker_offers", "every_version_a_run_may_call"],
+)
+def test_family_choices_carry_each_version_once_with_its_runtime(offered_only: bool, expected: list[str]) -> None:
+    listing = (_CATALOGED, _V3, _listed("openai/gpt-6.3-sol", release_date="2027-01-10"), _V4, _V5)
+    with patch("products.tasks.backend.logic.services.model_catalogue.cached_gateway_models", return_value=listing):
+        choices = family_model_choices("slack_app", offered_only=offered_only)
+
+    assert [(choice.model, choice.runtime_adapter) for choice in choices] == [(model, "codex") for model in expected]
 
 
 def test_a_product_with_no_pin_is_offered_the_whole_listing() -> None:

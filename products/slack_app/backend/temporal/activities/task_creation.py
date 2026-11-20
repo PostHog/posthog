@@ -1415,6 +1415,7 @@ def _stop_run_for_runtime_handoff(
             runtime_adapter=state.get("runtime_adapter"),
             model=state.get("model"),
             reasoning_effort=state.get("reasoning_effort"),
+            user_id=actor_user.id if actor_user else None,
         )
     except Exception:
         logger.exception("slack_app_runtime_handoff_resolve_failed", task_run_id=str(task_run.id))
@@ -1524,6 +1525,7 @@ def _apply_followup_model_override(
             runtime_adapter=state.get("runtime_adapter"),
             model=state.get("model"),
             reasoning_effort=state.get("reasoning_effort"),
+            user_id=actor_user.id if actor_user else None,
         )
     except Exception:
         logger.exception("slack_app_followup_model_override_resolve_failed", task_run_id=str(task_run.id))

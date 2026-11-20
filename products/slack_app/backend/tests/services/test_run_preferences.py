@@ -1,7 +1,11 @@
 from dataclasses import dataclass
+from typing import TypedDict
 
 import pytest
 from unittest.mock import patch
+
+from posthog.models.organization import Organization
+from posthog.models.user import User
 
 from products.slack_app.backend.services import run_preferences
 from products.slack_app.backend.services.model_catalogue import (
@@ -9,6 +13,8 @@ from products.slack_app.backend.services.model_catalogue import (
     available_model_choices,
     describe_run_model,
     display_name_for_model,
+    offered_model_choices,
+    runtime_adapter_for,
 )
 from products.slack_app.backend.services.run_preferences import (
     SLACK_DEFAULT_MODEL,
@@ -18,6 +24,7 @@ from products.slack_app.backend.services.run_preferences import (
 )
 from products.slack_app.backend.services.slack_app_home import get_picker_choices
 from products.slack_app.backend.services.slack_settings import AIPreferences
+from products.tasks.backend.facade.model_catalogue import GatewayModel
 
 # Real model ids: the resolver validates efforts against the tasks catalogue (the
 # authority on what a model accepts), not against these tuples, so inventing ids here
@@ -92,6 +99,34 @@ class TestResolveRunPreferences:
         resolved = _resolve(override_model="claude-fable-5")
         assert resolved == AIPreferences("claude", "claude-fable-5", None)
 
+    @pytest.mark.parametrize(
+        "access_error,expected_model",
+        [(None, "claude-fable-5"), ("not available for your account", SLACK_DEFAULT_MODEL)],
+        ids=["user_in_the_rollout", "user_outside_the_rollout"],
+    )
+    def test_a_gated_model_named_in_a_mention_needs_its_rollout_flag(self, catalogue, access_error, expected_model):
+        with (
+            patch("products.tasks.backend.facade.run_config.get_required_model_flag", return_value="tasks-preview"),
+            patch("products.tasks.backend.facade.run_config.get_model_access_error", return_value=access_error),
+            patch.object(run_preferences, "_distinct_id", return_value="viewer"),
+        ):
+            assert _resolve(override_model="claude-fable-5").model == expected_model
+
+    def test_the_rollout_flag_is_checked_for_the_person_who_wrote_the_mention(self, catalogue, db):
+        organization = Organization.objects.create(name="Org")
+        author = User.objects.create_and_join(organization, "mention@example.com", None)
+        with (
+            patch("products.tasks.backend.facade.run_config.get_required_model_flag", return_value="tasks-preview"),
+            patch(
+                "products.tasks.backend.facade.run_config.get_model_access_error",
+                side_effect=lambda model, distinct_id: None if distinct_id == author.distinct_id else "not available",
+            ),
+        ):
+            by_author = resolve_run_preferences(override=_Override(model="claude-fable-5"), user_id=author.id)
+            by_nobody = resolve_run_preferences(override=_Override(model="claude-fable-5"), user_id=None)
+
+        assert (by_author.model, by_nobody.model) == ("claude-fable-5", SLACK_DEFAULT_MODEL)
+
     # The floor pinning a model unconditionally is what put the project and user
     # defaults out of reach from Slack, and it fails silently — the run still works,
     # just never on the configured model. This locks the deferral in.
@@ -118,10 +153,16 @@ class TestResolveRunPreferences:
         assert resolved == expected
 
 
+class _LiveRun(TypedDict):
+    runtime_adapter: str
+    model: str
+    reasoning_effort: str
+
+
 class TestResolveLiveRunOverride:
     """A run already in flight can only move within the runtime its sandbox started on."""
 
-    RUNNING = {"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "reasoning_effort": "medium"}
+    RUNNING: _LiveRun = {"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "reasoning_effort": "medium"}
 
     @pytest.mark.parametrize(
         "override_model,override_effort,expected",
@@ -146,6 +187,27 @@ class TestResolveLiveRunOverride:
             resolve_live_run_override(_Override(model=override_model, reasoning_effort=override_effort), **self.RUNNING)
             == expected
         )
+
+    @pytest.mark.parametrize(
+        "override_model,access_error,expected",
+        [
+            ("gpt-5.6-sol", None, LiveRunModelChange(refused_model="gpt-5.6-sol")),
+            ("gpt-5.6-sol", "not available for your account", LiveRunModelChange()),
+            ("claude-fable-5", "not available for your account", LiveRunModelChange()),
+        ],
+        ids=["other_runtime_in_the_rollout", "other_runtime_outside_the_rollout", "same_runtime_outside_the_rollout"],
+    )
+    def test_a_gated_model_moves_a_live_run_only_for_an_author_in_its_rollout(
+        self, catalogue, override_model, access_error, expected
+    ):
+        with (
+            patch("products.tasks.backend.facade.run_config.get_required_model_flag", return_value="tasks-preview"),
+            patch("products.tasks.backend.facade.run_config.get_model_access_error", return_value=access_error),
+            patch.object(run_preferences, "_distinct_id", return_value="author"),
+        ):
+            change = resolve_live_run_override(_Override(model=override_model), **self.RUNNING, user_id=7)
+
+        assert change == expected
 
     def test_derives_the_runtime_from_the_model_when_the_run_never_recorded_one(self, catalogue):
         """Runs started before models were pinned carry no adapter; the model still places them."""
@@ -221,6 +283,27 @@ class TestAvailableModelChoices:
         assert {"claude-sonnet-5", "gpt-5.6-sol", "gpt-6.1-sol", "moonshotai/kimi-k3"} <= models
         assert not {"deepseek-ai/deepseek-v4.1-flash-1017-fast", "zai-org/glm-5.3"} & models
         assert all(c.label and c.runtime_adapter for c in choices)
+
+    def test_adds_versions_of_an_allowed_family_from_the_cached_listing(self):
+        listing = tuple(
+            GatewayModel(
+                id=model, owned_by="openai", context_window=1050000, family="gpt-sol", release_date=release_date
+            )
+            for model, release_date in (
+                ("gpt-6.3-sol", "2027-01-10"),
+                ("gpt-6.4-sol", "2027-03-01"),
+                ("gpt-6.5-sol", "2027-05-01"),
+            )
+        )
+        with patch("products.tasks.backend.logic.services.model_catalogue.cached_gateway_models", return_value=listing):
+            available = {choice.model for choice in available_model_choices()}
+            offered = {choice.model for choice in offered_model_choices()}
+            runtimes = {model: runtime_adapter_for(model) for model in ("gpt-6.3-sol", "openai/gpt-6.5-sol")}
+
+        new_versions = {"gpt-6.3-sol", "gpt-6.4-sol", "gpt-6.5-sol"}
+        assert available & new_versions == new_versions
+        assert offered & new_versions == {"gpt-6.4-sol", "gpt-6.5-sol"}
+        assert runtimes == {"gpt-6.3-sol": "codex", "openai/gpt-6.5-sol": "codex"}
 
     def test_the_picker_offers_only_models_the_slack_pin_admits(self):
         picker_models = {model.value for adapter in get_picker_choices() for model in adapter.models}

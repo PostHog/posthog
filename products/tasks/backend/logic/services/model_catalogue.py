@@ -23,7 +23,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from products.tasks.backend import model_catalog
-from products.tasks.backend.logic.services.gateway_model_pin import offered_listing
+from products.tasks.backend.logic.services.gateway_model_pin import family_models, offered_listing
 from products.tasks.backend.logic.services.gateway_models import (
     GatewayModel,
     cached_gateway_models,
@@ -139,6 +139,19 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
             )
         )
     return tuple(choices)
+
+
+def family_model_choices(product: Product, *, offered_only: bool) -> tuple[ModelChoice, ...]:
+    listing = cached_gateway_models(TASK_RUN_GATEWAY_PRODUCT)
+    family = family_models(product, listing)
+    wanted = family.offered if offered_only else frozenset(family.admitted)
+    by_provider = _runtime_adapter_by_provider()
+    choices: dict[str, ModelChoice] = {}
+    for listed in listing:
+        model_id = model_catalog.normalize_model_id(listed.id)
+        if model_id in wanted and listed.owned_by in by_provider:
+            choices.setdefault(model_id, _listed_choice(by_provider[listed.owned_by], listed))
+    return tuple(choices.values())
 
 
 _ALIAS_NAME_SUFFIX = " (latest)"
@@ -290,6 +303,7 @@ __all__ = [
     "catalog_model_choices",
     "offered_model_choices",
     "display_name_for_model",
+    "family_model_choices",
     "filter_unsupported_effort",
     "group_by_runtime",
     "label_for",

@@ -46,6 +46,28 @@ class TestModelRouterOptions:
         assert unexplained == []
 
     @pytest.mark.parametrize(
+        "stored_model,runtime_adapter,expected_note",
+        [
+            ("gpt-6.2-sol", "codex", "A general coding model."),
+            ("gpt-6.2-astra", "codex", "The most capable OpenAI model."),
+            ("gpt-5.6-terra", "codex", "A mid-size model."),
+            ("claude-opus-5", "claude", "A strong model for deep work."),
+        ],
+    )
+    def test_every_version_of_a_model_line_says_what_it_is_good_for(
+        self, team, stored_model, runtime_adapter, expected_note
+    ):
+        user = User.objects.create_and_join(team.organization, "line@example.com", None)
+        update_user_ai_run_preferences(
+            team.id, user.id, runtime_adapter=runtime_adapter, model=stored_model, reasoning_effort=None
+        )
+        with patch(ACCESS_ERROR, return_value=None):
+            options = model_router_options(team_id=team.id, user_id=user.id, distinct_id="viewer")
+
+        (description,) = [option.description for option in options if option.model == stored_model]
+        assert f"Model: {expected_note}" in description
+
+    @pytest.mark.parametrize(
         "stored_model,gated_model,expected_default,expected_note",
         [
             ("openai/gpt-6-sol", None, "gpt-6-sol", PERSONAL_DEFAULT_NOTE),
