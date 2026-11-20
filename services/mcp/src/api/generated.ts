@@ -3379,6 +3379,8 @@ export namespace Schemas {
       mergeFederatedAggregateJoins?: boolean | null;
       /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
       negatedPersonFiltersNotIn?: boolean | null;
+      /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+      optimizeCrossJoins?: boolean | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -65252,6 +65254,29 @@ export namespace Schemas {
       description: string;
     }
 
+    export interface ImportSettingChoice {
+      /** Value to send for this setting when starting an import. */
+      value: string;
+      /** Display name of the choice. */
+      label: string;
+    }
+
+    export interface ImportSettingOption {
+      /** Setting key to use in `settings` when starting an import, such as `region`. */
+      key: string;
+      /** Display name of the setting. */
+      label: string;
+      /** What the setting changes, and how to choose. */
+      help: string;
+      /** The values the setting accepts. */
+      choices: ImportSettingChoice[];
+      /**
+         * The value used when the request leaves this setting out. Null means it's required.
+         * @nullable
+         */
+      default: string | null;
+    }
+
     export interface ImportProviderOption {
       /** Provider key to send when starting an import.
        *
@@ -65279,6 +65304,8 @@ export namespace Schemas {
       not_imported: string;
       /** What the person does once the import has finished, in order. */
       next_steps: string[];
+      /** Choices to make before starting an import, such as a region. Often empty. */
+      settings: ImportSettingOption[];
     }
 
     export interface ImportStepCount {
@@ -104861,6 +104888,11 @@ export namespace Schemas {
     }
 
     /**
+     * The settings the run started with, by setting key.
+     */
+    export type ProviderImportRunSettings = {[key: string]: string};
+
+    /**
      * * `queued` - Waiting to start
      * * `running` - Importing
      * * `completed` - Imported
@@ -104907,6 +104939,8 @@ export namespace Schemas {
          * @nullable
          */
       finished_at: string | null;
+      /** The settings the run started with, by setting key. */
+      settings: ProviderImportRunSettings;
     }
 
     export interface ProviderKeyAlternative {
@@ -121485,6 +121519,11 @@ export namespace Schemas {
       run: StaffWarmRun | null;
     }
 
+    /**
+     * Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required.
+     */
+    export type StartProviderImportSettings = {[key: string]: string};
+
     export interface StartProviderImport {
       /** The provider to import from.
        *
@@ -121504,6 +121543,8 @@ export namespace Schemas {
          * @maxLength 512
          */
       api_key?: string;
+      /** Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required. */
+      settings?: StartProviderImportSettings;
     }
 
     export interface StartTrainingRequest {
@@ -126168,11 +126209,6 @@ export namespace Schemas {
 
     export type TraceNodeIdsByAlias = {[key: string]: string};
 
-    export interface TracePerson {
-      distinctId: string;
-      label: string;
-    }
-
     export interface TraceNodeStats {
       costUsd: number | null;
       inputTokens: number | null;
@@ -126180,6 +126216,11 @@ export namespace Schemas {
       cacheReadTokens: number | null;
       cacheWriteTokens: number | null;
       latencyMs: number | null;
+    }
+
+    export interface TracePerson {
+      distinctId: string;
+      label: string;
     }
 
     export type TraceNodeKindEnum = typeof TraceNodeKindEnum[keyof typeof TraceNodeKindEnum];
@@ -126226,10 +126267,12 @@ export namespace Schemas {
       name: string | null;
       createdAt: string;
       sessionId: string | null;
-      person: TracePerson | null;
       totals: TraceNodeStats;
       hasError: boolean;
       errorCount: number;
+      /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+      totalsPartial: boolean;
+      person: TracePerson | null;
       tree: TraceNode[];
       timeline: TraceTimelineRow[];
       totalMs: number;
@@ -126564,6 +126607,62 @@ export namespace Schemas {
       value: unknown;
     }
 
+    export interface TraceReviewQueueAssignment {
+      /** The review queue's id. */
+      id: string;
+      /** The review queue's name. */
+      name: string;
+      /** The queue item that holds the trace, for moving or removing it. */
+      itemId: string;
+    }
+
+    export interface TraceReviewStatus {
+      /** The trace's human review, or null when it has none or the user may not see it. */
+      review: TraceHumanReview | null;
+      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+      queue: TraceReviewQueueAssignment | null;
+    }
+
+    export interface TraceListItem {
+      id: string;
+      name: string | null;
+      createdAt: string;
+      sessionId: string | null;
+      totals: TraceNodeStats;
+      hasError: boolean;
+      errorCount: number;
+      /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+      totalsPartial: boolean;
+      /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
+      defaultNodeId: string | null;
+      /** The error text of the trace's earliest failed step that carries one, cut at 200 characters. Null when no failed step carries error text. */
+      firstError: string | null;
+      /** The tools the trace's steps called, each once, in the order first called. */
+      toolsCalled: string[];
+      /** Whether a support agent ran the trace while impersonating the user. */
+      isSupportTrace: boolean;
+      /** The trace's review and review queue, or null when it has neither that the user may see. */
+      review: TraceReviewStatus | null;
+    }
+
+    export interface TraceListCounts {
+      /** How many traces the selection holds, ignoring its quick filter. */
+      total: number;
+      /** How many of them have an error. */
+      errors: number;
+      /** How many of them have user feedback. */
+      feedback: number;
+    }
+
+    export interface TraceList {
+      /** A page of traces, newest first. */
+      items: TraceListItem[];
+      /** The selection's counts, on the first page only. */
+      counts: TraceListCounts | null;
+      /** The cursor of the next page, or null on the last one. */
+      nextCursor: string | null;
+    }
+
     export type TraceMessageRoleEnum = typeof TraceMessageRoleEnum[keyof typeof TraceMessageRoleEnum];
 
 
@@ -126720,6 +126819,66 @@ export namespace Schemas {
       source: string;
     }
 
+    export interface TracePageRequest {
+      /**
+         * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+         * @minItems 1
+         * @maxItems 100
+         */
+      trace_ids: string[];
+    }
+
+    export interface TracePageWithBoundsRequest {
+      /**
+         * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+         * @minItems 1
+         * @maxItems 100
+         */
+      trace_ids: string[];
+      /** The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention. */
+      earliest_created_at: string;
+      /** The latest createdAt of the rows on the page. It can't be before earliest_created_at. */
+      latest_created_at: string;
+    }
+
+    export interface TracePersonItem {
+      /** The trace the person belongs to. */
+      traceId: string;
+      /** The person the trace ran for, labeled by the project's display name properties or else by their distinct id. Null when the trace is not found or carries no distinct id. */
+      person: TracePerson | null;
+    }
+
+    export interface TracePeopleList {
+      /** One item per requested trace, in the order requested. */
+      items: TracePersonItem[];
+    }
+
+    export type TracePreviewMissingReason = typeof TracePreviewMissingReason[keyof typeof TracePreviewMissingReason];
+
+
+    export const TracePreviewMissingReason = {
+      TooLarge: 'too_large',
+      TimedOut: 'timed_out',
+    } as const;
+
+    export interface TracePreview {
+      /** The trace the preview belongs to. */
+      traceId: string;
+      /** The user's message the trace answered, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `inputMissingReason` says why. */
+      input: string | null;
+      /** The trace's answer, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `outputMissingReason` says why. */
+      output: string | null;
+      /** Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there is nothing to show. */
+      inputMissingReason: TracePreviewMissingReason | null;
+      /** Why `output` is null: `too_large` when the answer is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `output` is null. Null with a null `output` means there is nothing to show. */
+      outputMissingReason: TracePreviewMissingReason | null;
+    }
+
+    export interface TracePreviewList {
+      /** One preview per requested trace, in the order requested. A trace that is not found previews as nulls. */
+      items: TracePreview[];
+    }
+
     export interface TracePullRequest {
       /** The owner of the pull request's repository. */
       repoOwner: string;
@@ -126756,22 +126915,6 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
-    export interface TraceReviewQueueAssignment {
-      /** The review queue's id. */
-      id: string;
-      /** The review queue's name. */
-      name: string;
-      /** The queue item that holds the trace, for moving or removing it. */
-      itemId: string;
-    }
-
-    export interface TraceReviewStatus {
-      /** The trace's human review, or null when it has none or the user may not see it. */
-      review: TraceHumanReview | null;
-      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
-      queue: TraceReviewQueueAssignment | null;
-    }
-
     export interface TraceSearchMatch {
       /** A step whose stored data contains the query. The root's id is the trace id. */
       nodeId: string;
@@ -126784,6 +126927,34 @@ export namespace Schemas {
       total: number;
       /** Matching steps in tree order, the root first. Steps without a match are left out. */
       matches: TraceSearchMatch[];
+    }
+
+    export type TraceSentimentLabelEnum = typeof TraceSentimentLabelEnum[keyof typeof TraceSentimentLabelEnum];
+
+
+    export const TraceSentimentLabelEnum = {
+      Positive: 'positive',
+      Neutral: 'neutral',
+      Negative: 'negative',
+    } as const;
+
+    export interface TraceSentiment {
+      /** The trace's sentiment, from the average of its latest sentiment result per generation. Neutral when neither positive nor negative beats neutral by a clear margin. */
+      label: TraceSentimentLabelEnum;
+      /** The average score of the label, from 0 to 1. */
+      score: number;
+    }
+
+    export interface TraceSentimentItem {
+      /** The trace the sentiment belongs to. */
+      traceId: string;
+      /** Null when the trace is not found or has no sentiment result. */
+      sentiment: TraceSentiment | null;
+    }
+
+    export interface TraceSentimentList {
+      /** One item per requested trace, in the order requested. */
+      items: TraceSentimentItem[];
     }
 
     export type TraceSummaryStatusEnum = typeof TraceSummaryStatusEnum[keyof typeof TraceSummaryStatusEnum];
@@ -136934,6 +137105,75 @@ export namespace Schemas {
     export const AiObservabilityOfflineScorersHistoryListTagMatch = {
       Any: 'any',
       All: 'all',
+    } as const;
+
+    export type AiObservabilityTracesListParams = {
+    /**
+     * The nextCursor of the previous page, to read the page after it. Leave it out for the first page.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * Lists only traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     */
+    group_key?: string;
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number;
+    /**
+     * How many traces a page holds, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Lists only traces whose events belong to the person with this UUID.
+     */
+    person_id?: string;
+    /**
+     * Up to 50 property filters as a JSON-encoded list. A trace is listed when one of its events matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string;
+    /**
+     * Text to look for in the inputs and outputs of the trace's generations and embeddings, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    search?: string;
+    /**
+     * Lists only traces with an error, or only traces with user feedback. The counts ignore it.
+     *
+     * * `errors` - errors
+     * * `feedback` - feedback
+     * @minLength 1
+     */
+    view?: AiObservabilityTracesListView;
+    };
+
+    export type AiObservabilityTracesListView = typeof AiObservabilityTracesListView[keyof typeof AiObservabilityTracesListView];
+
+
+    export const AiObservabilityTracesListView = {
+      Errors: 'errors',
+      Feedback: 'feedback',
     } as const;
 
     export type AiObservabilityTracesClustersRetrieveParams = {

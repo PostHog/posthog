@@ -127,11 +127,12 @@ tools:
             Start a background import from another email tool, such as Resend, Postmark or SendGrid, into the active
             project. Before the first call, tell the user the project's name and id and ask whether the data belongs
             there. Check for an active run first, then ask the user to create the API key themselves and treat it as a
-            secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers. Returns
-            at once with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start
-            while a run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in
-            PostHog as it is. Creates people only when the `new_people` step is selected, and each new person counts as
-            one event, so ask the user before including it. Imported drafts never send on their own.
+            secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers, and any
+            `settings` it lists: ask the user for a setting whose `default` is null, and don't guess it. Returns at once
+            with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a
+            run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog
+            as it is. Creates people only when the `new_people` step is selected, and each new person counts as one
+            event, so ask the user before including it. Imported drafts never send on their own.
     provider-imports-get:
         operation: messaging_provider_imports_retrieve
         enabled: true
@@ -173,8 +174,9 @@ tools:
         description: >
             List the email tools this project can import from, what each one can bring over (`steps`, with the keys to
             pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward
-            (`next_steps`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every
-            import needs it again. Load the migrating-from-email-providers skill before you start a move.
+            (`next_steps`), and any choices to make first (`settings`). `retains_credentials: false` means PostHog
+            deletes the API key when the run ends, so every import needs it again. Load the
+            migrating-from-email-providers skill before you start a move.
     supabase-auth-emails-settings-get:
         operation: messaging_supabase_auth_emails_settings_retrieve
         enabled: true
