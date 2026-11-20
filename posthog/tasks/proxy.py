@@ -96,24 +96,25 @@ def reconcile_proxy_root_redirect(proxy_record_id: str) -> None:
 )
 @skip_team_scope_audit
 def reconcile_proxy(organization_id: str, proxy_record_id: str) -> None:
-    record = ProxyRecord.objects.filter(
-        organization_id=organization_id,
-        pk=proxy_record_id,
-        status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING, ProxyRecord.Status.DELETING),
-    ).first()
-    if record is not None and record.status == ProxyRecord.Status.DELETING:
-        _resume_proxy_workflow(record)
-        return
-    if record is not None and is_cloudflare_proxy(record):
-        active = (
-            ProxyRecord.objects.filter(organization_id=organization_id, pk=proxy_record_id)
-            .exclude(organization__is_active=False)
-            .exists()
-        )
-        if active:
-            if proxy_domain_can_be_provisioned(record):
-                _resume_proxy_workflow(record)
+    with cloudflare_proxy_lock(proxy_record_id):
+        record = ProxyRecord.objects.filter(
+            organization_id=organization_id,
+            pk=proxy_record_id,
+            status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING, ProxyRecord.Status.DELETING),
+        ).first()
+        if record is not None and record.status == ProxyRecord.Status.DELETING:
+            _resume_proxy_workflow(record)
             return
+        if record is not None and is_cloudflare_proxy(record):
+            active = (
+                ProxyRecord.objects.filter(organization_id=organization_id, pk=proxy_record_id)
+                .exclude(organization__is_active=False)
+                .exists()
+            )
+            if active:
+                if proxy_domain_can_be_provisioned(record):
+                    _resume_proxy_workflow(record)
+                return
     reconcile_cloudflare_proxy(organization_id, proxy_record_id)
 
 
