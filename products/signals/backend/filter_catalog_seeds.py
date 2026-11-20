@@ -14,6 +14,7 @@ class CatalogSeed:
     adapter_kind: SignalFilterSourceDefinition.AdapterKind
     initial_rollout_state: SignalFilterSourceDefinition.RolloutState
     bundle: dict[str, JsonValue]
+    initial_filter_query_eligible: bool = False
 
 
 def _field(name: str, field_type: CatalogFieldType, description: str, binding: JsonValue) -> JsonValue:
