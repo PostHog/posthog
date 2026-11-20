@@ -424,7 +424,10 @@ export function EmailDocumentEditor(): JSX.Element {
                 {mode === 'preview' ? (
                     <EmailDocumentPreview
                         html={html}
-                        liquid={templatingEngine === 'liquid'}
+                        liquid={
+                            (typeof logicProps.templating === 'string' ? logicProps.templating : templatingEngine) ===
+                            'liquid'
+                        }
                         unsubscribeMissing={!!html && !hasUnsubscribeLink(html)}
                     />
                 ) : (
