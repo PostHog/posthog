@@ -98,6 +98,8 @@ describe('shared-image policy and legacy projection', () => {
   test('aliases, statuses and exclusions survive projection without changing legacy-only veto rules', () => {
     const policy = loadPolicy(fixture)
     expect(policy.filters.metadataAlias).toEqual(policy.filters.dataWarehouseMetadata)
+    const based = loadPolicy(fixture.replace('  dataWarehouseMetadata: &metadata\n', '  base: &base\n    - common/**\n  dataWarehouseMetadata: &metadata\n    - *base\n'))
+    expect(based.filters.dataWarehouseMetadata).toEqual(['common/**', ...policy.filters.dataWarehouseMetadata])
     const inline = 'legacyVeto: ["!tests/**"]\n'
     const projected = projectLegacyFilters(policy, inline)
     const files = [

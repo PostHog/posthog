@@ -154,6 +154,10 @@ patchedDependencies:
     # A fixed visually hidden element must sit outside the viewport, or Chrome gives each one its own GPU layer.
     # Upstream set margin 0 to fix RTL overflow (mui/base-ui#5661), which brought them back inside.
     '@base-ui/utils@0.5.0': patches/@base-ui__utils@0.5.0.patch
+    # Gives the 'error' event a failed decode emits a listener, so a request body that does not decode leaves no unhandled error.
+    fast-zlib@2.0.1: patches/fast-zlib@2.0.1.patch
+    # Answers a compressed request body that does not decode with 400 instead of an uncaught throw, caps its decoded size at the parser limit, and answers a body over that limit with 413. Drop both after upstream does.
+    ultimate-express@2.0.13: patches/ultimate-express@2.0.13.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
 allowBuilds:

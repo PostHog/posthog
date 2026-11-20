@@ -356,6 +356,7 @@ class OrganizationSerializer(
             "uses_most_specific_access_resolution",
         ]
         extra_kwargs = {
+            "name": {"help_text": "Name of the organization."},
             "slug": {
                 "required": False,
             },  # slug is not required here as it's generated automatically for new organizations
@@ -429,7 +430,7 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.membership_level")
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
-        return OrganizationMembership.Level(membership.level) if membership is not None else None
+        return OrganizationMembership.Level(membership.effective_level) if membership is not None else None
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
     def get_membership_joined_at(self, organization: Organization) -> str | None:
@@ -903,7 +904,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         organization = self.get_object()
         user = cast(User, request.user)
-        user_role = user.organization_memberships.get(organization=organization).level
+        user_role = user.organization_memberships.get(organization=organization).effective_level
 
         for field, event_name in setting_events:
             if field in request.data:
@@ -934,6 +935,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return super().partial_update(request, *args, **kwargs)
 
     def perform_create(self, serializer):
+        # The new organization would sit outside the token's scope, so the token could never use it.
+        if get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
+            raise exceptions.PermissionDenied(
+                "Access limited to specific organizations can't create a new organization. "
+                "Use an API key or connection with access to all organizations."
+            )
         # Set user context for activity logging
         with ImpersonatedContext(self.request):
             super().perform_create(serializer)

@@ -533,7 +533,7 @@ build:
         bin_script: build-schema-python.sh
         description: Generate Pydantic schema.py from schema.json with datamodel-codegen
     build:schema-latest-versions:
-        bin_script: build-schema-latest-versions.py
+        cmd: bin/hogli build:projections --only schema-latest-versions
         description: Extract latest schema versions and generate frontend JSON config
     build:projections:
         click: hogli_commands.projections:cmd_build_projections

@@ -39,7 +39,7 @@ const TYPE_OPTIONS: FilterOption<ReleaseAllType>[] = RELEASE_ALL_TYPES.map((type
 }))
 
 export function ReleaseAllFilterMenu(): JSX.Element {
-    const { filters, narrowingFiltersActive } = useValues(releaseAllLogic)
+    const { filters, narrowingFiltersActive, availableTypes } = useValues(releaseAllLogic)
     const { setFilters, clearNarrowingFilters } = useActions(releaseAllLogic)
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
@@ -62,7 +62,7 @@ export function ReleaseAllFilterMenu(): JSX.Element {
                     allLabel="All types"
                     allIcon={<IconList />}
                     pluralNoun="types"
-                    options={TYPE_OPTIONS}
+                    options={TYPE_OPTIONS.filter((option) => availableTypes.includes(option.value))}
                     selected={filters.types}
                     onChange={(types) => setFilters({ types })}
                     dataAttr="release-all-type-picker"

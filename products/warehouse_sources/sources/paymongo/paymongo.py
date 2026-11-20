@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSourceManager,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -61,7 +62,7 @@ class PaymongoCursorPaginator(JSONResponseCursorPaginator):
 
 
 def normalize_row(item: dict[str, Any]) -> dict[str, Any]:
-    row = {**item.get("attributes", {}), **{key: value for key, value in item.items() if key != "attributes"}}
+    row = flatten_jsonapi(item, relationships_as_ids=False)
     row.pop("secret_key", None)
     for field in ("created_at", "updated_at"):
         if isinstance(row.get(field), int | float):

@@ -795,6 +795,9 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
 
             verified = self.verify_access_token(token)
             refuse_blocked_account(request, verified.user, call_site="id_jag_token", impersonated=False)
+            # The organization's identity provider names this user, who never approved the token, so
+            # the user's staff rights don't carry over.
+            verified.user.withhold_staff_rights()
             self.client_id = verified.client_id
             self.scopes = verified.scopes
             self.organization_id = verified.organization_id

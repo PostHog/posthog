@@ -259,6 +259,11 @@ class SendWarning:
     agent_action: str
 
 
+class QueuedEmailStatus(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    SCHEDULED = "scheduled", "Scheduled"
+
+
 @frozen
 class QueuedEmail:
     message_id: str
@@ -267,6 +272,9 @@ class QueuedEmail:
     warnings: tuple[SendWarning, ...] = ()
     # The total size of the email's files, as the CDP service verified them. None when it didn't say.
     attachment_bytes: int | None = None
+    status: QueuedEmailStatus = QueuedEmailStatus.QUEUED
+    # The CDP service's answer as it sent it, so a replay returns the first request's time unchanged.
+    scheduled_at: str | None = None
     sent_from_sandbox: bool = False
 
 
@@ -569,3 +577,35 @@ class TransactionalEmailActivity:
     has_more_before: bool
     has_more_after: bool
     sessions: list[TransactionalEmailActivitySession]
+
+
+@frozen
+class WorkflowEmailSend:
+    """One email a workflow or broadcast step sent, read from the `$workflows_email_*` events."""
+
+    # A run can send several emails, so a send is its run and the step that sent it.
+    invocation_id: str
+    action_id: str
+    workflow_id: str
+    distinct_id: str
+    recipient: str
+    # Empty for a sensitive template, whose events leave the subject out.
+    subject: str
+    sent_at: datetime
+    status: EmailDeliveryStatus
+    opened: bool
+    clicked: bool
+
+
+@frozen
+class WorkflowEmailPage:
+    sends: list[WorkflowEmailSend]
+    has_more: bool
+    # The events only exist while the team records engagement events.
+    engagement_events_enabled: bool
+
+
+@frozen
+class WorkflowEmailDetail:
+    send: WorkflowEmailSend
+    timeline: list[TransactionalEmailLogEvent]

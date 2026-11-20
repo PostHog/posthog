@@ -276,6 +276,23 @@ class TestConfigValidation:
         with pytest.raises(DestinationConfigurationError, match="Data Editor"):
             await writer.prepare_run(_ctx())
 
+    @pytest.mark.asyncio
+    async def test_a_project_with_no_billing_account_is_a_configuration_error(self) -> None:
+        # Without this, a free-tier project's DML rejection reads as transient and the sync
+        # retries forever instead of telling the customer to enable billing.
+        client = FakeBigQueryClient()
+        client.create_dataset = MagicMock(  # type: ignore[method-assign]
+            side_effect=Forbidden(
+                "403 Billing has not been enabled for this project. Enable billing at "
+                "https://console.cloud.google.com/billing.; reason: billingNotEnabled, message: Billing has not "
+                "been enabled for this project."
+            )
+        )
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        with pytest.raises(DestinationConfigurationError, match="Enable billing"):
+            await writer.prepare_run(_ctx())
+
 
 @pytest.mark.asyncio
 class TestFullRefresh:

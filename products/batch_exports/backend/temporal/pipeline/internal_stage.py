@@ -21,8 +21,8 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.clickhouse.workload import Workload
 from posthog.credentials import AWSKeyPair
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import use_new_events_schema
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 if typing.TYPE_CHECKING:
@@ -666,10 +666,10 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        native_source = query_template in (
-            EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
-            EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
-        ) and await database_sync_to_async(use_new_events_schema)(team_id)
+        native_source = (
+            query_template in (EXPORT_TO_S3_FROM_EVENTS_BACKFILL, EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS)
+            and batch_exports_read_new_events_table()
+        )
 
         # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
         # TODO: Temporary. Once `events_json_recent` serves the recent paths, choose the table once up front and
