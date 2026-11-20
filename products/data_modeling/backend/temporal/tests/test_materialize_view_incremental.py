@@ -62,6 +62,10 @@ def _day_batch(day: datetime, **columns: pa.Array) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(arrays, names=["day", *columns])
 
 
+def _not_utf8(value: bytes) -> pa.Array:
+    return pa.array([value], pa.binary()).view(pa.string())
+
+
 def _rows(table_uri: str) -> list[tuple[Any, Any]]:
     """Stored rows as (day, value), sorted, so tests assert content rather than counts."""
     table = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options()).to_pyarrow_table()
@@ -392,6 +396,13 @@ class TestIncrementalMaterialization:
                 _day_batch(DAY2, c=pa.array([[Decimal("7.25")]], pa.list_(pa.decimal256(76, 10)))),
                 [(DAY1, [Decimal("12.5")]), (DAY2, [Decimal("7.25")])],
                 id="decimal256_in_an_array",
+            ),
+            pytest.param(
+                [("c", "String")],
+                _day_batch(DAY1, c=_not_utf8(b"caf\xc3")),
+                _day_batch(DAY2, c=_not_utf8(b"\xffok")),
+                [(DAY1, "caf\ufffd"), (DAY2, "\ufffdok")],
+                id="string_that_is_not_valid_utf8",
             ),
         ],
     )

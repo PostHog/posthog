@@ -583,6 +583,90 @@ def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+# Repairing one value means a Python decode of its whole slice, so a small slice keeps that work
+# close to the values that need it.
+UTF8_REPAIR_SLICE_ROWS = 65_536
+
+
+def _is_valid(array: pa.Array | pa.RecordBatch) -> bool:
+    try:
+        array.validate(full=True)
+    except pa.ArrowInvalid:
+        return False
+    return True
+
+
+def _replace_invalid_utf8_in_strings(array: pa.Array) -> pa.Array:
+    binary_type = pa.large_binary() if pa.types.is_large_string(array.type) else pa.binary()
+    slices: list[pa.Array] = []
+    for start in range(0, len(array), UTF8_REPAIR_SLICE_ROWS):
+        piece = array.slice(start, UTF8_REPAIR_SLICE_ROWS)
+        if not _is_valid(piece):
+            raw = typing.cast(list[bytes | None], piece.cast(binary_type).to_pylist())
+            piece = pa.array(
+                [None if value is None else value.decode("utf-8", errors="replace") for value in raw],
+                type=array.type,
+            )
+        slices.append(piece)
+    return pa.concat_arrays(slices)
+
+
+def _utf8_repaired(array: pa.Array) -> pa.Array:
+    if _is_valid(array):
+        return array
+
+    arrow_type = array.type
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
+        return _replace_invalid_utf8_in_strings(array)
+
+    # pyarrow cannot rebuild a sliced nested array with a null mask, so the rebuild starts from an
+    # unsliced copy. This copy happens only for a column that holds invalid UTF-8.
+    array = pa.concat_arrays([array])
+    if pa.types.is_large_list(arrow_type):
+        large_list = typing.cast(pa.LargeListArray, array)
+        return pa.LargeListArray.from_arrays(
+            large_list.offsets, _utf8_repaired(large_list.values), type=arrow_type, mask=large_list.is_null()
+        )
+    if pa.types.is_list(arrow_type):
+        list_array = typing.cast(pa.ListArray, array)
+        return pa.ListArray.from_arrays(
+            list_array.offsets, _utf8_repaired(list_array.values), type=arrow_type, mask=list_array.is_null()
+        )
+    if pa.types.is_struct(arrow_type):
+        struct_array = typing.cast(pa.StructArray, array)
+        return pa.StructArray.from_arrays(
+            [_utf8_repaired(struct_array.field(index)) for index in range(arrow_type.num_fields)],
+            fields=list(arrow_type),
+            mask=struct_array.is_null(),
+        )
+    if pa.types.is_map(arrow_type):
+        map_array = typing.cast(pa.MapArray, array)
+        # The stubs accept a type only with an entries struct, a form pyarrow itself rejects.
+        return pa.MapArray.from_arrays(  # type: ignore[call-overload]
+            map_array.offsets,
+            _utf8_repaired(map_array.keys),
+            _utf8_repaired(map_array.items),
+            type=arrow_type,
+            mask=map_array.is_null(),
+        )
+    return array
+
+
+def _replace_invalid_utf8(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Replace byte sequences that are not valid UTF-8 in string values, at any depth, with U+FFFD.
+
+    A ClickHouse String holds arbitrary bytes, and the Arrow stream sends it as an Arrow string
+    without a check. Parquet stores the bytes as they are, but deltalake, DuckDB and Trino then
+    refuse to read the file. The column keeps its string type so that the table schema does not
+    depend on the data in one batch.
+    """
+    if _is_valid(batch):
+        return batch
+    return pa.RecordBatch.from_arrays(
+        [_utf8_repaired(batch.column(index)) for index in range(batch.num_columns)], schema=batch.schema
+    )
+
+
 _SIGNED_EQUIVALENT_BY_BIT_WIDTH = {8: pa.int16(), 16: pa.int32(), 32: pa.int64(), 64: pa.int64()}
 
 
@@ -1140,6 +1224,7 @@ async def _materialize_fully(
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
             batch = _transform_unsupported_decimals(batch)
+            batch = _replace_invalid_utf8(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
@@ -1244,6 +1329,7 @@ async def _materialize_incrementally(
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
             batch = _transform_unsupported_decimals(batch)
+            batch = _replace_invalid_utf8(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _transform_unsigned_integers(batch)
             batch = _force_nullable(batch)
