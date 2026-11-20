@@ -529,11 +529,6 @@ export interface AnomalyInsightSeriesApi {
      * @nullable
      */
     anomaly_rate: number | null
-    /**
-     * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-     * @nullable
-     */
-    baseline_rate: number | null
     /** Completed buckets in the range, scored or not. */
     expected_buckets: number
     /**
@@ -775,11 +770,6 @@ export interface AnomalySeriesApi {
      */
     scored_through: string | null
     /**
-     * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-     * @nullable
-     */
-    baseline_rate: number | null
-    /**
      * The oldest flagged bucket in the range, in the project timezone.
      * @nullable
      */
@@ -819,11 +809,6 @@ export interface AnomalyTopSeriesApi {
      * @nullable
      */
     anomaly_rate: number | null
-    /**
-     * The anomaly rate over the 30 days before the range.
-     * @nullable
-     */
-    baseline_rate: number | null
 }
 
 export interface AnomalyInsightRowApi {
@@ -13741,7 +13726,7 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     only_flagged?: boolean
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent

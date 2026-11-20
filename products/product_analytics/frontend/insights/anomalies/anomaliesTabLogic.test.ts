@@ -35,7 +35,6 @@ function makeSeries(index: number): AnomalySeriesApi {
         expected_buckets: 14,
         coverage: 1,
         scored_through: '2026-11-16T00:00:00+00:00',
-        baseline_rate: 0,
         first_flagged_bucket: '2026-11-15T00:00:00+00:00',
         last_flagged_bucket: '2026-11-15T00:00:00+00:00',
         flagged_points: [],
