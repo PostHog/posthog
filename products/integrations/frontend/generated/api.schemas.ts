@@ -221,6 +221,7 @@ export interface PaginatedIntegrationConfigListApi {
  * * `apns` - Apple Push
  * * `aws-redshift` - Aws Redshift
  * * `aws-s3` - Aws S3
+ * * `aws-warehouse-sources` - Aws Warehouse Sources
  * * `azure-blob` - Azure Blob
  * * `bing-ads` - Bing Ads
  * * `clickup` - Clickup
@@ -277,6 +278,7 @@ export const IntegrationKindEnumApi = {
     Apns: 'apns',
     AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
+    AwsWarehouseSources: 'aws-warehouse-sources',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -338,6 +340,7 @@ export interface IntegrationConfigCreateApi {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -1139,6 +1142,7 @@ export interface IntegrationAccessRequestApi {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -1307,6 +1311,7 @@ export type IntegrationsListParams = {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -1374,6 +1379,7 @@ export const IntegrationsListKind = {
     AppleAds: 'apple-ads',
     AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
+    AwsWarehouseSources: 'aws-warehouse-sources',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
