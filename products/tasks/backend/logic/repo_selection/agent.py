@@ -461,6 +461,7 @@ def _build_repo_selection_prompt(
     visibility: Mapping[str, bool | None] | None = None,
     source_repository: str | None = None,
     figures: Mapping[str, RepositoryFigures] | None = None,
+    gitlab_repos: Collection[str] = (),
 ) -> str:
     """Build the prompt for the sandbox agent to select the most relevant repository.
 
@@ -487,6 +488,9 @@ def _build_repo_selection_prompt(
 
     `figures` maps candidates to their stored size and activity figures (see `load_candidate_figures`).
     The list is ordered by activity, and a candidate missing from it renders with its visibility only.
+
+    `gitlab_repos` are the candidates that are GitLab projects. Nothing caches their code, so the
+    prompt tells the agent not to count a missing cache row against them.
     """
     schema = RepoSelectionResult.model_json_schema()
     # `task_id` is system-set after the run — keep it out of the agent's output contract.
@@ -519,6 +523,18 @@ copies. Applicable routing rules, past corrections, and specific ownership evide
 source default.
 """
         if source_repository
+        else ""
+    )
+
+    gitlab_section = (
+        f"""
+## GitLab projects
+
+These candidates are GitLab projects: {", ".join(f"`{path}`" for path in gitlab_repos)}. The cache
+and `gh` have no data for them. Judge them from their paths, the context, team routing rules, and
+past corrections. A missing cache row is not evidence against a GitLab project.
+"""
+        if gitlab_repos
         else ""
     )
 
@@ -577,7 +593,7 @@ Only consider rows whose `full_name` is in the candidate list below.
 The list contains only repositories this request may go to. {ACTIVITY_PROMPT_GUIDE}
 
 {repo_list}
-{source_section}{rules_section}{corrections_section}
+{source_section}{gitlab_section}{rules_section}{corrections_section}
 ## The cache (your source of truth — query it before answering)
 
 A Postgres-backed cache of every candidate repo's README, full file-tree paths, and metadata lives
@@ -740,6 +756,7 @@ async def select_repository(
     source_repository: str | None = None,
     source_repositories: Collection[str] = (),
     require_private_destination: bool = False,
+    gitlab_candidates: Collection[str] = (),
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -763,10 +780,15 @@ async def select_repository(
     candidate list (hallucination). Callers that need to distinguish that failure mode from
     a legitimate "no plausible candidate" decision (`RepoSelectionResult(repository=None, ...)`)
     should catch the exception.
+
+    `gitlab_candidates` are GitLab project paths the caller also offers. They need no GitHub
+    integration, have no cache rows, and read as unknown visibility, so a private or unconfirmed
+    source never routes to them. A GitHub repository with the same name keeps its place.
     """
+    gitlab_repos = sorted({path.strip().lower() for path in gitlab_candidates if path.strip()})
     if github is None:
         github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
-    if github is None:
+    if github is None and not gitlab_repos:
         reconnect_required = await _github_reconnect_required(team_id)
         return RepoSelectionResult(
             repository=None,
@@ -776,38 +798,47 @@ async def select_repository(
                 else "No GitHub repositories connected to this team."
             ),
         )
-    if candidate_repos is None:
+    if github is None:
+        candidate_repos = []
+    elif candidate_repos is None:
         candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)
-    if len(candidate_repos) == 0:
+    if len(candidate_repos) == 0 and not gitlab_repos:
         return RepoSelectionResult(
             repository=None,
             reason="No GitHub repositories connected to this team.",
         )
 
-    # Hydrate the heavy cache before running the agent. Single-flighted per integration —
-    # concurrent calls for the same team wait on the leader and then read the warm cache.
-    if output_fn:
-        output_fn("Refreshing repository cache...")
-    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id, priority=priority)
-    await repo_cache.sync_full_cache()
-    # Drop archived repos (agent can't fix code there) and repos missing from the heavy cache
-    # (the prompt treats SQL as primary evidence — a missing row reads as a false-negative).
-    eligible = await database_sync_to_async(_list_eligible_full_names, thread_sensitive=False)(github, team_id)
-    dropped = [r for r in candidate_repos if r not in eligible]
-    if dropped:
-        logger.info("repo_selection.dropped_candidates", extra={"dropped": dropped, "team_id": team_id})
-        candidate_repos = [r for r in candidate_repos if r in eligible]
-    if len(candidate_repos) == 0:
-        raise RepoSelectionUnavailableError(
-            "No connected GitHub repositories are eligible (archived or missing cache data)."
-        )
+    if github is not None and candidate_repos:
+        # Hydrate the heavy cache before running the agent. Single-flighted per integration —
+        # concurrent calls for the same team wait on the leader and then read the warm cache.
+        if output_fn:
+            output_fn("Refreshing repository cache...")
+        repo_cache = GitHubRepositoryFullCache(github, team_id=team_id, priority=priority)
+        await repo_cache.sync_full_cache()
+        # Drop archived repos (agent can't fix code there) and repos missing from the heavy cache
+        # (the prompt treats SQL as primary evidence — a missing row reads as a false-negative).
+        eligible = await database_sync_to_async(_list_eligible_full_names, thread_sensitive=False)(github, team_id)
+        dropped = [r for r in candidate_repos if r not in eligible]
+        if dropped:
+            logger.info("repo_selection.dropped_candidates", extra={"dropped": dropped, "team_id": team_id})
+            candidate_repos = [r for r in candidate_repos if r in eligible]
+        if len(candidate_repos) == 0 and not gitlab_repos:
+            raise RepoSelectionUnavailableError(
+                "No connected GitHub repositories are eligible (archived or missing cache data)."
+            )
+    gitlab_repos = [path for path in gitlab_repos if path not in candidate_repos]
+    candidate_repos = [*candidate_repos, *gitlab_repos]
 
     source_repository = (source_repository or "").strip().lower() or None
     sources = {repository.lower() for repository in source_repositories}
     if source_repository:
         sources.add(source_repository)
-    visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(
-        github, [*candidate_repos, *sources]
+    visibility = (
+        await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(
+            github, [*candidate_repos, *sources]
+        )
+        if github is not None
+        else {}
     )
     candidate_repos = _filter_repository_sources(candidate_repos, sources, visibility, require_private_destination)
     if not candidate_repos:
@@ -827,8 +858,10 @@ async def select_repository(
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
     routing_rules = await database_sync_to_async(_routing_rules_block, thread_sensitive=False)(team_id, candidate_repos)
-    figures = await database_sync_to_async(load_candidate_figures, thread_sensitive=False)(
-        github, team_id, candidate_repos
+    figures = (
+        await database_sync_to_async(load_candidate_figures, thread_sensitive=False)(github, team_id, candidate_repos)
+        if github is not None
+        else {}
     )
     prompt = _build_repo_selection_prompt(
         context,
@@ -838,6 +871,7 @@ async def select_repository(
         visibility=visibility,
         source_repository=_eligible_source_repository(source_repository, candidate_repos),
         figures=figures,
+        gitlab_repos=[path for path in gitlab_repos if path in candidate_repos],
     )
     runtime = _resolve_repo_selection_runtime(model, runtime_adapter, reasoning_effort)
     sandbox_context = CustomPromptSandboxContext(

@@ -679,6 +679,92 @@ def test_autostart_blocks_a_repository_the_installation_no_longer_reaches(team: 
     create_task.assert_not_called()
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("repository", "gitlab_error", "expect_gitlab"),
+    [
+        ("acme/group/app", None, True),
+        # The installation reaches the same path, so the report keeps running on GitHub.
+        ("acme/web", None, False),
+        ("acme/group/app", "The GitLab token can't push to acme/group/app.", False),
+    ],
+)
+def test_autostart_in_a_gitlab_project(
+    organization: Organization, team: Team, repository: str, gitlab_error: str | None, expect_gitlab: bool
+) -> None:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    enabler = User.objects.create(email="gitlab-enabler@example.com")
+    OrganizationMembership.objects.create(user=enabler, organization=organization)
+    SignalSourceConfig.objects.create(
+        team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+    )
+    SignalTeamConfig.objects.update_or_create(team=team, defaults={"implementation_repositories": ["acme/assets"]})
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="current",
+        config={"installation_id": "current"},
+        repository_cache=[{"id": 1, "name": "web", "full_name": "acme/web", "private": True}],
+        repository_cache_updated_at=timezone.now(),
+    )
+    gitlab = Integration.objects.create(
+        team=team,
+        kind="gitlab",
+        integration_id="gitlab-1",
+        config={"hostname": "https://gitlab.com", "path_with_namespace": repository, "project_id": 1},
+        sensitive_config={"access_token": "glpat-example"},
+    )
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team=team, title=kwargs["title"], description=kwargs["description"], origin_product="signal_report"
+        )
+        run = TaskRun.objects.create(task=task, team=team)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch(
+            "products.signals.backend.auto_start.database_sync_to_async",
+            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+        ),
+        patch("products.signals.backend.auto_start.assignment_side_effects_allowed", return_value=True),
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+        patch("products.signals.backend.auto_start.resolve_issue_dependencies", return_value=()),
+        patch("products.signals.backend.self_driving_gitlab.feature_enabled_or_false", return_value=True),
+        patch.object(tasks_facade, "gitlab_repository_error", return_value=gitlab_error),
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as create_task,
+    ):
+        outcome = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository=repository,
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="A clear fix",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            priority=PriorityAssessment(explanation="Affects sessions", priority=Priority.P2),
+            reviewers_content=[],
+        )
+
+    if gitlab_error:
+        assert outcome == AutostartOutcome(status="blocked", reason=gitlab_error)
+        create_task.assert_not_called()
+        return
+    assert outcome == AutostartOutcome(status="started")
+    created = create_task.call_args.kwargs
+    assert (created["repository"], created["repository_integration_id"]) == (
+        repository,
+        gitlab.id if expect_gitlab else None,
+    )
+    # The configured repositories are GitHub ones, so a GitLab run gets no GitHub token for them.
+    assert created["github_access_repositories"] == ([] if expect_gitlab else ["acme/assets"])
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("has_automatic_reviewer,enrolled", [(False, True), (True, True), (False, False)])
 def test_human_pin_does_not_authorize_automatic_execution(

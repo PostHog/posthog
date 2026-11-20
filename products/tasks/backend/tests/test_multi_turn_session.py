@@ -2179,6 +2179,32 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert public_state["disable_skills"] is True
 
     @pytest.mark.asyncio
+    async def test_a_gitlab_project_context_clones_with_the_connection_and_no_github_credential(self) -> None:
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        await Integration.objects.acreate(team=team, kind="github", integration_id="gh-1", config={})
+        gitlab = await Integration.objects.acreate(
+            team=team,
+            kind="gitlab",
+            integration_id="gitlab-1",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "acme/group/app", "project_id": 1},
+            sensitive_config={"access_token": "glpat-example"},
+        )
+        context = CustomPromptSandboxContext(
+            team_id=team.id, user_id=user.id, repository="acme/group/app", repository_integration_id=gitlab.id
+        )
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
+            task_run = await agents_facade.create_task_and_trigger("prompt", context, profile=USER)
+
+        task = await Task.objects.aget(id=task_run.task_id)
+        assert (task.repositories, task.repository_integration_id, task.github_integration_id) == (
+            ["acme/group/app"],
+            gitlab.id,
+            None,
+        )
+        assert task.github_user_integration_id is None
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])
     async def test_marks_a_schema_run_as_ended_by_the_caller(self, output_schema, expected_flag):
         team, user = await sync_to_async(self._setup_team_and_user)()

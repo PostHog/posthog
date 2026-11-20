@@ -86,6 +86,7 @@ from products.signals.backend.report_monitoring_signals import (
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.report_tags import team_tag_vocabulary
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
+from products.signals.backend.self_driving_gitlab import self_driving_gitlab_project
 from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import unused_suggestable_products
 from products.signals.backend.startup_failure import (
@@ -894,6 +895,11 @@ async def _persist_agentic_report_artefacts(
         repo_selection.repository is not None
         and not reviewer_selection_enabled
         and (decision is None or research_outcome == "research_candidates_rejected")
+        # This lookup reads GitHub commit history and ownership files, which a GitLab project has none of.
+        and await database_sync_to_async(self_driving_gitlab_project, thread_sensitive=False)(
+            team_id, repo_selection.repository
+        )
+        is None
     ):
         try:
             reviewer_resolution = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
@@ -1234,8 +1240,14 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
 
         async with Heartbeater():
             # 1. Get context for the sandbox
+            gitlab_project = await database_sync_to_async(self_driving_gitlab_project, thread_sensitive=False)(
+                input.team_id, repository
+            )
+            # A GitLab clone needs no GitHub identity, so any project member can run it.
             user_id = await database_sync_to_async(
-                resolve_acting_user_id_for_team if input.github_optional else resolve_user_id_for_team,
+                resolve_acting_user_id_for_team
+                if input.github_optional or gitlab_project is not None
+                else resolve_user_id_for_team,
                 thread_sensitive=False,
             )(input.team_id)
             if user_id is None:
@@ -1253,7 +1265,8 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 team_id=input.team_id,
                 user_id=user_id,
                 repository=repository,
-                github_read_access=input.github_optional and repository is not None,
+                repository_integration_id=gitlab_project.id if gitlab_project is not None else None,
+                github_read_access=input.github_optional and repository is not None and gitlab_project is None,
                 sandbox_environment_id=sandbox_env_id,
                 # Reads, plus the scratchpad: the research agent queries data/insights and can
                 # list the report's artefacts, but never writes artefacts itself — the pipeline

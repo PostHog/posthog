@@ -27,10 +27,12 @@ from products.signals.backend.report_generation.select_repo import (
     select_repository_for_report,
 )
 from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
+from products.signals.backend.self_driving_gitlab import self_driving_gitlab_candidates, self_driving_gitlab_project
 from products.signals.backend.task_profiles import REPO_SELECTION
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,
+    resolve_acting_user_id_for_team,
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
@@ -86,7 +88,8 @@ def _resolve_sandbox_user_id(team_id: int) -> int | None:
     """Select a user to assign sandbox to."""
     github = resolve_team_github_integration(team_id)
     if github is None:
-        return None
+        # Selecting a GitLab project clones nothing, so it needs a project member, not a GitHub identity.
+        return resolve_acting_user_id_for_team(team_id) if self_driving_gitlab_candidates(team_id) else None
     return resolve_user_id_for_team(team_id, github=github)
 
 
@@ -210,6 +213,13 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             previous = await aretry_on_db_connection_drop(
                 lambda: database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(input.report_id)
             )
+            previous_on_gitlab = (
+                previous is not None
+                and await database_sync_to_async(self_driving_gitlab_project, thread_sensitive=False)(
+                    input.team_id, previous.repository
+                )
+                is not None
+            )
             # Outside the pilot, research resolves its sandbox user from the team's GitHub integration
             # and raises when there is none. A team that disconnected GitHub after the first run must
             # go back through selection, which returns no repository and asks for a selection.
@@ -217,6 +227,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 previous is not None
                 and previous.repository is not None
                 and not input.github_optional
+                and not previous_on_gitlab
                 and await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(input.team_id)
                 is None
             ):
@@ -231,6 +242,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 previous is not None
                 and previous.repository is not None
                 and not input.github_optional
+                and not previous_on_gitlab
                 and not await database_sync_to_async(saved_repository_connected, thread_sensitive=False)(
                     input.team_id, previous.repository
                 )

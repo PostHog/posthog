@@ -8456,6 +8456,7 @@ def create_task(
         implementation_access_repositories,
         is_pull_request_run_request,
         record_report_task,
+        self_driving_gitlab_project,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
@@ -8784,6 +8785,19 @@ def create_task(
             not resolved_repository and client_provenance != TaskClientProvenance.POSTHOG_DESKTOP
         )
 
+    gitlab_project = (
+        self_driving_gitlab_project(team_id=team_id, repository=validated_data["repository"])
+        if signal_report is not None
+        and validated_data.get("repository")
+        and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+        and signal_report_task_relationship in (None, "implementation")
+        else None
+    )
+    if gitlab_project is not None:
+        # Set before the credential choice below, so the GitHub-only steps skip this task.
+        validated_data["repository_integration_id"] = gitlab_project.id
+        uses_repository_integration = True
+
     # The credential follows the entitlement, not the repository: an entitled report task carries
     # the team's GitHub integration even when nothing resolved, so the agent can still clone what
     # the conversation turns out to need. That is the shape a repo-less user-created task already
@@ -8859,7 +8873,16 @@ def create_task(
             code="report_implementation_repository_unresolved",
         )
 
-    if signal_report is not None and signal_report_task_relationship in (None, "implementation"):
+    if gitlab_project is not None and (
+        gitlab_error := gitlab_repository_error(gitlab_project, validated_data["repository"])
+    ):
+        raise ValidationError({"repository": gitlab_error})
+
+    if (
+        gitlab_project is None
+        and signal_report is not None
+        and signal_report_task_relationship in (None, "implementation")
+    ):
         from products.signals.backend.facade.github_optional import (  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
             github_optional_pilot_enabled,
             pilot_repository_integration_id,
@@ -8882,7 +8905,7 @@ def create_task(
                 }
             )
 
-    if signal_report_id and signal_report_task_relationship in (None, "implementation"):
+    if gitlab_project is None and signal_report_id and signal_report_task_relationship in (None, "implementation"):
         if repository := validated_data.get("repository"):
             # Tells the agent about the repositories `run_task` adds to its token, as auto-start does.
             validated_data["description"] = (validated_data.get("description") or "") + (

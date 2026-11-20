@@ -27,6 +27,7 @@ from products.signals.backend.report_monitoring_provenance import (
     MonitoringRepositorySources,
     monitoring_repository_sources,
 )
+from products.signals.backend.self_driving_gitlab import self_driving_gitlab_candidates
 from products.signals.backend.task_profiles import REPO_SELECTION, REPO_SELECTION_WITHOUT_REPORT
 from products.tasks.backend.facade.agents import SandboxRunFailed
 from products.tasks.backend.facade.profiles import SourceKind, TaskSource
@@ -133,6 +134,7 @@ async def select_repository_for_team(
     # custom agents, scout emit) sees the project's past wrong-repo corrections, rather than per
     # caller. Best-effort inside (None on failure or no corrections).
     past_corrections = await database_sync_to_async(wrong_repo_corrections_block, thread_sensitive=False)(team_id)
+    gitlab_candidates = await database_sync_to_async(self_driving_gitlab_candidates, thread_sensitive=False)(team_id)
     try:
         return await select_repository(
             team_id=team_id,
@@ -156,6 +158,7 @@ async def select_repository_for_team(
             source_repository=source_repository,
             source_repositories=source_repositories,
             require_private_destination=require_private_destination,
+            gitlab_candidates=gitlab_candidates,
         )
     except RepoSelectionRejectedError as exc:
         # Preserve legacy behavior: surface validation reject as null with reason so callers'

@@ -5,9 +5,12 @@ the same transaction, so the caller owns it. Each function calls its implementat
 module attribute, so a test that patches the implementation also changes what callers see.
 """
 
+from posthog.integrations import IntegrationRecord
+
 from products.signals.backend import (
     implementation_repositories,
     report_task_actions,
+    self_driving_gitlab,
     task_run_artefacts,
     tracker_issues,
 )
@@ -28,6 +31,7 @@ __all__ = [
     "record_report_task",
     "release_quota_cancelled_implementation",
     "report_task_ids",
+    "self_driving_gitlab_project",
 ]
 
 
@@ -111,3 +115,8 @@ def implementation_access_repositories(*, team_id: int, repository: str) -> list
 def implementation_access_instruction(*, repository: str, access_repositories: list[str]) -> str:
     """The prompt paragraph that tells the agent about `access_repositories`. Empty when there are none."""
     return implementation_repositories.access_repositories_instruction(repository, access_repositories)
+
+
+def self_driving_gitlab_project(*, team_id: int, repository: str | None) -> IntegrationRecord | None:
+    """The GitLab connection a report task on `repository` runs through, or None when it uses GitHub."""
+    return self_driving_gitlab.self_driving_gitlab_project(team_id, repository)

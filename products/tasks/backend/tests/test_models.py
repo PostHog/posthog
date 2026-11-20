@@ -1314,6 +1314,46 @@ class TestTask(TestCase):
         self.assertIn("does not have a GitHub integration", str(cm.exception))
         mock_execute_workflow.assert_not_called()
 
+    @parameterized.expand([("own_connection", True), ("another_teams_connection", False)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_signal_report_in_a_gitlab_project_attaches_no_github_credential(
+        self, _name, own_connection, mock_execute_workflow
+    ):
+        user = User.objects.create(email="signal-gitlab@test.com")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        Integration.objects.create(team=self.team, kind="github", config={})
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        gitlab = Integration.objects.create(
+            team=self.team if own_connection else other_team,
+            kind="gitlab",
+            integration_id="gitlab-1",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "acme/group/app", "project_id": 1},
+            sensitive_config={"access_token": "glpat-example"},
+        )
+
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            nullcontext() if own_connection else self.assertRaises(ValueError),
+        ):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Signal Report",
+                description="Implement",
+                profile=SIGNAL_REPORT_PROFILE,
+                user_id=user.id,
+                repository="acme/group/app",
+                repository_integration_id=gitlab.id,
+            )
+
+        if not own_connection:
+            mock_execute_workflow.assert_not_called()
+            return
+        self.assertEqual(
+            (task.repository, task.repository_integration_id, task.github_integration, task.github_user_integration),
+            ("acme/group/app", gitlab.id, None, None),
+        )
+        mock_execute_workflow.assert_called_once()
+
     @parameterized.expand(
         [
             ("posthog-repo",),
