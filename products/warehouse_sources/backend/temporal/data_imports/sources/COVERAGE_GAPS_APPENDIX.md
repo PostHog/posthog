@@ -189,10 +189,10 @@ Note: Read the official Report Service operations, event catalog, and filter cat
 
 Re-audited 2026-11-19 against: <https://dev.adjust.com/en/api/campaign-api>
 
-- [ ] `Filters data lookups (GET https://automate.adjust.com/reports-service/filters_data)` — lookups for apps, networks, channels, countries, partners and other filter IDs used in the report tables; needs a required_filters parameter (high)
-- [ ] `Partners (GET https://api.adjust.com/public/v2/partners)` — list of ad network partners with their settings, to decode partner IDs in partner_report (medium)
-- [ ] `Links (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers)` — network-level tracking links per app, a fan-out over apps (medium)
-- [ ] `Sublinks (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers/{link_token}/children)` — sublinks nested under each link, to decode campaign tokens (low)
+- [x] `Filters data lookups (GET https://automate.adjust.com/reports-service/filters_data)` — lookups for apps, networks, channels, countries, partners and other filter IDs used in the report tables; needs a required_filters parameter (high)
+- [x] `Partners (GET https://api.adjust.com/public/v2/partners)` — list of ad network partners with their settings, to decode partner IDs in partner_report (medium)
+- [x] `Links (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers)` — network-level tracking links per app, a fan-out over apps (medium)
+- [x] `Sublinks (GET https://api.adjust.com/public/v2/apps/{app_token}/trackers/{link_token}/children)` — sublinks nested under each link, to decode campaign tokens (low)
 
 Note (2026-11-19): Read the Report Service filters_data page and the Campaign API page on the Adjust developer hub (HTML, the .md form 404s). The Campaign API uses a Bearer token on a different host than the report service, and uses cursor pagination. Links need the app list first, then sublinks need each link. Excluded the ad spend push API, S2S event ingestion, App Automation writes, blocklist and device API.
 
@@ -613,7 +613,7 @@ Note: Parsed the official AWS SDK service model and compared read operations wit
 
 ## AmazonAds — gaps
 
-Today (23): `ads_accounts`, `change_history`, `invoices`, `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_campaign_negative_keywords`, `sp_campaign_negative_targets`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_negative_targets`, `sp_product_ads`, `sp_targets`
+Today (34): `ads_accounts`, `change_history`, `invoices`, `portfolios`, `profiles`, `sb_ad_groups`, `sb_ads`, `sb_campaigns`, `sb_purchased_product_reports`, `sb_targets`, `sd_ad_groups`, `sd_ads`, `sd_campaigns`, `sd_targets`, `sp_ad_groups`, `sp_advertised_product_reports`, `sp_budget_rule_campaigns`, `sp_budget_rules`, `sp_campaign_negative_keywords`, `sp_campaign_negative_targets`, `sp_campaign_reports`, `sp_campaigns`, `sp_keywords`, `sp_negative_keywords`, `sp_negative_targets`, `sp_product_ads`, `sp_purchased_product_reports`, `sp_search_term_reports`, `sp_targeting_reports`, `sp_targets`, `st_ad_groups`, `st_ads`, `st_campaigns`, `st_targets`
 
 Diffed against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/dest/SponsoredProducts_prod_3p.json>
 
@@ -636,10 +636,10 @@ Note: Static schema list. The Amazon Ads docs site is a Redocly SPA; the real sp
 
 Re-audited 2026-11-19 against: <https://d1y2lf8k3vrkfu.cloudfront.net/openapi/en-us/toc/per_entity_toc/reference_prod.json>
 
-- [ ] `Search term and advertised product reports (POST /reporting/reports with reportTypeId spSearchTerm, spAdvertisedProduct, spTargeting, spPurchasedProduct, sbPurchasedProduct)` — search term, per-ASIN and per-target performance; today only spCampaigns reports are synced (high)
-- [ ] `Ads API labels (POST /adsApi/v1/query/labels); Label associations (POST /adsApi/v1/query/labelObjectAssociations)` — label names and which campaigns, ad groups and ads carry them, for grouping spend (medium)
-- [ ] `SP budget rules (GET /sp/budgetRules; GET /sp/budgetRules/{budgetRuleId}/campaigns)` — budget rules and the campaigns they apply to; explains budget changes on synced campaigns (medium)
-- [ ] `Sponsored TV campaigns, ad groups, ads and targets (POST /st/campaigns/list; POST /st/adGroups/list; POST /st/ads/list; POST /st/targets/list)` — fourth ad product, so spend coverage is complete for advertisers running Sponsored TV (medium)
+- [x] `Search term and advertised product reports (POST /reporting/reports with reportTypeId spSearchTerm, spAdvertisedProduct, spTargeting, spPurchasedProduct, sbPurchasedProduct)` — search term, per-ASIN and per-target performance; today only spCampaigns reports are synced (high). Added as `sp_search_term_reports`, `sp_advertised_product_reports`, `sp_targeting_reports`, `sp_purchased_product_reports` and `sb_purchased_product_reports`, daily and incremental on `date` like `sp_campaign_reports`. Report rows have no id, so the key is the profile, the date and `_row_id`, a hash of the report's grouping columns. Columns are the ones the v3 columns reference lists for each report type.
+- ~~`Ads API labels (POST /adsApi/v1/query/labels); Label associations (POST /adsApi/v1/query/labelObjectAssociations)`~~ — skipped: the label specs allow only the `AMAZON_DSP` ad product and need an `Amazon-Ads-AccountId` header for a DSP advertiser account, which this source does not connect to (medium)
+- [x] `SP budget rules (GET /sp/budgetRules; GET /sp/budgetRules/{budgetRuleId}/campaigns)` — budget rules and the campaigns they apply to; explains budget changes on synced campaigns (medium). Added as `sp_budget_rules` and `sp_budget_rule_campaigns` (fan-out over the rules of each profile, full refresh).
+- [x] `Sponsored TV campaigns, ad groups, ads and targets (POST /st/campaigns/list; POST /st/adGroups/list; POST /st/ads/list; POST /st/targets/list)` — fourth ad product, so spend coverage is complete for advertisers running Sponsored TV (medium). Added as `st_campaigns`, `st_ad_groups`, `st_ads` and `st_targets` (SponsoredTV_prod_3p.json, v1 media types, full refresh). The unified Ads API has no Sponsored TV ad product.
 - [ ] `Ad associations (POST /adsApi/v1/query/adAssociations)` — links ads to creatives and ad groups in the unified API (low)
 - [ ] `Brand stores and pages (POST /brand/stores/v1/stores/list; POST /brand/stores/v1/storePages/list)` — Brand Store inventory that Sponsored Brands campaigns link to (low)
 - [ ] `Audiences (POST /audiences/list)` — audience segments available for targeting (low)
@@ -825,9 +825,9 @@ Today (11): `banners`, `checklists`, `embeds`, `flows`, `flows_v2`, `launchpads`
 
 Diffed against: <https://api.appcues.com/v2/docs>
 
-- [ ] `Bulk event export (POST /v2/accounts/ACCOUNT_ID/export/events)` — user events such as flow seen, completed and dismissed, the engagement data behind every experience table (high)
-- [ ] `Segment membership export (POST /v2/accounts/ACCOUNT_ID/segments/SEGMENT_ID/segment_membership_export)` — which users sit in each synced segment, the segment to user join (high)
-- [ ] `Ingestion filtering rules (GET /v2/accounts/ACCOUNT_ID/ingestion_filtering_rules)` — allow or deny lists of event and property names for the account, explains missing data (low)
+- [x] `Bulk event export (POST /v2/accounts/ACCOUNT_ID/export/events)` — user events such as flow seen, completed and dismissed, the engagement data behind every experience table (high)
+- [x] `Segment membership export (POST /v2/accounts/ACCOUNT_ID/segments/SEGMENT_ID/segment_membership_export)` — which users sit in each synced segment, the segment to user join (high)
+- [x] `Ingestion filtering rules (GET /v2/accounts/ACCOUNT_ID/ingestion_filtering_rules)` — allow or deny lists of event and property names for the account, explains missing data (low)
 
 Note: The API has no OpenAPI spec (the openapi.json path returns 404), so I parsed the rendered single-page docs at /v2/docs and read each section. Every experience type is already synced. Both gaps above are async: the POST returns job_id and job_url, and the file is fetched from the job when done, so the table needs a job poll step. Excluded: user and group profiles (no list form), publish and unpublish actions, SDK keys, bulk imports, GDPR deletion and the jobs list (ephemeral).
 
