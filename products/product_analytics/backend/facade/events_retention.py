@@ -5,6 +5,8 @@ The periods set here are the ones the events cleanup deletes by, at every monthl
 keep events for their plan's default period, which the cleanup every 3 months deletes by.
 """
 
+from datetime import date
+
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -27,6 +29,12 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
 
 def project_events_deleted(team: Team, months: int, *, concurrency_slots: events_retention.ConcurrencySlots) -> int:
     return events_retention.project_events_deleted(team, months, concurrency_slots=concurrency_slots)
+
+
+def project_events_deleted_before(
+    team: Team, before: date, *, concurrency_slots: events_retention.ConcurrencySlots
+) -> int:
+    return events_retention.project_events_deleted_before(team, before, concurrency_slots=concurrency_slots)
 
 
 def organization_events_deleted(

@@ -1,13 +1,13 @@
 import { LemonDialog, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
+import { retentionPeriodLabel } from 'lib/utils/retentionPeriodLabel'
 
 import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
 import { EventsRetentionLevel } from './eventsRetentionDeletionCountLogic'
 import { EventsRetentionPeriodChoices, eventsRetentionPeriodOptions } from './eventsRetentionPeriodOptions'
 import { EventsRetentionSupportPeriod } from './EventsRetentionSupportPeriod'
 import { RetentionPeriods, retentionChangeDeletion } from './retentionChangeDeletion'
-import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export interface EventsRetentionPeriodSelectProps extends RetentionPeriods, EventsRetentionPeriodChoices {
     level: EventsRetentionLevel

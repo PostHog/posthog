@@ -1,9 +1,9 @@
 import { dayjs } from 'lib/dayjs'
+import { retentionPeriodLabel } from 'lib/utils/retentionPeriodLabel'
 
 import { EventsRetentionDeletionCount } from './EventsRetentionDeletionCount'
 import { EventsRetentionLevel } from './eventsRetentionDeletionCountLogic'
 import { RetentionDeletion } from './retentionChangeDeletion'
-import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export interface EventsRetentionChangeNoteProps {
     level: EventsRetentionLevel

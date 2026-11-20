@@ -207,6 +207,11 @@ def project_events_deleted(team: Team, months: int, *, concurrency_slots: Concur
     return _events_before(team, _cutoff_on(next_cleanup_on(), months), EVENTS_DELETED_QUERY_SECONDS, concurrency_slots)
 
 
+def project_events_deleted_before(team: Team, before: date, *, concurrency_slots: ConcurrencySlots) -> int:
+    cutoff = datetime.combine(before, time(), tzinfo=UTC)
+    return _events_before(team, cutoff, EVENTS_DELETED_QUERY_SECONDS, concurrency_slots)
+
+
 def organization_events_deleted(organization: Organization, months: int, *, concurrency_slots: ConcurrencySlots) -> int:
     teams = Team.objects.filter(organization_id=organization.id).exclude(
         id__in=TeamEventsRetentionConfig.objects.filter(events_retention_months__isnull=False).values("team_id")

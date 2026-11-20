@@ -24,6 +24,7 @@ from products.product_analytics.backend.facade.events_retention import (
     organization_events_deleted,
     organization_events_retention,
     project_events_deleted,
+    project_events_deleted_before,
     project_events_retention,
     set_organization_events_retention,
     set_project_events_retention,
@@ -161,6 +162,23 @@ class EventsDeletedSerializer(serializers.Serializer):
     )
 
 
+class ScheduledEventsDeletedSerializer(serializers.Serializer):
+    deletes_on = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="The date of the project's next scheduled deletion. Null while no deletion is scheduled.",
+    )
+    deletes_before = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="The scheduled deletion removes the project's events from before this date. Null while no deletion is scheduled.",
+    )
+    events_deleted = serializers.IntegerField(
+        read_only=True,
+        help_text="How many queryable events the scheduled deletion removes. 0 while no deletion is scheduled. The count can be up to a day old.",
+    )
+
+
 def _events_deleted_response(months: int, events_deleted: int) -> Response:
     return Response(EventsDeletedSerializer({"retention_months": months, "events_deleted": events_deleted}).data)
 
@@ -273,6 +291,43 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         months = request.validated_query_data["retention_months"]
         return _events_deleted_response(
             months, project_events_deleted(self.team, months, concurrency_slots=query_concurrency_slots)
+        )
+
+    @extend_schema(
+        operation_id="events_retention_scheduled_deletion_count",
+        summary="Count the events the project's next scheduled deletion removes",
+        description=(
+            "Returns the project's next scheduled deletion and how many of its events that deletion removes. "
+            "Project members can read it."
+        ),
+        responses={
+            200: OpenApiResponse(response=ScheduledEventsDeletedSerializer, description="The count."),
+            504: OpenApiResponse(description="The count took too long."),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="scheduled_deletion_count",
+        required_scopes=["project:read", "query:read"],
+    )
+    def scheduled_deletion_count(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        next_deletion = project_events_retention(self.team).next_deletion
+        events_deleted = (
+            project_events_deleted_before(
+                self.team, next_deletion.deletes_before, concurrency_slots=query_concurrency_slots
+            )
+            if next_deletion
+            else 0
+        )
+        return Response(
+            ScheduledEventsDeletedSerializer(
+                {
+                    "deletes_on": next_deletion.deletes_on if next_deletion else None,
+                    "deletes_before": next_deletion.deletes_before if next_deletion else None,
+                    "events_deleted": events_deleted,
+                }
+            ).data
         )
 
 

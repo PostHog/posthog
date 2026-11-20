@@ -4,12 +4,12 @@ import { Link } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { retentionPeriodLabel } from 'lib/utils/retentionPeriodLabel'
 import { urls } from 'scenes/urls'
 
 import { EventsRetentionPeriodSelect } from './EventsRetentionPeriodSelect'
 import { EventsRetentionPlanNote } from './EventsRetentionPlanNote'
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
-import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export function ProjectEventsRetentionSetting(): JSX.Element | null {
     const { projectRetention, projectRetentionLoading } = useValues(eventsRetentionSettingsLogic)
