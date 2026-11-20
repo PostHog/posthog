@@ -499,6 +499,7 @@ export interface WebhookUrlApi {
  * * `customerio` - Customer.io
  * * `resend` - Resend
  * * `postmark` - Postmark
+ * * `sendgrid` - SendGrid
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
@@ -506,6 +507,7 @@ export const ImportProviderKeyEnumApi = {
     Customerio: 'customerio',
     Resend: 'resend',
     Postmark: 'postmark',
+    Sendgrid: 'sendgrid',
 } as const
 
 /**
@@ -621,7 +623,8 @@ export interface ProviderImportRunApi {
      *
      * * `customerio` - Customer.io
      * * `resend` - Resend
-     * * `postmark` - Postmark */
+     * * `postmark` - Postmark
+     * * `sendgrid` - SendGrid */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -651,7 +654,8 @@ export interface StartProviderImportApi {
      *
      * * `customerio` - Customer.io
      * * `resend` - Resend
-     * * `postmark` - Postmark */
+     * * `postmark` - Postmark
+     * * `sendgrid` - SendGrid */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -660,7 +664,7 @@ export interface StartProviderImportApi {
      */
     steps: string[]
     /**
-     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time.
+     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. PostHog deletes a Resend, Postmark or SendGrid key when the run ends, so send it every time.
      * @maxLength 512
      */
     api_key?: string
@@ -680,7 +684,8 @@ export interface ImportProviderOptionApi {
      *
      * * `customerio` - Customer.io
      * * `resend` - Resend
-     * * `postmark` - Postmark */
+     * * `postmark` - Postmark
+     * * `sendgrid` - SendGrid */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string
@@ -1682,7 +1687,7 @@ export interface TransactionalEmailImpactApi {
     clicked: number
     /** Delivered sends nobody clicked. */
     not_clicked: number
-    /** Sends that went out with open and click tracking off, as sensitive emails do, counted by when they were sent rather than queued. They can't record an open or a click. */
+    /** Sends that went out with open and click tracking off, as sensitive emails do, counted by when they were queued like the other counts. They can't record an open or a click. */
     untracked: number
     /** How many days after the click or the send the event counts. */
     window_days: number
@@ -1790,75 +1795,75 @@ export interface TransactionalEmailStatsOverTimeApi {
     previous: TransactionalEmailStatsCountsApi | null
 }
 
-/**
- * * `sending` - Sending
- * * `sent` - Sent
- * * `not_sent` - Not sent
- * * `failed` - Failed
- */
-export type PushSendStatusEnumApi = (typeof PushSendStatusEnumApi)[keyof typeof PushSendStatusEnumApi]
-
-export const PushSendStatusEnumApi = {
-    Sending: 'sending',
-    Sent: 'sent',
-    NotSent: 'not_sent',
-    Failed: 'failed',
-} as const
-
-export interface TransactionalPushLogEntryApi {
-    /** The ID of this send. */
-    run_id: string
-    /** When the send was queued. */
-    created_at: string
-    /** What happened. `sending` is still running, `sent` reached at least one of the person's devices, `not_sent` reached none, for example because the person has no device or its token expired, and `failed` stopped with an error.
-     *
-     * * `sending` - Sending
-     * * `sent` - Sent
-     * * `not_sent` - Not sent
-     * * `failed` - Failed */
-    status: PushSendStatusEnumApi
-    /** The warnings and errors the send logged, oldest first. They say why a push was not sent. */
-    messages: string[]
-    /** The distinct ID the push was sent to. */
-    distinct_id: string
-    /** The person behind the distinct ID. Empty when none was found. */
-    person_id: string
-    /** The workflow behind the push notification. */
+export interface WorkflowEmailSendApi {
+    /** The workflow run that sent the email. */
+    invocation_id: string
+    /** The email step that sent it. A run can send one email per step. */
+    action_id: string
+    /** The workflow or broadcast that sent the email. */
     workflow_id: string
-    /**
-     * The push notification that was sent.
-     * @nullable
-     */
-    template_id: string | null
-    /** The push notification's name. */
-    template_name: string
-    /** The title the push went out with. Empty when it was not sent. */
-    title: string
+    /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
+    distinct_id: string
+    /** The address the email was sent to. */
+    recipient: string
+    /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
+    subject: string
+    /** When the email went to the provider. */
+    sent_at: string
+    /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** Whether the recipient opened the email in the week after the send. */
+    opened: boolean
+    /** Whether the recipient clicked a link in the email in the week after the send. */
+    clicked: boolean
 }
 
-export interface TransactionalPushLogListApi {
+export interface WorkflowEmailListApi {
     /** Sends, newest first. */
-    results: TransactionalPushLogEntryApi[]
+    results: WorkflowEmailSendApi[]
     /** Whether another page follows. */
     has_more: boolean
+    /** Whether the project records engagement events now. Sends made while it was off show no subject, delivery, opens or clicks. */
+    engagement_events_enabled: boolean
 }
 
-export interface TransactionalPushStatsRowApi {
-    /** The push notification. */
-    template_id: string
-    /** The push notification's name. */
-    template_name: string
-    /** Sends that reached at least one device. */
-    sent: number
-    /** Sends that reached no device. */
-    not_sent: number
-    /** Sends that stopped with an error. */
-    failed: number
-}
-
-export interface TransactionalPushStatsApi {
-    /** One row per push notification, busiest first. */
-    results: TransactionalPushStatsRowApi[]
+export interface WorkflowEmailDetailApi {
+    /** The workflow run that sent the email. */
+    invocation_id: string
+    /** The email step that sent it. A run can send one email per step. */
+    action_id: string
+    /** The workflow or broadcast that sent the email. */
+    workflow_id: string
+    /** The distinct ID of the person the email went to. Empty when no engagement event names it. */
+    distinct_id: string
+    /** The address the email was sent to. */
+    recipient: string
+    /** The subject the email went out with. Empty for a sensitive template or when no engagement event names it. */
+    subject: string
+    /** When the email went to the provider. */
+    sent_at: string
+    /** The email's delivery status. `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, and `bounced` came back later.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailDeliveryStatusEnumApi
+    /** Whether the recipient opened the email in the week after the send. */
+    opened: boolean
+    /** Whether the recipient clicked a link in the email in the week after the send. */
+    clicked: boolean
+    /** The send, then deliveries, bounces, opens and clicks in the 7 days after it, oldest first. */
+    timeline: TransactionalEmailLogEventApi[]
 }
 
 export type MessagingCategoriesListParams = {
@@ -2070,13 +2075,13 @@ export type TransactionalEmailLogStatsOverTimeRetrieveParams = {
     date_to?: string
 }
 
-export type TransactionalPushLogListParams = {
+export type WorkflowEmailLogListParams = {
     /**
-     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     * Only sends at or after this time. Defaults to 7 days ago.
      */
     date_from?: string
     /**
-     * Only sends queued before this time. Defaults to now.
+     * Only sends before this time. Defaults to now.
      */
     date_to?: string
     /**
@@ -2091,42 +2096,25 @@ export type TransactionalPushLogListParams = {
      */
     offset?: number
     /**
-     * The recipient's exact distinct ID, or the ID of one send.
+     * The workflow or broadcast whose sends to list.
      */
-    search?: string
-    /**
-     * Only sends with this outcome.
-     *
-     * * `sending` - Sending
-     * * `sent` - Sent
-     * * `not_sent` - Not sent
-     * * `failed` - Failed
-     * @minLength 1
-     */
-    status?: TransactionalPushLogListStatus
-    /**
-     * Only sends of the push notification backed by this workflow.
-     */
-    workflow_id?: string
+    workflow_id: string
 }
 
-export type TransactionalPushLogListStatus =
-    (typeof TransactionalPushLogListStatus)[keyof typeof TransactionalPushLogListStatus]
-
-export const TransactionalPushLogListStatus = {
-    Sending: 'sending',
-    Sent: 'sent',
-    NotSent: 'not_sent',
-    Failed: 'failed',
-} as const
-
-export type TransactionalPushLogStatsRetrieveParams = {
+export type WorkflowEmailLogRetrieveParams = {
     /**
-     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     * The email step that sent the email, the `action_id` of a send.
+     * @minLength 1
+     * @maxLength 200
      */
-    date_from?: string
+    action_id: string
+}
+
+export type WorkflowEmailLogActivityRetrieveParams = {
     /**
-     * Only sends queued before this time. Defaults to now.
+     * The email step that sent the email, the `action_id` of a send.
+     * @minLength 1
+     * @maxLength 200
      */
-    date_to?: string
+    action_id: string
 }
