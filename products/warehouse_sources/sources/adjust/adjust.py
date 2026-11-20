@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode, urlsplit
@@ -8,27 +8,19 @@ from urllib.parse import urlencode, urlsplit
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.sources.adjust.settings import (
-    ADJUST_REPORTS,
-    CATALOG_PRIMARY_KEYS,
-    DEFAULT_LOOKBACK_DAYS,
-    EVENTS_CATALOG,
-    FILTER_TYPES,
-    FILTERS_DATA,
-    LINKS,
-    PARTNERS,
-    SUBLINKS,
+from products.warehouse_sources.sources.adjust.settings import ADJUST_REPORTS, DEFAULT_LOOKBACK_DAYS, EVENTS_CATALOG
+from products.warehouse_sources.sources.sdk import (
+    DEFAULT_RETRY,
+    BoundedRetry,
+    ResumableSourceManager,
+    SourceResponse,
+    make_tracked_session,
 )
-from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
 
 ADJUST_API_HOST = "automate.adjust.com"
 BASE_URL = f"https://{ADJUST_API_HOST}/reports-service"
 REPORT_URL = f"{BASE_URL}/report"
 EVENTS_URL = f"{BASE_URL}/events"
-FILTERS_DATA_URL = f"{BASE_URL}/filters_data"
-# Links, sublinks and partners come from the Campaign API, which takes the same API token.
-CAMPAIGN_API_HOST = "api.adjust.com"
-CAMPAIGN_API_URL = f"https://{CAMPAIGN_API_HOST}/public/v2"
 
 # Reports are pulled one date window at a time so a long backfill streams instead of asking Adjust
 # for years of rows in a single response. The window is also the resume unit.
@@ -41,14 +33,26 @@ REQUEST_TIMEOUT_SECONDS = 300
 # driven purely by a next link when one is present. The cap stops a malformed/looping link from
 # scanning forever.
 MAX_PAGES_PER_WINDOW = 200
-# The Campaign API pages 50 items at a time; the cap stops a looping cursor from scanning forever.
-MAX_CAMPAIGN_API_PAGES = 1000
 # Event reports request one metric per event slug; batching keeps the query string short for
 # accounts with large event catalogs.
 MAX_EVENT_METRICS_PER_REQUEST = 50
-# Adjust app and link tokens are short alphanumeric identifiers; reject anything else before it
-# reaches a query string or a URL path.
+# Adjust app tokens are short alphanumeric identifiers; reject anything else before it reaches a
+# query string.
 _APP_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+
+# During a Report Service incident, Adjust answers some requests with a 403 while the same token
+# keeps working on the requests around it. A 403 is non-retryable and disables the schema, so the
+# sync retries it first. The waits (0, 10 and 20 seconds) spread the tries past a short burst of
+# 403s. A 403 that persists through the retries is real lost access, and it still reaches
+# `_get_json` and disables the schema. The credential probe keeps the default policy so that a bad
+# token fails fast in the source setup form.
+SYNC_RETRY = BoundedRetry(
+    total=DEFAULT_RETRY.total,
+    backoff_factor=5,
+    status_forcelist=(403, *DEFAULT_RETRY.status_forcelist),
+    allowed_methods=DEFAULT_RETRY.allowed_methods,
+    raise_on_status=False,
+)
 
 
 class AdjustRetryableError(Exception):
@@ -74,8 +78,9 @@ def _today() -> date:
     return datetime.now(UTC).date()
 
 
-def _get_session(api_token: str) -> requests.Session:
+def _get_session(api_token: str, retry: BoundedRetry | None = None) -> requests.Session:
     return make_tracked_session(
+        retry=retry,
         headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
         redact_values=(api_token,),
         # The Bearer token rides in every request's default headers, so pin the session off
@@ -253,25 +258,14 @@ def next_page_url(payload: dict[str, Any]) -> str | None:
     pagination = payload.get("pagination")
     if not isinstance(pagination, dict):
         return None
-    return _pinned_url(pagination.get("next") or pagination.get("next_url"), ADJUST_API_HOST)
-
-
-def campaign_api_next_url(data: dict[str, Any]) -> str | None:
-    """Return the Campaign API's `paging.next` link, pinned to HTTPS on the Campaign API host."""
-    paging = data.get("paging")
-    if not isinstance(paging, dict):
-        return None
-    return _pinned_url(paging.get("next"), CAMPAIGN_API_HOST)
-
-
-def _pinned_url(candidate: Any, host: str) -> str | None:
+    candidate = pagination.get("next") or pagination.get("next_url")
     if not isinstance(candidate, str) or not candidate:
         return None
     try:
         parts = urlsplit(candidate)
     except ValueError:
         return None
-    if parts.scheme != "https" or parts.hostname != host:
+    if parts.scheme != "https" or parts.hostname != ADJUST_API_HOST:
         return None
     return candidate
 
@@ -396,143 +390,9 @@ def get_event_catalog(
     app_tokens: str | None,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    events = fetch_events(_get_session(api_token), parse_app_tokens(app_tokens), logger)
+    events = fetch_events(_get_session(api_token, SYNC_RETRY), parse_app_tokens(app_tokens), logger)
     if events:
         yield events
-
-
-def get_filters_data(
-    api_token: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AdjustResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    session = _get_session(api_token)
-    for filter_type in FILTER_TYPES:
-        try:
-            body = _request(session, f"{FILTERS_DATA_URL}?{urlencode({'required_filters': filter_type})}", logger)
-        except requests.HTTPError as e:
-            # One lookup that Adjust no longer accepts must not fail the other lookups.
-            if e.response is not None and e.response.status_code == 400:
-                logger.warning("Adjust: filters_data rejected a filter type, skipping it", filter_type=filter_type)
-                resumable_source_manager.safe_point()
-                continue
-            raise
-
-        # The response is keyed by filter type, and Adjust's own example shows a key that differs
-        # from the requested value, so every list in the body is kept under its response key.
-        rows = [
-            {**item, "filter_type": key}
-            for key, items in body.items()
-            if isinstance(items, list)
-            for item in items
-            if isinstance(item, dict) and item.get("id") is not None
-        ]
-        if rows:
-            yield rows
-        else:
-            resumable_source_manager.safe_point()
-
-
-def _iter_campaign_api_pages(
-    session: requests.Session, url: str, logger: FilteringBoundLogger
-) -> Iterator[list[dict[str, Any]]]:
-    for page in range(MAX_CAMPAIGN_API_PAGES):
-        body = _request(session, url, logger)
-        data = body.get("data")
-        if not isinstance(data, dict):
-            return
-        items = data.get("items")
-        yield [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
-
-        next_url = campaign_api_next_url(data)
-        if next_url is None:
-            return
-        if page + 1 == MAX_CAMPAIGN_API_PAGES:
-            logger.warning("Adjust Campaign API page cap reached; truncating", url=url, pages=MAX_CAMPAIGN_API_PAGES)
-            return
-        url = next_url
-
-
-def _campaign_api_app_tokens(
-    session: requests.Session, app_tokens: str | None, logger: FilteringBoundLogger
-) -> list[str]:
-    """The apps to fan out over: the configured app tokens, else every app the token can read."""
-    tokens = parse_app_tokens(app_tokens)
-    if tokens:
-        return tokens
-    body = _request(session, f"{FILTERS_DATA_URL}?{urlencode({'required_filters': 'apps'})}", logger)
-    apps = body.get("apps")
-    if not isinstance(apps, list):
-        return []
-    return [
-        app["id"]
-        for app in apps
-        if isinstance(app, dict) and isinstance(app.get("id"), str) and _APP_TOKEN_RE.fullmatch(app["id"])
-    ]
-
-
-def _trackers_url(app_token: str, parent_token: str | None = None) -> str:
-    url = f"{CAMPAIGN_API_URL}/apps/{app_token}/trackers"
-    return f"{url}/{parent_token}/children" if parent_token else url
-
-
-def _parent_tokens(rows: list[dict[str, Any]]) -> list[str]:
-    return [
-        row["token"]
-        for row in rows
-        if row.get("has_subtrackers") and isinstance(row.get("token"), str) and _APP_TOKEN_RE.fullmatch(row["token"])
-    ]
-
-
-def get_partners(
-    api_token: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AdjustResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    for rows in _iter_campaign_api_pages(_get_session(api_token), f"{CAMPAIGN_API_URL}/partners", logger):
-        if rows:
-            yield rows
-        else:
-            resumable_source_manager.safe_point()
-
-
-def get_links(
-    api_token: str,
-    app_tokens: str | None,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AdjustResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    session = _get_session(api_token)
-    for app_token in _campaign_api_app_tokens(session, app_tokens, logger):
-        for rows in _iter_campaign_api_pages(session, _trackers_url(app_token), logger):
-            if rows:
-                yield [{**row, "app_token": app_token} for row in rows]
-            else:
-                resumable_source_manager.safe_point()
-
-
-def get_sublinks(
-    api_token: str,
-    app_tokens: str | None,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AdjustResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    """Walk every link with sublinks down to the deepest level (campaign, ad group, creative)."""
-    session = _get_session(api_token)
-    for app_token in _campaign_api_app_tokens(session, app_tokens, logger):
-        pending: list[str] = []
-        for rows in _iter_campaign_api_pages(session, _trackers_url(app_token), logger):
-            pending.extend(_parent_tokens(rows))
-            resumable_source_manager.safe_point()
-
-        while pending:
-            parent_token = pending.pop()
-            for rows in _iter_campaign_api_pages(session, _trackers_url(app_token, parent_token), logger):
-                pending.extend(_parent_tokens(rows))
-                if rows:
-                    yield [{**row, "app_token": app_token, "parent_token": parent_token} for row in rows]
-                else:
-                    resumable_source_manager.safe_point()
 
 
 def get_rows(
@@ -549,7 +409,7 @@ def get_rows(
 
     config = ADJUST_REPORTS[report]
     tokens = parse_app_tokens(app_tokens)
-    session = _get_session(api_token)
+    session = _get_session(api_token, SYNC_RETRY)
 
     event_names: dict[str, str | None] = {}
     metric_batches = [config.metrics]
@@ -575,7 +435,7 @@ def get_rows(
         windows = [window for window in windows if window[0].isoformat() >= resume.next_start_date]
         logger.debug(f"Adjust: resuming {report} from {resume.next_start_date}")
 
-    # The tracked session already retries 429 + transient 5xx honoring `Retry-After`, so there is
+    # The tracked session already retries 403, 429 and transient 5xx honoring `Retry-After`, so there is
     # deliberately no second retry layer here — anything that reaches us has already been retried,
     # and the Temporal activity retries the job.
     for index, (window_start, window_end) in enumerate(windows):
@@ -616,15 +476,12 @@ def adjust_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
-    if report in CATALOG_PRIMARY_KEYS:
-        catalogs: dict[str, Callable[[], Iterator[list[dict[str, Any]]]]] = {
-            EVENTS_CATALOG: lambda: get_event_catalog(api_token, app_tokens, logger),
-            FILTERS_DATA: lambda: get_filters_data(api_token, logger, resumable_source_manager),
-            PARTNERS: lambda: get_partners(api_token, logger, resumable_source_manager),
-            LINKS: lambda: get_links(api_token, app_tokens, logger, resumable_source_manager),
-            SUBLINKS: lambda: get_sublinks(api_token, app_tokens, logger, resumable_source_manager),
-        }
-        return SourceResponse(name=report, items=catalogs[report], primary_keys=CATALOG_PRIMARY_KEYS[report])
+    if report == EVENTS_CATALOG:
+        return SourceResponse(
+            name=report,
+            items=lambda: get_event_catalog(api_token=api_token, app_tokens=app_tokens, logger=logger),
+            primary_keys=["id"],
+        )
 
     config = ADJUST_REPORTS[report]
 
