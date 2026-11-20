@@ -1,6 +1,7 @@
 # Feature flag evaluation reads. The column set and the Distributed read table sit in
 # the shared layer because every data node has the read table, cloud included. A layer
 # only the local node composes cannot describe a table the cloud nodes also have.
+# The flags role composes this file too.
 # The storage table is in roles/coshared/flag_evaluations_data: prod data nodes read it
 # through the flags cluster and do not store it.
 database "posthog" {
