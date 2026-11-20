@@ -12,7 +12,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -59,7 +58,7 @@ import {
     SignalScoutRunSummary,
 } from './types'
 import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
-import { inboxTabRedirectPath } from './utils/inboxReportUrls'
+import { inboxBackPath, inboxTabRedirectPath } from './utils/inboxReportUrls'
 import { keepFieldsWrittenDuringFetch } from './utils/reportFreshness'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from './utils/reportMetrics'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
@@ -1330,7 +1329,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // Opened from triage mode: the report page's back control returns to the spot in the
             // queue, which the triage URL carries at this moment.
             openMethod === 'triage'
-                ? { back: removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search }
+                ? { back: inboxBackPath(router.values.location) }
                 : withoutLinkParams(router.values.searchParams),
             router.values.hashParams,
             // Replace, so Back does not return to the link URL and its `link_source`.
