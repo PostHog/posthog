@@ -224,6 +224,7 @@ export type ToolUpdateMeta = {
     toolResponse?: unknown;
     parentToolCallId?: string;
     bashCommand?: string;
+    failureReason?: "permission_denied";
   };
   terminal_info?: TerminalInfo;
   terminal_output?: TerminalOutput;

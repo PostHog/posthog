@@ -22,6 +22,8 @@ import {
   normalizeMethod,
   numAttr,
   strAttr,
+  toolFailureReason,
+  toolNameAttribute,
   truncate,
   usageAttributes,
 } from "./otel-attributes";
@@ -103,6 +105,7 @@ function mapSessionUpdate(
       const attrs: Attributes = { session_update_type: updateType };
       strAttr(attrs, "tool_call_id", update.toolCallId);
       const kind = strAttr(attrs, "tool_kind", update.kind);
+      strAttr(attrs, "tool_name", toolNameAttribute(update));
       strAttr(attrs, "tool_status", update.status ?? "pending");
       return record(
         INFO,
@@ -118,7 +121,11 @@ function mapSessionUpdate(
       if (status !== "completed" && status !== "failed") return null;
       const attrs: Attributes = { session_update_type: updateType };
       strAttr(attrs, "tool_call_id", update.toolCallId);
+      strAttr(attrs, "tool_name", toolNameAttribute(update));
       strAttr(attrs, "tool_status", status);
+      if (status === "failed") {
+        attrs.tool_failure_reason = toolFailureReason(update);
+      }
       return record(
         status === "failed" ? WARN : INFO,
         `tool call ${status}`,

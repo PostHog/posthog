@@ -6,6 +6,7 @@ import type {
   SDKAssistantMessage,
   SDKModelRefusalFallbackMessage,
   SDKPartialAssistantMessage,
+  SDKPermissionDeniedMessage,
   SDKResultMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -323,6 +324,66 @@ describe("assembled assistant text fallback", () => {
       expect(context.session.notificationHistory).toEqual(updates);
     },
   );
+
+  it("builds rawOutput from the tool result content when tool_use_result is a string", async () => {
+    const { context, updates } = createHandlerContext();
+    context.toolUseCache.toolu_agent = {
+      type: "tool_use",
+      id: "toolu_agent",
+      name: "Agent",
+      input: {},
+    };
+    const errorText = "Error: PreToolUse hook for Agent rejected the input";
+    await handleUserAssistantMessage(
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_agent",
+              content: errorText,
+              is_error: true,
+            },
+          ],
+        },
+        tool_use_result: errorText,
+      } as SDKUserMessage,
+      context,
+    );
+
+    const update = updates.find(
+      (u) => u.update.sessionUpdate === "tool_call_update",
+    )?.update as { rawOutput?: unknown } | undefined;
+    expect(update?.rawOutput).toEqual({
+      content: [{ type: "text", text: errorText }],
+      isError: true,
+    });
+  });
+
+  it("marks an SDK permission denial as permission_denied", async () => {
+    const { context, updates } = createHandlerContext();
+    await handleSystemMessage(
+      {
+        type: "system",
+        subtype: "permission_denied",
+        tool_name: "Bash",
+        tool_use_id: "toolu_bash",
+        message: "denied",
+      } as SDKPermissionDeniedMessage,
+      context,
+    );
+
+    expect(updates[0]?.update).toMatchObject({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "toolu_bash",
+      status: "failed",
+      _meta: {
+        claudeCode: { toolName: "Bash", failureReason: "permission_denied" },
+      },
+    });
+  });
 
   it("forwards assembled text that never streamed", async () => {
     const { context, updates } = createHandlerContext();

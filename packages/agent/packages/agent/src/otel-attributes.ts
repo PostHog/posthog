@@ -1,3 +1,8 @@
+import {
+  readAgentToolName,
+  readMcpToolDescriptor,
+} from "@posthog/agent-contracts";
+
 const MAX_BODY_CHARS = 2000;
 // PostHog Logs only facets attribute key/value pairs shorter than 256 chars,
 // so free-text attribute values are capped well below that.
@@ -8,6 +13,14 @@ const EXPORT_TIMEOUT_MS = 5000;
 
 // Batch flush cadence shared by the log and span processors.
 const DEFAULT_FLUSH_INTERVAL_MS = 2000;
+
+const HOOK_REJECTED_INPUT_TEXT =
+  "returned updatedInput that failed schema validation";
+
+export type ToolFailureReason =
+  | "hook_rejected_input"
+  | "permission_denied"
+  | "tool_error";
 
 export type AttributeValue = string | number | boolean;
 export type Attributes = Record<string, AttributeValue>;
@@ -34,6 +47,33 @@ export function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+export function toolNameAttribute(
+  update: Record<string, unknown>,
+): string | undefined {
+  if (readMcpToolDescriptor(update._meta)) return "mcp";
+  return readAgentToolName(update._meta) || undefined;
+}
+
+export function toolFailureReason(
+  update: Record<string, unknown>,
+): ToolFailureReason {
+  if (
+    asRecord(asRecord(update._meta)?.claudeCode)?.failureReason ===
+    "permission_denied"
+  ) {
+    return "permission_denied";
+  }
+  const content = Array.isArray(update.content) ? update.content : [];
+  for (const entry of content) {
+    const block = asRecord(entry);
+    if (block?.type !== "content") continue;
+    const inner = asRecord(block.content);
+    const text = inner?.type === "text" ? asString(inner.text) : undefined;
+    if (text?.includes(HOOK_REJECTED_INPUT_TEXT)) return "hook_rejected_input";
+  }
+  return "tool_error";
 }
 
 export function strAttr(
