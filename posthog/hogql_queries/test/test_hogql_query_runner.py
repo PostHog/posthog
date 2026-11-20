@@ -741,6 +741,7 @@ class TestHogQLQueryRunnerRangeFreshness(BaseTest):
             ("day_range_uses_the_hour_rule", True, "-1d", timedelta(minutes=30), False),
             ("year_range_uses_the_week_rule", True, "-180d", timedelta(hours=12), False),
             ("absolute_range_keeps_the_minute_rule", True, "2026-10-01", timedelta(minutes=10), True),
+            ("overflowing_range_keeps_the_minute_rule", True, "-1000000d", timedelta(minutes=10), True),
             ("outside_the_batch_keeps_the_minute_rule", False, "-7d", timedelta(minutes=10), True),
         ]
     )
@@ -757,6 +758,11 @@ class TestHogQLQueryRunnerRangeFreshness(BaseTest):
         last_refresh = datetime(2026, 10, 29, 15, 0, tzinfo=UTC) - age
 
         assert runner._is_stale_for_request(last_refresh=last_refresh) == expected_stale
+        # Stored with the entry and shared with callers that did not opt in, so it keeps the flat rule.
+        assert (
+            runner.cache_target_age(last_refresh)
+            == last_refresh + staleness_threshold_map[ThresholdMode.DEFAULT]["day"]
+        )
 
 
 class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):

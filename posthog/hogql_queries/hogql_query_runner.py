@@ -126,8 +126,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             if isinstance(freshness, SqlFreshness) and expiry is not None:
                 return max(expiry, freshness.fresh_until)
             return expiry
-        interval = self.range_freshness_interval or "day"
-        return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT][interval]
+        return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+
+    def range_target_age(self, last_refresh: datetime, lazy: bool = False) -> Optional[datetime]:
+        """When the entry goes stale under the range rule. Kept out of `cache_target_age`, which is stored with the
+        entry and read by callers that share its cache key without opting in."""
+        if self.range_freshness_interval is None:
+            return self.cache_target_age(last_refresh, lazy=lazy)
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return last_refresh + staleness_threshold_map[mode][self.range_freshness_interval]
 
     @cached_property
     def range_freshness_interval(self) -> Optional[str]:
@@ -142,7 +149,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         try:
             start = relative_date_parse(date_from, timezone_info, now=now)
             end = relative_date_parse(date_to, timezone_info, now=now) if date_to else now
-        except ValueError:
+        except (ValueError, OverflowError):
             return None
         span = end - start
         return next((interval for limit, interval in _RANGE_FRESHNESS_INTERVALS if span <= limit), "week")
@@ -159,7 +166,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         freshness = self._sql_classification
         api_sql_freshness = freshness is not None and self._api_sql_freshness_enabled
         if self.range_freshness_interval is not None and last_refresh is not None and not api_sql_freshness:
-            target_age = self.cache_target_age(last_refresh, lazy=lazy)
+            target_age = self.range_target_age(last_refresh, lazy=lazy)
             return target_age is None or datetime.now(UTC) > target_age
         default_stale = super()._is_stale(last_refresh, lazy=lazy)
         if isinstance(freshness, SqlFreshness) and last_refresh is not None and self._api_sql_freshness_enabled:
