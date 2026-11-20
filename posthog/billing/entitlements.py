@@ -77,6 +77,7 @@ def apply_entitlements(
     changed: set[EntitlementField] = set()
     if _replace_limits(organization, entitlements["usage_limits"]):
         changed.add("usage_limits")
+    scores_differ = _scores_differ(organization.customer_trust_scores or {}, entitlements["trust_scores"])
     if organization.customer_trust_scores != entitlements["trust_scores"]:
         organization.customer_trust_scores = dict(entitlements["trust_scores"])
         changed.add("trust_scores")
@@ -89,7 +90,7 @@ def apply_entitlements(
         changed.add("features")
 
     if sync_type == BATCH_SYNC_TYPE:
-        for field in changed:
+        for field in changed if scores_differ else changed - {"trust_scores"}:
             BILLING_ENTITLEMENT_DRIFT_REPAIRED.labels(field=field, plan_state=entitlements["plan_state"]).inc()
     return frozenset(changed)
 
@@ -136,6 +137,11 @@ def _replace_limits(organization: Organization, usage_limits: Mapping[str, int |
             entry["limit"] = limit
             changed = True
     return changed
+
+
+def _scores_differ(stored: Mapping[str, object], snapshot: Mapping[str, int]) -> bool:
+    """A missing key scores 0, so gaining zero-valued keys isn't drift."""
+    return any(stored.get(key, 0) != snapshot.get(key, 0) for key in stored.keys() | snapshot.keys())
 
 
 def _is_int(value: object) -> bool:

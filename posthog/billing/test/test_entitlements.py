@@ -195,6 +195,45 @@ class TestApplyEntitlements(BaseTest):
             == before["features"]
         )
 
+    def _matching_block(self, **overrides: Any) -> dict[str, Any]:
+        return _block(
+            usage_limits={"events": 1000},
+            never_drop_data=True,
+            features=[{"key": "paid_feature", "name": "Paid"}],
+            **overrides,
+        )
+
+    def test_gaining_zero_valued_trust_score_keys_is_written_but_not_counted_as_drift(self) -> None:
+        labels = {"field": "trust_scores", "plan_state": "free"}
+        before = _sample("billing_entitlement_drift_repaired_total", labels)
+        block = self._matching_block(trust_scores={"events": 15})
+
+        changed = apply_entitlements(self.organization, block, sync_type="batch")
+
+        assert changed == frozenset({"trust_scores"})
+        assert self.organization.customer_trust_scores == block["trust_scores"]
+        assert _sample("billing_entitlement_drift_repaired_total", labels) == before
+
+    @parameterized.expand(
+        [
+            ("changed_score", {"events": 15}, {"events": 3}),
+            ("missing_stored_key_against_a_nonzero_score", {"events": 15}, {"events": 15, "recordings": 5}),
+            ("nonzero_stored_key_the_snapshot_drops", {"events": 15, "legacy_key": 4}, {"events": 15}),
+        ]
+    )
+    def test_a_real_trust_score_difference_counts_as_drift(
+        self, _name: str, stored: dict[str, int], snapshot_scores: dict[str, int]
+    ) -> None:
+        self.organization.customer_trust_scores = stored
+        labels = {"field": "trust_scores", "plan_state": "free"}
+        before = _sample("billing_entitlement_drift_repaired_total", labels)
+        block = self._matching_block(trust_scores=snapshot_scores)
+
+        apply_entitlements(self.organization, block, sync_type="batch")
+
+        assert self.organization.customer_trust_scores == block["trust_scores"]
+        assert _sample("billing_entitlement_drift_repaired_total", labels) == before + 1
+
 
 class TestUpdateOrgDetailsWithEntitlements(BaseTest):
     def setUp(self) -> None:
