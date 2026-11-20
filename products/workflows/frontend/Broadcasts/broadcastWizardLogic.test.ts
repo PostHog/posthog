@@ -1428,6 +1428,40 @@ describe('broadcastWizardLogic', () => {
         draftLogic.unmount()
     })
 
+    it.each([true, undefined])(
+        'previews a saved broadcast with the test account setting it sends with: %s',
+        async (filterTestAccounts) => {
+            const filters = { properties: LOCAL_AUDIENCE, filter_test_accounts: filterTestAccounts }
+            const saved = savedBroadcast({ name: 'Spring sale', subject: 'Hi', updatedAt: '2026-09-24T10:00:00Z' })
+            latest = {
+                ...saved,
+                actions: saved.actions.map((action) =>
+                    action.type === 'trigger' ? { ...action, config: { type: 'batch', filters } } : action
+                ),
+            } as HogFlowApi
+            const previewed: Record<string, unknown>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                        previewed.push(((await request.json()) as { filters: Record<string, unknown> }).filters)
+                        return [200, { affected: 9, total: 1000 }]
+                    },
+                },
+            })
+            const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+            await expectLogic(draftLogic, () => {
+                draftLogic.mount()
+            }).toDispatchActions(['hydrateFromBroadcast'])
+
+            draftLogic.actions.setStep('recipients')
+            await expectLogic(draftLogic).toFinishAllListeners()
+
+            expect(previewed.length).toBeGreaterThan(0)
+            expect(previewed.every((sent) => sent.filter_test_accounts === filterTestAccounts)).toBe(true)
+            draftLogic.unmount()
+        }
+    )
+
     it.each([
         { remaining: 6000, limit: { count: 100, period: 'minute' }, expected: '1h' },
         { remaining: 500, limit: { count: 1000, period: 'hour' }, expected: '30m' },

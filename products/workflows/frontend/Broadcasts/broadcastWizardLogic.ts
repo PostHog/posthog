@@ -368,6 +368,16 @@ function readAudience(broadcast: HogFlowApi): AnyPropertyFilter[] | undefined {
     return findAction(broadcast, 'trigger')?.config?.filters?.properties as AnyPropertyFilter[] | undefined
 }
 
+// The wizard never edits this setting, but a broadcast created through the API can carry it, and the send applies it.
+function previewFilters(
+    properties: AnyPropertyFilter[],
+    broadcast: HogFlowApi | null
+): BlastRadiusRequestApi['filters'] {
+    const filterTestAccounts =
+        !!broadcast && findAction(broadcast, 'trigger')?.config?.filters?.filter_test_accounts === true
+    return filterTestAccounts ? { properties, filter_test_accounts: true } : { properties }
+}
+
 // Compares two server copies, so derived keys the server adds (such as bytecode) match on both sides.
 // A field the other edit changed must follow the saved copy, or the next save sends the stale value back
 // under a fresh base and overwrites that edit without a conflict. A field it did not change keeps the
@@ -1050,7 +1060,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     try {
                         return await hogFlowsUserBlastRadiusCreate(
                             String(values.currentProjectId),
-                            audiencePreviewRequest(values.audienceProperties, values.channel)
+                            audiencePreviewRequest(values.audienceProperties, values.channel, values.broadcast)
                         )
                     } catch (error) {
                         if (!isRejectedAudience(error)) {
@@ -1091,7 +1101,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         const [reachable, all] = await Promise.all(
                             countRequests.map((properties) =>
                                 hogFlowsUserBlastRadiusCreate(projectId, {
-                                    filters: { properties },
+                                    filters: previewFilters(properties, values.broadcast),
                                     sends_email: false,
                                 })
                             )
@@ -1125,12 +1135,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     }
                     try {
                         const missing = await hogFlowsUserBlastRadiusCreate(String(values.currentProjectId), {
-                            filters: {
-                                properties: [
+                            filters: previewFilters(
+                                [
                                     ...values.audienceProperties,
                                     { key, type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
                                 ],
-                            },
+                                values.broadcast
+                            ),
                         })
                         breakpoint()
                         return missing.affected
@@ -2490,7 +2501,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
                     // A fresh audience preview mints the confirm token the batch dispatch expects.
                     const blastRadius = await hogFlowsUserBlastRadiusCreate(projectId, {
-                        ...audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit),
+                        ...audiencePreviewRequest(
+                            values.audienceProperties,
+                            values.channel,
+                            values.broadcast,
+                            values.emailRateLimit
+                        ),
                         refresh: true,
                     })
 
@@ -2856,7 +2872,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 try {
                     refreshed = await hogFlowsUserBlastRadiusCreate(
                         String(values.currentProjectId),
-                        audiencePreviewRequest(values.audienceProperties, values.channel)
+                        audiencePreviewRequest(values.audienceProperties, values.channel, values.broadcast)
                     )
                 } catch {
                     // A failed check tries again on the next interval.
@@ -3111,12 +3127,14 @@ export const DELETED_PUSH_CHANNEL_ERROR = 'A chosen push channel was deleted. Ch
 function audiencePreviewRequest(
     audienceProperties: AnyPropertyFilter[],
     channel: BroadcastChannel,
+    broadcast: HogFlowApi | null,
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null = null
 ): BlastRadiusRequestApi {
+    const filters = previewFilters(audienceProperties, broadcast)
     return channel === 'push'
-        ? { filters: { properties: audienceProperties }, sends_email: false }
+        ? { filters, sends_email: false }
         : {
-              filters: { properties: audienceProperties },
+              filters,
               dedupe_key: 'email',
               sends_email: true,
               email_sending_rate_limit: emailRateLimit,

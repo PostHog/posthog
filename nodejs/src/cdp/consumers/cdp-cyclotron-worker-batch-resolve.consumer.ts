@@ -708,7 +708,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         if (skippedKeys.length === 0) {
             return
         }
-        const count = skippedKeys.length === 1 ? '1 test account filter' : `${skippedKeys.length} test account filters`
+        const filters =
+            skippedKeys.length === 1
+                ? '1 test account filter that only applies'
+                : `${skippedKeys.length} test account filters that only apply`
         this.hogFunctionMonitoringService.queueLogs(
             [
                 {
@@ -718,7 +721,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     instance_id: state.batchJobId,
                     ...logEntry(
                         'info',
-                        `This run left out ${count} that only apply to events, not people: ${skippedKeys.join(', ')}`
+                        `This run left out ${filters} to events, not people: ${skippedKeys.join(', ')}`
                     ),
                 },
             ],
