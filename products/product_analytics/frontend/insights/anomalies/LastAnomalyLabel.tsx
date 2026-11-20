@@ -13,7 +13,6 @@ const BUCKET_DATE_LABELS: Record<Exclude<AnomalyIntervalEnumApi, 'hour'>, { pref
 }
 
 export interface LastAnomalyLabelProps {
-    // The start of the newest anomalous bucket, in the project timezone.
     bucketStart: string
     interval: AnomalyIntervalEnumApi
 }
