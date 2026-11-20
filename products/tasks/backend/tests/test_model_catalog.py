@@ -220,6 +220,17 @@ class TestAvailableModelChoices:
         ):
             assert [c.model for c in available_model_choices("posthog_code")] == ["claude-fable-5"]
 
+    def test_drops_models_the_product_pin_does_not_admit(self) -> None:
+        gateway = (
+            GatewayModel(id="claude-opus-5-5", owned_by="anthropic", context_window=1000000),
+            GatewayModel(id="gpt-4o", owned_by="openai", context_window=128000),
+        )
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+            return_value=gateway,
+        ):
+            assert [c.model for c in available_model_choices("posthog_code")] == ["claude-opus-5-5"]
+
     def test_keeps_vendor_served_models_the_catalog_routes(self) -> None:
         # The gateway owns these under the party serving them, not the harness that drives
         # them, so routing on the owner alone dropped every one from the web picker.
