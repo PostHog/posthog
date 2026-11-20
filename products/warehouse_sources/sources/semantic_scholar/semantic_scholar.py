@@ -22,7 +22,8 @@ from products.warehouse_sources.sources.semantic_scholar._config import Semantic
 from products.warehouse_sources.sources.semantic_scholar.settings import (
     API_ROOT,
     AUTH_ERROR,
-    EDGE_FIELDS,
+    CHILD_FIELDS,
+    CHILD_PATHS,
     ENDPOINTS,
     LIMIT_ERROR,
     MAX_PAPERS,
@@ -127,11 +128,11 @@ def semantic_scholar_source(
                 "name": inputs.schema_name,
                 "include_from_parent": ["paperId"],
                 "endpoint": {
-                    "path": f"paper/{{paper_id}}/{inputs.schema_name}",
+                    "path": f"paper/{{paper_id}}/{CHILD_PATHS[inputs.schema_name]}",
                     "params": {
                         "paper_id": {"type": "resolve", "resource": "papers", "field": "paperId"},
                         "limit": 1000,
-                        "fields": EDGE_FIELDS,
+                        "fields": CHILD_FIELDS[inputs.schema_name],
                     },
                     "data_selector": "data",
                     "data_selector_required": True,
@@ -159,7 +160,15 @@ def semantic_scholar_source(
         initial_paginator_state=resume.paginator_state if resume else None,
     )
     resource = next(resource for resource in built if resource.name == inputs.schema_name)
-    if inputs.schema_name != "papers":
+    if inputs.schema_name == "paper_authors":
+
+        def normalize_author(row: dict[str, Any]) -> dict[str, Any]:
+            row["paper_id"] = row.pop("_papers_paperId")
+            return row
+
+        resource.add_filter(lambda row: bool(row.get("authorId")))
+        resource.add_map(normalize_author)
+    elif inputs.schema_name != "papers":
         related_field = RELATED_PAPER_FIELDS[inputs.schema_name]
 
         def normalize_edge(row: dict[str, Any]) -> dict[str, Any]:

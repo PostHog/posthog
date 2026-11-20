@@ -6,4 +6,5 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class DeputySourceConfig(config.Config):
-    pass
+    install_url: str
+    access_token: str

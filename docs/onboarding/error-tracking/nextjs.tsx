@@ -208,10 +208,10 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 </Markdown>
                 <CodeBlock
                     blocks={[
-                        { language: 'bash', file: 'npm', code: dedent`npm install @posthog/next posthog-node` },
-                        { language: 'bash', file: 'yarn', code: dedent`yarn add @posthog/next posthog-node` },
-                        { language: 'bash', file: 'pnpm', code: dedent`pnpm add @posthog/next posthog-node` },
-                        { language: 'bash', file: 'bun', code: dedent`bun add @posthog/next posthog-node` },
+                        { language: 'bash', file: 'npm', code: dedent`npm install @posthog/next@0.11 posthog-node@5` },
+                        { language: 'bash', file: 'yarn', code: dedent`yarn add @posthog/next@0.11 posthog-node@5` },
+                        { language: 'bash', file: 'pnpm', code: dedent`pnpm add @posthog/next@0.11 posthog-node@5` },
+                        { language: 'bash', file: 'bun', code: dedent`bun add @posthog/next@0.11 posthog-node@5` },
                     ]}
                 />
                 <Markdown>

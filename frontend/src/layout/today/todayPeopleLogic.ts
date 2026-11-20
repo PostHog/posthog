@@ -13,16 +13,18 @@ import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { GroupTab, groupTabs as groupTabsFor } from '~/models/groupTabs'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { GroupType, GroupTypeIndex, TeamPublicType, TeamType } from '~/types'
 
 import { cohortsList } from 'products/cohorts/frontend/generated/api'
 import { accountsList, customerJourneysList } from 'products/customer_analytics/frontend/generated/api'
 
+import { unpinnedRecents } from './sidebar/hrefPins'
 import { matchesPaneQuery } from './todayPaneSearch'
-import { TodayPeopleRecent, peopleRecentRowKey } from './todayPeople'
-import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
+import { TodayPeoplePin, TodayPeopleRecent, peoplePinsFromShortcuts } from './todayPeople'
 import {
     TODAY_PEOPLE_ROWS,
     TODAY_PEOPLE_ROW_SECTION_LABELS,
@@ -30,6 +32,8 @@ import {
     TodayPeopleSection,
     TodayPeopleStaticRowKey,
 } from './todayPeopleRows'
+import { TodayRecent, recentRowKey } from './todayRecents'
+import { todayRecentsLogic } from './todayRecentsLogic'
 import { TODAY_USER_PERSIST_OPTIONS } from './todayUserPersistOptions'
 
 /** A section under Recents with its rows, in pane order. */
@@ -144,13 +148,13 @@ export function activePeopleRow(
     pathname: string,
     rows: TodayPeopleRow[],
     recents: TodayPeopleRecent[],
-    openRecent: TodayPeopleRecent | null = null
+    openRecent: Pick<TodayRecent, 'href'> | null = null
 ): string | null {
     const path = removeProjectIdIfPresent(pathname)
     // A row keeps one URL for its record, but other pages can link to the record with another one.
     const recent = recents.find((item) => item.href === openRecent?.href || isUnderPath(path, item.href))
     if (recent) {
-        return peopleRecentRowKey(recent.href)
+        return recentRowKey(recent.href)
     }
     return rows.find((row) => row.paths.some((rowPath) => isUnderPath(path, rowPath)))?.key ?? null
 }
@@ -166,10 +170,11 @@ export interface todayPeopleLogicValues {
         search: string
         hash: string
     } // router
+    shortcutData: FileSystemEntry[] // sidebarPinsLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    currentRecent: TodayPeopleRecent | null // todayPeopleRecentsLogic
-    recentRows: TodayPeopleRecent[] // todayPeopleRecentsLogic
-    recents: TodayPeopleRecent[] // todayPeopleRecentsLogic
+    currentRecent: TodayRecent | null // todayRecentsLogic
+    peopleRecentRows: TodayPeopleRecent[] // todayRecentsLogic
+    peopleRecents: TodayPeopleRecent[] // todayRecentsLogic
     accountsGroupTypeIndex: GroupTypeIndex | null
     activeRow: string | null
     collapsedSections: TodayPeopleSection[]
@@ -178,8 +183,10 @@ export interface todayPeopleLogicValues {
     groupTabs: GroupTab[]
     isSearching: boolean
     isSectionOpen: (section: TodayPeopleSection) => boolean
+    matchingPinnedRows: TodayPeoplePin[]
     matchingRecentRows: TodayPeopleRecent[]
     matchingRows: TodayPeopleRow[]
+    pinnedRows: TodayPeoplePin[]
     rowSections: TodayPeopleRowSectionGroup[]
     rows: TodayPeopleRow[]
     searchQuery: string
@@ -221,7 +228,7 @@ export interface todayPeopleLogicMeta {
         groupTabs: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             groupsAccessStatus: GroupsAccessStatus,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => GroupTab[]
         rows: (
             featureFlags: FeatureFlagsSet,
@@ -235,13 +242,19 @@ export interface todayPeopleLogicMeta {
                 search: string
             },
             rows: TodayPeopleRow[],
-            recents: TodayPeopleRecent[],
-            currentRecent: TodayPeopleRecent | null
+            peopleRecents: TodayPeopleRecent[],
+            currentRecent: TodayRecent | null
         ) => string | null
         matchingRows: (rows: TodayPeopleRow[], searchQuery: string) => TodayPeopleRow[]
         topRows: (matchingRows: TodayPeopleRow[]) => TodayPeopleRow[]
         rowSections: (matchingRows: TodayPeopleRow[]) => TodayPeopleRowSectionGroup[]
-        matchingRecentRows: (recentRows: TodayPeopleRecent[], searchQuery: string) => TodayPeopleRecent[]
+        pinnedRows: (shortcutData: FileSystemEntry[]) => TodayPeoplePin[]
+        matchingPinnedRows: (pinnedRows: TodayPeoplePin[], searchQuery: string) => TodayPeoplePin[]
+        matchingRecentRows: (
+            peopleRecentRows: TodayPeopleRecent[],
+            pinnedRows: TodayPeoplePin[],
+            searchQuery: string
+        ) => TodayPeopleRecent[]
         isSearching: (searchQuery: string) => boolean
         isSectionOpen: (
             collapsedSections: TodayPeopleSection[],
@@ -265,12 +278,14 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
             ['featureFlags'],
             groupsModel,
             ['groupTypes', 'groupsAccessStatus', 'aggregationLabel'],
-            todayPeopleRecentsLogic,
-            ['recents', 'recentRows', 'currentRecent'],
+            todayRecentsLogic,
+            ['peopleRecents', 'peopleRecentRows', 'currentRecent'],
             router,
             ['location'],
             teamLogic,
             ['currentTeam'],
+            sidebarPinsLogic,
+            ['shortcutData'],
         ],
     })),
     actions({
@@ -369,13 +384,13 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
             ): TodayPeopleRow[] => peopleSidebarRows(featureFlags, groupTypeIndex, groupTabs),
         ],
         activeRow: [
-            (s) => [s.location, s.rows, s.recents, s.currentRecent],
+            (s) => [s.location, s.rows, s.peopleRecents, s.currentRecent],
             (
                 location: { pathname: string },
                 rows: TodayPeopleRow[],
-                recents: TodayPeopleRecent[],
-                currentRecent: TodayPeopleRecent | null
-            ): string | null => activePeopleRow(location.pathname, rows, recents, currentRecent),
+                peopleRecents: TodayPeopleRecent[],
+                currentRecent: TodayRecent | null
+            ): string | null => activePeopleRow(location.pathname, rows, peopleRecents, currentRecent),
         ],
         matchingRows: [
             (s) => [s.rows, s.searchQuery],
@@ -390,10 +405,25 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
             (s) => [s.matchingRows],
             (rows: TodayPeopleRow[]): TodayPeopleRowSectionGroup[] => peopleRowSections(rows),
         ],
+        pinnedRows: [
+            (s) => [s.shortcutData],
+            (shortcutData: FileSystemEntry[]): TodayPeoplePin[] => peoplePinsFromShortcuts(shortcutData),
+        ],
+        matchingPinnedRows: [
+            (s) => [s.pinnedRows, s.searchQuery],
+            (pinnedRows: TodayPeoplePin[], searchQuery: string): TodayPeoplePin[] =>
+                pinnedRows.filter((pin) => matchesPaneQuery(pin.name, searchQuery)),
+        ],
         matchingRecentRows: [
-            (s) => [s.recentRows, s.searchQuery],
-            (recentRows: TodayPeopleRecent[], searchQuery: string): TodayPeopleRecent[] =>
-                recentRows.filter((recent) => matchesPaneQuery(recent.name, searchQuery)),
+            (s) => [s.peopleRecentRows, s.pinnedRows, s.searchQuery],
+            (
+                peopleRecentRows: TodayPeopleRecent[],
+                pinnedRows: TodayPeoplePin[],
+                searchQuery: string
+            ): TodayPeopleRecent[] =>
+                unpinnedRecents(peopleRecentRows, pinnedRows).filter((recent) =>
+                    matchesPaneQuery(recent.name, searchQuery)
+                ),
         ],
         isSearching: [(s) => [s.searchQuery], (searchQuery: string): boolean => searchQuery.trim() !== ''],
         /** A search opens every section, so no match hides in a collapsed one. */

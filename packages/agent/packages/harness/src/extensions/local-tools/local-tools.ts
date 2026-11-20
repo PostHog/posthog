@@ -2,6 +2,7 @@ import type { LocalTool, LocalToolCtx, LocalToolGateMeta } from "./registry";
 import { cloneRepoTool } from "./tools/clone-repo";
 import { finishTool } from "./tools/finish";
 import { ghStackTool } from "./tools/gh-stack";
+import { gitlabMergeRequestTool } from "./tools/gitlab-merge-request";
 import { listReposTool } from "./tools/list-repos";
 import { reportActivityTool } from "./tools/report-activity";
 import { showActionsTool } from "./tools/show-actions";
@@ -26,6 +27,7 @@ export const LOCAL_TOOLS: LocalTool[] = [
   signedMergeTool,
   signedRewriteTool,
   ghStackTool,
+  gitlabMergeRequestTool,
   listReposTool,
   cloneRepoTool,
   speakTool,

@@ -1,8 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { ChartHoverSync } from '../../core/hover-sync'
 import type { Series } from '../../core/types'
-import { Stage, useReactiveTheme } from '../../story-helpers'
+import { playHoverAtFraction, Stage, useReactiveTheme } from '../../story-helpers'
 import type { TimeInterval } from '../../utils/dates'
 import { ciRanges } from '../../utils/statistics'
 import type { YAxisConfig } from '../../utils/use-axis-formatters'
@@ -372,7 +373,8 @@ export const ComparisonOf: Story = {
             { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52], color: theme.colors[0] },
             {
                 key: 'visits-prev',
-                label: 'Visits (previous)',
+                label: 'Visits',
+                legendTag: 'Previous',
                 data: [15, 25, 32, 40, 38, 50, 44],
                 color: theme.colors[0],
             },
@@ -386,6 +388,7 @@ export const ComparisonOf: Story = {
                     config={{
                         yAxis: { showGrid: true },
                         comparisonOf: { 'visits-prev': 'visits' },
+                        legend: { show: true, position: 'bottom' },
                     }}
                 />
             </Stage>
@@ -420,6 +423,60 @@ export const DateAxis: Story = {
                 ))}
             </div>
         )
+    },
+}
+
+const SYNC_HOURS = Array.from({ length: 24 }, (_, i) => `2026-03-01T${String(i).padStart(2, '0')}:00:00Z`)
+const SYNC_HALF_HOURS = Array.from(
+    { length: 48 },
+    (_, i) => `2026-03-01T${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}:00Z`
+)
+
+/** Charts inside a `ChartHoverSync` share the hovered x: hovering one draws a crosshair at the same
+ *  time on the others, even when their points sit on different grids (hourly above, half-hourly
+ *  below). Only the hovered chart shows its tooltip. */
+export const SyncedHover: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config = { xAxis: { timezone: 'UTC', interval: 'hour' as const }, yAxis: { showGrid: true } }
+        return (
+            <ChartHoverSync>
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <Stage height={200}>
+                        <TimeSeriesLineChart
+                            series={[
+                                {
+                                    key: 'rps',
+                                    label: 'Requests',
+                                    data: SYNC_HOURS.map((_, i) => 200 + 80 * Math.sin(i / 3)),
+                                },
+                            ]}
+                            labels={SYNC_HOURS}
+                            theme={theme}
+                            config={config}
+                        />
+                    </Stage>
+                    <Stage height={200}>
+                        <TimeSeriesLineChart
+                            series={[
+                                {
+                                    key: 'p99',
+                                    label: 'p99',
+                                    data: SYNC_HALF_HOURS.map((_, i) => 120 + 40 * Math.cos(i / 5)),
+                                },
+                            ]}
+                            labels={SYNC_HALF_HOURS}
+                            theme={theme}
+                            config={config}
+                        />
+                    </Stage>
+                </div>
+            </ChartHoverSync>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.5)
     },
 }
 

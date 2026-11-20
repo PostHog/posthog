@@ -63,6 +63,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-instructions.txt'))
     })
 
+    it('matches the tools-mode prompt with the learn tool available', async () => {
+        const formatter = new InstructionsFormatter()
+        const rendered = formatter.buildToolsInstructions({ ...STATIC_CTX, learnToolEnabled: true })
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-instructions-skills.txt'))
+    })
+
     // The exec mode prompt is composed of three pieces wired into different MCP
     // fields (see `src/mcp.ts` and `buildExecCommandReference` for the split):
     //   - `exec-instructions`     — the compact `instructions` payload (only sent
@@ -90,6 +96,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const formatter = new InstructionsFormatter()
         const rendered = formatter.buildExecCommandReference(STATIC_CTX)
         await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full.txt'))
+    })
+
+    it('matches the exec command reference with skills enabled', async () => {
+        const formatter = new InstructionsFormatter()
+        const rendered = formatter.buildExecCommandReference(STATIC_CTX, { learnEnabled: true })
+        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'exec-command-reference-full-skills.txt'))
     })
 
     function claudeChatState(toolFeatureFlags: Record<string, boolean> = {}): ResolvedState {
@@ -225,25 +237,36 @@ describe('InstructionsFormatter prompt snapshots', () => {
     // sub-families to fit. It means a fixed section grew; move it to the exec command
     // reference, which has no such cap.
     // ------------------------------------------------------------------------------------------------
-    it('keeps the compact exec instructions under the Claude Code truncation cap', () => {
-        const ctx: InstructionsContext = {
-            ...STATIC_CTX,
-            tools: Object.keys(getToolDefinitions()).map((name) => ({
-                name,
-                category: getToolCategory(name) ?? 'Other',
-            })),
-        }
-        const rendered = new InstructionsFormatter().buildExecInstructions(ctx)
-        const domains = domainsIn(rendered)
+    it.each([false, true])(
+        'keeps the compact exec instructions under the Claude Code truncation cap (split %s)',
+        (splitWrites) => {
+            const ctx: InstructionsContext = {
+                ...STATIC_CTX,
+                splitWrites,
+                tools: Object.keys(getToolDefinitions()).map((name) => ({
+                    name,
+                    category: getToolCategory(name) ?? 'Other',
+                })),
+            }
+            const rendered = new InstructionsFormatter().buildExecInstructions(ctx)
+            const domains = domainsIn(rendered)
 
-        expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
-        // Families past the old cutoff point must remain searchable after the index compacts.
-        const toolNames = Object.keys(getToolDefinitions())
-        for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
-            const familyTools = toolNames.filter((name) => name.startsWith(family))
-            expect(familyTools.length).toBeGreaterThan(0)
-            expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
+            expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
+            // Families past the old cutoff point must remain searchable after the index compacts.
+            const toolNames = Object.keys(getToolDefinitions())
+            for (const family of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
+                const familyTools = toolNames.filter((name) => name.startsWith(family))
+                expect(familyTools.length).toBeGreaterThan(0)
+                expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
+            }
         }
+    )
+
+    it('names the split dispatchers, not the unlisted exec, in split instructions', () => {
+        const rendered = new InstructionsFormatter().buildExecInstructions({ ...STATIC_CTX, splitWrites: true })
+        const toolLines = rendered.split('\n').filter((line) => / – /.test(line))
+
+        expect(toolLines.map((line) => line.split(' – ')[0])).toEqual(['exec-read', 'exec-write', 'render-ui'])
     })
 
     // Exercises the re-render branch, which the live catalog no longer reaches now that it

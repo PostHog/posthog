@@ -303,6 +303,18 @@ def _nested_rows(items: list[dict[str, Any]], nested: AnvilNestedList) -> list[d
     return rows
 
 
+def _organization_user_rows(organizations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for organization in organizations:
+        for membership in organization.get("organizationUsers") or []:
+            user_eid = (membership.get("user") or {}).get("eid")
+            # Without a user the row has no key, and there is no one to attribute activity to.
+            if not user_eid:
+                continue
+            rows.append({**membership, "organizationEid": organization.get("eid"), "userEid": user_eid})
+    return rows
+
+
 def _get_nested_rows(
     execute: _Execute,
     config: AnvilEndpointConfig,
@@ -389,6 +401,13 @@ def get_rows(
             logger,
             "weld",
         )
+        return
+
+    if config.organization_users:
+        data = execute(_build_organizations_query(_nest_selection(("organizationUsers",), config.item_fields)), {})
+        rows = _organization_user_rows((data.get("currentUser") or {}).get("organizations") or [])
+        if rows:
+            yield rows
         return
 
     if config.organization_page_field is None:

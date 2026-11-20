@@ -2,7 +2,10 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import api from 'lib/api'
+import { ApiError, NetworkError, ResponseBodyReadError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -12,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { myClaim } from '../__mocks__/inboxMocks'
 import {
     INBOX_SCOPE_CLAIMED_BY_YOU,
+    INBOX_SCOPE_NEEDS_YOU,
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_FOR_YOU,
     InboxReportSectionKey,
@@ -53,6 +57,86 @@ function makeReport(id: string): SignalReport {
 }
 
 describe('reportListLogic', () => {
+    test.each([
+        {
+            name: 'two dropped connections',
+            failures: [new NetworkError('network'), new NetworkError('network')],
+            attempts: 3,
+            recovered: { retry_count: 2, error_type: 'NetworkError', status: null },
+        },
+        {
+            name: 'a truncated body',
+            failures: [new ResponseBodyReadError('body stream failed')],
+            attempts: 2,
+            recovered: { retry_count: 1, error_type: 'ResponseBodyReadError', status: null },
+        },
+        {
+            name: 'a malformed 200 body',
+            failures: [new ApiError('Malformed JSON response')],
+            attempts: 2,
+            recovered: { retry_count: 1, status: null },
+        },
+        {
+            name: 'a 503',
+            failures: [new ApiError('unavailable', 503)],
+            attempts: 2,
+            recovered: { retry_count: 1, status: 503 },
+        },
+        {
+            name: 'a 504',
+            failures: [new ApiError('gateway timeout', 504)],
+            attempts: 1,
+            recovered: null,
+        },
+        {
+            name: 'a drop that outlasts both retries',
+            failures: [new NetworkError('network'), new NetworkError('network'), new NetworkError('network')],
+            attempts: 3,
+            recovered: null,
+        },
+    ])('first page after $name', async ({ failures, attempts, recovered }) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                [REPORTS_URL]: { count: 1, next: null, previous: null, results: [makeReport('recovered')] },
+            },
+        })
+        initKeaTests()
+        const pending = [...failures]
+        let pageAttempts = 0
+        const realList = api.signalReports.list.bind(api.signalReports)
+        const listSpy = jest.spyOn(api.signalReports, 'list').mockImplementation((params) => {
+            if (params?.limit === 1) {
+                return realList(params)
+            }
+            pageAttempts++
+            const failure = pending.shift()
+            return failure ? Promise.reject(failure) : realList(params)
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        jest.useFakeTimers()
+        const logic = reportListLogic(sectionListLogicProps('needs-decision'))
+        logic.mount()
+        try {
+            logic.actions.ensureLoaded()
+            await jest.advanceTimersByTimeAsync(10_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(pageAttempts).toBe(attempts)
+            expect(logic.values.reportsLoadFailed).toBe(recovered === null)
+            expect(logic.values.reports).toEqual(recovered === null ? [] : [makeReport('recovered')])
+            const recoveries = captureSpy.mock.calls.filter(([event]) => event === 'Inbox report list retry recovered')
+            expect(recoveries.map(([, properties]) => properties)).toEqual(
+                recovered === null ? [] : [expect.objectContaining({ section_key: 'needs-decision', ...recovered })]
+            )
+        } finally {
+            logic.unmount()
+            jest.useRealTimers()
+            listSpy.mockRestore()
+            captureSpy.mockRestore()
+        }
+    })
+
     it('loads monitoring from the server without a browser rollout flag', async () => {
         const requests: string[] = []
         useMocks({
@@ -144,6 +228,7 @@ describe('reportListLogic', () => {
                                 next: firstPage ? 'http://localhost/api/projects/997/signals/reports/?offset=50' : null,
                                 previous: null,
                                 results: firstPage ? FIRST_PAGE : SECOND_PAGE,
+                                ranker: 'personal',
                                 ranking_id: 'personal-ranking-1',
                             },
                         ]
@@ -192,13 +277,9 @@ describe('reportListLogic', () => {
         })
 
         // The flat list merges the states by merge key, so a state loaded after a rebuild must use the
-        // ranking of the states already on screen.
+        // ranking of the states already on screen. Recommended gets a personal ranking in one flag arm.
         it('loads a later state from the personal ranking the loaded states use', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
-                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
-            })
-            inboxFiltersLogic.actions.setSort('personal', 'asc')
-            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadedPersonalOrder).toBe(true)
             const laterLogic = reportListLogic(sectionListLogicProps('monitoring'))
             laterLogic.mount()
             requestedRankingIds = []
@@ -210,19 +291,38 @@ describe('reportListLogic', () => {
             laterLogic.unmount()
         })
 
+        // A Needs you scope stored while its flag is off falls back to For you.
         it.each([
-            { scope: INBOX_SCOPE_FOR_YOU, suggested_reviewers: MOCK_USER_UUID, assignee: undefined },
-            { scope: INBOX_SCOPE_CLAIMED_BY_YOU, suggested_reviewers: undefined, assignee: 'mine' },
-            { scope: 'teammate:t-1', suggested_reviewers: 't-1', assignee: undefined },
-            { scope: INBOX_SCOPE_ENTIRE_PROJECT, suggested_reviewers: undefined, assignee: undefined },
-        ] as { scope: InboxScope; suggested_reviewers?: string; assignee?: string }[])(
-            'narrows the $scope request to suggested_reviewers=$suggested_reviewers and assignee=$assignee',
-            ({ scope, suggested_reviewers, assignee }) => {
+            { scope: INBOX_SCOPE_FOR_YOU, sent: { suggested_reviewers: MOCK_USER_UUID } },
+            { scope: INBOX_SCOPE_CLAIMED_BY_YOU, sent: { assignee: 'mine' } },
+            { scope: INBOX_SCOPE_NEEDS_YOU, needsYouFlag: true, sent: { needs_you: 'true' } },
+            { scope: INBOX_SCOPE_NEEDS_YOU, needsYouFlag: false, sent: { suggested_reviewers: MOCK_USER_UUID } },
+            {
+                scope: 'teammate:t-1',
+                sent: { suggested_reviewers: 't-1', scope: 'teammate', teammate_uuid: 't-1' },
+            },
+            { scope: INBOX_SCOPE_ENTIRE_PROJECT, sent: {} },
+        ] as { scope: InboxScope; needsYouFlag?: boolean; sent: Record<string, string> }[])(
+            'narrows the $scope request to $sent with the Needs you flag $needsYouFlag',
+            ({ scope, needsYouFlag, sent }) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_NEEDS_YOU_SCOPE], {
+                    [FEATURE_FLAGS.INBOX_NEEDS_YOU_SCOPE]: !!needsYouFlag,
+                })
                 logic.actions.setScope(scope)
-                const { suggested_reviewers: sentReviewers, assignee: sentAssignee } = logic.values.listApiParams
-                expect({ suggested_reviewers: sentReviewers, assignee: sentAssignee }).toEqual({
+                const {
                     suggested_reviewers,
                     assignee,
+                    needs_you,
+                    scope: sentScope,
+                    teammate_uuid,
+                } = logic.values.listApiParams
+                expect({ suggested_reviewers, assignee, needs_you, scope: sentScope, teammate_uuid }).toEqual({
+                    suggested_reviewers: undefined,
+                    assignee: undefined,
+                    needs_you: undefined,
+                    scope: undefined,
+                    teammate_uuid: undefined,
+                    ...sent,
                 })
             }
         )
@@ -748,6 +848,23 @@ describe('reportListLogic', () => {
             ])
             expect(logic.values.reports[0].scout_name).toEqual('signals-scout-billing')
         })
+
+        test.each([
+            { status: 500, reported: true },
+            { status: 504, reported: false },
+        ])('files a $status from the source line as an exception: $reported', async ({ status, reported }) => {
+            useMocks({ post: { '/api/projects/:team_id/signals/reports/source_metadata/': () => [status, {}] } })
+            const captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => undefined as any)
+            try {
+                logic.actions.loadReportSourceMeta(['scouted'])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(captureExceptionSpy).toHaveBeenCalledTimes(reported ? 1 : 0)
+            } finally {
+                captureExceptionSpy.mockRestore()
+            }
+        })
     })
 
     // Which rows get a CI glyph, and which pull requests the batch endpoint is asked about. A landed
@@ -797,7 +914,7 @@ describe('reportListLogic', () => {
         afterEach(() => logic.unmount())
 
         it('counts the rows whose pull request is still in flight, drafts included', () => {
-            expect(logic.values.livePrReportIds).toEqual(['1', '3', '5'])
+            expect(logic.values.livePrReportIds).toEqual(['1', '5'])
         })
     })
     // Snapshots refresh on read, like error tracking counts: a loaded page sends the ids whose saved

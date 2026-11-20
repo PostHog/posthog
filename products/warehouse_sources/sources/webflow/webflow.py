@@ -20,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSourceManager,
+    lift_nested,
     make_tracked_session,
     rest_api_resource,
 )
@@ -91,11 +92,7 @@ def _flatten_map(config: WebflowEndpointConfig) -> Callable[[dict[str, Any]], di
     under a ``product`` key alongside ``skus``)."""
 
     def _map(item: dict[str, Any]) -> dict[str, Any]:
-        if config.flatten_key and isinstance(item.get(config.flatten_key), dict):
-            rest = {**item}
-            flattened = rest.pop(config.flatten_key)
-            return {**flattened, **rest}
-        return item
+        return lift_nested(item, config.flatten_key) if config.flatten_key else item
 
     return _map
 
@@ -113,7 +110,11 @@ def validate_credentials(api_token: str, site_id: str, schema_name: Optional[str
         return True, None
 
     if response.status_code == 401:
-        return False, "Invalid Webflow API token"
+        return (
+            False,
+            "Webflow rejected your API token. Create a new Site API token under Site settings → Apps & integrations "
+            "→ API access, then reconnect.",
+        )
 
     # A 403 means the token is genuine but lacks the scope for this probe. Accept it
     # at source-create (schema_name is None) so users only need to grant scopes for

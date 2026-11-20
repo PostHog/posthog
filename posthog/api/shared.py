@@ -15,12 +15,31 @@ from rest_framework.relations import PKOnlyObject
 from rest_framework.utils import model_meta
 
 from posthog.helpers.trigram_search import search_match_type_from_instance
+from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_notification_lock import LOCKABLE_NOTIFICATION_SETTINGS
 from posthog.models.project import Project
 
 tracer = trace.get_tracer(__name__)
+
+
+class ImageSizeSerializer(serializers.Serializer):
+    width = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=320,
+        max_value=4000,
+        help_text="Output width in pixels, from 320 to 4000. Omit or use null for automatic width.",
+    )
+    height = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=200,
+        max_value=5000,
+        help_text="Output height in pixels, from 200 to 5000. Omit or use null for automatic height. "
+        "Content fits inside the requested size without stretching or cropping.",
+    )
 
 
 # Adds the read-only `search_match_type` field to a saved-list serializer whose viewset runs
@@ -95,12 +114,19 @@ class ProjectBasicSerializer(serializers.ModelSerializer):
     Also used for nested serializers.
     """
 
+    logo_media_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the uploaded image shown as this project's logo. Null when the project has no logo.",
+    )
+
     class Meta:
         model = Project
         fields = (
             "id",
             "organization_id",
             "name",
+            "logo_media_id",
         )
         read_only_fields = fields
 
@@ -310,13 +336,21 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
     @cached_property
     def _membership_levels_by_org(self) -> dict[UUID, int]:
         return dict(
-            OrganizationMembership.objects.filter(user=self.context["request"].user).values_list(
-                "organization_id", "level"
-            )
+            OrganizationMembership.objects.with_effective_level()
+            .filter(user=self.context["request"].user)
+            .values_list("organization_id", "resolved_level")
         )
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")
     def to_representation(self, instance):
+        request = self.context.get("request")
+        if request is not None and str(instance.id) in get_ip_blocked_organization_ids(request):
+            return {
+                "id": str(instance.id),
+                "name": instance.name,
+                "slug": instance.slug,
+                "membership_level": self.get_membership_level(instance),
+            }
         return super().to_representation(instance)
 
 

@@ -60,8 +60,6 @@
   '''
   SELECT "posthog_person"."id",
          "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
          "posthog_person"."team_id",
          "posthog_person"."properties",
          "posthog_person"."is_user_id",

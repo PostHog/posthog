@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+
+import time_machine
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
@@ -37,17 +40,20 @@ class TestDeepgramSourceClass:
     @parameterized.expand([("incremental_on", True), ("incremental_off", False)])
     def test_source_for_pipeline_gates_last_value_on_incremental(self, _name: str, use_incremental: bool) -> None:
         config = DeepgramSourceConfig(api_key="k")
-        result = SourceDriver(self.source, config).run(
-            "requests",
-            [
-                ScriptedResponse(json={"projects": [{"project_id": "p1"}]}),
-                ScriptedResponse(json={"requests": []}),
-            ],
-            should_use_incremental_field=use_incremental,
-            db_incremental_field_last_value="2026-01-01",
-        )
+        with time_machine.travel(datetime(2026, 6, 15, tzinfo=UTC), tick=False):
+            result = SourceDriver(self.source, config).run(
+                "requests",
+                [
+                    ScriptedResponse(json={"projects": [{"project_id": "p1"}]}),
+                    ScriptedResponse(json={"requests": []}),
+                ],
+                should_use_incremental_field=use_incremental,
+                db_incremental_field_last_value="2026-06-01",
+            )
 
         assert result.raised is None
         assert result.requests[-1].headers["authorization"] == "Token k"
-        # The last value is only forwarded when the sync is actually incremental.
-        assert result.requests[-1].param("start") == ("2026-01-01" if use_incremental else None)
+        # The last value is only forwarded when the sync is actually incremental. A full sync starts
+        # at the edge of Deepgram's retained requests log instead.
+        expected_start = "2026-06-01T00:00:00+00:00" if use_incremental else "2026-03-18T00:00:00+00:00"
+        assert result.requests[-1].param("start") == expected_start

@@ -20,7 +20,7 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
-from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_severity_state
+from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL, build_exception_state
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     AutoMergeReopenedTarget,
     FingerprintEmbeddingMergeResult,
@@ -48,6 +48,8 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     SeveritySource,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import (
+    ISSUE_TAGS_PATCH,
+    MERGE_TARGET_TAGS_PATCH,
     SUMMARY_ON_WRITE_PATCH,
     ErrorTrackingIssueCreatedWorkflow,
 )
@@ -80,6 +82,29 @@ def _inputs(fingerprint: str) -> IssueCreatedWorkflowInputs:
         event_uuid=event_uuid,
         event_timestamp="2026-07-21T12:00:00Z",
     )
+
+
+def _embedding_preparation(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
+    return IssueEmbeddingPreparationResult(
+        team_exists=True,
+        embedding=GeneratedIssueEmbedding(
+            merge_inputs=FingerprintEmbeddingResultInputs(
+                team_id=inputs.team_id,
+                fingerprint=inputs.fingerprint,
+                rendering="type_message_and_stack",
+                timestamp=inputs.issue.created_at,
+                model_name="text-embedding-3-large-3072",
+                embedding=[0.1, 0.2],
+                source_issue_id=inputs.issue_id,
+            ),
+            content="TypeError: Something failed",
+        ),
+    )
+
+
+@activity.defn(name="persist_issue_created_embedding_activity")
+async def _persist_embedding(_: GeneratedIssueEmbedding) -> None:
+    return None
 
 
 def test_parse_inputs_accepts_cymbal_issue_created_notification() -> None:
@@ -129,7 +154,7 @@ def test_decode_token_prefix_does_not_emit_replacement_characters() -> None:
     ],
 )
 def test_severity_state(properties: dict[str, object], expected: str) -> None:
-    assert build_severity_state("TypeError: boom\n", properties) == expected
+    assert build_exception_state("TypeError: boom\n", properties) == expected
 
 
 def test_stacktrace_rendering_matches_cymbal_embedding_content() -> None:
@@ -410,6 +435,8 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     signal_issue_ids: list[str] = []
     signal_attempts: dict[str, int] = {}
     inferred_issue_ids: list[str] = []
+    tagged_severities: dict[str, str | None] = {}
+    tagged_after_alert: set[str] = set()
     summary_issue_ids: list[str] = []
     alerted: defaultdict[str, asyncio.Event] = defaultdict(asyncio.Event)
     summary_saw_alert: set[str] = set()
@@ -417,6 +444,8 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     reopened_events: list[IssueReopenedWorkflowInputs] = []
     reopened_signals: list[IssueReopenedWorkflowInputs] = []
     reopened_summaries: list[IssueReopenedWorkflowInputs] = []
+    reopened_alerted = asyncio.Event()
+    merge_target_tagged: list[IssueCreatedWorkflowInputs] = []
     reopened_target = AutoMergeReopenedTarget(
         notification_id=str(uuid.uuid4()),
         issue_id=str(uuid.uuid4()),
@@ -437,25 +466,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 "embedding unavailable",
                 type=EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
             )
-        return IssueEmbeddingPreparationResult(
-            team_exists=True,
-            embedding=GeneratedIssueEmbedding(
-                merge_inputs=FingerprintEmbeddingResultInputs(
-                    team_id=inputs.team_id,
-                    fingerprint=inputs.fingerprint,
-                    rendering="type_message_and_stack",
-                    timestamp=inputs.issue.created_at,
-                    model_name="text-embedding-3-large-3072",
-                    embedding=[0.1, 0.2],
-                    source_issue_id=inputs.issue_id,
-                ),
-                content="TypeError: Something failed",
-            ),
-        )
-
-    @activity.defn(name="persist_issue_created_embedding_activity")
-    async def persist(_: GeneratedIssueEmbedding) -> None:
-        return None
+        return _embedding_preparation(inputs)
 
     @activity.defn(name="merge_issue_created_fingerprint_activity")
     async def merge(inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
@@ -473,6 +484,20 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 resolved=True, stored_severity="low", skipped_reason=SeverityInferenceSkipReason.SEVERITY_CHANGED
             )
         return IssueSeverityInferenceResult(resolved=True, stored_severity="critical")
+
+    @activity.defn(name="tag_issue_created_activity")
+    async def tag_issue(inputs: IssueCreatedWorkflowInputs) -> None:
+        tagged_severities[inputs.issue_id] = inputs.issue.severity
+        await asyncio.wait_for(alerted[inputs.issue_id].wait(), timeout=10)
+        tagged_after_alert.add(inputs.issue_id)
+        if inputs.fingerprint == "tags-fail":
+            raise ApplicationError("tag model unavailable", non_retryable=True)
+
+    @activity.defn(name="tag_issue_created_merge_target_activity")
+    async def tag_merge_target(inputs: IssueCreatedWorkflowInputs) -> None:
+        if inputs.fingerprint == "merged-into-resolved":
+            await asyncio.wait_for(reopened_alerted.wait(), timeout=10)
+        merge_target_tagged.append(inputs)
 
     @activity.defn(name="dispatch_issue_created_alert_activity")
     async def dispatch_alert(inputs: IssueCreatedWorkflowInputs) -> None:
@@ -497,6 +522,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     @activity.defn(name="dispatch_issue_reopened_alert_activity")
     async def dispatch_reopened_alert(inputs: IssueReopenedWorkflowInputs) -> None:
         reopened_alerts.append(inputs)
+        reopened_alerted.set()
 
     @activity.defn(name="emit_issue_reopened_internal_event_activity")
     async def emit_reopened_event(inputs: IssueReopenedWorkflowInputs) -> None:
@@ -526,9 +552,11 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             workflows=[ErrorTrackingIssueCreatedWorkflow],
             activities=[
                 generate,
-                persist,
+                _persist_embedding,
                 merge,
                 infer_severity,
+                tag_issue,
+                tag_merge_target,
                 dispatch_alert,
                 generate_summary,
                 emit_event,
@@ -594,6 +622,13 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
+            tags_fail_inputs = _inputs("tags-fail")
+            tags_fail_result = await environment.client.execute_workflow(
+                ErrorTrackingIssueCreatedWorkflow.run,
+                tags_fail_inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
             reopened_result = await environment.client.execute_workflow(
                 ErrorTrackingIssueCreatedWorkflow.run,
                 reopened_inputs,
@@ -603,6 +638,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
 
     assert merged_result == IssueCreatedWorkflowResult(merged=True)
     assert unmerged_result == IssueCreatedWorkflowResult(notified=True)
+    assert tags_fail_result == IssueCreatedWorkflowResult(notified=True)
     assert embedding_unavailable_result == IssueCreatedWorkflowResult(
         notified=True,
         embedding_skipped_reason="embedding_service_unavailable",
@@ -619,6 +655,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         summary_waits_inputs.issue_id,
         unmerged_inputs.issue_id,
         embedding_unavailable_inputs.issue_id,
+        tags_fail_inputs.issue_id,
     ]
     # A failed or slow summary neither fails the workflow nor holds the alert, and a merged issue gets no summary.
     assert summary_results == [IssueCreatedWorkflowResult(notified=True)] * 2
@@ -637,6 +674,12 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     assert event_severities[rule_inputs.issue_id] == "high"
     assert event_severities[inference_unavailable_inputs.issue_id] == "high"
     assert event_severities[severity_changed_inputs.issue_id] == "low"
+    # Tags run after severity and the alert does not wait for them. A failed tag run still notifies. A merged
+    # exception skips the tag step and runs the rules on its target issue, and the reopened alert does not wait for them.
+    assert list(tagged_severities) == notified_issue_ids
+    assert tagged_severities[heuristic_inputs.issue_id] == "critical"
+    assert tagged_after_alert == set(notified_issue_ids)
+    assert merge_target_tagged == [merged_inputs, reopened_inputs]
 
     # A merge onto a dormant issue notifies about the reopen, not about the source issue
     # that auto-merge just deleted.
@@ -657,11 +700,44 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     assert reopened_summaries == [expected_reopened]
 
 
+@pytest.mark.parametrize(
+    "patch_id,activity_name,fingerprint,expected_result",
+    [
+        (
+            SUMMARY_ON_WRITE_PATCH,
+            "generate_issue_created_summary_activity",
+            "unmerged",
+            IssueCreatedWorkflowResult(notified=True),
+        ),
+        (
+            ISSUE_TAGS_PATCH,
+            "tag_issue_created_activity",
+            "unmerged",
+            IssueCreatedWorkflowResult(notified=True),
+        ),
+        (
+            MERGE_TARGET_TAGS_PATCH,
+            "tag_issue_created_merge_target_activity",
+            "merged",
+            IssueCreatedWorkflowResult(merged=True),
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_replays_a_history_recorded_before_the_summary_activity(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_replays_a_history_recorded_before_a_patched_activity(
+    monkeypatch: pytest.MonkeyPatch,
+    patch_id: str,
+    activity_name: str,
+    fingerprint: str,
+    expected_result: IssueCreatedWorkflowResult,
+) -> None:
     @activity.defn(name="generate_issue_created_embedding_activity")
-    async def generate(_: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
-        return IssueEmbeddingPreparationResult(team_exists=True, skipped_reason="manual_fingerprint")
+    async def generate(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
+        return _embedding_preparation(inputs)
+
+    @activity.defn(name="merge_issue_created_fingerprint_activity")
+    async def merge(inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
+        return FingerprintEmbeddingMergeResult(merged_count=int(inputs.fingerprint == "merged"))
 
     @activity.defn(name="dispatch_issue_created_alert_activity")
     async def dispatch_alert(_: IssueCreatedWorkflowInputs) -> None:
@@ -679,10 +755,18 @@ async def test_replays_a_history_recorded_before_the_summary_activity(monkeypatc
     async def generate_summary(_: IssueCreatedWorkflowInputs) -> str:
         return "generated"
 
+    @activity.defn(name="tag_issue_created_activity")
+    async def tag_issue(_: IssueCreatedWorkflowInputs) -> None:
+        return None
+
+    @activity.defn(name="tag_issue_created_merge_target_activity")
+    async def tag_merge_target(_: IssueCreatedWorkflowInputs) -> None:
+        return None
+
     original_patched = issue_created_workflow.workflow.patched
 
-    def before_summary_patch(patch_id: str) -> bool:
-        return False if patch_id == SUMMARY_ON_WRITE_PATCH else original_patched(patch_id)
+    def before_patch(requested: str) -> bool:
+        return False if requested == patch_id else original_patched(requested)
 
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as environment:
@@ -690,21 +774,29 @@ async def test_replays_a_history_recorded_before_the_summary_activity(monkeypatc
             environment.client,
             task_queue=task_queue,
             workflows=[ErrorTrackingIssueCreatedWorkflow],
-            activities=[generate, dispatch_alert, emit_event, emit_signal, generate_summary],
+            activities=[
+                generate,
+                _persist_embedding,
+                merge,
+                dispatch_alert,
+                emit_event,
+                emit_signal,
+                generate_summary,
+                tag_issue,
+                tag_merge_target,
+            ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with monkeypatch.context() as patched:
-                patched.setattr(issue_created_workflow.workflow, "patched", before_summary_patch)
+                patched.setattr(issue_created_workflow.workflow, "patched", before_patch)
                 handle = await environment.client.start_workflow(
                     ErrorTrackingIssueCreatedWorkflow.run,
-                    _inputs("unmerged"),
+                    _inputs(fingerprint),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
                     execution_timeout=timedelta(minutes=1),
                 )
-                assert await handle.result() == IssueCreatedWorkflowResult(
-                    notified=True, embedding_skipped_reason="manual_fingerprint"
-                )
+                assert await handle.result() == expected_result
                 history = await handle.fetch_history()
 
     scheduled = [
@@ -712,7 +804,7 @@ async def test_replays_a_history_recorded_before_the_summary_activity(monkeypatc
         for event in history.events
         if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED
     ]
-    assert "generate_issue_created_summary_activity" not in scheduled
+    assert activity_name not in scheduled
     await Replayer(
         workflows=[ErrorTrackingIssueCreatedWorkflow], workflow_runner=UnsandboxedWorkflowRunner()
     ).replay_workflow(history)

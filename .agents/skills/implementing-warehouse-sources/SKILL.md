@@ -111,7 +111,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
 4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below). Also set the vendor API version metadata class attributes — see "Vendor API version metadata". When the source is released, also set `codebase_detection`, as described in "Codebase detection".
 5. **Register** the source — nothing to edit. The loader finds `products/warehouse_sources/sources/{SOURCE_NAME}/source.py` by its directory, and the `@SourceRegistry.register` decorator on the class handles runtime registration. Keep the empty `__init__.py` files in the vendor directory and in `tests/`.
-6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/sources/<your_source>/_config.py` (one generated module per source; vendors that stay in the product get `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py`, whose package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator. Then regenerate the field classification audit with `DEBUG=1 python manage.py generate_source_field_classification`. A test fails when `field_classification.csv` is out of date. If the CSV conflicts in a rebase, regenerate it. Do not merge it by hand.
+6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/sources/<your_source>/_config.py` (one generated module per source; vendors that stay in the product get `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/<your_source>.py`, whose package `__init__.py` is hand-written and never regenerated). **Do not edit generated modules by hand.** Every time you change `get_source_config.fields`, re-run the generator. Then regenerate the field classification audit, the credential kinds and the default auth types with `hogli build:projections --only warehouse-source-fields`. `hogli build:projections --check` fails in CI when `field_classification.csv` is out of date. If the CSV conflicts in a rebase, regenerate it. Do not merge it by hand.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
@@ -421,8 +421,6 @@ Override `credential_kind` in your `source.py` when the default is wrong:
 
 A subclass inherits the override of its parent, so a subclass of an overriding source sets its own kind (`NeonSource` returns `neon`, not the `postgresql` of `PostgresSource`).
 
-The `reconcile_warehouse_source_credentials` command checks that each `*_integration_id` field and each `credentials_integration_id` column points at an `Integration` row. When your source keeps its OAuth rows in another model, override `integration_id_fields_point_at_integrations` to return `False` (`CustomSource` does this).
-
 The result is frozen in the generated file `facade/credential_kinds.py` (`CREDENTIAL_KINDS`), because a kind is stored data. Never change the kind of a released source. A test fails when the file is out of date, when a kind is longer than 32 characters, or when two source types share a kind.
 
 Each credential kind also has a default auth type: the `credential_auth_type` property on the source class. The default on `BaseSource` (`derive_credential_auth_type` in `products/warehouse_sources/sources/common/credential_auth_type.py`) reads the connection fields:
@@ -435,7 +433,7 @@ Override `credential_auth_type` in your `source.py` only when this rule gives th
 
 The result is frozen in `facade/credential_auth_types.py` (`CREDENTIAL_AUTH_TYPES`), because a row stores its auth type only when it is not the default. The product registers these kinds with the integrations SDK at startup. Read and write their rows with `IntegrationManager.source(kind)` from `posthog.integrations`. A kind that is also in the integrations catalogue (`stripe`, `postgresql`) keeps the default of the catalogue.
 
-Both generated files are append-only. A new source adds its entry. A removed source keeps its entry, because rows of its kind can exist. When a change to a source would change a committed kind or default auth type, `generate_source_field_classification` fails and writes nothing. Keep the old value with an override in the source class. If the change is necessary, write a data migration for the stored rows first, then rerun the command with `--allow-changed-defaults`.
+Both generated files are append-only. A new source adds its entry. A removed source keeps its entry, because rows of its kind can exist. When a change to a source would change a committed kind or default auth type, `hogli build:projections` fails and writes nothing. Keep the old value with an override in the source class. If the change is necessary, write a data migration for the stored rows first, then run `DEBUG=1 python manage.py generate_source_field_classification --allow-changed-defaults`.
 
 #### Reading and writing `job_inputs`
 
@@ -485,13 +483,13 @@ A source's typed-in connection fields go to one `Integration` row of the source'
 
 #### Stripped sources
 
-An operator command strips each source after its `credentials_integration_id` column is verified. A source with typed-in credentials needs a column that points at a row with the same connection fields. An OAuth source needs a column that holds its in-use OAuth pointer. The command refuses a source without a reference (run the backfill first). It removes the connection fields, or the OAuth pointers (also stale ones under options that are not selected), from `job_inputs` and sets the store key `connection_fields_stripped_at`. A store write strips each new source, and each source that it updates, when the inputs hold typed-in connection fields or an OAuth pointer.
+The store strips each new source, and each source that it updates, when the inputs hold typed-in connection fields or an OAuth pointer. It removes the connection fields, or the OAuth pointers (also stale ones under options that are not selected), from `job_inputs` and sets the store key `connection_fields_stripped_at`.
 
 - On a stripped source, `job_inputs` on the model holds no connection field and no OAuth pointer. The row and the column are the only copy. Never write a connection field or an OAuth pointer to `job_inputs` yourself.
 - `load`, `aload` and `load_many` merge the row, the column and `job_inputs`. The OAuth pointer goes back at the path of the in-use OAuth field, so the parsed config and the API form do not change. The result never holds the marker key.
 - `save`, `asave`, `assign` and `create` write the connection fields of a stripped source only to the row, and its OAuth pointer only to the column. If the row write fails, the call raises before `job_inputs` changes. A change to a shared row raises `SharedCredentialsError` unless the API request confirms it, because a skipped write would lose the change.
 - `update_runtime` keeps the marker. Write runtime keys only with `update_runtime`.
-- When a typed-in source would read as an OAuth source without its connection fields (Slack: a pasted token wins over its legacy pointer), the strip also sets the store key `connection_fields_stripped_typed_in`, so the source stays typed-in. If your `in_use_oauth_slot` override reads a connection field, it gets this for free; do not read the key in source code.
+- When a typed-in source would read as an OAuth source without its connection fields (Slack: a pasted token wins over its legacy pointer), the store also sets the store key `connection_fields_stripped_typed_in`, so the source stays typed-in. If your `in_use_oauth_slot` override reads a connection field, it gets this for free; do not read the key in source code.
 - `list_sources_using_integration` and the integrations SDK usages find a stripped source by its column. The inputs search also sees a stripped OAuth source, because `load_many` puts its pointer back.
 
 #### OAuth pointers
@@ -503,29 +501,6 @@ A source's OAuth field (`SourceFieldOauthConfig`, a `*_integration_id` input) ca
 - `source.oauth_pointer_paths` gives every path that can hold a pointer, also the stale ones.
 - The default walks the form (`sources/common/oauth_pointers.py`). It reads only the shape that `serialize_config` writes: a select as a mapping with `selection`, a switch group as a mapping with `enabled`. Any other shape (a flat legacy key, a select stored as a string) raises `OAuthPointerShapeError`. Callers then leave the source alone. They never guess.
 - Override `in_use_oauth_slot` and `oauth_pointer_paths` on your source class only for a pointer that no form field declares. Slack does this for its legacy `slack_integration_id`, which a pasted `slack_access_token` overrides.
-
-#### Backfill outcomes for legacy OAuth tokens
-
-`backfill_warehouse_source_credentials` moves legacy OAuth tokens that sit in `job_inputs` into an OAuth `Integration` row.
-A source opts in with two hooks on its class: `has_legacy_oauth_tokens(job_inputs)` (no network) and `adopt_legacy_oauth(job_inputs)` (can call the provider). HubSpot is the only source that uses them.
-
-- `hubspot_legacy_adopted`: the source has `hubspot_secret_key` and `hubspot_refresh_token` and no `hubspot_integration_id`. With `--execute`, the command exchanges the refresh token, reads the hub id from HubSpot, and reuses the `hubspot` row of the team for that hub id or creates one. It then sets `hubspot_integration_id` and the column, and removes the two legacy keys. Preview only counts. `reconcile_warehouse_source_credentials --verify` reports it as `legacy_oauth_tokens_in_job_inputs`.
-- `skipped_legacy_token_unusable`: HubSpot rejected the token, returned no hub id, or the inputs changed during the run. The command writes nothing. A later run tries again. Only a confirmed rejection of the refresh token (`invalid_grant`, `BAD_REFRESH_TOKEN` or `BAD_HUB`) makes the grant unusable. Any other failure, such as a network error, a 408, a 429, a 5xx, a malformed body or a refusal of PostHog's app credentials (`invalid_client`), is a retryable error: the backfill counts it as `failed`, and the cleanup command counts it as `skipped_transient`.
-
-#### Cleanup of dead credentials
-
-`cleanup_dead_warehouse_source_credentials` clears credentials that no sync can use. Some sources hold legacy OAuth tokens that HubSpot no longer accepts, or an integration pointer whose row is gone. These sources block a clean `reconcile_warehouse_source_credentials --verify`.
-
-A source is dead only when both rules hold:
-
-- Its credentials are dead. Either it holds legacy OAuth tokens (`has_legacy_oauth_tokens`) and `adopt_legacy_oauth` raises `LegacyOAuthGrantUnusable`, or its column or its in-use OAuth pointer names no integration row of the team. A source that still has a live reference is left alone.
-- No schema with `should_sync` synced in the last `--idle-days` days (default 30), and no schema is running.
-
-Preview is the default and makes no network call. With `--execute`, the command takes the source lock, writes a backup with the model of the strip command, removes the legacy token keys (`legacy_oauth_keys()` of the source class) and the dangling pointers at their real paths, clears a dangling column, and sets the marker `dead_credentials_cleared_at`. It never deletes a source, a schema or a row. Output is counts only. Stripped sources are skipped.
-
-- The backfill skips a marked source (`skipped_cleaned`), and `reconcile --verify` treats it as clean.
-- `restore_warehouse_source_connection_fields` puts the backed-up `job_inputs` back and removes the marker.
-- Do not write the marker key from source code. `SourceInputsStore` hides it from readers and keeps it on save.
 
 ## Implementing `source_for_pipeline`
 
@@ -756,6 +731,30 @@ skill — don't hand-roll version handling.
 - Keep comments minimal and only when intent is not obvious.
 - Python imports at the top of the module, not inside functions (unless needed to break circular imports).
 
+## Shaping rows with the shared helpers
+
+Do not write your own `_flatten*` function for these shapes.
+Import the helper from `products.warehouse_sources.sources.sdk`.
+The helpers are in `common/row_shaping.py`.
+
+| Response shape                                           | Helper                                                                      |
+| -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| JSON:API resource (`id`, `type`, `attributes`)           | `flatten_jsonapi(item, relationships_as_ids=True, on_clash="root")`         |
+| One nested object to lift into the row (`metadata`)      | `lift_nested(row, key, on_clash="root")`                                    |
+| Nested camelCase objects to `parent_child` columns       | `flatten_nested(obj, sep="_", key_fn=camel_to_snake, keep_raw=frozenset())` |
+| One camelCase key to snake_case (AWS style, `SOARecord`) | `camel_to_snake(name)`                                                      |
+
+- Each helper returns a new dict.
+  Use the return value.
+- `on_clash` decides the winner when a lifted key is already in the row.
+  Keep the default `"root"` for a new source.
+  With `"nested"`, a JSON:API attribute named `id` or `type` replaces the resource's `id` (the primary key) or `type`.
+- `relationships_as_ids=True` gives one `<name>_id` column for each to-one relationship and drops to-many relationships.
+  Set it to `False` to keep `relationships` as one JSON column.
+- `keep_raw` names keys by their original API name.
+  Their values stay whole, as one JSON column.
+- Write vendor-specific work (date parsing, dropped secret fields, parent ids) around the helper call, not in a copy of it.
+
 ## Incremental sync guidance
 
 - **Only set `supports_incremental=True` when the API exposes a server-side timestamp filter** (`<field>_gte`, `since`, `modified_after`, etc.). A "client-side cursor" that fetches every page and skips already-seen rows in Python is **not** incremental — every run still hits every page, so the API cost of an "incremental" sync ends up identical to a full refresh. If the API has no server filter, ship full refresh only.
@@ -769,6 +768,18 @@ skill — don't hand-roll version handling.
 - **Incremental pagination must terminate at the watermark.** Some APIs reject mixing their time-window filter with cursor pagination, so only the first page is windowed and later pages walk back through history unbounded. If the server can't keep the filter on every page, the paginator must stop client-side once an entire page predates `db_incremental_field_last_value` (see `typeform/typeform.py:TypeformResponsesPaginator`) — otherwise **every incremental sync re-fetches and re-merges each parent's full history**, which is both an API-cost bug and a per-sync memory amplifier.
 - Default unknown endpoints to full refresh first; enable incremental only after confirming a stable filter field and API ordering semantics.
 - Confirm partition keys against response schemas, not endpoint names.
+
+### Shared date and incremental-start helpers
+
+Do not write a private `_format_datetime`, `_to_epoch_ms` or start-date resolver. Import the shared helpers from `products.warehouse_sources.sources.sdk`:
+
+- `format_datetime(value, style)` writes a datetime, date, ISO string or epoch number in UTC. Styles: `iso_z`, `iso_z_millis`, `iso_z_micros`, `iso_offset`, `iso_naive`, `date`, `compact_date`. It truncates, so a lower bound never skips a row.
+- `to_epoch(value, unit)` and `from_epoch(value, unit)` convert to and from epoch `"s"` or `"ms"`. `to_epoch` rounds down.
+- `coerce_date(value)` returns the UTC date, or None. `parse_datetime_or_epoch(value)` returns a UTC datetime, or None. It reads epoch numbers too. `parse_datetime_value(value)` returns None for a number.
+- `resolve_incremental_start(should_use, last_value, default=..., lookback=..., floor=..., now=...)` gives the start of an incremental read. It parses the cursor and subtracts the lookback. With no cursor, it uses `now - default`. It then applies the floor and caps the result at now.
+
+Do not test a cursor for truthiness (`should_use_incremental_field and db_incremental_field_last_value`). A `0` or `""` cursor is a real value, so check `is not None`. `resolve_incremental_start` does this for you, and it raises `ValueError` for a cursor it cannot read.
+If the API needs a format that no style gives, write a local helper. Do not add a rounding variant: rounding up can skip a row at the lower bound.
 
 ## API behavior verification checklist
 
@@ -811,8 +822,9 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 - **One layer owns the retries of a request.** `RESTClient` retries its own requests (5 attempts by default) and turns the adapter retries off for them. A bespoke call on a tracked session keeps the adapter retries (3 retries, `GET`/`HEAD`/`OPTIONS` only).
 - **Retry waits are bounded.** One request takes at most `DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS` (300 s), from the start of its first try, with all retries and waits. Each try gets only the time that is left, so a read timeout on a retry can be shorter than the one you set. A source that retries a request in its own loop must share one deadline across its tries. Use `retry_with_deadline(...)` from `common/http` in place of tenacity's `retry(...)`, on a function that sends one logical request. For a `Retrying(...)` object, add `| stop_at_request_deadline()` to its `stop` and call it inside `with request_deadline():`. A hand-written loop runs inside `with request_deadline():` and checks `request_deadline_allows_wait(seconds)` before each wait. `RESTClient` fails a request with a retryable error when the server asks for a wait above `DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS` (300 s). For a vendor with a longer rate limit window, set `retry_after_max_seconds` and `retry_budget_seconds` in the client config.
 - **Do not call `time.sleep` for a backoff or a rate limit hold.** Call `interruptible_wait()` from `common/interruptible_wait.py`. It ends the wait when the worker starts to shut down and the run can resume. Pass `safe_point=` only from a position where the staged cursor covers no row that the source still holds.
-- Only add `tenacity` for a condition the transport does **not** cover — e.g. an app-level "still processing" body that isn't a retryable HTTP status. If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`.
-- Prefer server-provided rate-limit reset headers on `429` — the transport already honors `Retry-After`. Keep any custom retry bounded and deterministic (`stop_after_attempt`), with clear terminal behavior.
+- **Poll an async report or export job with `poll_until_done()`** from `common/async_job.py` (re-exported by the SDK). Do not write your own sleep loop. The `check` callable makes one status request and returns a `JobStatus`: `done=True` with the `result` (for example the download URL), `failed=True`, or pending with the vendor status in `message`. The helper waits through `interruptible_wait`. Set the limit as `budget_seconds`, not as a count of attempts. Pass `failed_error=` and `timeout_error=` to keep the vendor's error type and copy, because the retryable and non-retryable error lists match on that copy. Pass `safe_point=` when the job id is saved or the source holds no rows at the poll. When the resume state does not keep the job, catch `WorkerShuttingDownError`, cancel or delete the job, and raise again, so the next worker does not find a second job in the vendor's queue. Send the cancel as one request with a short timeout and no retries, because the worker is shutting down. Set `wait_first=True` when the vendor rejects a status check right after the job starts. To read the downloaded file, use `iter_file_rows()` from `common/file_parsing.py`. The `singular`, `clari`, `marketo` and `sumo_logic` sources are examples.
+- **When a bespoke client must retry a request itself** (a `POST`, a status the adapter does not retry, or more tries than the adapter gives), use `vendor_retry()` from the SDK. Do not write a `<Vendor>RetryableError` class, a `429 or >= 500` check, a `Retry-After` parser or a `tenacity` decorator. In the decorated function, call `raise_for_retryable_status(response, vendor=...)`, then `raise_for_status_redacted(response, url=...)` when the URL carries a credential. `vendor_retry` turns the adapter retries off for its requests, waits as long as the server asks (`parse_retry_after`, the same parser as `RESTClient`), shares one deadline across its tries, and fails at once when the server asks for more than `DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS`. Give `retry_on=` for a vendor condition, such as an unexpected body, and `safe_point=reach_safe_point` only when the caller holds no rows that its staged cursor covers.
+- Only write your own `tenacity` loop for a condition that `vendor_retry` cannot express. If you do, disable transport retries so they don't compound: `make_tracked_session(retry=Retry(total=0))`.
 - Keep timeout/retry settings near the top of the module for easy tuning.
 - A request that names no timeout gets the default `(connect, read)` timeout from `default_request_timeout()` (30 s, 300 s). Pass `request_timeout` in the client config, or `timeout=` on a session call, when an endpoint needs a different value. `None` means "use the default". Only `NO_REQUEST_TIMEOUT` sends a request with no deadline.
 

@@ -15,7 +15,11 @@
                 "backend/models/**",
                 "backend/providers/ses.py",
                 "backend/migrations/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/apps.py",
+                "backend/services/template_file_guard.py",
+                "backend/services/people_import.py",
+                "backend/console.py"
             ],
             "outputs": [],
             "cache": true

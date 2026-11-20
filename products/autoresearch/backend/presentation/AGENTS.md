@@ -13,6 +13,7 @@ The `autoresearch-*` MCP tools that expose this API to the sandbox agent are dec
   Five viewsets, registered in `../routes.py` under `project_autoresearch_*` basenames and nested pipeline-first.
   - `AutoresearchPipelineViewSet` — full CRUD plus the lifecycle actions: `train`, `score`, `validate_online`, `archive`, `pause`, `resume`, the pre-create helpers `templates`, `resolve-template`, `validate`, the read-only `online_performance`, which returns realized metrics per model per validated date from the validation runs, and the read-only `limits`, which returns the project's limits from `../limits.py` with its current usage.
   - `AutoresearchTrainingRunViewSet` — read plus create, and **the agent's entire write surface**: `iterations`, `materialize-features`, `complete`, `artifacts`, `artifacts/upload`, `artifacts/get`, `artifacts/delete`, plus `history`.
+    It also holds `stop`, which a person calls to end a live run through `../training/stop.py`. The training agent's sandbox gets a 403 from `stop`.
   - `AutoresearchModelViewSet`, `AutoresearchRunViewSet` — read-only.
   - `AutoresearchSuggestionViewSet` — human or agent hypotheses, plus `respond`.
 - `views/serializers.py`

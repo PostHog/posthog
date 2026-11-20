@@ -89,8 +89,10 @@ function rootDirectories(): string[] {
         '<rootDir>/../products',
         '<rootDir>/../packages/quill/packages/charts/src',
         '<rootDir>/../packages/quill/packages/components/src',
+        '<rootDir>/../packages/quill/packages/tokens/src',
         '<rootDir>/../packages/llm-normalizer/src',
         '<rootDir>/../common/esbuilder',
+        '<rootDir>/../common/storybook/.storybook',
     ]
 }
 

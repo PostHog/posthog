@@ -4,6 +4,7 @@ import { register } from 'prom-client'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { Hub } from '~/types'
 
 import { RateLimiterService } from './rate-limiter.service'
@@ -210,6 +211,31 @@ describe('RateLimiterService', () => {
             expect(await limiter.claimUpTo({ key: AON_KEY, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
         })
 
+        it.each([
+            ['a raise grants the new allowance minus what was spent', [1000], 970],
+            ['a cut clamps the pool to the smaller allowance', [50], 50],
+            ['switching back after a cut grants no allowance twice', [50, 100], 50],
+            ['a lower capacity after a raise clamps the pool for good', [1000, 100, 1000], 100],
+        ])('%s', async (_case, capacities, expectedGrant) => {
+            const bucket = (capacity: number) => ({ key: AON_KEY, capacity, refillPerSecond: 0 })
+            await limiter.claimAllOrNothing({ ...bucket(100), requested: 30 }, 600_000)
+            for (const capacity of capacities.slice(0, -1)) {
+                await limiter.claimUpTo({ ...bucket(capacity), requested: 0 })
+            }
+            const finalBucket = bucket(capacities[capacities.length - 1])
+
+            expect(
+                await limiter.claimAllOrNothing({ ...finalBucket, requested: expectedGrant + 1 }, 600_000)
+            ).toMatchObject({
+                granted: false,
+            })
+            expect(
+                await limiter.claimAllOrNothing({ ...finalBucket, requested: expectedGrant }, 600_000)
+            ).toMatchObject({
+                granted: true,
+            })
+        })
+
         it('consumes nothing on denial, so retries cannot starve the bucket', async () => {
             // The bucket cannot cover the request, so the claim must leave the pool untouched.
             // Without that, a rescheduled multi-recipient send would burn the refill on every
@@ -243,6 +269,40 @@ describe('RateLimiterService', () => {
                 600_000
             )
             expect(claim).toEqual({ granted: false, retryAfterMs: null, reserved: false })
+        })
+    })
+
+    describe('claimAllOrNothingAcross', () => {
+        let claims = 0
+        const newClaim = () => ({ key: `${KEY}/across/claim-${++claims}`, attempt: 'attempt-1', ttlSeconds: 60 })
+
+        it.each([
+            ['a fraction', 0, 1.5],
+            ['an expiry past Redis range', 1, 1e16],
+        ])('charges no bucket when a TTL is %s that EXPIRE rejects', async (_case, badIndex, ttlSeconds) => {
+            const first = { key: `${KEY}/across/first`, requested: 1, capacity: 5, refillPerSecond: 0 }
+            const second = { key: `${KEY}/across/second`, requested: 1, capacity: 5, refillPerSecond: 0 }
+            const reqs = [first, second].map((req, i) => (i === badIndex ? { ...req, ttlSeconds } : req))
+            const claim = await limiter.claimAllOrNothingAcross(reqs, newClaim())
+            expect(claim).toBe('unavailable')
+            expect(await limiter.claimUpTo({ ...first, requested: 5 })).toBe(5)
+            expect(await limiter.claimUpTo({ ...second, requested: 5 })).toBe(5)
+        })
+
+        it('grants again once every exhausted bucket refills', async () => {
+            const drained = [
+                { key: `${KEY}/across/refill-first`, requested: 1, capacity: 1, refillPerSecond: 0 },
+                { key: `${KEY}/across/refill-second`, requested: 1, capacity: 1, refillPerSecond: 0 },
+            ]
+            expect(await limiter.claimAllOrNothingAcross(drained, newClaim())).toBe('granted')
+            expect(await limiter.claimAllOrNothingAcross(drained, newClaim())).toBe('denied')
+
+            const refilling = drained.map((req) => ({ ...req, refillPerSecond: 50 }))
+            await waitForExpect(
+                async () => expect(await limiter.claimAllOrNothingAcross(refilling, newClaim())).toBe('granted'),
+                2_000,
+                10
+            )
         })
     })
 

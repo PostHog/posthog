@@ -1,8 +1,10 @@
+from contextlib import AbstractContextManager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.db import connection
 from django.utils import timezone as django_timezone
@@ -15,6 +17,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.metric_calculation.config import (
+    CALCULATION_KEY_V2_FLAG,
     MetricCalculationConfig,
     get_metric_calculation_config,
 )
@@ -104,6 +107,7 @@ class TestMetricResultStore(BaseTest):
         completed_at: datetime,
         samples: int,
         display_key: str | None = None,
+        status: str = ExperimentMetricResult.Status.COMPLETED,
     ) -> ExperimentMetricResult:
         return ExperimentMetricResult.objects.create(
             experiment=experiment,
@@ -112,7 +116,7 @@ class TestMetricResultStore(BaseTest):
             display_key=display_key,
             query_from=_START,
             query_to=query_to,
-            status=ExperimentMetricResult.Status.COMPLETED,
+            status=status,
             result=_stored_result(samples),
             completed_at=completed_at,
         )
@@ -580,6 +584,7 @@ class TestMetricResultStore(BaseTest):
             ("run_result", True, ExperimentMetricResult.Status.COMPLETED),
             ("run_failure", True, ExperimentMetricResult.Status.FAILED),
             ("daily_point", False, ExperimentMetricResult.Status.COMPLETED),
+            ("daily_failure", False, ExperimentMetricResult.Status.FAILED),
             ("daily_metric_result", False, ExperimentMetricResult.Status.COMPLETED),
             ("sync_copy", True, ExperimentMetricResult.Status.COMPLETED),
         ]
@@ -590,7 +595,7 @@ class TestMetricResultStore(BaseTest):
         experiment = self._experiment()
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
-        self._row(experiment, "another-fingerprint", query_to=_WINDOW, completed_at=_WINDOW, samples=1)
+        self._row(experiment, "another-fingerprint", query_to=_WINDOW, completed_at=_WINDOW, samples=1, status=status)
 
         self._write(writer, experiment, calculation_config)
 
@@ -606,30 +611,51 @@ class TestMetricResultStore(BaseTest):
         else:
             assert (row.result, row.error_message, row.completed_at) == (None, "boom", None)
 
-    @parameterized.expand([("held_by_a_recalculation", True), ("held_by_the_same_daily_key", False)])
-    def test_a_daily_failure_replaces_a_completed_row_only_under_its_own_key(
-        self, _name: str, held_by_recalculation: bool
+    @parameterized.expand(
+        [
+            (
+                f"{writer}_{held_by}",
+                writer,
+                held_by,
+                reader,
+                (writer, held_by) != ("daily_failure", "the_same_daily_key"),
+            )
+            for writer in ("run_failure", "daily_failure")
+            for held_by, reader in (
+                ("a_version_1_recalculation", "for_run"),
+                ("the_same_recalculation_key", "for_run"),
+                ("a_version_1_daily_point", "timeseries"),
+                ("the_same_daily_key", "timeseries"),
+            )
+        ]
+    )
+    def test_only_a_daily_failure_replaces_a_completed_row_and_only_under_its_own_key(
+        self, _name: str, writer: str, held_by: str, reader: str, kept: bool
     ) -> None:
         experiment = self._experiment()
         calculation_config = get_metric_calculation_config(experiment, "m1")
         assert calculation_config is not None
-        key = calculation_config.calculation_key()
-        held_fingerprint = _recalc_fingerprint(key) if held_by_recalculation else key
+        held_fingerprint = {
+            "a_version_1_recalculation": _recalc_fingerprint(calculation_config.key_for_version(1)),
+            "the_same_recalculation_key": _recalc_fingerprint(calculation_config.calculation_key()),
+            "a_version_1_daily_point": calculation_config.key_for_version(1),
+            "the_same_daily_key": calculation_config.calculation_key(),
+        }[held_by]
         self._row(experiment, held_fingerprint, query_to=_WINDOW, completed_at=_WINDOW, samples=1)
 
-        self._write("daily_failure", experiment, calculation_config)
+        self._write(writer, experiment, calculation_config)
 
         row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
-        if held_by_recalculation:
-            assert (row.fingerprint, row.status, _samples(row)) == (
+        if kept:
+            assert (row.fingerprint, row.status, row.error_message) == (
                 held_fingerprint,
                 ExperimentMetricResult.Status.COMPLETED,
-                [1],
+                None,
             )
-            assert self._read("for_run", experiment, calculation_config) == [1]
+            assert self._read(reader, experiment, calculation_config) == [1]
         else:
             assert (row.fingerprint, row.status, row.result, row.error_message) == (
-                key,
+                held_fingerprint,
                 ExperimentMetricResult.Status.FAILED,
                 None,
                 "boom",
@@ -653,31 +679,39 @@ class TestMetricResultStore(BaseTest):
             ExperimentMetricsRecalculation.objects.filter(id=run.id).update(status=status)
         self._row(experiment, "fingerprint-from-the-superseding-run", query_to=_WINDOW, completed_at=_WINDOW, samples=1)
 
-        MetricResultStore(experiment_id=experiment.id).record_run_failure(
+        # A failure never replaces a completed row, so only a result write needs the terminal-run guard.
+        stored = MetricResultStore(experiment_id=experiment.id).record_run_result(
             str(run.id),
             calculation_config,
             window=_WINDOW,
             query_from=_START,
-            error_message="the orphan's late failure",
+            result=_stored_result(9),
             query_id=None,
         )
 
         row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
-        assert (row.fingerprint, row.status, row.error_message) == (
-            "fingerprint-from-the-superseding-run",
-            ExperimentMetricResult.Status.COMPLETED,
-            None,
-        )
+        assert (stored, row.fingerprint, _samples(row)) == (False, "fingerprint-from-the-superseding-run", [1])
 
 
-class TestCalculationKeyVersionDefault(BaseTest):
-    def test_the_default_version_keeps_the_keys_and_the_query_cache_payload(self) -> None:
-        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="default-version-flag")
-        experiment = Experiment.objects.create(
+def _patch_key_version_flag(state: bool | None | Exception) -> AbstractContextManager[Any]:
+    def feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool | None:
+        if flag_key != CALCULATION_KEY_V2_FLAG:
+            return False
+        if isinstance(state, Exception):
+            raise state
+        return state
+
+    return patch("posthoganalytics.feature_enabled", side_effect=feature_enabled)
+
+
+class TestCalculationKeyActivation(BaseTest):
+    def _experiment(self) -> Experiment:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="key-version-flag")
+        return Experiment.objects.create(
             team=self.team,
             created_by=self.user,
             feature_flag=flag,
-            name="default version",
+            name="key version",
             start_date=_START,
             metrics=[
                 {
@@ -688,10 +722,56 @@ class TestCalculationKeyVersionDefault(BaseTest):
                 }
             ],
         )
-        calculation_config = get_metric_calculation_config(experiment, "m1")
-        assert calculation_config is not None
-        assert calculation_config.calculation_key() == calculation_config.legacy_key()
+
+    def _runner(self, experiment: Experiment) -> ExperimentQueryRunner:
         assert experiment.metrics is not None
         query = ExperimentQuery(experiment_id=experiment.id, metric=build_metric(experiment.metrics[0]))
-        # A new payload field would miss every cached experiment response when this release deploys.
-        assert "calculation_key" not in ExperimentQueryRunner(query=query, team=self.team).get_cache_payload()
+        return ExperimentQueryRunner(query=query, team=self.team)
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, 1),
+            ("inconclusive_local_evaluation", None, 1),
+            ("evaluation_error", RuntimeError("flag definitions unavailable"), 1),
+            ("flag_on", True, 2),
+        ]
+    )
+    def test_the_team_flag_decides_the_key_and_the_query_cache_payload(
+        self, _name: str, flag_state: bool | None | Exception, expected_version: int
+    ) -> None:
+        experiment = self._experiment()
+        with _patch_key_version_flag(flag_state):
+            calculation_config = get_metric_calculation_config(experiment, "m1")
+            payload = self._runner(experiment).get_cache_payload()
+        assert calculation_config is not None
+        assert calculation_config.calculation_key() == calculation_config.key_for_version(expected_version)
+        # A new payload field would miss every cached experiment response, so version 1 keeps the payload as it was.
+        assert payload.get("calculation_key") == (
+            calculation_config.calculation_key() if expected_version == 2 else None
+        )
+
+    @parameterized.expand(
+        [
+            ("confidence", {"bayesian": {"ci_level": 0.9}}),
+            ("cuped", {"cuped": {"enabled": True}}),
+            ("multiple_variants", {"multiple_variant_handling": "first_seen"}),
+            ("test_accounts", None),
+        ]
+    )
+    def test_query_cache_key_changes_with_analytical_settings_under_version_2(
+        self, _name: str, stats_config: dict | None
+    ) -> None:
+        experiment = self._experiment()
+        with _patch_key_version_flag(True):
+            before = self._runner(experiment).get_cache_key()
+            if stats_config is None:
+                self.team.test_account_filters = [{"key": "email", "type": "person", "value": "@example.com"}]
+                self.team.save()
+            elif _name == "multiple_variants":
+                experiment.exposure_criteria = stats_config
+                experiment.save()
+            else:
+                experiment.stats_config = stats_config
+                experiment.save()
+            after = self._runner(experiment).get_cache_key()
+        assert before != after

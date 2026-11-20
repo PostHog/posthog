@@ -9,7 +9,9 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { formatDate } from 'lib/utils/datetime'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
@@ -26,7 +28,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
-import { alertsSimulateCreate, alertsTakeOwnershipCreate } from 'products/alerts/frontend/generated/api'
+import {
+    alertsPartialUpdate,
+    alertsSimulateCreate,
+    alertsTakeOwnershipCreate,
+} from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -49,6 +55,8 @@ import {
 import { canCheckOngoingInterval, getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { ALERT_NOTIFICATION_TYPE_PAGERDUTY } from './alertNotifications'
+import { alertsLogic } from './alertsLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
@@ -622,6 +630,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const payload: AlertTypeWrite = {
                     ...alert,
+                    // The snooze control saves on its own, so the form's copy can be stale and would undo it.
+                    snoozed_until: undefined,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
                     // can only skip weekends for sub-daily alerts
@@ -680,14 +690,35 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 // For new alerts alert.id is undefined, keying the logic as 'new' — using the server-returned ID would miss the queued state.
                 const notifLogic = alertNotificationLogic({ alertId: alert.id })
 
-                const flushPendingNotifications = async (savedAlertId: string): Promise<void> => {
-                    if (notifLogic.values.pendingNotifications.length > 0) {
-                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, alert.name)
+                const flushPendingNotifications = async (savedAlertId: string): Promise<boolean> => {
+                    if (notifLogic.values.pendingNotifications.length === 0) {
+                        return false
                     }
+                    await notifLogic.asyncActions.createPendingDestinations(savedAlertId)
+                    return true
                 }
 
                 const existingAlertId = alert.id
                 const isNewAlert = existingAlertId === undefined
+                // The answer may be for settings the person has since changed, so ask again for the payload.
+                if (
+                    isNewAlert &&
+                    alert.calculation_interval &&
+                    notifLogic.values.pendingNotifications.some(
+                        (notification) => notification.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    )
+                ) {
+                    await notifLogic.asyncActions.loadNewAlertPagerDutyAvailable({
+                        calculationInterval: alert.calculation_interval,
+                        investigationAgentEnabled: payload.investigation_agent_enabled ?? false,
+                    })
+                    if (!notifLogic.values.newAlertPagerDutyAvailable) {
+                        lemonToast.error(
+                            "PagerDuty isn't available for this alert yet. Remove the PagerDuty destination to save it."
+                        )
+                        throw new Error('PagerDuty is not available for this alert')
+                    }
+                }
                 let updatedAlert: AlertType
                 try {
                     updatedAlert = isNewAlert
@@ -716,6 +747,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (isNewAlert) {
                     posthog.capture('alert creation completed', {
                         ui_version: 'redesigned',
+                        detector_type: values.alertForm.detector_config?.type ?? null,
                     })
                 }
 
@@ -728,9 +760,16 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 // client-side bug, not a save failure. Capture it for investigation but don't surface it
                 // as "Error saving alert" since the API returned 2xx. Regression guarded by `alertFormLogic.test.ts`.
                 try {
-                    await flushPendingNotifications(updatedAlert.id)
+                    const addedDestinations = await flushPendingNotifications(updatedAlert.id)
                     hydrateAlertLogicFromSaveResponse(updatedAlert)
                     upsertToParent(updatedAlert)
+                    // The saved alert's destination_count predates the destinations just added.
+                    if (addedDestinations && props.insightVizDataLogicProps) {
+                        insightAlertsLogic({
+                            insightId: props.insightId,
+                            insightLogicProps: props.insightVizDataLogicProps,
+                        }).actions.loadAlerts()
+                    }
                     props.onEditSuccess(updatedAlert.id)
                 } catch (postSaveError) {
                     posthog.captureException(postSaveError)
@@ -916,6 +955,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             return undefined
         }
 
+        const updateAlertsPageList = (updatedAlert: AlertType): void => {
+            if (alertsLogic.isMounted()) {
+                alertsLogic.actions.updateAlertInList(updatedAlert)
+            }
+        }
+
         return {
             deleteAlert: async () => {
                 if (!values.alertForm.id) {
@@ -934,16 +979,32 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
-                })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.upsertAlert(updatedAlert)
-                    parent.actions.loadAlerts()
+                const resolvedSnoozeUntil = resolveSnoozeUntil(snoozeUntil)
+                try {
+                    const updatedAlert = (await alertsPartialUpdate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        values.alertForm.id,
+                        { snoozed_until: resolvedSnoozeUntil }
+                    )) as unknown as AlertType
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
+                    const parent = getParentLogic()
+                    if (parent) {
+                        parent.actions.upsertAlert(updatedAlert)
+                        parent.actions.loadAlerts()
+                    }
+                    updateAlertsPageList(updatedAlert)
+                    const snoozedUntilLabel = formatDate(
+                        dayjs(updatedAlert.snoozed_until ?? resolvedSnoozeUntil),
+                        'MMM D, HH:mm'
+                    )
+                    lemonToast.success(`Alert snoozed until ${snoozedUntilLabel}.`)
+                } catch (error) {
+                    lemonToast.error("We couldn't snooze this alert. Please try again.")
+                    posthog.captureException(error, {
+                        action: 'snooze alert',
+                        alertId: values.alertForm.id,
+                    })
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             clearSnooze: async () => {
                 if (!values.alertForm.id) {
@@ -960,6 +1021,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         parent.actions.upsertAlert(updatedAlert)
                         parent.actions.loadAlerts()
                     }
+                    updateAlertsPageList(updatedAlert)
+                    lemonToast.success('Alert unsnoozed.')
                 } catch (error) {
                     lemonToast.error("We couldn't unsnooze this alert. Please try again.")
                     posthog.captureException(error, {

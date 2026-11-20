@@ -72,6 +72,14 @@ def get_client(
     return _client_map[cache_key]
 
 
+def get_celery_broker_client() -> redis.Redis:
+    """Return a client for the Redis that Celery workers consume tasks from.
+
+    Use it to read queue state. The broker can be a different Redis from REDIS_URL.
+    """
+    return get_client(settings.CELERY_BROKER_READ_URL or settings.CELERY_BROKER_URL)
+
+
 _loop_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[str, Any]]" = weakref.WeakKeyDictionary()
 
 

@@ -445,7 +445,9 @@ def _visits_split_chunks(
     for domain in domains:
         prepared = _prepare_request(api_key, api_version, config, domain, country, "monthly", start_month, end_month)
         body = _request(session, prepared, config, domain, logger)
-        shares = {key: body[key] for key in ("desktop_visit_share", "mobile_web_visit_share") if key in body}
+        shares: dict[str, Any] = {
+            key: body[key] for key in ("desktop_visit_share", "mobile_web_visit_share") if key in body
+        }
         if shares:
             yield [{"domain": domain, "country": country, "start_date": start_month, "end_date": end_month, **shares}]
 

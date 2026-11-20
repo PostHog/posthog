@@ -12,7 +12,6 @@ export interface DeliverySummaryLogicProps {
     // An author or a GitHub team; the summary endpoint rejects a single pull request.
     scope: DeliveryScope
     sourceId: string | null
-    /** The 'owner/name' in the page's path. */
     repo?: string | null
 }
 

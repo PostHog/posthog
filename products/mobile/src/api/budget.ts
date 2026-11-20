@@ -2,7 +2,7 @@
 // exist to stop a client bug, such as a refresh loop, and normal use never empties them. They live in memory, so a cold
 // start refills them.
 
-export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay'
+export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay' | 'live' | 'snapshots'
 
 interface BucketSpec {
     capacity: number
@@ -30,6 +30,19 @@ export const BUDGETS: Record<BudgetFamily, readonly BucketSpec[]> = {
     replay: [
         { capacity: 60, windowMs: MINUTE_MS },
         { capacity: 300, windowMs: HOUR_MS },
+    ],
+    // The Live screen polls `query/` by design, on buckets of its own, so it never starves Views or replay reads. At 25%
+    // of the budget, the hourly bucket would stop a normal Live session after about half an hour. 900 an hour still caps
+    // a runaway client at 75% of the published query budget.
+    live: [
+        { capacity: 60, windowMs: MINUTE_MS },
+        { capacity: 900, windowMs: HOUR_MS },
+    ],
+    // Snapshot block reads for the WebView replay player: 25% of the server's per-user limit (200/min, 3,000/h), so a
+    // feed of moments, at two or three requests a card, never starves the session screen's `replay` buckets.
+    snapshots: [
+        { capacity: 50, windowMs: MINUTE_MS },
+        { capacity: 750, windowMs: HOUR_MS },
     ],
 }
 
@@ -69,6 +82,17 @@ export function backgroundReadDelay(family: BudgetFamily, now: number = Date.now
         0,
         ...BUDGETS[family].map((spec, index) =>
             Math.ceil(((spec.capacity / 2 + 1 - (state[index]?.tokens ?? 0)) * spec.windowMs) / spec.capacity)
+        )
+    )
+}
+
+/** Milliseconds until every bucket of the family holds a token again. */
+export function budgetRetryAfterMs(family: BudgetFamily, now: number = Date.now()): number {
+    const state = bucketsFor(family, now)
+    return Math.ceil(
+        Math.max(
+            0,
+            ...BUDGETS[family].map((spec, index) => ((1 - (state[index]?.tokens ?? 0)) * spec.windowMs) / spec.capacity)
         )
     )
 }

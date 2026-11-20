@@ -28,6 +28,7 @@ class TeamConversationsTeamsChannelSync(TeamScopedRootMixin, UUIDModel):
 
     last_polled_at = models.DateTimeField(null=True, blank=True)
     last_message_at = models.DateTimeField(null=True, blank=True)
+    denied_until = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

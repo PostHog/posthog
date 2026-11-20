@@ -3,8 +3,6 @@
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from django.conf import settings
-
 import re2
 from pydantic import TypeAdapter
 from pydantic_core import ValidationError as PydanticValidationError
@@ -13,18 +11,19 @@ from rest_framework import exceptions, serializers
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import Team, User
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization
 from posthog.models.project import Project
-from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_SCOPES
 from posthog.models.team.logs_retention import LOGS_CUSTOM_RETENTION_FLAG
-from posthog.permissions import get_authenticator_scopes, posthog_feature_flag_enabled, scopes_caller_lacks
+from posthog.permissions import posthog_feature_flag_enabled, request_subject
 from posthog.types import AnyPropertyFilter
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
 
 from . import team_config
 
 if TYPE_CHECKING:
-    from rest_framework.request import Request
-
     from posthog.user_permissions import UserPermissions
 
 test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
@@ -166,27 +165,23 @@ def validate_path_cleaning_filters(value: object) -> object:
 
 
 def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: "UserPermissions") -> str | None:
-    level = user_permissions.team(team).effective_membership_level
-    if level is None or level < OrganizationMembership.Level.ADMIN:
+    # Typed as `User`, but service principals also reach here. They hold no membership, so they get no secret.
+    user: object = user_permissions.user
+    if not isinstance(user, User) or user.pk is None:
+        return None
+    if not authorization.check(
+        resource=Resource.project(team.pk),
+        action=Action.EDIT,
+        subject=Subject(user_id=user.pk),
+    ):
         return None
     return team.heatmaps_screenshot_secret
 
 
-def _caller_may_read_secret_api_tokens(request: "Request | None") -> bool:
-    caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    if caller_scopes is None or "*" in caller_scopes:
-        return True
-    # While legacy team tokens are accepted, the raw token also authenticates routes that check no scope,
-    # such as external ticket updates and customer analytics accounts, so no scope list covers it.
-    if settings.ACCEPT_TEAM_SECRET_TOKENS:
-        return False
-    # Otherwise it authenticates only through its PSAK mirror row, whose scopes rotation also requires.
-    return not scopes_caller_lacks(request, MIRRORED_LEGACY_TOKEN_SCOPES)
-
-
-def hide_secret_api_tokens_from_unscoped_caller(representation: dict[str, Any], request: "Request | None") -> None:
-    if _caller_may_read_secret_api_tokens(request):
-        return
+def hide_secret_api_tokens(representation: dict[str, Any]) -> None:
+    """The legacy token stays a live credential through its PSAK mirror row, so reads never carry
+    the plaintext. The one exception is the rotate_secret_token response, which writes the token it
+    just minted back over this null, once. The fields stay in the schema until #66179 drops them."""
     for field in ("secret_api_token", "secret_api_token_backup"):
         if field in representation:
             representation[field] = None
@@ -244,8 +239,9 @@ def validate_team_attrs(
             admin_fields_touched = admin_fields_touched - {"app_urls"}
         if admin_fields_touched:
             team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
-            level = view.user_permissions.team(team_for_check).effective_membership_level
-            if level is None or level < OrganizationMembership.Level.ADMIN:
+            if not authorization.check(
+                resource=Resource.project(team_for_check.pk), action=Action.EDIT, subject=request_subject(view.request)
+            ):
                 raise exceptions.PermissionDenied(
                     "Only project admins can modify these settings: " + ", ".join(sorted(admin_fields_touched))
                 )
@@ -257,11 +253,11 @@ def validate_team_attrs(
         # too — naming a project you're allowed to create is not the same as renaming an existing one.
         admin_fields_touched = (team_config.TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo", "name"}) & attrs.keys()
         if admin_fields_touched:
-            membership = OrganizationMembership.objects.filter(
-                user=cast(User, view.request.user), organization_id=view.organization_id
-            ).first()
-            member_level = membership.level if membership else None
-            if member_level is None or member_level < OrganizationMembership.Level.ADMIN:
+            if not authorization.check(
+                resource=Resource.organization(view.organization_id),
+                action=Action.EDIT,
+                subject=request_subject(view.request),
+            ):
                 raise exceptions.PermissionDenied(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))

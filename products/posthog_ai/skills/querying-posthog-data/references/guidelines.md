@@ -167,6 +167,17 @@ SELECT type_name, description FROM system.information_schema.data_types
 
 `information_schema` covers table and column **structure**. To verify which events, properties, and property values actually exist in captured data, use `read-data-schema` (see **Schema verification** below).
 
+#### Late materialized views
+
+A materialized view stores its result and refreshes on a schedule, so a query reads the stored result, not the view's sources. A `certified` mark says that a table or view is correct. It does not say that the data is current.
+
+When a materialized view is well behind its refresh schedule, or its latest refresh failed, the query result carries a `warehouse_sync` warning. The warning names the view and gives its last successful refresh. The rules below apply to every materialized view. A late `certified` view stays certified, so do not drop it for that reason alone:
+
+- Treat the day of the last refresh as incomplete. The refresh ran partway through that day.
+- If the question covers a period that ends before the day of the last refresh, use the view.
+- If the question needs data from the day of the last refresh or later, tell the user. Query the view's sources instead when the user needs current numbers.
+- In both cases, tell the user when the view last refreshed, for example "last refreshed 3 days ago". For a `certified` view, say that it is certified too.
+
 #### Querying guidelines
 
 ##### Schema verification
@@ -337,7 +348,8 @@ WHERE g.event = '$ai_generation'
 
 ##### Other constraints
 
-- Your query results are capped at 100 rows by default. You can request up to 500 rows using a LIMIT clause. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
+- Your query results are capped at 100 rows by default. You can request up to 500 rows using a LIMIT clause. If you need more data, page with keyset pagination: order by `timestamp` and a unique column such as `uuid`, and filter past the last pair you saw (`WHERE (timestamp, uuid) > ('<last timestamp>', '<last uuid>') ORDER BY timestamp, uuid LIMIT 500`). The unique column keeps rows that share a timestamp at a page boundary. Keyset pagination stays fast on large tables. Never put OFFSET in SQL that code sends to `/api/projects/:id/query/`, because that API rejects it with HTTP 400 for personal API keys. Code that needs to page through results should call a HogQL endpoint and pass `limit` and `offset` in the run request body.
+- A saved SQL insight also returns only 100 rows when its query has no LIMIT, and its chart draws only those rows. Before you save one, add a LIMIT that is more than the number of rows the query can return, up to 50000.
 - You should cherry-pick `properties` of events, persons, or groups, so we don't get OOMs. **Never select the full `properties` object** (e.g., `SELECT properties FROM events`) and dump it into the conversation output. Instead, select only the specific properties you need (e.g., `properties.$browser`, `properties.$os`). If you must inspect the full properties object, dump the query results to a file and use bash commands to explore it.
 - When query results contain large JSON blobs (e.g., AI trace inputs/outputs, full property objects), always dump them to a file rather than outputting them directly. Use bash commands to process the file.
 
@@ -356,7 +368,7 @@ properties.foo['bar-baz']
 ##### Unsupported/changed functions
 
 Don't use | Use instead
-`toFloat64OrNull()`, `toFloat64()` | `toFloat()`
+`toInt32()`, `toUInt8()`, `toFloat32()` and other non-64-bit widths | `toInt()`, `toFloat()` (`toInt64()` and `toFloat64()` work as aliases)
 `toDateOrNull(timestamp)` | `toDate(timestamp)`
 `LAG()`, `LEAD()` | `lagInFrame()`, `leadInFrame()` with `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`
 `count(*)` | `count()`

@@ -15,7 +15,7 @@ export const MAX_CATEGORY_LABEL_WIDTH = 160
 
 let measureCtx: CanvasRenderingContext2D | null = null
 export function getTextMeasureCtx(): CanvasRenderingContext2D | null {
-    if (!measureCtx) {
+    if (!measureCtx && typeof document !== 'undefined') {
         measureCtx = document.createElement('canvas').getContext('2d')
     }
     return measureCtx

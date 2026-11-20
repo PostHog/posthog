@@ -22,28 +22,28 @@ export const getReactInstallSteps = (ctx: OnboardingComponentsContext): StepDefi
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install posthog-js @posthog/react
+                                    npm install posthog-js@1 @posthog/react@1
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add posthog-js @posthog/react
+                                    yarn add posthog-js@1 @posthog/react@1
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add posthog-js @posthog/react
+                                    pnpm add posthog-js@1 @posthog/react@1
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'bun',
                                 code: dedent`
-                                    bun add posthog-js @posthog/react
+                                    bun add posthog-js@1 @posthog/react@1
                                 `,
                             },
                         ]}

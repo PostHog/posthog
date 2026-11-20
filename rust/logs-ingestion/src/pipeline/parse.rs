@@ -34,7 +34,12 @@ async fn parse(
         }
     };
 
-    let team: Option<Team> = match context.deps.team_manager.get_team_by_token(&token).await {
+    // A Postgres blip is retried in place with bounded backoff: dropping it would lose good data for
+    // every team whose token is not cached yet. Only an outage past the backoff drops.
+    let team: Option<Team> = match context
+        .retry(|| context.deps.team_manager.get_team_by_token(&token))
+        .await
+    {
         Ok(team) => team,
         Err(error) => {
             tracing::error!(error = %error, "team_lookup_error");

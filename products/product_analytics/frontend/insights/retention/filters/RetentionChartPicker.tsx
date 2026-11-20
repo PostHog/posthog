@@ -17,33 +17,37 @@ function ChartFilterOptionLabel(props: { label: string; description?: string }):
     )
 }
 
+export const RETENTION_CHART_GROUP_TITLE = 'Time series'
+
+export const RETENTION_CHART_OPTIONS: {
+    value: ChartDisplayType
+    icon: JSX.Element
+    label: string
+    description: string
+}[] = [
+    {
+        value: ChartDisplayType.ActionsLineGraph,
+        icon: <IconTrends />,
+        label: 'Line chart',
+        description: 'Retention over time plotted as a continuous line for each cohort.',
+    },
+    {
+        value: ChartDisplayType.ActionsBar,
+        icon: <IconGraph />,
+        label: 'Bar chart',
+        description: 'Retention over time as vertical bars for each cohort.',
+    },
+]
+
 const OPTIONS: LemonSelectOptions<ChartDisplayType> = [
     {
-        title: 'Time series',
-        options: [
-            {
-                value: ChartDisplayType.ActionsLineGraph,
-                icon: <IconTrends />,
-                label: 'Line chart',
-                labelInMenu: (
-                    <ChartFilterOptionLabel
-                        label="Line chart"
-                        description="Retention over time plotted as a continuous line for each cohort."
-                    />
-                ),
-            },
-            {
-                value: ChartDisplayType.ActionsBar,
-                icon: <IconGraph />,
-                label: 'Bar chart',
-                labelInMenu: (
-                    <ChartFilterOptionLabel
-                        label="Bar chart"
-                        description="Retention over time as vertical bars for each cohort."
-                    />
-                ),
-            },
-        ],
+        title: RETENTION_CHART_GROUP_TITLE,
+        options: RETENTION_CHART_OPTIONS.map(({ value, icon, label, description }) => ({
+            value,
+            icon,
+            label,
+            labelInMenu: <ChartFilterOptionLabel label={label} description={description} />,
+        })),
     },
 ]
 

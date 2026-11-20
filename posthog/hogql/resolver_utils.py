@@ -216,6 +216,17 @@ def suggest_field_names(
     return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
 
 
+def zero_argument_function_call(name: str) -> Optional[str]:
+    """`name()` when `name` is a function that can be called with no arguments, such as `today`."""
+    # Imported here because `ast` imports this module and the functions package imports the parser
+    from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
+
+    meta = find_hogql_function(name) or find_hogql_aggregation(name) or find_hogql_posthog_function(name)
+    if meta is None or meta.min_args != 0:
+        return None
+    return f"{name}()"
+
+
 def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:
     """Replacement text for the range `node` marks, or None when no edit is safe to offer.
 

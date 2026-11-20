@@ -1,0 +1,6 @@
+{"$browser_version":120,"$os":"","$set":{"score":7,"gone":null},"$feature/demo":"control","$feature/on":true,"nested":{"keep":1,"deep":null},"items":[{"a":null},2],"service.name":"api","plan":null}	{"name":"x","email":null,"$initial_os":"","address":{"city":null}}
+{"quoted":"[1,2]","cut":"[1,2","a%2Eb":1,"a.b":2,"big":2e19,"fits":1e19}	{"tags":"[1,2]","$browser":7}
+{"k":1e400,"$set":{"a":1}}	{"n":1e400}
+	
+{"broken"	[1
+[]	"text"

@@ -40,7 +40,8 @@ from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
 from products.access_control.backend.activity_logging import get_access_control_log_entry
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -58,6 +59,7 @@ from . import contracts
 from .contracts import PropertyAccessLevel
 from .enums import AI_EVENT_PROPERTY_CHOICES
 from .user_access_control import (
+    ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessControlLevel,
@@ -512,6 +514,36 @@ def object_ids_with_rules(*, team_id: int, resource: APIScopeObject) -> set[str]
     return {resource_id for resource_id in resource_ids if resource_id}
 
 
+def object_ids_granted_to_user(
+    *, team_id: int, resource: APIScopeObject, user_id: int, required_level: AccessControlLevel
+) -> set[str]:
+    """Ids of `resource` objects whose own member or role rule gives this user at least `required_level`.
+
+    For a caller whose own rules only let some users reach an object, and that lets an explicit
+    grant on the object reach it too. It reads grants only: the object's default rule and the
+    resource-level rules are not grants to this user, and resolution still decides the level the
+    user ends up with, so a grant here does not outrank a stricter rule.
+    """
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None or not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return set()
+
+    satisfying = [
+        level for level in ordered_access_levels(resource) if _grants_at_least(resource, level, required_level)
+    ]
+    subject_q = Q(organization_member__user_id=user_id, organization_member__organization_id=team.organization_id)
+    if team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+        subject_q |= Q(
+            role_id__in=RoleMembership.objects.filter(user_id=user_id, role__organization_id=team.organization_id)
+            .valid_for_authorization()
+            .values("role_id")
+        )
+    resource_ids = AccessControl.objects.filter(
+        subject_q, team_id=team_id, resource=resource, resource_id__isnull=False, access_level__in=satisfying
+    ).values_list("resource_id", flat=True)
+    return {resource_id for resource_id in resource_ids if resource_id}
+
+
 def resource_has_rules(*, team_id: int, resource: APIScopeObject) -> bool:
     """Whether the team has any resource-level rule for `resource`, whatever its level.
 
@@ -615,6 +647,70 @@ def replace_object_access_rules(
                 )
 
 
+def object_has_access_rules(*, team_id: int, resource: str, resource_id: str) -> bool:
+    """Whether the object has access rules of its own, as opposed to only the rules it inherits."""
+    return AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id).exists()
+
+
+def _copyable_object_rules(team_id: int, resource: str, resource_id: str) -> list[contracts.ObjectAccessRuleInput]:
+    # Rules naming a member or role of another organization never apply, so they are not copied.
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    return [
+        contracts.ObjectAccessRuleInput(
+            access_level=rule.access_level,
+            organization_member_id=rule.organization_member_id,
+            role_id=rule.role_id,
+        )
+        for rule in AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id)
+        .filter(Q(organization_member__isnull=True) | Q(organization_member__organization_id=team.organization_id))
+        .filter(Q(role__isnull=True) | Q(role__organization_id=team.organization_id))
+    ]
+
+
+def check_object_access_rules_copy(
+    *, team_id: int, resource: str, from_resource_id: str, to_resource_id: str | None
+) -> None:
+    """Raise `InvalidObjectAccessControlError` when copying the rules of one object to another would pass
+    the cap the rule endpoint applies when a rule is first set on an object.
+
+    `to_resource_id` is None for an object that doesn't exist yet, which has no rules.
+    """
+    if not AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=from_resource_id).exists():
+        return
+    if (
+        to_resource_id is not None
+        and AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=to_resource_id).exists()
+    ):
+        return
+    objects_with_rules = (
+        AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=False)
+        .values("resource_id")
+        .distinct()
+        .count()
+    )
+    if objects_with_rules >= ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE:
+        raise InvalidObjectAccessControlError(
+            f"Reached the limit of {ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE} {resource}s with access control overrides."
+        )
+
+
+def copy_object_access_rules(*, team_id: int, resource: str, from_resource_id: str, to_resource_id: str) -> None:
+    """Make the rules on one object the same as the rules on another object of the same resource.
+
+    Replaces every rule the target has, through `replace_object_access_rules`, so each change goes
+    into the activity log. The caller decides whether the change is allowed.
+    """
+    check_object_access_rules_copy(
+        team_id=team_id, resource=resource, from_resource_id=from_resource_id, to_resource_id=to_resource_id
+    )
+    replace_object_access_rules(
+        team_id=team_id,
+        resource=resource,
+        resource_id=to_resource_id,
+        rules=_copyable_object_rules(team_id, resource, from_resource_id),
+    )
+
+
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:
     """Whether the role is a role of that organization.
 
@@ -622,6 +718,11 @@ def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) 
     another organization.
     """
     return Role.objects.filter(id=role_id, organization_id=organization_id).exists()
+
+
+def organization_role_names(*, organization_id: UUID, role_ids: Collection[UUID]) -> dict[UUID, str]:
+    """Names of the given roles, keyed by id. A role of another organization is left out."""
+    return dict(Role.objects.filter(organization_id=organization_id, id__in=role_ids).values_list("id", "name"))
 
 
 def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
@@ -990,7 +1091,7 @@ def stored_property_rule_floor(*, user: User, team_id: int) -> PropertyAccessLev
     if organization_id is None:
         return None
     membership = OrganizationMembership.objects.filter(user=user, organization_id=organization_id).first()
-    if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+    if membership is None or membership.effective_level >= OrganizationMembership.Level.ADMIN:
         return None
     role_ids = list(
         RoleMembership.objects.filter(user=user, role__organization_id=organization_id)

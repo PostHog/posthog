@@ -4,6 +4,12 @@ body {
     --today-frame-radius: var(--radius);
 }
 
+$today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
+
+body.has-today-phone-layout {
+    --today-tab-bar-height: #{$today-tab-bar-height};
+}
+
 .TodayAppLayout {
     --today-frame-inset: 4px;
 
@@ -195,7 +201,7 @@ body {
 .TodayAppLayout--phone {
     // Matches the pane header, so the top bar and the sidebar page share one height.
     --today-phone-header-height: 42px;
-    --today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
+    --today-tab-bar-height: #{$today-tab-bar-height};
 
     padding-top: var(--today-phone-header-height);
     padding-bottom: var(--today-tab-bar-height);
@@ -397,4 +403,14 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
             transition: none;
         }
     }
+}
+
+// The "PostHog is changing" dialog announces a change to the whole app, so its backdrop dims the page more than quill's
+// default. The starting and ending states stay at quill's 0, so the backdrop still fades in and out.
+.TodayNavSwitchDialog__overlay:not([data-starting-style], [data-ending-style]) {
+    opacity: 0.5;
+}
+
+:is(.dark, [theme='dark']) .TodayNavSwitchDialog__overlay:not([data-starting-style], [data-ending-style]) {
+    opacity: 0.85;
 }

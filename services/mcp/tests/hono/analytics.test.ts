@@ -45,6 +45,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             stateManager: {},
         } as any,
         useSingleExec: true,
+        splitWrites: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
         oauthClientId: undefined,
@@ -129,6 +130,21 @@ describe('Hono MCP analytics contexts', () => {
         }
     )
 
+    it.each([
+        { name: 'saved metrics', tools: ['metric-list'], metricCatalog: { hasMetrics: true }, expected: 'lookup' },
+        { name: 'no saved metrics', tools: ['metric-list'], metricCatalog: { hasMetrics: false }, expected: 'empty' },
+        { name: 'failed catalog read', tools: ['metric-list'], metricCatalog: undefined, expected: 'unknown' },
+        { name: 'no metric-list tool', tools: ['user-get'], metricCatalog: undefined, expected: undefined },
+    ])('records the metric catalog mode: $name', async ({ tools, metricCatalog, expected }) => {
+        await trackToolCall(
+            'user-get',
+            12,
+            false,
+            makeState({ allTools: tools.map((name) => ({ name })) as any, metricCatalog })
+        )
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.metric_catalog_mode).toBe(expected)
+    })
+
     it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
         // Guards against reintroducing the legacy dual-emit, which double-counted every call.
         await trackInitEvent(makeState())
@@ -211,6 +227,23 @@ describe('Hono MCP analytics contexts', () => {
         ['an ordinary tool', 'query-logs', { query: 'level:error' }, true, true],
         ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, true, false],
         [
+            'execute-sql with editor filters',
+            'execute-sql',
+            {
+                query: 'SELECT name FROM system.information_schema.metrics WHERE {filters}',
+                filters: { properties: [{ key: 'api_token', value: ['fake-token'] }] },
+            },
+            false,
+            false,
+        ],
+        [
+            'execute-sql through exec',
+            'exec',
+            { command: 'call execute-sql {"query":"SELECT 1","filters":{"properties":[{"value":"fake-token"}]}}' },
+            false,
+            false,
+        ],
+        [
             'execute-sql querying metadata',
             'execute-sql',
             { query: 'SELECT name FROM system.information_schema.metrics' },
@@ -221,12 +254,35 @@ describe('Hono MCP analytics contexts', () => {
         ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png' }, false, false],
         ['a connection forward', 'posthog-connection-forward', { id: '1', path: 'api/' }, false, false],
         ['an email log search', 'workflows-transactional-emails-list', { search: 'jane@example.com' }, false, false],
+        ['an opt-out removal', 'opt-outs-remove', { identifier: 'ada@example.com' }, false, false],
+        ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false, false],
+        [
+            'an opt-out search through exec',
+            'exec',
+            { command: 'call opt-outs-list {"search":"reader@example.org"}' },
+            false,
+            false,
+        ],
         [
             'an email send through exec',
             'exec',
             { command: 'call workflows-send-email-prepare {"to":"ada@example.com"}' },
             false,
             false,
+        ],
+        [
+            'a suppression list import',
+            'suppressions-add',
+            { suppressions: [{ identifier: 'ada@example.com' }] },
+            false,
+            true,
+        ],
+        [
+            'an opt-out list import through exec',
+            'exec',
+            { command: 'call opt-outs-add {"opt_outs":[{"identifier":"ada@example.com"}]}' },
+            false,
+            true,
         ],
     ])(
         'gates captured arguments and result for %s',
@@ -275,11 +331,16 @@ describe('Hono MCP analytics contexts', () => {
     it('drops preloaded app data from the captured result for every consumer', async () => {
         const appData = { rows: [{ value: 'widget-only-data' }] }
         await trackToolCall('render-ui', 12, false, makeState(), undefined, {
-            response: { content: [{ type: 'text', text: 'ok' }], _meta: { 'com.posthog.mcp/app_data': appData } },
+            response: {
+                content: [{ type: 'text', text: 'ok' }],
+                structuredContent: { tool_name: 'survey-get', 'com.posthog.mcp/app_data': appData },
+                _meta: { 'com.posthog.mcp/app_data': appData },
+            },
         })
 
         expect(mockCaptureToolCall.mock.calls[0]![0].response).toEqual({
             content: [{ type: 'text', text: 'ok' }],
+            structuredContent: { tool_name: 'survey-get' },
             _meta: {},
         })
     })
@@ -584,6 +645,7 @@ describe('Hono MCP analytics contexts', () => {
             ['a different tool', 'query-logs', { query: 'SELECT 1' }],
             ['a missing query', 'execute-sql', {}],
             ['a non-string query', 'execute-sql', { query: 42 }],
+            ['editor filters', 'execute-sql', { query: 'SELECT count() FROM events WHERE {filters}', filters: {} }],
         ])('does not emit for %s', async (_case, toolName, args) => {
             await trackExecuteSqlGeneration(toolName, args, makeState(), { durationMs: 5, isError: false })
 
@@ -628,6 +690,21 @@ describe('Hono MCP analytics contexts', () => {
             ],
             ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, false],
             [
+                'execute-sql metadata with editor filters',
+                'execute-sql',
+                {
+                    query: 'SELECT name FROM system.information_schema.metrics WHERE {filters}',
+                    filters: { properties: [{ key: 'api_token', value: ['fake-token'] }] },
+                },
+                false,
+            ],
+            [
+                'execute-sql through exec',
+                'exec',
+                { command: 'call execute-sql {"query":"SELECT 1","filters":{"properties":[{"value":"fake-token"}]}}' },
+                false,
+            ],
+            [
                 'execute-sql with the marker only in a string literal',
                 'execute-sql',
                 { query: "SELECT distinct_id FROM events WHERE 'information_schema' != ''" },
@@ -647,6 +724,32 @@ describe('Hono MCP analytics contexts', () => {
             // Its result is a live presigned S3 POST (policy, signature, credential) — output
             // fields, not secret-shaped keys, so key-based redaction can't catch them.
             ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png', purpose: 'email' }, false],
+            // Its args are raw Fivetran responses, with secrets in fields redaction can't name.
+            [
+                'the Fivetran upload tool',
+                'warehouse-migration-upload-connections',
+                { connections: [{ connection: { config: { pat: 'fake-token' } } }] },
+                false,
+            ],
+            [
+                'the Fivetran upload tool through exec',
+                'exec',
+                {
+                    command:
+                        'call warehouse-migration-upload-connections {"connections":[{"connection":{"config":{"pat":"fake-token"}}}]}',
+                },
+                false,
+            ],
+            [
+                'a Fivetran upload exec rejects for a missing verb',
+                'exec',
+                {
+                    command:
+                        'warehouse-migration-upload-connections {"connections":[{"connection":{"pat":"fake-token"}}]}',
+                },
+                false,
+            ],
+            ['the presigned upload tool through exec', 'exec', { command: 'call media-image-upload-start {}' }, false],
             [
                 'execute-sql wrapped in a connection call',
                 'posthog-connection-call',
@@ -677,11 +780,46 @@ describe('Hono MCP analytics contexts', () => {
                 { command: 'call workflows-transactional-emails-list {"search":"jane@example.com"}' },
                 false,
             ],
+            ['a workflow email list', 'workflows-emails-list', { workflow_id: 'wf_1' }, false],
+            [
+                'one workflow email',
+                'workflows-email-get',
+                { invocation_id: '01a19f0e-9fd0-0001-a1d4-3a2b4579b763', action_id: 'welcome' },
+                false,
+            ],
+            [
+                'a workflow email recipient activity through exec',
+                'exec',
+                { command: 'call workflows-email-activity {"action_id":"welcome"}' },
+                false,
+            ],
             ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
+            ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false],
+            [
+                'an opt-out search through exec',
+                'exec',
+                { command: 'call opt-outs-list {"search":"reader@example.org"}' },
+                false,
+            ],
             [
                 'preparing an email send',
                 'workflows-send-email-prepare',
                 { to: 'ada@example.com', html: '<a href="https://example.com/reset?t=1">Reset</a>' },
+                false,
+            ],
+            ['starting a provider import', 'provider-imports-create', { api_key: 're_key' }, false],
+            ['reading a provider import', 'provider-imports-get', { id: 'run' }, false],
+            ['listing provider imports', 'provider-imports-list', {}, false],
+            [
+                'reading a provider import through exec',
+                'exec',
+                { command: 'call provider-imports-get {"id":"run"}' },
+                false,
+            ],
+            [
+                'a provider import through exec',
+                'exec',
+                { command: 'call provider-imports-create {"provider":"resend","api_key":"re_key"}' },
                 false,
             ],
             ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
@@ -712,6 +850,37 @@ describe('Hono MCP analytics contexts', () => {
 
             const spanCalls = mockCapture.mock.calls.filter(([payload]) => payload.event === '$ai_span')
             expect(spanCalls).toHaveLength(captured ? 1 : 0)
+        })
+
+        it.each([
+            [
+                'a suppression list import',
+                'suppressions-add',
+                { suppressions: [{ identifier: 'ada@example.com', reason: 'bounce' }] },
+            ],
+            [
+                'an opt-out list import through exec',
+                'exec',
+                { command: 'call opt-outs-add {"opt_outs":[{"identifier":"ada@example.com"}]}' },
+            ],
+        ])('keeps the counts but not the addresses for %s', async (_case, toolName, input) => {
+            await trackToolSpan(toolName, makeState(), {
+                durationMs: 100,
+                isError: false,
+                input,
+                output: '{"total":1,"created":1}',
+            })
+            await trackToolSpan(toolName, makeState(), {
+                durationMs: 100,
+                isError: true,
+                errorMessage: 'Invalid command: ada@example.com',
+                input,
+            })
+
+            const spanCalls = mockCapture.mock.calls.filter(([payload]) => payload.event === '$ai_span')
+            expect(spanCalls).toHaveLength(1)
+            expect(spanCalls[0]![0].properties).toMatchObject({ $ai_output_state: '{"total":1,"created":1}' })
+            expect(spanCalls[0]![0].properties).not.toHaveProperty('$ai_input_state')
         })
 
         it('joins the MCP session trace and truncates oversized results', async () => {
@@ -786,6 +955,8 @@ describe('Hono MCP analytics contexts', () => {
             ['token', true],
             ['client_secret', true],
             ['connection_string', true],
+            ['webhook_url', true],
+            ['pagerduty_routing_key', true],
             ['client_certificate', true],
             ['app_id', true],
             ['api_id', true],
@@ -810,7 +981,7 @@ describe('Hono MCP analytics contexts', () => {
 
     describe('trackSkillInvoked', () => {
         it.each<SkillInvocation['readKind']>(['skill', 'file', 'file_search', 'file_lines'])(
-            'captures %s reads with skill_read_kind so file-only consumption still counts',
+            'captures %s reads with skill_read_kind and the file path so file-only consumption still counts',
             async (readKind) => {
                 await trackSkillInvoked(makeState(), {
                     source: 'posthog',
@@ -827,6 +998,12 @@ describe('Hono MCP analytics contexts', () => {
                         skill_read_kind: readKind,
                     },
                 })
+                const properties = mockCapture.mock.calls[0]![0].properties
+                if (readKind === 'skill') {
+                    expect(properties).not.toHaveProperty('skill_file_path')
+                } else {
+                    expect(properties.skill_file_path).toBe('references/functions.md')
+                }
             }
         )
     })

@@ -132,8 +132,9 @@ function HighlightFeedGroupList({
                     ))}
                 </ul>
             )}
-            {/* The list's own total decides, since dismissed or re-ranked sessions can make it differ from the card's count. */}
-            {members && members.total > members.shown.length && (
+            {/* The list's own total decides, since dismissed or re-ranked sessions can make it differ from the card's count.
+                A short group still links out, so a reader can see every session on one page. */}
+            {members && members.shown.length > 0 && (
                 <Link
                     to={
                         combineUrl(urls.replayVision(logicProps.scannerId), {
@@ -152,7 +153,9 @@ function HighlightFeedGroupList({
                         })
                     }
                 >
-                    See all {members.total} similar sessions
+                    {members.total > members.shown.length
+                        ? `See all ${members.total} similar sessions`
+                        : 'View all on one page'}
                 </Link>
             )}
         </div>
@@ -196,7 +199,9 @@ export function HighlightFeedGroupToggle(props: HighlightFeedGroupProps): JSX.El
                     <IconChevronDown className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
                 }
                 aria-expanded={open}
-                className="relative z-10 ml-auto"
+                // A three-across card is narrow, so the count shortens rather than pushing past the card's edge.
+                truncate
+                className="relative z-10 ml-auto min-w-0"
                 data-attr="vision-highlight-feed-group-toggle"
             >
                 {similarSessionsLabel(similarCount)}

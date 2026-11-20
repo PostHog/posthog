@@ -156,6 +156,8 @@ describe('api-error', () => {
             ['a 409 that is neither an approvals gate nor a concurrency conflict', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
+            // An OAuth integration that needs reconnecting. The picker toasts the reconnect message.
+            ['an integration token refresh 400', { status: 400, code: 'integration_token_refresh_failed' }, false],
             // A route the backend does not serve stays reportable here. Only a caller that already
             // degrades excuses one, through `isUnavailableEndpointError`.
             ['a 404', { status: 404 }, true],

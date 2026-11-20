@@ -97,6 +97,14 @@ def _customer_fixable_setup_message(exc: BaseException) -> str | None:
             "Connect to the primary database, or switch these tables to Incremental sync, which "
             "needs only SELECT."
         )
+    # ALTER PUBLICATION ADD TABLE raises this when the table was renamed or dropped on the
+    # source database after PostHog last synced the schema — the customer's database, not ours.
+    if isinstance(exc, psycopg.errors.UndefinedTable):
+        return (
+            f"Could not add this table to change data capture: {exc} "
+            "The table doesn't exist on your database — it may have been renamed or dropped "
+            "since PostHog last synced the schema. Refresh the schema and try again."
+        )
     return None
 
 
@@ -172,6 +180,10 @@ class PostgresCDCAdapter:
         )
 
         names = PostgresSetupNames.from_setup(setup)
+        publication_name = names.publication_name
+        if management_mode == "posthog" and publication_name is None:
+            # Mirrors the default setup_resources adopts or creates, so the privilege check looks for it.
+            publication_name = f"posthog_pub_{source.id.hex[:12]}"
         with self.management_connection(source) as conn:
             return validate_cdc_prerequisites(
                 conn=conn,
@@ -179,7 +191,7 @@ class PostgresCDCAdapter:
                 tables=tables,
                 schema=schema,
                 slot_name=names.slot_name,
-                publication_name=names.publication_name,
+                publication_name=publication_name,
             )
 
     def drop_stream(self, conn: Any, source: ExternalDataSource) -> None:

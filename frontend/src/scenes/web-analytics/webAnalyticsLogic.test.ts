@@ -506,6 +506,19 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(router.values.searchParams.graphs_tab).toBe(GraphsTab.UNIQUE_USERS)
     })
 
+    it('keeps an AI visibility prompt page open when a shared header control changes', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
+        })
+        router.actions.push('/web/ai-visibility/prompts/prompt-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setDates('-30d', null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/web/ai-visibility/prompts/prompt-1')
+    })
+
     it('restores the date range and interval from the URL', async () => {
         router.actions.push('/web', { date_from: '-30d', date_to: '-1d', interval: 'week' })
         await expectLogic(logic).toFinishAllListeners()
@@ -549,7 +562,7 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(pushSpy).toHaveBeenCalledTimes(1)
     })
 
-    it.each(['/web/bots', '/web/content-autopilot'])(
+    it.each(['/web/bots', '/web/ai-visibility'])(
         'redirects off %s when the AI visibility flag is disabled',
         async (path) => {
             featureFlagLogic.actions.setFeatureFlags(
@@ -609,7 +622,7 @@ describe('webAnalyticsLogic URL restoration', () => {
         logic.actions.setProductTab(ProductTab.CONTENT_AUTOPILOT)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(router.values.location.pathname.endsWith('/web/content-autopilot')).toBe(true)
+        expect(router.values.location.pathname.endsWith('/web/ai-visibility')).toBe(true)
         expect(router.values.searchParams).toEqual({})
     })
     const FILTER_A = {

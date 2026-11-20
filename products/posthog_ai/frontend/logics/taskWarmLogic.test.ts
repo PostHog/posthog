@@ -63,7 +63,7 @@ describe('taskWarmLogic', () => {
     it('warms after the debounce and holds the lease', async () => {
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
 
         await expectLogic(logic).toFinishAllListeners()
@@ -76,7 +76,7 @@ describe('taskWarmLogic', () => {
         async (runId) => {
             jest.useFakeTimers()
             logic.actions.noteDraft(true, WARM_REQUEST)
-            jest.advanceTimersByTime(300)
+            jest.advanceTimersByTime(700)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
 
@@ -100,7 +100,7 @@ describe('taskWarmLogic', () => {
     it('warms again for the next draft after a submit consumed the previous warm', async () => {
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
         expect(warmCalls).toBe(1)
@@ -112,7 +112,7 @@ describe('taskWarmLogic', () => {
 
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -123,7 +123,7 @@ describe('taskWarmLogic', () => {
     it('releases the warm when the draft is abandoned', async () => {
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -163,39 +163,113 @@ describe('taskWarmLogic', () => {
         expect(cancelledRuns).toEqual(['warm-run-1'])
     })
 
-    it('releases and re-warms when the selection changes under an existing warm', async () => {
+    it('releases without re-warming when the selection changes under an existing warm', async () => {
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
 
         jest.useFakeTimers()
         logic.actions.noteDraft(true, { ...WARM_REQUEST, branch: 'feature' })
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
 
         // The first sandbox is checked out on the wrong branch, so it can never serve this submit.
         expect(cancelledRuns).toEqual(['warm-run-1'])
-        expect(warmCalls).toBe(2)
-        expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-2' })
+        expect(warmCalls).toBe(1)
+        expect(logic.values.warmLease).toBeNull()
     })
 
     it('does not re-warm while the selection is unchanged', async () => {
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
 
         jest.useFakeTimers()
         logic.actions.noteDraft(true, { ...WARM_REQUEST })
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(warmCalls).toBe(1)
+    })
+
+    it.each([true, false])(
+        'keeps a permission-compatible warm across a mode change (in flight: %s)',
+        async (inFlight) => {
+            let finish!: () => void
+            let began!: () => void
+            const started = new Promise<void>((resolve) => {
+                began = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/warm/': async () => {
+                        warmCalls++
+                        await new Promise<void>((resolve) => {
+                            finish = resolve
+                            began()
+                        })
+                        return [200, { task_id: 'warm-task-1', run_id: 'warm-run-1', permission_mode_mutable: true }]
+                    },
+                },
+            })
+            logic.actions.prewarm(WARM_REQUEST)
+            await started
+            if (!inFlight) {
+                finish()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+            jest.useFakeTimers()
+            logic.actions.noteDraft(true, {
+                ...WARM_REQUEST,
+                initial_permission_mode: InitialPermissionModeEnumApi.Plan,
+            })
+            jest.advanceTimersByTime(700)
+            jest.useRealTimers()
+            finish()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(warmCalls).toBe(1)
+            expect(cancelledRuns).toEqual([])
+            expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-1', permissionModeMutable: true })
+        }
+    )
+
+    it('starts a new warm budget after an emptied draft is abandoned', async () => {
+        logic.actions.prewarm(WARM_REQUEST)
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        logic.actions.noteDraft(false, WARM_REQUEST)
+        jest.advanceTimersByTime(5000)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        logic.actions.noteDraft(true, WARM_REQUEST)
+        jest.advanceTimersByTime(700)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(warmCalls).toBe(2)
+        expect(cancelledRuns).toEqual(['warm-run-1'])
+        expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-2' })
+    })
+
+    it('does not reset the budget when a non-empty draft becomes ineligible', async () => {
+        logic.actions.prewarm(WARM_REQUEST)
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+        logic.actions.noteDraft(true, WARM_REQUEST, false)
+        jest.advanceTimersByTime(6000)
+        logic.actions.noteDraft(true, WARM_REQUEST, true)
+        jest.advanceTimersByTime(700)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(warmCalls).toBe(1)
+        expect(cancelledRuns).toEqual(['warm-run-1'])
+        expect(logic.values.warmLease).toBeNull()
     })
 
     it('warms a fresh task through the create endpoint even when mounted under the new-task route', async () => {
@@ -221,7 +295,7 @@ describe('taskWarmLogic', () => {
 
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -230,7 +304,7 @@ describe('taskWarmLogic', () => {
         expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-1' })
     })
 
-    it('asks once per selection when the server answers that it did not warm', async () => {
+    it('asks once per draft when the server answers that it did not warm', async () => {
         // An empty body ("flag off", "pool full", "integration didn't resolve") installs no lease, so
         // the lease check can't stop the next typing pause from asking again. Before the cooldown that
         // was one POST every couple of hundred milliseconds for the length of the draft.
@@ -245,7 +319,7 @@ describe('taskWarmLogic', () => {
 
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
         expect(warmCalls).toBe(1)
@@ -254,25 +328,21 @@ describe('taskWarmLogic', () => {
         jest.useFakeTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
         expect(warmCalls).toBe(1)
 
-        // Past the cooldown the composer tries once more, in case the answer has changed.
         jest.useFakeTimers()
         jest.setSystemTime(Date.now() + 6 * 60 * 1000)
         logic.actions.noteDraft(true, WARM_REQUEST)
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
-        expect(warmCalls).toBe(2)
+        expect(warmCalls).toBe(1)
     })
 
-    it('re-warms for a selection changed while the first warm was still in flight', async () => {
-        // Hold the first warm POST open so a model change collides with it. Without queuing the newer
-        // selection, the completing POST leaves the lease on the stale model and never warms the new
-        // one, so the submit silently takes the cold path and the first sandbox idles until the reaper.
+    it('releases a changed selection without re-warming while the first warm is in flight', async () => {
         let resolveFirst: () => void = () => {}
         useMocks({
             post: {
@@ -301,10 +371,9 @@ describe('taskWarmLogic', () => {
         resolveFirst()
         await expectLogic(logic).toFinishAllListeners()
 
-        // The stale first sandbox is released and the latest selection is the one left warm.
-        expect(warmCalls).toBe(2)
+        expect(warmCalls).toBe(1)
         expect(cancelledRuns).toEqual(['warm-run-1'])
-        expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-2' })
+        expect(logic.values.warmLease).toBeNull()
     })
 
     it('keeps a warm the user re-engaged after a release raced the in-flight POST', async () => {
@@ -329,7 +398,10 @@ describe('taskWarmLogic', () => {
 
         logic.actions.prewarm(WARM_REQUEST)
         await expectLogic(logic).toMount()
-        logic.actions.releaseWarm()
+        jest.useFakeTimers()
+        logic.actions.noteDraft(false, WARM_REQUEST)
+        jest.advanceTimersByTime(5000)
+        jest.useRealTimers()
         logic.actions.noteDraft(true, WARM_REQUEST)
 
         resolveHeldWarm()
@@ -337,6 +409,13 @@ describe('taskWarmLogic', () => {
 
         expect(logic.values.warmLease).toMatchObject({ runId: 'warm-run-1' })
         expect(cancelledRuns).toEqual([])
+
+        jest.useFakeTimers()
+        logic.actions.noteDraft(false, WARM_REQUEST)
+        jest.advanceTimersByTime(5000)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(cancelledRuns).toEqual(['warm-run-1'])
     })
 
     it.each([

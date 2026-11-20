@@ -330,6 +330,7 @@ function deliveryProperties(
 function demoFrame(update: Record<string, unknown>): Record<string, unknown> {
     return {
         type: 'notification',
+        timestamp: new Date().toISOString(),
         notification: { jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'demo-session', update } },
     }
 }
@@ -1197,6 +1198,7 @@ export function useSession(options: SessionOptions): Session {
             setUnsentText(undefined)
             dispatchThread({
                 type: 'local_user',
+                timestamp: new Date().toISOString(),
                 id: localId,
                 text: bareQuestion(trimmed),
                 attachments: localAttachments(attachments),
@@ -1370,6 +1372,7 @@ export function useSession(options: SessionOptions): Session {
             setUnsentText(undefined)
             dispatchThread({
                 type: 'local_user',
+                timestamp: new Date().toISOString(),
                 id: localId,
                 text: bareQuestion(trimmed),
                 attachments: localAttachments(attachments),
@@ -1556,7 +1559,13 @@ export function useSession(options: SessionOptions): Session {
             if (demo) {
                 updateLive(current.runId, (state) => markRequestHandled(state, requestId))
                 setPartial(null)
-                dispatchThread({ type: 'local_user', id: `answer-${requestId}`, text: echo, echo: false })
+                dispatchThread({
+                    type: 'local_user',
+                    timestamp: new Date().toISOString(),
+                    id: `answer-${requestId}`,
+                    text: echo,
+                    echo: false,
+                })
                 trackAnswer()
                 await playDemoFrames(demoReplyFrames(DEMO_ANSWER_REPLY), controller.signal)
                 return
@@ -1581,7 +1590,13 @@ export function useSession(options: SessionOptions): Session {
                 updateLive(current.runId, (state) => markRequestHandled(state, requestId))
                 setPartial(null)
                 if (outcome === 'resolved') {
-                    dispatchThread({ type: 'local_user', id: `answer-${requestId}`, text: echo, echo: false })
+                    dispatchThread({
+                        type: 'local_user',
+                        timestamp: new Date().toISOString(),
+                        id: `answer-${requestId}`,
+                        text: echo,
+                        echo: false,
+                    })
                     trackAnswer()
                 } else if (outcome === 'gone') {
                     setNotice(ANSWERED_ELSEWHERE)

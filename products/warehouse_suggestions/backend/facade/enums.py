@@ -26,6 +26,9 @@ class WarehouseSuggestionSubjectKind(LabeledStrEnum):
 class WarehouseSuggestionDismissalReason(LabeledStrEnum):
     NOT_USEFUL = ("not_useful", "Not useful")
     NOT_NOW = ("not_now", "Not now")
+    WRONG_ESTIMATE = ("wrong_estimate", "Wrong estimate")
+    ALREADY_HANDLED = ("already_handled", "Already handled")
+    NOT_OWNER = ("not_owner", "Someone else decides")
     OTHER = "other"
 
 

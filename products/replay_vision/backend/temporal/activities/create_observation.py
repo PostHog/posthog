@@ -38,9 +38,13 @@ from products.replay_vision.backend.quota import (
     org_credit_cap_for,
     quota_state_for_cap,
 )
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL, CREATE_OBSERVATION_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.errors import SCANNER_ADMISSION_BUSY_ERROR_TYPE
+from products.replay_vision.backend.temporal.errors import (
+    BILLING_SYNC_PENDING_ERROR_TYPE,
+    SCANNER_ADMISSION_BUSY_ERROR_TYPE,
+)
 from products.replay_vision.backend.temporal.metrics import (
     record_consent_skip,
     record_quota_exhausted_skip,
@@ -65,7 +69,7 @@ def _build_scanner_snapshot(
     return snapshot.model_dump(mode="json")
 
 
-def _capture_scan_blocked(
+def capture_scan_blocked(
     *,
     scanner: ReplayScanner,
     reason: Literal["quota", "free_credits", "consent"],
@@ -213,7 +217,7 @@ def _skip_for_quota(
             "credits_used": quota.credits_used,
         },
     )
-    _capture_scan_blocked(
+    capture_scan_blocked(
         scanner=scanner,
         reason="free_credits" if free_credits else "quota",
         triggered_by=inputs.triggered_by,
@@ -290,6 +294,7 @@ def _reclaim_own_pending_insert(inputs: CreateObservationInputs) -> CreateObserv
         observation_id=existing.id,
         was_created=True,
         scanner_type=existing_snapshot.scanner_type,
+        watches_experiment=experiment_id_of(existing_snapshot) is not None,
     )
 
 
@@ -309,6 +314,7 @@ def _retake_failed_row(inputs: CreateObservationInputs, row_fields: dict[str, An
         observation_id=existing.id,
         was_created=True,
         scanner_type=existing_snapshot.scanner_type,
+        watches_experiment=experiment_id_of(existing_snapshot) is not None,
     )
 
 
@@ -343,7 +349,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             "Skipping observation: AI data processing not approved for organization",
             extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
         )
-        _capture_scan_blocked(scanner=scanner, reason="consent", triggered_by=inputs.triggered_by)
+        capture_scan_blocked(scanner=scanner, reason="consent", triggered_by=inputs.triggered_by)
         return CreateObservationOutput(
             observation_id=None,
             was_created=False,
@@ -379,11 +385,18 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
 
     organization_id = scanner.team.organization_id
     cap = org_credit_cap_for(scanner.team.organization, organization_id)
+    if cap.awaiting_billing_sync:
+        # A lost-result retry reclaims its own PENDING row first, or the row holds its reserved credits until the reaper.
+        reclaimed_output = _reclaim_own_pending_insert(inputs)
+        if reclaimed_output is not None:
+            return reclaimed_output
+        # Its zero credits are a placeholder, so retry until the sync lands rather than drop the session as over quota.
+        raise ApplicationError("Billing has not synced this organization yet", type=BILLING_SYNC_PENDING_ERROR_TYPE)
     # A free-only scanner stops at the org's free credits, below any billing limit.
     ceiling = free_credits_ceiling(cap) if scanner.free_only else cap.credit_limit
     # The free credits, not the org's own limit, are what stops the scanner when they sit below that limit.
-    free_credits_bound = scanner.free_only and (
-        cap.credit_limit is None or free_credits_ceiling(cap) < cap.credit_limit
+    free_credits_bound = (
+        scanner.free_only and ceiling is not None and (cap.credit_limit is None or ceiling < cap.credit_limit)
     )
     # Unlocked pre-check, so an exhausted org skips the snapshot and admission work.
     if ceiling is not None:
@@ -519,10 +532,17 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             observation_id=existing.id,
             was_created=reclaimed,
             scanner_type=existing_snapshot.scanner_type,
+            watches_experiment=experiment_id_of(existing_snapshot) is not None,
         )
 
+    # Read off the snapshot this row froze, not the live scanner. A backfill apply runs the frozen
+    # config, so a scanner retargeted or cleared mid-backfill still owes its in-flight observations
+    # the attribution their snapshot describes. Reading the live row would skip it and leave paid
+    # observations unlabeled.
+    frozen_snapshot = ScannerSnapshot.load_for(observation.id, snapshot_dict)
     return CreateObservationOutput(
         observation_id=observation.id,
         was_created=True,
-        scanner_type=scanner.scanner_type,
+        scanner_type=frozen_snapshot.scanner_type,
+        watches_experiment=experiment_id_of(frozen_snapshot) is not None,
     )

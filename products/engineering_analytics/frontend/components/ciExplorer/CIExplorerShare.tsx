@@ -15,7 +15,6 @@ const LEVEL_CLASS = [
 ]
 const LEVEL_INSET_PX = 3
 
-/** How much of the push's job time the current zoom level accounts for. */
 export function CIExplorerShare(): JSX.Element {
     const { totalJobSeconds: total, shareLevels: levels } = useValues(ciExplorerLogic)
 

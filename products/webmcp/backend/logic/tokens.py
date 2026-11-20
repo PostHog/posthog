@@ -5,7 +5,7 @@ from django.utils import timezone
 from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, get_or_create_cimd_application
 from posthog.models import OAuthAccessToken, OAuthApplication, User
 from posthog.models.utils import generate_random_oauth_access_token
-from posthog.scopes import effective_ceiling
+from posthog.scopes.ceilings import effective_ceiling
 from posthog.temporal.oauth import WEBMCP_APP_CLIENT_ID
 
 from ..facade.contracts import McpServerError

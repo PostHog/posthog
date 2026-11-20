@@ -9,7 +9,12 @@ from parameterized import parameterized
 from products.alerts.backend.logic.insight_alert_destinations import hog_slack_attachments
 from products.alerts.backend.logic.insight_alert_message import insight_alert_slack_properties
 from products.alerts.backend.platform_alert_slack import render_insight_slack_message
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
+from products.alerts_platform.backend.facade.contracts import (
+    SLACK_IMAGE_SLOT_BLOCK_ID,
+    AlertEventKind,
+    AnnouncedTransition,
+    MessageImage,
+)
 from products.cdp.backend.validation import generate_template_bytecode
 
 from common.hogvm.python.execute import execute_bytecode
@@ -193,6 +198,38 @@ class TestInsightAlertMessage(SimpleTestCase):
         assert content.text == expected
         # The attachment fallback is plain text, so it keeps the name as written.
         assert alert_name in content.attachments[0]["fallback"]
+
+    @parameterized.expand([("with_its_chart", True), ("without_its_chart", False)])
+    def test_the_chart_slot_is_marked_for_a_late_chart(self, _name: str, has_image: bool) -> None:
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        transition = AnnouncedTransition(
+            grouping_key="",
+            kind=AlertEventKind.FIRING,
+            episode_started_at=now,
+            value=240,
+            labels={},
+            condition={},
+            source_config={},
+            error_message=None,
+            occurred_at=now,
+            source_detail={"alert_id": "00000000-0000-4000-8000-000000000001"},
+        )
+        content = render_insight_slack_message(
+            team_id=1,
+            transition=transition,
+            alert_name="Example alert",
+            alert_url="https://example.com/alert",
+            project=None,
+            image=MessageImage(url="https://example.com/chart.png", alt_text="Chart") if has_image else None,
+        )
+        assert content is not None
+        slots = [
+            block["type"]
+            for attachment in content.attachments
+            for block in attachment.get("blocks", [])
+            if block.get("block_id") == SLACK_IMAGE_SLOT_BLOCK_ID
+        ]
+        assert slots == ["image" if has_image else "divider"]
 
     def test_native_anomaly_message_shows_the_affected_period(self) -> None:
         now = datetime(2026, 1, 2, tzinfo=UTC)

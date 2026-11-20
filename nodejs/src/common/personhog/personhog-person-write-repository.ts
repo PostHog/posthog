@@ -1,6 +1,7 @@
 import { InternalPerson } from '~/types'
 
 import { PersonHogClient } from './client'
+import { BatchCallFailedError, GetOrCreateCoalescer } from './get-or-create-coalescer'
 import { withRetry } from './grpc-retry'
 import {
     DistinctIdKey,
@@ -32,7 +33,8 @@ export class PersonHogPersonWriteRepository {
     constructor(
         private grpcClient: PersonHogClient,
         private identity: PersonhogIdentityOperations,
-        private clientLabel: string = 'unknown'
+        private clientLabel: string = 'unknown',
+        private createCoalescer?: GetOrCreateCoalescer
     ) {}
 
     /**
@@ -114,17 +116,32 @@ export class PersonHogPersonWriteRepository {
         )
     }
 
-    /** Resolution and creation in one idempotent verb; the uuid derives deterministically server-side. */
+    /**
+     * Resolution and creation in one idempotent verb; the uuid derives deterministically server-side.
+     * A failed batch call moves this key's retries to the singular path.
+     */
     getOrCreatePersonByDistinctId(
         entry: GetOrCreatePersonEntry,
         callerTag?: string
     ): Promise<GetOrCreatePersonOutcome> {
         const method = 'getOrCreatePersonByDistinctId'
+        let coalescer = this.createCoalescer
         return withRetry(
             () =>
-                timedGrpc(this.clientLabel, method, () =>
-                    this.identity.getOrCreatePersonByDistinctId(entry, callerTag)
-                ),
+                timedGrpc(this.clientLabel, method, async () => {
+                    if (coalescer === undefined) {
+                        return await this.identity.getOrCreatePersonByDistinctId(entry, callerTag)
+                    }
+                    try {
+                        return await coalescer.submit(entry, callerTag)
+                    } catch (error) {
+                        if (error instanceof BatchCallFailedError) {
+                            coalescer = undefined
+                            throw error.cause
+                        }
+                        throw error
+                    }
+                }),
             this.clientLabel,
             method
         )

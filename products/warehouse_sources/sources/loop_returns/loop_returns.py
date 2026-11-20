@@ -1,5 +1,6 @@
 import logging
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
@@ -26,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    format_datetime,
     make_tracked_session,
     rename_parent_fields,
     rest_api_resource,
@@ -52,13 +54,6 @@ START_DATE_TOO_OLD_ERROR = (
 
 def base_url(api_version: str) -> str:
     return f"{API_HOST}/api/{api_version}"
-
-
-def _format_datetime(value: datetime) -> str:
-    """Loop's documented format is `2022-01-01T00:00:00.000Z`; millisecond precision keeps window
-    boundaries exact so a watermark-derived start doesn't truncate backwards."""
-    utc_value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-    return utc_value.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def parse_datetime(value: Any) -> datetime:
@@ -212,8 +207,8 @@ class LoopReturnsPaginator(BasePaginator):
 
         if self._config.windowed:
             start, end = self.current_window
-            params["from"] = _format_datetime(start)
-            params["to"] = _format_datetime(end)
+            params["from"] = format_datetime(start, "iso_z_millis")
+            params["to"] = format_datetime(end, "iso_z_millis")
             if self._config.supports_filter_param and self._filter_field:
                 params["filter"] = self._filter_field
 
@@ -266,7 +261,7 @@ class LoopReturnsPaginator(BasePaginator):
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
         return {
-            "window_start": _format_datetime(self._current_start),
+            "window_start": format_datetime(self._current_start, "iso_z_millis"),
             "state_index": self._state_index,
             "cursor": self._cursor,
         }
@@ -353,6 +348,27 @@ class LoopCursorPaginator(BasePaginator):
         return "LoopCursorPaginator()"
 
 
+def nested_ids_map(
+    nested_id_columns: tuple[tuple[str, str], ...],
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    """Copy the `id` of each nested object into its own column, so the ids can be a primary key.
+
+    A row without one of those ids can't be keyed, and a null key would multi-match on every merge,
+    so the row is dropped.
+    """
+
+    def _mapper(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        for column, nested_key in nested_id_columns:
+            nested = row.get(nested_key)
+            nested_id = nested.get("id") if isinstance(nested, dict) else None
+            if nested_id is None:
+                return []
+            row[column] = nested_id
+        return row
+
+    return _mapper
+
+
 def get_resource(config: LoopReturnsEndpointConfig, should_use_incremental_field: bool) -> EndpointResource:
     endpoint: Endpoint = {"path": config.path}
     if config.data_selector is not None:
@@ -381,6 +397,8 @@ def get_resource(config: LoopReturnsEndpointConfig, should_use_incremental_field
     if config.parent is not None:
         resource["include_from_parent"] = ["id"]
         resource["data_map"] = rename_parent_fields(config.parent, {"id": config.parent_id_column})
+    elif config.nested_id_columns:
+        resource["data_map"] = nested_ids_map(config.nested_id_columns)
     return resource
 
 
@@ -393,8 +411,8 @@ def probe_endpoint(api_key: str, api_version: str, endpoint: str) -> tuple[bool,
     params: dict[str, Any] = {}
     if probe_config.windowed:
         end = datetime.now(UTC)
-        params["from"] = _format_datetime(end - timedelta(hours=1))
-        params["to"] = _format_datetime(end)
+        params["from"] = format_datetime(end - timedelta(hours=1), "iso_z_millis")
+        params["to"] = format_datetime(end, "iso_z_millis")
     if probe_config.paginate:
         params["paginate"] = "true"
         params["pageSize"] = 1

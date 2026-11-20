@@ -32,6 +32,7 @@ from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types, swapping_flag_calls_in_views
+from posthog.hogql.transforms.cross_join import DirectEqualities, optimize_cross_joins
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
@@ -54,7 +55,7 @@ from posthog.hogql.transforms.type_aware_simplification import (
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS, Workload
 from posthog.week_start_day import WeekStartDay
 
 PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
@@ -268,6 +269,11 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack, resolver_factory=resolver_factory)
 
+    # Logical person_id fields expand into corrected-identity expressions during resolution.
+    direct_equalities = DirectEqualities()
+    if dialect == "clickhouse" and context.modifiers.optimizeCrossJoins:
+        direct_equalities.visit(node)
+
     with context.timings.measure("resolve_types"):
         resolve = partial(
             resolve_types,
@@ -324,15 +330,22 @@ def prepare_ast_for_printing(
         collector.visit(node)
         context.workload = collector.get_workload()
 
-    # LOGS-cluster tables (logs, spans, metrics) split attributes across typed `*_map_str/_float/_datetime` Map columns.
+    # Logs, spans and metrics tables split attributes across typed `*_map_str/_float/_datetime` Map columns.
     # A type-suffixed attribute key (e.g. `host__str`) only resolves to its physical column via property groups, which
     # are active under OPTIMIZED. Without OPTIMIZED the read falls back to a subscript on the un-suffixed `attributes`
     # alias, where the suffixed key never matches — so `is not` filters match every row and `equals` filters match none
     # (silently wrong, not an error). OPTIMIZED is therefore required for correctness here, not merely a perf mode, so
-    # force it for every logs query regardless of any non-OPTIMIZED value a caller may have set — after workload
+    # force it for every logs or metrics query regardless of any non-OPTIMIZED value a caller may have set — after workload
     # detection, before property resolution reads the modifier.
-    if context.workload == Workload.LOGS and context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
+    if (
+        context.workload in PINNED_CLUSTER_WORKLOADS
+        and context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED
+    ):
         context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+
+    if dialect == "clickhouse" and context.modifiers.optimizeCrossJoins:
+        with context.timings.measure("optimize_cross_joins"):
+            optimize_cross_joins(node, context, direct_equalities)
 
     if context.modifiers.optimizeProjections:
         from posthog.models.instance_setting import (  # noqa: PLC0415 -- keeps the printer importable without Django
@@ -379,7 +392,7 @@ def prepare_ast_for_printing(
         # Lower JSON-blob property reads to dialect-neutral PropertyAccess nodes. The warehouse dialects have no
         # materialized columns, so logical lowering is the whole story for them (no ClickHouse property resolution).
         with context.timings.measure("lower_property_access"):
-            node = lower_property_access(node, context)
+            node = lower_property_access(node, context, follow_subquery_columns=dialect == "trino")
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):

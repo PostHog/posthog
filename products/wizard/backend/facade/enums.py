@@ -87,3 +87,10 @@ class WizardRunErrorCode(StrEnum):
 class WizardRunArtifactType(StrEnum):
     GIT_DIFF = "git_diff"
     PULL_REQUEST = "pull_request"
+
+
+class WizardPullRequestState(LabeledStrEnum):
+    OPEN = "open", "open"
+    DRAFT = "draft", "draft"
+    MERGED = "merged", "merged"
+    CLOSED = "closed", "closed"

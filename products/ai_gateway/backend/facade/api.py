@@ -21,8 +21,10 @@ def eligibility_refusal(user: User) -> contracts.DevTokenRefused | None:
     return logic.eligibility_refusal(user)
 
 
-def mint_dev_token(user: User, client: DevTokenClient) -> contracts.MintedDevToken:
-    return logic.mint(user, client)
+def mint_dev_token(
+    user: User, client: DevTokenClient, request: contracts.DevTokenRequest | None = None
+) -> contracts.MintedDevToken:
+    return logic.mint(user, client, request)
 
 
 def dev_token_usage(user: User) -> contracts.DevTokenUsage:
@@ -41,8 +43,22 @@ def revoke_dev_tokens(user: User, token_id: str | None) -> int:
     return logic.revoke(user, token_id)
 
 
-def authorize_cli(user: User, code_challenge: str) -> str:
-    return logic.authorize_cli(user, code_challenge)
+def revoke_dev_tokens_for_ineligible_owner(user_id: int) -> int:
+    """Raises `contracts.DevTokenRefused` when the gateway fails."""
+    return logic.revoke_for_ineligible_owner(user_id)
+
+
+def revoke_dev_token_hashes(token_hashes: list[str]) -> None:
+    """Raises `contracts.DevTokenRefused` when the gateway fails."""
+    logic.revoke_hashes(token_hashes)
+
+
+def sweep_ineligible_dev_token_owners() -> int:
+    return logic.sweep_ineligible_owners()
+
+
+def authorize_cli(user: User, code_challenge: str, request: contracts.DevTokenRequest | None = None) -> str:
+    return logic.authorize_cli(user, code_challenge, request)
 
 
 def exchange_cli_code(code: str, code_verifier: str) -> contracts.MintedDevToken:
@@ -62,3 +78,8 @@ def add_team_credit(
 
 def recent_team_credits(team_id: int, limit: int) -> list[contracts.TeamCreditTopUp]:
     return logic.recent_team_credits(team_id, limit)
+
+
+def team_wallet(team_id: int) -> contracts.TeamWallet:
+    """Reads the balance and recent ledger from the gateway. Raises `contracts.TeamWalletUnavailable`."""
+    return logic.team_wallet(team_id)
