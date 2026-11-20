@@ -83,7 +83,12 @@ class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
         # timeouts and connection failures on GET, not just 429/5xx. Once that budget exhausts,
         # requests wraps the failure as this host-scoped pool error and Temporal retries the
         # whole activity from there, so it's transient and self-recovering rather than a bug.
-        return {"HTTPSConnectionPool(host='automate.adjust.com', port=443)"}
+        # `AdjustRetryableError` is the same contract for a 429/5xx response that survived those
+        # retries: `adjust.py` re-raises it once exhausted, and Temporal retries the activity.
+        return {
+            "HTTPSConnectionPool(host='automate.adjust.com', port=443)",
+            "Adjust API error (retryable)",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:

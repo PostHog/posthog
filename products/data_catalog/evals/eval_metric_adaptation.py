@@ -1,5 +1,12 @@
 """Metric adaptation evals: change a governed metric to fit the question, and keep what it measures.
 
+The MRR cases adapt a HogQL metric in SQL. The trends and funnel cases adapt a typed metric, so the adapted
+query must stay a typed query: ``insight_shape`` checks that the answer ran ``query-trends`` or
+``query-funnel`` with the metric's measure plus the requested change. The ``sql_from_typed_*`` cases ask for
+a shape no typed runner returns, so the agent must carry the typed metric's definition of an active
+account into SQL. ``insight_shape`` does not grade them, because it prefers any typed query over SQL as the
+answer, and an agent can correctly run the trends headline before it writes the SQL.
+
 Run it once per surface:
 
     ./bin/hogli evals eval_metric_adaptation --surface app --skill-delivery bundled --provider modal
@@ -8,15 +15,21 @@ Run it once per surface:
 
 from __future__ import annotations
 
-from products.data_catalog.evals.catalog_seeders import seed_account_engagement_metric, seed_mrr_metric
+from products.data_catalog.evals.catalog_seeders import (
+    seed_account_engagement_metric,
+    seed_activation_funnel_metric,
+    seed_mrr_metric,
+)
 from products.data_catalog.evals.catalog_synthesizer import (
     ACCOUNT_ENGAGEMENT_METRIC,
+    ACTIVATION_FUNNEL_METRIC,
     MRR_DISTINGUISHING_TERMS,
     MRR_METRIC,
 )
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
     MetricDescribeBeforeAdaptedSql,
+    MetricFound,
     NoDataSqlRun,
     QueryTermsUsed,
     RunOverrideUsed,
@@ -25,11 +38,37 @@ from products.data_catalog.evals.scorers import (
 from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.evals.product_analytics.scorers import InsightShape
 
 _ADAPTED_MRR = {
     "metric_describe_before_adapted_sql": {},
     "query_terms_used": {"terms": list(MRR_DISTINGUISHING_TERMS)},
 }
+
+
+_WEEKLY_ACCOUNTS = {"tool": "query-trends", "math": ["unique_group"], "interval": "week"}
+
+
+def _adapted_typed_behavior(metric_name: str, change: str, keep: str) -> str:
+    return (
+        f"Find {metric_name} in the catalog and read its definition with metric-describe. Adapt that stored "
+        f"query to {change}, keep {keep}, and run it with the typed query runner of its kind, not with "
+        "hand-written SQL. Report the values the run returned. Label the result as an adaptation of the "
+        "governed metric, not as the approved number itself."
+    )
+
+
+# The governed definition of an active account: any event that carries the account group key.
+_ACTIVE_ACCOUNT_TERMS = ["$group_0"]
+
+
+def _sql_from_typed_behavior(shape: str) -> str:
+    return (
+        f"Find {ACCOUNT_ENGAGEMENT_METRIC.name} in the catalog and read its definition with metric-describe. "
+        "No typed query runner returns this shape, so write SQL that keeps the metric's definition: an active "
+        f"account is a distinct account group key on any event in the window. Return {shape}. Label the result "
+        "as derived from the governed metric, not as the approved number itself."
+    )
 
 
 def _adapted_mrr_behavior(change: str) -> str:
@@ -101,6 +140,123 @@ async def eval_metric_adaptation(ctx: EvalContext) -> None:
             },
             setup=seed_mrr_metric,
         ),
+        SandboxedEvalCase(
+            name="adapt_trend_grouping",
+            prompt="Show me weekly active accounts for the last 4 weeks, split by each account's plan.",
+            expected={
+                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                "insight_shape": {**_WEEKLY_ACCOUNTS, "breakdown": "plan", "date_from": ["-4w", "-28d", "-1m"]},
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_typed_behavior(
+                        ACCOUNT_ENGAGEMENT_METRIC.name,
+                        "break the count down by the account group's plan property",
+                        "the unique-account math and the weekly interval",
+                    )
+                },
+            },
+            setup=seed_account_engagement_metric,
+        ),
+        SandboxedEvalCase(
+            name="adapt_trend_window_and_filter",
+            prompt="How many accounts were active each week over the last 8 weeks, counting only users in the US?",
+            expected={
+                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                "insight_shape": {
+                    **_WEEKLY_ACCOUNTS,
+                    "date_from": ["-8w", "-56d", "-2m"],
+                    "filtered_on": ["$geoip_country_code"],
+                },
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_typed_behavior(
+                        ACCOUNT_ENGAGEMENT_METRIC.name,
+                        "cover the last 8 weeks and count only activity from users whose country code is US",
+                        "the unique-account math and the weekly interval",
+                    )
+                },
+            },
+            setup=seed_account_engagement_metric,
+        ),
+        SandboxedEvalCase(
+            name="adapt_funnel_breakdown_and_window",
+            prompt="What's our signup activation rate by browser over the last 90 days?",
+            expected={
+                "metric_found": {"metric_name": ACTIVATION_FUNNEL_METRIC.name},
+                "insight_shape": {
+                    "tool": "query-funnel",
+                    "event_sequence": ["signed_up", "uploaded_file"],
+                    "funnel_window": "14 day",
+                    "breakdown": "$browser",
+                    "date_from": ["-90d", "-3m", "-12w", "-13w"],
+                },
+                "semantic_layer_answer": {
+                    "expected_behavior": _adapted_typed_behavior(
+                        ACTIVATION_FUNNEL_METRIC.name,
+                        "cover the last 90 days and break the conversion down by $browser",
+                        "the signed_up to uploaded_file steps and the 14-day conversion window",
+                    )
+                },
+            },
+            setup=seed_activation_funnel_metric,
+        ),
+        SandboxedEvalCase(
+            name="sql_from_typed_entity_table",
+            prompt=(
+                "Using our definition of an active account, list every account that was active in the last 4 weeks, "
+                "with its name, plan, number of uploads, number of downloads, and the date of its last activity."
+            ),
+            expected={
+                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                "metric_describe_before_adapted_sql": {},
+                "query_terms_used": {"terms": [*_ACTIVE_ACCOUNT_TERMS, "uploaded_file", "downloaded_file", "plan"]},
+                "semantic_layer_answer": {
+                    "expected_behavior": _sql_from_typed_behavior(
+                        "one row per active account in the last 4 weeks with its name, plan, upload count, "
+                        "download count and last activity date"
+                    )
+                },
+            },
+            setup=seed_account_engagement_metric,
+        ),
+        SandboxedEvalCase(
+            name="sql_from_typed_status_buckets",
+            prompt=(
+                "Using our definition of an active account, compare the last 4 weeks with the 4 weeks before. Label "
+                "each account: new (first activity ever in the last 4 weeks), retained (active in both periods), "
+                "returning (active in the last 4 weeks, not in the 4 weeks before, but active earlier), or gone "
+                "quiet (active in the 4 weeks before, not in the last 4 weeks). How many accounts are in each group?"
+            ),
+            expected={
+                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                "metric_describe_before_adapted_sql": {},
+                "query_terms_used": {"terms": _ACTIVE_ACCOUNT_TERMS},
+                "semantic_layer_answer": {
+                    "expected_behavior": _sql_from_typed_behavior(
+                        "the count of accounts in each of the four groups, with the group definitions applied "
+                        "exactly as the user stated them and each account in exactly one group"
+                    )
+                },
+            },
+            setup=seed_account_engagement_metric,
+        ),
+        SandboxedEvalCase(
+            name="sql_from_typed_distribution",
+            prompt=(
+                "Among accounts that were active in the last 4 weeks by our definition, what is the median and the "
+                "maximum number of active users per account, split by plan?"
+            ),
+            expected={
+                "metric_found": {"metric_name": ACCOUNT_ENGAGEMENT_METRIC.name},
+                "metric_describe_before_adapted_sql": {},
+                "query_terms_used": {"terms": [*_ACTIVE_ACCOUNT_TERMS, "person", "plan"]},
+                "semantic_layer_answer": {
+                    "expected_behavior": _sql_from_typed_behavior(
+                        "per plan, the median and the maximum of the distinct users per active account, counted "
+                        "in the last 4 weeks"
+                    )
+                },
+            },
+            setup=seed_account_engagement_metric,
+        ),
     ]
 
     await SandboxedEval(
@@ -111,6 +267,8 @@ async def eval_metric_adaptation(ctx: EvalContext) -> None:
             NoDataSqlRun(),
             MetricDescribeBeforeAdaptedSql(),
             QueryTermsUsed(),
+            MetricFound(),
+            InsightShape(),
             SemanticLayerAnswer(),
         ],
         ctx=ctx,
@@ -121,6 +279,8 @@ async def eval_metric_adaptation(ctx: EvalContext) -> None:
                 "no_data_sql_run",
                 "metric_describe_before_adapted_sql",
                 "query_terms_used",
+                "metric_found",
+                "insight_shape",
                 "semantic_layer_answer",
             ],
         ),

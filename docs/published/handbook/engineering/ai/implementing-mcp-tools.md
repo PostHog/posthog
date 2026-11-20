@@ -105,7 +105,11 @@ Resolve tool targets through `context.stateManager.getProjectId()` or `getOrgID(
 
 The shared token cache holds credential and entity metadata. Its `orgId` and `projectId` selection keys remain only for requests without a session or conversation identity. Session-aware tools must use the state manager instead of reading those keys directly. Session selections expire after 24 hours without requests.
 
-For sessionless clients, the server scopes selection to the SDK's echoed `conversation_id`, bound to the credential and separated from transport session IDs. The dispatcher restores echoed handles before state resolution. When the SDK mints a handle on the first tool call, the executor resolves state with that handle before running the tool. Switches require a carried session or conversation handle, including when called through `exec`. A switch without one returns an error and a new handle; the client must retry with that handle and echo it on subsequent calls. Calls without either identity start from the connection's pin or default selection. Clients unable to retain handles should pin the project or organization in the connection URL. The SDK remains responsible for generating and normalizing conversation handles and producing analytics.
+For sessionless clients, the server scopes selection to the SDK's echoed `conversation_id`, bound to the credential and separated from transport session IDs. The dispatcher restores echoed handles before state resolution. When the SDK mints a handle on the first tool call, the executor resolves state with that handle before running the tool. Switches require a carried session or conversation handle, including when called through `exec`. A switch without one returns an error and a new handle; the client must retry with that handle and echo it on subsequent calls. Calls without either identity start from the connection's pin or default selection.
+When a call has no project pin or either identity, its tool result names the default project ID and tells the agent to reuse the `conversation_id` from the conversation where it switched projects.
+If a supplied `conversation_id` or `Mcp-Session-Id` has no saved selection and the call uses the default project, the result asks the agent to switch projects again.
+The transport session takes precedence when both handles are supplied. To use the conversation's saved selection, send its `conversation_id` without `Mcp-Session-Id`.
+Clients unable to retain handles should pin the project or organization in the connection URL. The SDK remains responsible for generating and normalizing conversation handles and producing analytics.
 
 Sessionless legacy batches resolve each call's handle and state independently before checking whether a switch is allowed. The wrapper's `sessionId` query parameter groups analytics but cannot restore selections; wrapper-only calls still receive SDK-minted conversation handles.
 
@@ -366,7 +370,10 @@ The server rejects direct `render-ui` calls without UI support, even if the clie
 A `render-ui` call runs the same tool call the app would make for its data, through the normal dispatch path, and returns that data on the app-only `_meta["com.posthog.mcp/app_data"]` key.
 The app draws the first view from that data, so it still renders on hosts that reject an app's own `tools/call`. The app calls the server itself only when the preload failed or took longer than 15 seconds (the app treats a result that takes 20 seconds as lost), and for later actions such as drill-downs.
 Cursor does not pass a result's `_meta` to the app, so for Cursor the result carries that data in `structuredContent["com.posthog.mcp/app_data"]` instead.
-This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
+Cursor defaults to tools mode unless the `mcp-cursor-exec-mode` flag is on. An explicit mode override takes precedence.
+
+When a direct tool call has a formatted table, the server drops the duplicate `structuredContent` by default and preserves app data in `_meta` for tools with a UI resource.
+Cursor, Claude Artifacts, and non-Anthropic render-ui hosts keep the structured result. Direct app data calls from render-ui hosts in CLI mode also keep it.
 
 ## Claude web and desktop exec schema budget
 
@@ -465,7 +472,12 @@ Report metadata reads are restricted to the reports referenced by receipts in th
 The endpoint converts `month` to an explicit UTC `DateRange`; the runner resolves it with the shared `QueryDateRange` class.
 The generic query API accepts `{"kind": "InboxUsageQuery", "dateRange": {"date_from": "2026-11-01", "date_to": "2026-12-01", "explicitDate": true}}`, including its standard async execution modes, with both `query:read` and `signal_usage:read`.
 Direct queries require `dateRange` and support standard relative dates. Bounds use UTC; `date_to` is exclusive. Use `explicitDate: true` to preserve exact end timestamps.
-Usage history starts on October 1, 2026, at 00:00 UTC. All-time queries start there; ranges crossing the cutoff are clipped, and earlier months are rejected. SQL spend records use the same cutoff on finalized_at, or created_at for unsettled work.
+Usage history starts on October 1, 2026, at 00:00 UTC. Ranges crossing that launch date are clipped, and earlier months are rejected.
+Spend receipts expire three calendar months after creation, including failed and unsettled receipts.
+The monthly endpoint and direct queries reject ranges that include expired history, even if only part of the range has expired.
+Choose the current month or either of the two previous months (from October 2026 onward), or a direct range starting at or after the rolling retention cutoff.
+All-time queries are rejected once the launch date falls outside retention. Validation runs before cache lookup.
+SQL spend records use the launch cutoff on finalized_at, or created_at for unsettled work; SQL queries over expired history can only return the remaining receipts.
 Direct queries must target the canonical parent project; the usage endpoint resolves child environments after checking parent-project access.
 The response returns fractional credits as decimal strings and `pricing.usd_per_credit` for USD conversion; recorded usage includes exemptions and is not an invoice amount.
 Use `system.signal_spend` for finer queries and `system.scout_runs.spend_credits` for per-run inspection, without adding the latter to the spend records again.

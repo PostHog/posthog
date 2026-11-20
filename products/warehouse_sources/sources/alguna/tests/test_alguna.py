@@ -210,6 +210,66 @@ class TestRevenueSchedule:
         assert "'entries'" in str(result.raised)
 
 
+class TestLookupFanout:
+    @parameterized.expand(
+        [
+            (
+                "connected_accounts",
+                "customer_connected_accounts",
+                "/customers",
+                "connected-accounts",
+                {"data": [{"id": "cacc_1", "customer_id": "p_1", "external_id": "cus_1", "integration_id": "intg_1"}]},
+                [{"id": "cacc_1", "customer_id": "p_1", "external_id": "cus_1", "integration_id": "intg_1"}],
+            ),
+            (
+                # Entitlement rows carry no customer id; it is copied down from the parent row.
+                "entitlements",
+                "customer_entitlements",
+                "/customers",
+                "entitlements",
+                {"data": [{"key": "api_access", "subscription_id": None, "type": "boolean", "value": "true"}]},
+                [
+                    {
+                        "key": "api_access",
+                        "subscription_id": None,
+                        "type": "boolean",
+                        "value": "true",
+                        "customer_id": "p_1",
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_fans_out_per_parent_and_skips_deleted_parent(
+        self,
+        _name: str,
+        endpoint: str,
+        parent_path: str,
+        child_suffix: str,
+        child_body: dict[str, Any],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response([{"id": "p_1"}, {"id": "p_gone"}]),
+                ScriptedResponse(json=child_body),
+                # A parent deleted between the parent listing and the child fetch.
+                ScriptedResponse(status=404, json={"error": "not found"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.paths == [
+            parent_path,
+            f"{parent_path}/p_1/{child_suffix}",
+            f"{parent_path}/p_gone/{child_suffix}",
+        ]
+        child = [request for request in result.requests if request.path != parent_path]
+        assert all(request.param("limit") is None for request in child)
+
+
 class TestValidateCredentials:
     def test_ok(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:

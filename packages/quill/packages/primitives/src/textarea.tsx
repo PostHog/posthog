@@ -3,7 +3,7 @@ import './textarea.css'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
-import { hasTooltipContent, withTooltip } from './with-tooltip'
+import { hasTooltipContent, withDisabledReason } from './with-tooltip'
 
 const Textarea = React.forwardRef<
     HTMLTextAreaElement,
@@ -14,7 +14,7 @@ const Textarea = React.forwardRef<
 >(function Textarea({ className, disabled, disabledReason, ...props }, ref) {
     const hasDisabledReason = hasTooltipContent(disabledReason)
 
-    return withTooltip(
+    return withDisabledReason(
         <textarea
             ref={ref}
             data-quill

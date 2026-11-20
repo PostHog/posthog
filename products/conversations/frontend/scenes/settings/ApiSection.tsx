@@ -5,6 +5,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { QuillApiSection } from '../../components/QuillApiSection/QuillApiSection'
+import { WebAndApiAccessSummary } from '../../components/WebAndApiAccessSummary/WebAndApiAccessSummary'
 
 export function ApiSection(): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -28,10 +29,10 @@ export function ApiSection(): JSX.Element {
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
                 <LemonBanner type="info">
-                    The API is available on <code>posthog.conversations</code> as soon as Support is enabled — no
-                    additional setup required. Configure <strong>Allowed domains</strong> and{' '}
-                    <strong>Identity verification</strong> under the General tab.
+                    The API is available on <code>posthog.conversations</code> as soon as Support is enabled. No
+                    additional setup is required.
                 </LemonBanner>
+                <WebAndApiAccessSummary />
                 <div>
                     <p className="mb-2 font-medium">Quick example</p>
                     <pre className="bg-surface-secondary rounded p-3 text-xs overflow-x-auto mb-0">

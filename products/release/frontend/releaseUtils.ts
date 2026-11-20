@@ -6,6 +6,8 @@ import { dayjs } from 'lib/dayjs'
 import { hasDeniedApprovalRequest, isSchedulePaused } from 'scenes/feature-flags/scheduleOccurrences'
 import { urls } from 'scenes/urls'
 
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ExperimentStatus } from '~/types'
 
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
@@ -21,7 +23,7 @@ import {
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 import { scheduleSendTimes } from 'products/workflows/frontend/SendCalendar/sendCalendarUtils'
 
-import type { LinkedBroadcastDTOApi, LinkedSendDTOApi, ReleaseDTOApi } from './generated/api.schemas'
+import type { LinkedBroadcastDTOApi, LinkedSendDTOApi, MetricGoalApi, ReleaseDTOApi } from './generated/api.schemas'
 
 export type ReleaseStage = 'planned' | 'flag' | 'experiment' | 'early_access' | 'released' | 'ended'
 
@@ -77,6 +79,16 @@ export interface ReleaseSuggestion {
 
 export const releaseSourceRecord = (releaseId: string): string => `release:${releaseId}`
 
+export function releaseSidebarEntryName(
+    entry: FileSystemEntry,
+    releasesById: ReadonlyMap<string, { name: string }>
+): string | null {
+    if (entry.type === 'release') {
+        return releasesById.get(entry.ref ?? '')?.name ?? null
+    }
+    return splitPath(entry.path).pop() || entry.path
+}
+
 export interface ReleaseSpan {
     key: string
     kind: 'flag' | 'early_access' | 'experiment' | 'experiment_done' | 'survey'
@@ -94,6 +106,8 @@ export interface ReleaseRow {
     description: string
     createdAt: string
     owner: ReleaseDTOApi['owner']
+    metricInsightIds: number[]
+    metricGoals: MetricGoalApi[]
     missingFlagIds: number[]
     headline: string
     detail: string
@@ -1180,6 +1194,8 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         description: release.description,
         createdAt: release.created_at,
         owner: release.owner,
+        metricInsightIds: [...(release.metric_insight_ids ?? [])],
+        metricGoals: [...(release.metric_goals ?? [])],
         missingFlagIds: facts.missingFlagIds,
         ...releaseCopy(facts),
         lifecycle: releaseLifecycle(release, facts, stage),

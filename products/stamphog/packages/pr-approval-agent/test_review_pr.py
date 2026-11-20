@@ -424,13 +424,13 @@ def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(
         pytest.param(
             {"filename": "frontend/src/scenes/x/owners.yaml", "additions": 1, "deletions": 1, "status": "M"},
             "T2-never",
-            ["stamphog_policy"],
+            ["ownership_files"],
             id="changed-line",
         ),
         pytest.param(
             {"filename": "frontend/src/scenes/x/owners.yaml", "additions": 0, "deletions": 0, "status": "R100"},
             "T2-never",
-            ["stamphog_policy"],
+            ["ownership_files"],
             id="rename",
         ),
         pytest.param(
@@ -456,12 +456,20 @@ def test_owners_yaml_denies_only_a_change_to_an_existing_line(
     assert pipeline.classification["tier"] == expected_tier
     assert pipeline.classification["deny_categories"] == expected_deny
     if expected_deny:
-        assert pipeline._check_deny_list() == (False, f"matches: stamphog_policy in `{file['filename']}`")
-        assert pipeline._check_tier() == (False, "T2-never because the deny-list matched stamphog_policy")
+        category = expected_deny[0]
+        assert pipeline._check_deny_list()[1].startswith(f"matches: {category}")
+        assert pipeline._check_tier() == (False, f"T2-never because the deny-list matched {category}")
 
 
-def test_owners_yaml_addition_reads_ownership_at_the_merge_base(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    "additions, deletions",
+    [
+        pytest.param(3, 0, id="added-rule"),
+        pytest.param(3, 1, id="changed-line-under-owner-exemption"),
+    ],
+)
+def test_owners_yaml_change_reads_ownership_at_the_merge_base(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, additions: int, deletions: int
 ) -> None:
     def git(*args: str) -> str:
         return subprocess.run(["git", *args], capture_output=True, text=True, cwd=tmp_path, check=True).stdout.strip()
@@ -484,7 +492,7 @@ def test_owners_yaml_addition_reads_ownership_at_the_merge_base(
     pr = _fake_pr(head_sha=git("rev-parse", "HEAD"))
     pr.merge_base_sha = merge_base
     pr.files = [
-        {"filename": "owners.yaml", "additions": 3, "deletions": 0, "status": "M"},
+        {"filename": "owners.yaml", "additions": additions, "deletions": deletions, "status": "M"},
         {"filename": "api.py", "additions": 1, "deletions": 0, "status": "M"},
     ]
     pipeline.pr = pr

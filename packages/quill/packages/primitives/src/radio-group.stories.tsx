@@ -95,6 +95,15 @@ export const ChoiceCard: Story = {
                         <RadioGroupItem value="enterprise" id="enterprise-plan" />
                     </Field>
                 </FieldLabel>
+                <FieldLabel htmlFor="legacy-plan" disabledReason="Legacy plans are closed to new sign-ups">
+                    <Field orientation="horizontal">
+                        <FieldContent>
+                            <FieldTitle>Legacy</FieldTitle>
+                            <FieldDescription>The plan you signed up on.</FieldDescription>
+                        </FieldContent>
+                        <RadioGroupItem value="legacy" id="legacy-plan" />
+                    </Field>
+                </FieldLabel>
             </RadioGroup>
         )
     },
@@ -162,22 +171,10 @@ export const DisabledReason: Story = {
     render: () => {
         return (
             <RadioGroup defaultValue="email" className="w-fit">
-                <Field orientation="horizontal">
-                    <RadioGroupItem value="email" id="reason-email" />
-                    <FieldLabel htmlFor="reason-email" className="font-normal">
-                        Email
-                    </FieldLabel>
-                </Field>
-                <Field orientation="horizontal" data-disabled>
-                    <RadioGroupItem
-                        value="sms"
-                        id="reason-sms"
-                        disabledReason="Add a phone number to get SMS notifications"
-                    />
-                    <FieldLabel htmlFor="reason-sms" className="font-normal">
-                        SMS
-                    </FieldLabel>
-                </Field>
+                <RadioGroupItem value="email">Email</RadioGroupItem>
+                <RadioGroupItem value="sms" disabledReason="Add a phone number to get SMS notifications">
+                    SMS
+                </RadioGroupItem>
             </RadioGroup>
         )
     },

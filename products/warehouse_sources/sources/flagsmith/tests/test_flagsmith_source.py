@@ -20,25 +20,38 @@ class TestFlagsmithSource:
         assert self.source.connection_host_fields == ["base_url"]
 
     @pytest.mark.parametrize(
-        "status, schema_name, expected_valid",
+        "status, schema_name, expected_valid, expected_error",
         [
-            (200, None, True),
-            (401, None, False),
+            (200, None, True, None),
+            (401, None, False, "Invalid Flagsmith API key"),
             # A valid key may lack scope for an unselected endpoint — accept 403 at source-create.
-            (403, None, True),
+            (403, None, True, None),
             # But reject 403 when validating a specific schema.
-            (403, "features", False),
-            (500, None, False),
-            (None, None, False),
+            (403, "features", False, "does not have permission"),
+            (404, None, False, "no API at that URL"),
+            (404, "features", False, "no API at that URL"),
+            # Redirects are never followed, so a redirecting URL can't sync either.
+            (301, None, False, "no API at that URL"),
+            (302, None, False, "no API at that URL"),
+            (400, None, False, "didn't accept the request"),
+            (500, None, False, "didn't accept the request"),
+            (None, None, False, "couldn't reach Flagsmith"),
         ],
     )
     @mock.patch(VALIDATE_PATH)
-    def test_validate_credentials_status_mapping(self, mock_validate, status, schema_name, expected_valid):
+    def test_validate_credentials_status_mapping(
+        self, mock_validate, status, schema_name, expected_valid, expected_error
+    ):
         mock_validate.return_value = status
 
-        is_valid, _error = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        is_valid, error = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
 
         assert is_valid is expected_valid
+        if expected_error is None:
+            assert error is None
+        else:
+            assert error is not None and expected_error in error
+            assert str(status) not in error
 
     @pytest.mark.parametrize(
         "schema_name, expected_path",

@@ -3,6 +3,7 @@ import { Button, Item, ItemContent, ItemDescription, Text } from '@posthog/quill
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { QuillSettingsSubsection } from '../QuillSettingsSubsection/QuillSettingsSubsection'
+import { WebAndApiAccessSummary } from '../WebAndApiAccessSummary/WebAndApiAccessSummary'
 
 export function QuillApiSection(): JSX.Element {
     return (
@@ -26,12 +27,12 @@ export function QuillApiSection(): JSX.Element {
             <Item tone="info" size="sm">
                 <ItemContent>
                     <ItemDescription>
-                        The API is available on <code>posthog.conversations</code> as soon as Support is enabled — no
-                        additional setup required. Configure <strong>Allowed domains</strong> and{' '}
-                        <strong>Identity verification</strong> under the General tab.
+                        The API is available on <code>posthog.conversations</code> as soon as Support is enabled. No
+                        additional setup is required.
                     </ItemDescription>
                 </ItemContent>
             </Item>
+            <WebAndApiAccessSummary />
             <div className="flex flex-col gap-1">
                 <Text size="xs" weight="medium" render={<p className="m-0" />}>
                     Quick example

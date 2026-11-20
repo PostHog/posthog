@@ -32,7 +32,7 @@ export function AreaGroupTable({ group, rows }: { group: AreaGroup; rows: AreaRo
             width: 24,
             render: () =>
                 group === 'needs_a_look' ? (
-                    <IconFlag className="text-warning text-base" aria-label="Needs a look" />
+                    <IconFlag className="text-warning text-base" aria-label="Needs attention" />
                 ) : null,
         },
         {

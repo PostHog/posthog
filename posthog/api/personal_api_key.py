@@ -14,6 +14,7 @@ from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
+from posthog.helpers.two_factor_session import enforce_credential_two_factor
 from posthog.ip_restrictions import enforce_credential_ip_restrictions
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
@@ -250,7 +251,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             organization_uuids = [uuid.UUID(organization_id) for organization_id in scoped_organizations]
 
             for organization_id in organization_uuids:
-                if organization_id not in org_memberships or not org_memberships[organization_id].level:
+                if organization_id not in org_memberships or not org_memberships[organization_id].effective_level:
                     raise serializers.ValidationError(
                         f"You must be a member of all organizations that you are scoping the key to."
                     )
@@ -270,6 +271,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             )
         try:
             enforce_credential_ip_restrictions(
+                request, validated_data.get("scoped_organizations"), validated_data.get("scoped_teams")
+            )
+            enforce_credential_two_factor(
                 request, validated_data.get("scoped_organizations"), validated_data.get("scoped_teams")
             )
             minted = mint_personal_api_key(
@@ -311,6 +315,11 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     def update(self, instance: PersonalAPIKey, validated_data: dict) -> PersonalAPIKey:
         if {"scopes", "scoped_teams", "scoped_organizations", "expires_at"}.intersection(validated_data):
             enforce_credential_ip_restrictions(
+                self.context["request"],
+                validated_data.get("scoped_organizations", instance.scoped_organizations),
+                validated_data.get("scoped_teams", instance.scoped_teams),
+            )
+            enforce_credential_two_factor(
                 self.context["request"],
                 validated_data.get("scoped_organizations", instance.scoped_organizations),
                 validated_data.get("scoped_teams", instance.scoped_teams),
@@ -391,6 +400,7 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     def roll(self, request, *args, **kwargs):
         instance = self.get_object()
         enforce_credential_ip_restrictions(request, instance.scoped_organizations, instance.scoped_teams)
+        enforce_credential_two_factor(request, instance.scoped_organizations, instance.scoped_teams)
         roll_serializer = PersonalAPIKeyRollSerializer(data=request.data)
         roll_serializer.is_valid(raise_exception=True)
         serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))

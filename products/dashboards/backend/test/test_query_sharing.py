@@ -3,12 +3,14 @@ import asyncio
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from contextlib import nullcontext
 from threading import Barrier, BoundedSemaphore, Event
+from typing import Literal
 
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.schema import HogQLQueryResponse
 
@@ -18,6 +20,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.query_stats import record
 
+from products.dashboards.backend.constants import MAX_CACHED_TILES_BATCH_SIZE
 from products.dashboards.backend.presentation.query_sharing import DashboardQuerySharingParamsSerializer
 from products.dashboards.backend.query_sharing import DashboardQuerySharing
 from products.dashboards.backend.query_sharing_debug import DashboardQuerySharingDebug, sharing_debug
@@ -175,6 +178,37 @@ class TestDashboardQuerySharing(SimpleTestCase):
         if startup_fails:
             self.assertTrue(slots.acquire(blocking=False))
 
+    @parameterized.expand(
+        [
+            ("board_admitted", "board", True),
+            ("board_rejected", "board", False),
+            ("sharing_admitted", "sharing", True),
+            ("sharing_rejected", "sharing", False),
+        ]
+    )
+    def test_counts_admitted_and_rejected_streams(
+        self, _name: str, kind: Literal["board", "sharing"], has_slot: bool
+    ) -> None:
+        labels = {"stream": kind, "outcome": "admitted" if has_slot else "rejected"}
+
+        def count() -> float:
+            return REGISTRY.get_sample_value("posthog_dashboard_query_stream_admissions_total", labels) or 0.0
+
+        before = count()
+        stream = DashboardQuerySharingStream(
+            jobs=[Mock(return_value={"type": "tile", "tile": {"id": 1}})],
+            team_id=1,
+            query_id="test",
+            kind=kind,
+        )
+        slots = BoundedSemaphore(1)
+        if not has_slot:
+            slots.acquire()
+        with patch("products.dashboards.backend.query_sharing_stream._stream_slots", slots):
+            list(stream.stream())
+
+        self.assertEqual(count() - before, 1)
+
     @parameterized.expand([("sync", False), ("async", True)])
     def test_disconnect_cancels_queries_and_prevents_late_execution(self, _name: str, asynchronous: bool) -> None:
         release = Event()
@@ -228,7 +262,7 @@ class TestDashboardQuerySharing(SimpleTestCase):
             ("duplicate", "1,1"),
             ("invalid", "a"),
             ("negative", "-1"),
-            ("oversized", ",".join(str(i) for i in range(1, 34))),
+            ("oversized", ",".join(str(i) for i in range(1, MAX_CACHED_TILES_BATCH_SIZE + 2))),
         ]
     )
     def test_rejects_invalid_tile_batches(self, _name: str, tile_ids: str) -> None:

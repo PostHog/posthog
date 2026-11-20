@@ -1,4 +1,5 @@
 import io
+import decimal
 from collections.abc import AsyncIterator
 
 import pytest
@@ -275,6 +276,23 @@ class TestConfigValidation:
         with pytest.raises(DestinationConfigurationError, match="Data Editor"):
             await writer.prepare_run(_ctx())
 
+    @pytest.mark.asyncio
+    async def test_a_project_with_no_billing_account_is_a_configuration_error(self) -> None:
+        # Without this, a free-tier project's DML rejection reads as transient and the sync
+        # retries forever instead of telling the customer to enable billing.
+        client = FakeBigQueryClient()
+        client.create_dataset = MagicMock(  # type: ignore[method-assign]
+            side_effect=Forbidden(
+                "403 Billing has not been enabled for this project. Enable billing at "
+                "https://console.cloud.google.com/billing.; reason: billingNotEnabled, message: Billing has not "
+                "been enabled for this project."
+            )
+        )
+        writer = LocalBigQueryWriter(_ctx(), client)
+
+        with pytest.raises(DestinationConfigurationError, match="Enable billing"):
+            await writer.prepare_run(_ctx())
+
 
 @pytest.mark.asyncio
 class TestFullRefresh:
@@ -542,3 +560,34 @@ class TestAppend:
 
         with pytest.raises(DestinationConfigurationError, match="active"):
             await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [2], "active": [2]}), 1)
+
+
+@pytest.mark.asyncio
+class TestDecimalColumns:
+    async def test_a_decimal_wider_than_numerics_scale_loads_as_bignumeric(self) -> None:
+        # Regression: autodetect only ever offers NUMERIC (scale 9) unless the load job's
+        # decimal_target_types also allows BIGNUMERIC, so a source decimal128 column with a
+        # wider scale — a shape sources send routinely — failed the load outright on every retry.
+        client = FakeBigQueryClient()
+        ctx = _ctx()
+        writer = LocalBigQueryWriter(ctx, client)
+        amount = pa.array([decimal.Decimal("1.123456789012345678")], type=pa.decimal128(38, 18))
+        batch = pa.RecordBatch.from_arrays([amount], names=["amount"])
+
+        await _deliver(writer, ctx, batch, 0, is_final=True)
+
+        assert client.get_table("proj.dataset.charges").types["amount"] == "BIGNUMERIC"
+
+    def test_the_fake_rejects_the_wide_decimal_without_bignumeric_the_way_bigquery_does(self) -> None:
+        # Guards the case above: if the fake accepted a wide-scale decimal regardless of
+        # decimal_target_types, that case would pass with or without the writer requesting it.
+        client = FakeBigQueryClient()
+        amount = pa.array([decimal.Decimal("1.123456789012345678")], type=pa.decimal128(38, 18))
+        batch = pa.RecordBatch.from_arrays([amount], names=["amount"])
+
+        with pytest.raises(BadRequest, match="NUMERIC"):
+            client.load_table_from_file(
+                _parquet(batch),
+                "proj.dataset.charges",
+                bigquery.LoadJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE),
+            )

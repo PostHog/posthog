@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonCard, LemonCheckbox, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -14,10 +12,10 @@ import { QuillAISection } from '../../components/QuillAISection/QuillAISection'
 import { SupportPlaybookSection } from '../../components/SupportPlaybookSection/SupportPlaybookSection'
 import { aiTriageTicketTypeLabel, TicketChannel } from '../../types'
 import { CHANNEL_LABELS, PUBLISHABLE_TICKET_TYPES, REPLY_MODE_OPTIONS, TICKET_TYPES } from './aiAgentSettingsOptions'
+import { type ChannelTabKey, openChannelSettings } from './openChannelSettings'
 import { supportSettingsLogic } from './supportSettingsLogic'
-import { CONVERSATIONS_LOGIC_KEY } from './SupportSettingsScene'
 
-const CHANNEL_SETTINGS_TABS: Record<TicketChannel, string> = {
+const CHANNEL_SETTINGS_TABS: Record<TicketChannel, ChannelTabKey> = {
     widget: 'widget',
     slack: 'slack',
     email: 'email',
@@ -42,20 +40,6 @@ export function AISection(): JSX.Element {
 
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
 
-    const openChannelSettings = (channel: TicketChannel): void => {
-        // Switch the embedded settings pane via its own logic — settingsLogic does not
-        // sync selectedSetting from /support/settings hash changes.
-        settingsLogic({
-            logicKey: CONVERSATIONS_LOGIC_KEY,
-            sectionId: 'environment-conversations',
-        }).actions.selectSetting('conversations-general')
-        router.actions.push(urls.supportSettings(), router.values.searchParams, {
-            ...router.values.hashParams,
-            selectedSetting: 'conversations-general',
-            channel: CHANNEL_SETTINGS_TABS[channel],
-        })
-    }
-
     const toggleResolutionChannel = (channel: TicketChannel, checked: boolean): void => {
         const next = checked ? [...aiResolutionChannels, channel] : aiResolutionChannels.filter((c) => c !== channel)
         setAiResolutionChannels(next)
@@ -76,7 +60,7 @@ export function AISection(): JSX.Element {
                 onAiDiagnosticsEnabledChange={setAiDiagnosticsEnabled}
                 onResolutionChannelToggle={toggleResolutionChannel}
                 onReplyModeChange={setAiReplyMode}
-                onOpenChannelSettings={openChannelSettings}
+                onOpenChannelSettings={(channel) => openChannelSettings(CHANNEL_SETTINGS_TABS[channel])}
             />
         )
     }
@@ -162,7 +146,7 @@ export function AISection(): JSX.Element {
                                                     <Link
                                                         onClick={(e) => {
                                                             e.preventDefault()
-                                                            openChannelSettings(channel)
+                                                            openChannelSettings(CHANNEL_SETTINGS_TABS[channel])
                                                         }}
                                                         to={urls.supportSettings()}
                                                     >
