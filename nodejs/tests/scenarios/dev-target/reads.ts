@@ -15,8 +15,10 @@ const RECEIPTS = `select properties.unit_id, toUnixTimestamp64Milli(timestamp), 
 where event = 'scenario_receipt' and properties.run_id = {run_id} and timestamp > now() - interval 1 day
 order by timestamp, uuid limit ${RECEIPT_ROWS}`
 
+const DEV_READ_TIMEOUT_MS = 20_000
+
 async function devFetch(url: string, init: Parameters<typeof internalFetch>[1], what: string): Promise<unknown> {
-    const response = await internalFetch(url, init)
+    const response = await internalFetch(url, { timeoutMs: DEV_READ_TIMEOUT_MS, ...init })
     if (response.status !== 200) {
         throw new Error(`dev answered the ${what} with ${response.status}`)
     }
@@ -83,27 +85,73 @@ export function receiptTruth(config: DevConfig, runId: string, now = Date.now): 
     }
 }
 
-export async function unfinishedRuns(config: DevConfig, since: string): Promise<number> {
+export type WorkflowRuns = Record<'triggered' | 'exited' | 'quota_limited', number>
+
+async function metricsRead(config: DevConfig, query: Record<string, string>): Promise<(name: string) => number> {
     const { teamId, workflowId } = config.offers
-    const names = 'triggered,fetch,failed,quota_limited'
+    const params = new URLSearchParams({ breakdown_by: 'name', ...query })
     const { series } = (await devFetch(
-        `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/metrics/?after=${since}&interval=hour&breakdown_by=name&name=${names}`,
+        `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/metrics/?${params}`,
         { headers: { authorization: `Bearer ${config.key}` } },
         'workflow metrics read'
-    )) as { series: { name: string; values: number[] }[] }
-    const total = (name: string): number =>
-        series.find((entry) => entry.name === name)?.values.reduce((sum, value) => sum + value, 0) ?? 0
-    return Math.max(0, total('triggered') - total('fetch') - total('failed') - total('quota_limited'))
+    )) as { series?: { name: string; values: unknown[] }[] }
+    return (name) => {
+        const values = series?.find((entry) => entry.name === name)?.values
+        if (!values?.length || !values.every((value) => Number.isSafeInteger(value) && (value as number) >= 0)) {
+            throw new Error(`dev answered the workflow metrics read without a count of ${name}`)
+        }
+        return (values as number[]).reduce((sum, value) => sum + value, 0)
+    }
+}
+
+// Every action counts a run as succeeded, and a quota limited run never counts as triggered, so a run of a workflow
+// that ends only at its one exit, which `exitActionOf` checks, is finished once that exit counts it.
+export async function workflowRuns(
+    config: DevConfig,
+    after: string,
+    interval: 'hour' | 'day',
+    exitId?: string
+): Promise<WorkflowRuns> {
+    const [runs, exits] = await Promise.all([
+        metricsRead(config, { after, interval, name: 'triggered,quota_limited' }),
+        exitId ? metricsRead(config, { after, interval, name: 'succeeded', instance_id: exitId }) : undefined,
+    ])
+    return { triggered: runs('triggered'), exited: exits?.('succeeded') ?? 0, quota_limited: runs('quota_limited') }
+}
+
+export const unfinishedOf = (runs: WorkflowRuns): number => Math.max(0, runs.triggered - runs.exited)
+
+export async function exitActionOf(config: DevConfig): Promise<string> {
+    const { teamId, workflowId } = config.offers
+    const { actions = [], exit_condition } = (await devFetch(
+        `${config.host}/api/projects/${teamId}/hog_flows/${workflowId}/`,
+        { headers: { authorization: `Bearer ${config.key}` } },
+        'workflow read'
+    )) as { actions?: { id: string; type: string; on_error?: string | null }[]; exit_condition?: string }
+    const exits = actions.filter(({ type }) => type === 'exit')
+    if (
+        exits.length !== 1 ||
+        actions.some(({ on_error }) => on_error === 'abort') ||
+        exit_condition !== 'exit_only_at_end'
+    ) {
+        throw new Error(
+            'the workflow needs one exit action, no action that aborts, and exit_only_at_end, so the runner can count its finished runs'
+        )
+    }
+    return exits[0].id
 }
 
 export async function checkOffersToken(config: DevConfig): Promise<void> {
     const { teamId, token } = config.offers
-    const { api_token } = (await devFetch(
+    const { api_token, timezone } = (await devFetch(
         `${config.host}/api/projects/${teamId}/`,
         { headers: { authorization: `Bearer ${config.key}` } },
         'offers project read'
-    )) as { api_token?: string }
+    )) as { api_token?: string; timezone?: string }
     if (api_token !== token) {
         throw new Error(`DEV_TARGET_OFFERS_TOKEN is not the token of project ${teamId}, so offers would land elsewhere`)
+    }
+    if (timezone !== 'UTC') {
+        throw new Error(`project ${teamId} is not on UTC, so its workflow metrics would be read for the wrong hours`)
     }
 }

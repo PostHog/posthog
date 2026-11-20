@@ -4,6 +4,7 @@ export type DevConfig = {
     host: string
     offers: { teamId: number; token: string; workflowId: string }
     receiptsTeamId: number
+    monthlyRuns: number
     key: string
 }
 
@@ -13,6 +14,7 @@ const NAMES = [
     'DEV_TARGET_WORKFLOW_ID',
     'DEV_TARGET_RECEIPTS_TEAM_ID',
     'DEV_TARGET_KEY_FILE',
+    'DEV_TARGET_MONTHLY_RUNS',
 ] as const
 // The only deployment a dev card sends to, so no setting can point its offers at production.
 const DEV_HOST = 'https://app.dev.posthog.dev'
@@ -24,12 +26,12 @@ export function devConfigOf(env: NodeJS.ProcessEnv): DevConfig {
         throw new Error(`The dev target needs ${missing.join(', ')}, and it has no defaults for them.`)
     }
     const read = (name: (typeof NAMES)[number]): string => env[name]!
-    const team = (name: (typeof NAMES)[number]): number => {
-        const id = Number(read(name))
-        if (!Number.isSafeInteger(id) || id <= 0) {
-            throw new Error(`${name} must be a project id`)
+    const positive = (name: (typeof NAMES)[number], what: string): number => {
+        const value = Number(read(name))
+        if (!Number.isSafeInteger(value) || value <= 0) {
+            throw new Error(`${name} must be ${what}`)
         }
-        return id
+        return value
     }
     const keyFile = read('DEV_TARGET_KEY_FILE')
     if ((statSync(keyFile).mode & 0o077) !== 0) {
@@ -46,8 +48,9 @@ export function devConfigOf(env: NodeJS.ProcessEnv): DevConfig {
     }
     return {
         host: DEV_HOST,
-        offers: { teamId: team('DEV_TARGET_OFFERS_TEAM_ID'), token, workflowId },
-        receiptsTeamId: team('DEV_TARGET_RECEIPTS_TEAM_ID'),
+        offers: { teamId: positive('DEV_TARGET_OFFERS_TEAM_ID', 'a project id'), token, workflowId },
+        receiptsTeamId: positive('DEV_TARGET_RECEIPTS_TEAM_ID', 'a project id'),
+        monthlyRuns: positive('DEV_TARGET_MONTHLY_RUNS', 'a count of workflow runs'),
         key,
     }
 }

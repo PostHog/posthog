@@ -4,14 +4,19 @@ import { AddressInfo } from 'net'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import type { DevConfig } from './config'
-import { QUERY_EVERY_MS, RECEIPT_ROWS, receiptTruth, unfinishedRuns } from './reads'
+import { QUERY_EVERY_MS, RECEIPT_ROWS, receiptTruth, unfinishedOf, workflowRuns } from './reads'
 
 type Receipt = { runId: string; unitId: string; at: number; uuid: string }
 type Seen = { method?: string; url?: string; authorization?: string; body: any }
 
 // Answers the way the query API does: a query without a limit gets 100 rows, and a repeated query gets its
 // cached answer unless the request forces a fresh one.
-async function fakeDev(state: { receipts: Receipt[]; series: Record<string, number[]> }) {
+async function fakeDev(state: {
+    receipts: Receipt[]
+    series: Record<string, number[]>
+    exitSeries?: Record<string, number[]>
+    queryDelayMs?: number
+}) {
     const seen: Seen[] = []
     const cached = new Map<string, unknown[]>()
     const server = http.createServer((req, res) => {
@@ -42,12 +47,14 @@ async function fakeDev(state: { receipts: Receipt[]; series: Record<string, numb
                         rows.map(({ unitId, at, uuid }) => [unitId, at, uuid])
                     )
                 }
-                return reply(200, { results: cached.get(key) })
+                return void setTimeout(() => reply(200, { results: cached.get(key) }), state.queryDelayMs ?? 0)
             }
-            const names = new URL(req.url!, 'http://dev').searchParams.get('name')!.split(',')
+            const params = new URL(req.url!, 'http://dev').searchParams
+            const names = params.get('name')!.split(',')
+            const series = params.get('instance_id') === 'exit-1' ? state.exitSeries : state.series
             return reply(200, {
                 labels: ['2026-11-20T14:00', '2026-11-20T15:00'],
-                series: names.map((name) => ({ name, values: state.series[name] ?? [0, 0] })),
+                series: names.map((name) => ({ name, values: series?.[name] ?? [0, 0] })),
             })
         })
     })
@@ -57,6 +64,7 @@ async function fakeDev(state: { receipts: Receipt[]; series: Record<string, numb
         host: url,
         offers: { teamId: 1, token: 'phc_test', workflowId: 'flow-1' },
         receiptsTeamId: 2,
+        monthlyRuns: 10_000,
         key: 'phx_test',
     }
     return { config, seen, close: () => new Promise<void>((done) => server.close(() => done())) }
@@ -103,6 +111,19 @@ describe('dev reads', () => {
         }
     })
 
+    it('waits for a forced receipts query that takes longer than the default request timeout', async () => {
+        const dev = await fakeDev({
+            receipts: [{ runId: 'run-a', unitId: 'run-a-1', at: AT, uuid: 'r1' }],
+            series: {},
+            queryDelayMs: 3_500,
+        })
+        try {
+            expect(await receiptTruth(dev.config, 'run-a').head()).toBe(1)
+        } finally {
+            await dev.close()
+        }
+    }, 10_000)
+
     it('reads every receipt past the query API default of 100 rows, and fails when its own limit fills', async () => {
         const receipts = (from: number, to: number): Receipt[] =>
             Array.from({ length: to - from }, (_, i) => ({
@@ -143,13 +164,30 @@ describe('dev reads', () => {
         }
     })
 
-    it('counts the workflow runs that have not reached their webhook or ended another way', async () => {
+    it.each<[string, number[]]>([
+        ['a count it cannot add up', ['unknown' as unknown as number, 3]],
+        ['no buckets at all', []],
+    ])('fails a workflow metrics read that answers %s, rather than reading it as zero', async (_how, values) => {
+        const dev = await fakeDev({ receipts: [], series: { triggered: values } })
+        try {
+            await expect(workflowRuns(dev.config, '2026-11-20T14:00:00.000Z', 'hour')).rejects.toThrow(
+                'dev answered the workflow metrics read without a count of triggered'
+            )
+        } finally {
+            await dev.close()
+        }
+    })
+
+    it('counts the triggered workflow runs that have not reached its exit, apart from the runs quota limited before any trigger', async () => {
         const dev = await fakeDev({
             receipts: [],
-            series: { triggered: [3, 7], fetch: [2, 5], failed: [0, 1], quota_limited: [0, 1], succeeded: [9, 9] },
+            series: { triggered: [3, 7], fetch: [5, 9], failed: [0, 1], quota_limited: [0, 1], succeeded: [9, 18] },
+            exitSeries: { succeeded: [2, 4] },
         })
         try {
-            expect(await unfinishedRuns(dev.config, '2026-11-20T14:30:00.000Z')).toBe(1)
+            const runs = await workflowRuns(dev.config, '2026-11-20T14:00:00.000Z', 'hour', 'exit-1')
+
+            expect([runs, unfinishedOf(runs)]).toEqual([{ triggered: 10, exited: 6, quota_limited: 1 }, 4])
         } finally {
             await dev.close()
         }

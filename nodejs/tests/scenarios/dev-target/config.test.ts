@@ -14,6 +14,7 @@ describe('devConfigOf', () => {
         DEV_TARGET_WORKFLOW_ID: '0190f6a2-0000-7000-8000-000000000001',
         DEV_TARGET_RECEIPTS_TEAM_ID: '2',
         DEV_TARGET_KEY_FILE: keyFile,
+        DEV_TARGET_MONTHLY_RUNS: '10000',
     }
 
     beforeEach(() => chmodSync(keyFile, 0o600))
@@ -23,6 +24,7 @@ describe('devConfigOf', () => {
             host: 'https://app.dev.posthog.dev',
             offers: { teamId: 1, token: 'phc_test', workflowId: '0190f6a2-0000-7000-8000-000000000001' },
             receiptsTeamId: 2,
+            monthlyRuns: 10_000,
             key: 'phx_test',
         })
     })
@@ -34,6 +36,11 @@ describe('devConfigOf', () => {
             'needs DEV_TARGET_OFFERS_TEAM_ID, DEV_TARGET_KEY_FILE',
         ],
         ['a project id that is not one', { DEV_TARGET_RECEIPTS_TEAM_ID: '2a' }, 'must be a project id'],
+        [
+            'a monthly allowance a quota check cannot compare against',
+            { DEV_TARGET_MONTHLY_RUNS: 'ten thousand' },
+            'DEV_TARGET_MONTHLY_RUNS must be a count of workflow runs',
+        ],
         ['a blank project token', { DEV_TARGET_OFFERS_TOKEN: '  ' }, 'DEV_TARGET_OFFERS_TOKEN holds no key'],
         ['a workflow id that is not one', { DEV_TARGET_WORKFLOW_ID: 'flow-1' }, 'must be a workflow id'],
     ])('refuses %s', (_name, change, message) => {
