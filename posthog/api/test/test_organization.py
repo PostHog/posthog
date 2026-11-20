@@ -30,6 +30,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_external_project_link import OrganizationExternalProjectLink
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
@@ -81,6 +82,33 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(organization.status_code, status.HTTP_200_OK, organization.json())
         teams = {team["id"]: team for team in organization.json()["teams"]}
         self.assertEqual(teams[self.team.id]["project_group"], "production-apps")
+
+    def test_external_project_links_are_read_only_and_listed_for_their_organization_only(self) -> None:
+        link = OrganizationExternalProjectLink.objects.create(
+            organization=self.organization, name="Hedgebox (EU)", url="https://eu.posthog.com/project/2"
+        )
+        other_organization = Organization.objects.create(name="Other")
+        OrganizationExternalProjectLink.objects.create(
+            organization=other_organization, name="Other (EU)", url="https://eu.posthog.com/project/3"
+        )
+
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        patched = self.client.patch(
+            "/api/organizations/@current",
+            {"external_project_links": [{"name": "Phishing", "url": "https://example.com"}]},
+            format="json",
+        )
+        self.assertEqual(patched.status_code, status.HTTP_200_OK, patched.json())
+
+        response = self.client.get("/api/organizations/@current")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["external_project_links"],
+            [{"id": str(link.id), "name": "Hedgebox (EU)", "url": "https://eu.posthog.com/project/2"}],
+        )
+        self.assertEqual(OrganizationExternalProjectLink.objects.count(), 2)
 
     def test_project_logo_changes_show_in_organization_projects(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

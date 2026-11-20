@@ -2,7 +2,7 @@ import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
-import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
+import { IconCheck, IconExternal, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
@@ -20,7 +20,14 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
-import { CreateProjectItem, ListItem, newAccountMenuLogic, ProjectListItem } from './newAccountMenuLogic'
+import {
+    CreateProjectItem,
+    ExternalProjectItem,
+    ListItem,
+    newAccountMenuLogic,
+    openExternalProject,
+    ProjectListItem,
+} from './newAccountMenuLogic'
 import { ProjectFreshnessIndicator } from './ProjectFreshnessIndicator'
 import { ProjectName } from './ProjectMenu'
 
@@ -35,6 +42,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         projectSearchValue: searchValue,
         filteredProjectItems: filteredItems,
         projectGroups,
+        externalProjectItems,
         hasProjectGroups,
     } = useValues(newAccountMenuLogic)
     const inputRef = useRef<HTMLInputElement>(null!)
@@ -61,6 +69,9 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     }
                 )
                 closeProjectSwitcher()
+            } else if (item.type === 'external') {
+                closeProjectSwitcher()
+                openExternalProject(item)
             } else if (!item.isCurrent) {
                 const targetUrl = getProjectSwitchTargetUrl(
                     location.pathname,
@@ -89,6 +100,9 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
         }
         if (item.type === 'create') {
             return item.label
+        }
+        if (item.type === 'external') {
+            return item.name
         }
         return item.team.name
     }, [])
@@ -197,6 +211,36 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                 </Combobox.Collection>
                             </Combobox.Group>
                         ))}
+
+                        {externalProjectItems.length > 0 && (
+                            <Combobox.Group items={externalProjectItems}>
+                                <Combobox.GroupLabel className="px-2 pt-2 pb-1 text-xxs text-tertiary font-medium">
+                                    Other regions
+                                </Combobox.GroupLabel>
+                                <Combobox.Collection>
+                                    {(item: ExternalProjectItem) => (
+                                        <Combobox.Item
+                                            key={item.id}
+                                            value={item}
+                                            onClick={() => handleItemClick(item)}
+                                            render={(props) => (
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    menuItem
+                                                    className="flex-1"
+                                                    tabIndex={-1}
+                                                    data-attr="project-switcher-external-project"
+                                                >
+                                                    <IconBlank />
+                                                    <span className="flex-1 min-w-0 truncate">{item.name}</span>
+                                                    <IconExternal className="text-tertiary" />
+                                                </ButtonPrimitive>
+                                            )}
+                                        />
+                                    )}
+                                </Combobox.Collection>
+                            </Combobox.Group>
+                        )}
 
                         <MenuSeparator />
 

@@ -15,6 +15,7 @@ from posthog.admin.console.organization_deletion_panels import data_tool_url
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
+from posthog.admin.inlines.organization_external_project_link_inline import OrganizationExternalProjectLinkInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.organization_ip_restrictions_inline import OrganizationIPRestrictionsInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
@@ -92,6 +93,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationIPRestrictionsInline,
         ProxyRecordInline,
         OrganizationEventsRetentionConfigInline,
+        OrganizationExternalProjectLinkInline,
     ]
     readonly_fields = [
         "id",

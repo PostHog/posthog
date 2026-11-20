@@ -73,4 +73,32 @@ describe('ProjectSwitcher', () => {
             }
         }
     )
+
+    it('lists projects on other instances and filters them by search', async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:id/teams/data_freshness/': () => [
+                    200,
+                    { lookback_days: 30, quiet_after_days: 7, results: [] },
+                ],
+            },
+        })
+        initKeaTests()
+        newAccountMenuLogic.mount()
+        await expectLogic(organizationLogic).toFinishAllListeners()
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            teams: [{ ...MOCK_DEFAULT_TEAM, name: 'Project Alpha' }],
+            external_project_links: [{ id: 'link-1', name: 'Alpha (EU)', url: 'https://eu.posthog.com/project/2' }],
+        })
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+
+        render(<ProjectSwitcher />)
+        expect(screen.getByText('Other regions')).toBeInTheDocument()
+        expect(screen.getByText('Alpha (EU)')).toBeInTheDocument()
+
+        await userEvent.type(screen.getByLabelText('Search projects'), 'zzz')
+        expect(screen.queryByText('Other regions')).not.toBeInTheDocument()
+        expect(screen.queryByText('Alpha (EU)')).not.toBeInTheDocument()
+    })
 })
