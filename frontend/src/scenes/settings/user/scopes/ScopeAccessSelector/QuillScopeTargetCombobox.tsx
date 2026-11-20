@@ -34,7 +34,6 @@ export function QuillScopeTargetCombobox({
     emptyText: string
     dataAttr: string
 }): JSX.Element {
-    const anchor = useComboboxAnchor()
     const optionByValue = new Map(options.map((option) => [option.value, option]))
 
     return (
@@ -45,6 +44,34 @@ export function QuillScopeTargetCombobox({
             onValueChange={(next) => onChange(next ?? [])}
             itemToStringLabel={(optionValue: string) => optionByValue.get(optionValue)?.label ?? optionValue}
         >
+            <QuillScopeTargetChips
+                id={id}
+                optionByValue={optionByValue}
+                placeholder={placeholder}
+                emptyText={emptyText}
+                dataAttr={dataAttr}
+            />
+        </Combobox>
+    )
+}
+
+function QuillScopeTargetChips({
+    id,
+    optionByValue,
+    placeholder,
+    emptyText,
+    dataAttr,
+}: {
+    id?: string
+    optionByValue: Map<string, QuillScopeTargetOption>
+    placeholder: string
+    emptyText: string
+    dataAttr: string
+}): JSX.Element {
+    const anchor = useComboboxAnchor()
+
+    return (
+        <>
             <ComboboxChips ref={anchor} data-attr={dataAttr}>
                 <ComboboxValue>
                     {(values: string[]) => (
@@ -73,6 +100,6 @@ export function QuillScopeTargetCombobox({
                     )}
                 </ComboboxList>
             </ComboboxContent>
-        </Combobox>
+        </>
     )
 }
