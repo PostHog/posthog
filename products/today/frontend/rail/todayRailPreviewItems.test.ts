@@ -7,7 +7,7 @@ const flag = (ref: string, name: string, lastViewedAt: string): FileSystemEntry 
     path: `Unfiled/Feature flags/${name}`,
     type: 'feature_flag',
     ref,
-    href: `/feature_flags/${ref}`,
+    href: `/feature-flags/${ref}`,
     last_viewed_at: lastViewedAt,
 })
 

@@ -17,6 +17,7 @@ const meta: Meta<typeof TodayRailPreviewList> = {
     ],
     parameters: { testOptions: { snapshotBrowsers: [] } },
     args: {
+        pane: 'analytics',
         title: 'Analytics',
         pins: [{ name: 'Activation funnel', href: '/insights/activation', icon: <IconGraph /> }],
         recents: [{ name: 'Weekly notes', href: '/notebooks/weekly', icon: <IconNotebook /> }],

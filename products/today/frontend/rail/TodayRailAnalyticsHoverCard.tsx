@@ -19,6 +19,7 @@ export function TodayRailAnalyticsHoverCard({ onAction }: { onAction: () => void
 
     return (
         <TodayRailPreviewList
+            pane="analytics"
             title="Analytics"
             pins={pinnedAnalytics.map((pin) =>
                 pin.kind === 'collection'

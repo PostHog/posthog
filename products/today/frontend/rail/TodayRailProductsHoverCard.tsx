@@ -33,6 +33,7 @@ export function TodayRailProductsHoverCard({ onAction }: { onAction: () => void 
 
     return (
         <TodayRailPreviewList
+            pane="products"
             title="Products"
             pins={pins}
             recents={railRecentItems(railPreviewItems(recents, 'products'), pins)}

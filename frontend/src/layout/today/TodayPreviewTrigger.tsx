@@ -23,7 +23,6 @@ export function TodayPreviewTrigger({
     /** Wraps a link inside running text, so the trigger must not break the line. */
     className?: string
     inline?: boolean
-    /** Shows no card, but keeps the trigger mounted so the row keeps its focus. */
     disabled?: boolean
     children: ReactNode
 }): JSX.Element {

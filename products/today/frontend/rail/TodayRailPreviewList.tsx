@@ -1,3 +1,5 @@
+import { useActions } from 'kea'
+
 import { Button, Heading, ScrollArea, Skeleton, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -5,6 +7,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sidebarRowClassName } from '~/layout/today/sidebar/SidebarOption'
 import { SidebarRowIcon } from '~/layout/today/sidebar/SidebarRow'
 import { TodayPaneGroupLabel } from '~/layout/today/TodayPaneGroupLabel'
+import { TodayRailPane, todayShellLogic } from '~/layout/today/todayShellLogic'
 
 export interface TodayRailPreviewItem {
     name: string
@@ -13,6 +16,7 @@ export interface TodayRailPreviewItem {
 }
 
 export function TodayRailPreviewList({
+    pane,
     title,
     pins,
     recents,
@@ -20,6 +24,7 @@ export function TodayRailPreviewList({
     failed = false,
     onAction,
 }: {
+    pane: TodayRailPane
     title: string
     pins: TodayRailPreviewItem[]
     recents: TodayRailPreviewItem[]
@@ -27,6 +32,7 @@ export function TodayRailPreviewList({
     failed?: boolean
     onAction: () => void
 }): JSX.Element | null {
+    const { setPickedPane } = useActions(todayShellLogic)
     const pinnedHrefs = new Set(pins.map((item) => item.href))
     const sections = [
         { label: 'Recents', items: recents.filter((item) => !pinnedHrefs.has(item.href)) },
@@ -64,6 +70,7 @@ export function TodayRailPreviewList({
                                             render={<LinkPrimitive to={item.href} />}
                                             className={sidebarRowClassName('default')}
                                             onClickCapture={onAction}
+                                            onClick={() => setPickedPane(pane)}
                                             onAuxClick={(event) => event.button === 1 && onAction()}
                                             title={item.name}
                                             data-attr="today-rail-preview-item"

@@ -24,6 +24,7 @@ export function TodayRailChatsHoverCard({ onAction }: { onAction: () => void }):
 
     return (
         <TodayRailPreviewList
+            pane="spaces"
             title="Chats"
             pins={pinnedItems.map(previewItem)}
             recents={newestByName(

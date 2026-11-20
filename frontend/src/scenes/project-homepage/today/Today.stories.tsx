@@ -1449,7 +1449,7 @@ const RAIL_RECENTS = [
         'new-onboarding-flow',
         'feature_flag',
         '41',
-        '/feature_flags/41',
+        '/feature-flags/41',
         '2026-09-28T17:55:00Z'
     ),
     railEntry('rr-3', 'Persons', 'maria.lopez@example.com', 'person', 'p-1', '/person/p-1', '2026-09-28T17:30:00Z'),
@@ -1505,11 +1505,11 @@ const RAIL_RECENTS = [
 const RAIL_PINS = [
     { id: 'rp-1', path: 'Product analytics', type: 'insight', href: '/insights' },
     { id: 'rp-2', path: 'Session replay', type: 'session_recording_playlist', href: '/replay/home' },
-    { id: 'rp-3', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+    { id: 'rp-3', path: 'Feature flags', type: 'feature_flag', href: '/feature-flags' },
     railEntry('rp-4', 'Insights', 'Daily active users', 'insight', 'ins-3', '/insights/ins-3'),
     railEntry('rp-5', 'Dashboards', 'Growth overview', 'dashboard', '12', '/dashboard/12'),
     railEntry('rp-6', 'Insights', 'Signup to paid funnel', 'insight', 'ins-4', '/insights/ins-4'),
-    railEntry('rp-7', 'Feature flags', 'checkout-v2', 'feature_flag', '42', '/feature_flags/42'),
+    railEntry('rp-7', 'Feature flags', 'checkout-v2', 'feature_flag', '42', '/feature-flags/42'),
     railEntry('rp-8', 'Experiments', 'Onboarding checklist', 'experiment', '9', '/experiments/9'),
     railEntry('rp-9', 'Cohorts', 'Accounts at churn risk', 'cohort', '6', '/cohorts/6'),
 ]

@@ -36,6 +36,7 @@ export function TodayRailHoverCard({ pane, onAction }: { pane: TodayRailPane; on
 
     return (
         <TodayRailPreviewList
+            pane={pane}
             title={TODAY_PANES[pane].label}
             pins={pins}
             recents={recentRows}
