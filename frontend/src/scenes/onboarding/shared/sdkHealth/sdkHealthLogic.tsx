@@ -55,6 +55,7 @@ export type AugmentedTeamSdkVersionsInfo = {
         isOld: boolean
         needsUpdating: boolean
         migrationRequired: boolean
+        migrationGuideUrl: string | null
         currentVersion: string
         severity: 'none' | 'warning' | 'danger'
         banners: string[]
@@ -204,6 +205,7 @@ export const sdkHealthLogic = kea<sdkHealthLogicType>([
                             isOld: sdk.is_old,
                             needsUpdating: sdk.needs_updating,
                             migrationRequired: sdk.migration_required,
+                            migrationGuideUrl: sdk.migration_guide_url,
                             currentVersion: sdk.latest_version,
                             severity: sdk.severity,
                             banners: sdk.banners,

@@ -104,6 +104,12 @@ SDK_READABLE_NAME: dict[str, str] = {
     "js": "JavaScript Lite",
 }
 
+# Upgrade guides for majors with breaking changes. Shown when the in-use major is behind latest.
+SDK_MIGRATION_GUIDE_URLS: dict[str, str] = {
+    "posthog-ios": "https://github.com/PostHog/posthog-ios/blob/main/MIGRATION.md",
+    "posthog-android": "https://github.com/PostHog/posthog-android/blob/main/MIGRATION.md",
+}
+
 
 # --- Thresholds ----------------------------
 
@@ -117,6 +123,12 @@ GRACE_PERIOD_DAYS_OTHER = 7
 
 # For the single-version case (one lib_version in use), only flag after 30 days
 SINGLE_VERSION_GRACE_PERIOD_DAYS = 30
+
+# Grace period (days) for a new major, counted from its first release. Until it ends, in-use versions
+# are judged against the newest release of the previous major, so a major release does not flag every
+# project at once. Mobile gets longer because app users must install a store update to upgrade.
+MAJOR_GRACE_PERIOD_DAYS_DEFAULT = 14
+MAJOR_GRACE_PERIOD_DAYS_MOBILE = 56
 
 # Traffic percentage thresholds for "significant outdated traffic" alerts
 # Web SDK ships very frequently, so uses 20% (vs 10% for others)
@@ -210,6 +222,8 @@ class SdkAssessment:
     banners: list[str] = field(default_factory=list)
     releases: list[ReleaseAssessment] = field(default_factory=list)
     outdated_traffic_alerts: list[OutdatedTrafficAlert] = field(default_factory=list)
+    major_versions_behind: int = 0
+    migration_guide_url: Optional[str] = None
 
 
 @dataclass
@@ -339,6 +353,50 @@ def _device_context(sdk_type: str) -> Literal["mobile", "desktop", "mixed"]:
     if sdk_type in DESKTOP_SDKS:
         return "desktop"
     return "mixed"
+
+
+def _major_grace_period_days(sdk_type: str) -> int:
+    return MAJOR_GRACE_PERIOD_DAYS_MOBILE if sdk_type in MOBILE_SDKS else MAJOR_GRACE_PERIOD_DAYS_DEFAULT
+
+
+def outdatedness_baseline(
+    sdk_type: str,
+    latest: SemanticVersion,
+    release_dates: dict[str, str],
+    now: Optional[datetime] = None,
+) -> SemanticVersion:
+    """The version that in-use versions are judged against.
+
+    This is `latest`, except while the latest major is inside its grace period. Then it is the newest
+    release of the previous major, so versions that were already outdated before the new major stay
+    flagged and do not resolve and fire again when the grace period ends.
+    """
+    stable_releases: list[tuple[SemanticVersion, int]] = []
+    for raw_version, release_date in release_dates.items():
+        version = try_parse_version(raw_version)
+        if version is None or version.extra is not None:
+            continue
+        try:
+            stable_releases.append((version, _calculate_version_age_days(release_date, now=now)))
+        except (ValueError, TypeError):
+            continue
+
+    latest_major_age_days = max(
+        (age for version, age in stable_releases if version.major == latest.major), default=None
+    )
+    if latest_major_age_days is None or latest_major_age_days >= _major_grace_period_days(sdk_type):
+        return latest
+
+    previous_major_releases = [version for version, _ in stable_releases if version.major < latest.major]
+    if not previous_major_releases:
+        # GitHub lists at most 1000 releases, so the previous major can be missing from the history
+        return latest
+    return max(previous_major_releases, key=lambda v: (v.major, v.minor or 0, v.patch or 0))
+
+
+def is_mobile_major_upgrade(assessment: "SdkAssessment") -> bool:
+    """Mobile users upgrade only through a store update, so a major behind never gets the top severity."""
+    return assessment.lib in MOBILE_SDKS and assessment.major_versions_behind > 0
 
 
 def _traffic_threshold(sdk_type: str) -> float:
@@ -545,6 +603,7 @@ def assess_release(
     is_single_version: bool,
     now: Optional[datetime] = None,
     project_id: Optional[int] = None,
+    baseline: Optional[SemanticVersion] = None,
 ) -> ReleaseAssessment:
     """
     Assess a single (lib_version, release_date) tuple. Mirrors computeAugmentedInfoRelease in TS.
@@ -609,8 +668,9 @@ def assess_release(
             activity_page_url=_build_activity_page_url(project_id, sdk_type, entry.lib_version),
         )
 
-    diff = diff_versions(latest, current)
-    is_current_or_newer = diff is None or diff.diff <= 0
+    latest_diff = diff_versions(latest, current)
+    is_current_or_newer = latest_diff is None or latest_diff.diff <= 0
+    diff = latest_diff if baseline is None else diff_versions(baseline, current)
 
     days_since_release: Optional[int] = None
     is_old = False
@@ -788,6 +848,7 @@ def assess_sdk(
     usage: list[UsageEntry],
     now: Optional[datetime] = None,
     project_id: Optional[int] = None,
+    release_dates: Optional[dict[str, str]] = None,
 ) -> Optional[SdkAssessment]:
     """Assess a single SDK's health across all versions in use."""
     if sdk_type == "posthog-python-mcp":
@@ -810,8 +871,10 @@ def assess_sdk(
         return None
 
     is_single_version = len(usage) == 1
+    baseline = outdatedness_baseline(sdk_type, latest, release_dates or {}, now=now)
     releases = [
-        assess_release(sdk_type, entry, latest, is_single_version, now=now, project_id=project_id) for entry in usage
+        assess_release(sdk_type, entry, latest, is_single_version, now=now, project_id=project_id, baseline=baseline)
+        for entry in usage
     ]
 
     total_events = sum(r.count for r in releases)
@@ -839,7 +902,13 @@ def assess_sdk(
     if needs_updating:
         severity = "warning"
 
+    primary_version = try_parse_version(primary.version)
+    major_versions_behind = max(latest.major - primary_version.major, 0) if primary_version else 0
+    migration_guide_url = SDK_MIGRATION_GUIDE_URLS.get(sdk_type) if major_versions_behind > 0 else None
+
     reason = _build_reason(sdk_type, primary, latest_version_str, outdated_traffic_alerts)
+    if migration_guide_url:
+        reason += f" Version {latest.major} has breaking changes. Migration guide: {migration_guide_url}"
     banners = [_build_banner(sdk_type, a) for a in outdated_traffic_alerts]
 
     return SdkAssessment(
@@ -855,6 +924,8 @@ def assess_sdk(
         banners=banners,
         releases=releases,
         outdated_traffic_alerts=outdated_traffic_alerts,
+        major_versions_behind=major_versions_behind,
+        migration_guide_url=migration_guide_url,
     )
 
 
@@ -902,7 +973,14 @@ def compute_sdk_health(
                 )
                 for entry in usage_raw
             ]
-            assessment = assess_sdk(sdk_type, latest_version_str, usage, now=now, project_id=project_id)
+            assessment = assess_sdk(
+                sdk_type,
+                latest_version_str,
+                usage,
+                now=now,
+                project_id=project_id,
+                release_dates=data.get("release_dates"),
+            )
         if assessment is not None:
             assessments.append(assessment)
 
@@ -926,7 +1004,7 @@ def compute_sdk_health(
     # behavior of surfacing a red banner when the bulk of the team's SDKs are outdated.
     if needs_attention:
         for a in assessments:
-            if a.needs_updating:
+            if a.needs_updating and not is_mobile_major_upgrade(a):
                 a.severity = "danger"
 
     return SdkHealthReport(

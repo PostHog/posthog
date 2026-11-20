@@ -174,14 +174,29 @@ class TestSdkOutdatedCheck(BaseTest):
         assert content.summary == reason
         assert "1.130.0" in content.summary
 
-    def test_escalates_to_critical_when_majority_outdated(self):
-        github = {"posthog-python": {"latestVersion": "5.0.0", "releaseDates": {"4.0.0": OLD_RELEASE}}}
-        rows = [_make_row(1, "posthog-python", "4.0.0")]
+    @parameterized.expand(
+        [
+            ("server", "posthog-python", HealthIssue.Severity.CRITICAL, None),
+            (
+                "mobile",
+                "posthog-android",
+                HealthIssue.Severity.INFO,
+                "https://github.com/PostHog/posthog-android/blob/main/MIGRATION.md",
+            ),
+        ]
+    )
+    def test_severity_when_only_sdk_is_major_behind(
+        self, _name: str, sdk_type: str, expected_severity: HealthIssue.Severity, expected_guide: str | None
+    ):
+        github = {sdk_type: {"latestVersion": "5.0.0", "releaseDates": {"4.0.0": OLD_RELEASE, "5.0.0": OLD_RELEASE}}}
+        rows = [_make_row(1, sdk_type, "4.0.0")]
 
         results = self._run(github, rows, [1])
 
-        # The team's only SDK is outdated (1 of 1 >= ceil(1/2)), so severity escalates to critical.
-        assert results[1][0].severity == HealthIssue.Severity.CRITICAL
+        # The team's only SDK is outdated (1 of 1 >= ceil(1/2)), so a server SDK escalates to critical.
+        # A mobile SDK that is a major behind stays info.
+        assert results[1][0].severity == expected_severity
+        assert results[1][0].payload["migration_guide_url"] == expected_guide
 
     def test_skips_team_on_latest_version(self):
         github = {"web": {"latestVersion": "1.200.0", "releaseDates": {}}}
