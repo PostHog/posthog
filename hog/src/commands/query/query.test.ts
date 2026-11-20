@@ -1,16 +1,66 @@
 import { describe, expect, test } from 'bun:test'
 import { styleText } from 'node:util'
 
+import { EXIT_FAILURE, EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { runHog, TEST_CREDENTIALS } from '@/testing'
 
 const ROWS = {
     columns: ['event', 'total'],
+    types: [
+        ['event', 'String'],
+        ['total', 'UInt64'],
+    ],
     results: [
         ['$pageview', 70],
         ['signup', null],
     ],
     hasMore: false,
     clickhouse: 'SELECT 1',
+}
+
+const FIRST_ID = '0190f5b41d2a7000a8c13f6e2b9c7d10'
+const SECOND_ID = '0190f5b4-1d2a-7000-8a1c-3f6e2b9c7d11'
+const SECOND_QUERY = 'select 2'
+const JOINED_ID = "nightly's:run#1"
+const JOINED_QUERY = 'select 3'
+const SMART_QUOTE_ID = 'x’;whoami;#'
+const SMART_QUOTE_QUERY = 'select 4'
+const ID_BY_QUERY: Record<string, string> = {
+    [SECOND_QUERY]: SECOND_ID,
+    [JOINED_QUERY]: JOINED_ID,
+    [SMART_QUOTE_QUERY]: SMART_QUOTE_ID,
+}
+const RESULTS: Record<string, unknown> = {
+    [FIRST_ID]: ROWS,
+    [SECOND_ID]: { ...ROWS, results: [['second', 1]] },
+    [JOINED_ID]: { ...ROWS, results: [['joined', 1]] },
+    [SMART_QUOTE_ID]: { ...ROWS, results: [['smart quote', 1]] },
+}
+const STATUS_CHECKS_WITHIN_THE_MINUTE = 3
+const STATUS_CHECKS_PAST_THE_MINUTE = 40
+
+const statusUrl = (id: string): string => `https://ph.example.com/api/environments/7/query/${encodeURIComponent(id)}/`
+type Reply = { status: number; body: unknown }
+
+const running = (id: string): Reply => ({ status: 202, body: { query_status: { id, complete: false } } })
+
+function slowQueries(polls: number, final?: Reply): (url: string, body: unknown) => Reply {
+    const checks = new Map<string, number>()
+    return (url: string, body: unknown) => {
+        const id = Object.keys(RESULTS).find((candidate) => url === statusUrl(candidate))
+        if (id === undefined) {
+            const text = JSON.stringify(body)
+            const query = Object.keys(ID_BY_QUERY).find((candidate) => text.includes(candidate))
+            return running(query === undefined ? FIRST_ID : ID_BY_QUERY[query]!)
+        }
+
+        const count = (checks.get(id) ?? 0) + 1
+        checks.set(id, count)
+        if (count < polls) {
+            return running(id)
+        }
+        return final ?? { status: 200, body: { query_status: { id, complete: true, results: RESULTS[id] } } }
+    }
 }
 
 describe('hog query', () => {
@@ -20,14 +70,19 @@ describe('hog query', () => {
             respond: () => ({ status: 200, body: { columns: 5, results: 'not rows' } }),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code: 'unexpected_response' })
         expect(result.error().message).toContain('columns:')
         expect(result.error().message).toContain('results:')
     })
 
     test.each([
-        ['a pipe gets one JSON array per row', false, [], '["$pageview",70]\n["signup",null]\n'],
+        [
+            'a pipe gets one object with the columns, the rows and whether more are left',
+            false,
+            [],
+            '{"columns":[{"name":"event","type":"String"},{"name":"total","type":"UInt64"}],"hasMore":false,"rows":[["$pageview",70],["signup",null]]}\n',
+        ],
         [
             'a terminal gets a table with numbers on the right',
             true,
@@ -38,7 +93,7 @@ describe('hog query', () => {
             '--raw prints the full response',
             false,
             ['--raw'],
-            '{"clickhouse":"SELECT 1","columns":["event","total"],"hasMore":false,"results":[["$pageview",70],["signup",null]]}\n',
+            '{"clickhouse":"SELECT 1","columns":["event","total"],"hasMore":false,"results":[["$pageview",70],["signup",null]],"types":[["event","String"],["total","UInt64"]]}\n',
         ],
     ])('run: %s', async (_name, tty, flags, expected) => {
         const result = await runHog(['query', 'run', 'select 1', ...flags], {
@@ -46,15 +101,165 @@ describe('hog query', () => {
             stdoutIsTTY: tty,
             respond: () => ({ status: 200, body: ROWS }),
         })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toEndWith(expected)
         expect(result.requests).toEqual([
             {
                 method: 'POST',
                 url: 'https://ph.example.com/api/environments/7/query',
-                body: { query: { kind: 'HogQLQuery', query: 'select 1' }, refresh: 'blocking' },
+                body: { query: { kind: 'HogQLQuery', query: 'select 1' }, refresh: 'async' },
             },
         ])
+    })
+
+    test('run keeps columns that share a name, and tells agents how to get rows PostHog cut off', async () => {
+        const result = await runHog(['query', 'run', 'select a.id, b.id from a join b on a.id = b.id'], {
+            env: TEST_CREDENTIALS,
+            respond: () => ({ status: 200, body: { columns: ['id', 'id'], results: [[1, 2]], hasMore: true } }),
+        })
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.json()).toEqual({
+            columns: [
+                { name: 'id', type: null },
+                { name: 'id', type: null },
+            ],
+            hasMore: true,
+            hint: expect.stringContaining('Add a LIMIT'),
+            rows: [[1, 2]],
+        })
+    })
+
+    test.each([
+        [
+            'an agent gets the results of a query that finishes within the minute',
+            'select 1',
+            { stdoutIsTTY: false },
+            STATUS_CHECKS_WITHIN_THE_MINUTE,
+            '"rows":[["$pageview",70]',
+        ],
+        [
+            'a person at a terminal waits for a query that runs past the minute',
+            'select 1',
+            { stdoutIsTTY: true },
+            STATUS_CHECKS_PAST_THE_MINUTE,
+            '│ $pageview │',
+        ],
+        [
+            'a person who pipes the query into a terminal waits past the minute too',
+            '-',
+            { stdoutIsTTY: true, stdinIsTTY: false, stdin: 'select 1' },
+            STATUS_CHECKS_PAST_THE_MINUTE,
+            '│ $pageview │',
+        ],
+    ])('run: %s', async (_name, query, terminal, polls, expected) => {
+        const result = await runHog(['query', 'run', query], {
+            env: TEST_CREDENTIALS,
+            ...terminal,
+            respond: slowQueries(polls),
+        })
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.stdout).toContain(expected)
+        expect(result.requests.at(-1)?.url).toBe(statusUrl(FIRST_ID))
+    })
+
+    test('run returns a query still running after a minute, and --wait resumes it by its ID while another runs', async () => {
+        const first = await runHog(['query', 'run', 'select 1'], {
+            env: TEST_CREDENTIALS,
+            respond: slowQueries(Infinity),
+        })
+
+        expect(first.exitCode).toBe(EXIT_PENDING)
+        expect(first.json()).toEqual({
+            status: 'running',
+            queryId: FIRST_ID,
+            next: `hog query run --wait ${FIRST_ID}`,
+            hint: expect.stringContaining(`hog query run --wait ${FIRST_ID}`),
+        })
+        expect(first.elapsedMs).toBeLessThan(120_000)
+
+        const second = await runHog(['query', 'run', SECOND_QUERY], {
+            env: TEST_CREDENTIALS,
+            respond: slowQueries(Infinity),
+        })
+
+        expect(second.exitCode).toBe(EXIT_PENDING)
+        expect(second.json()).toMatchObject({ queryId: SECOND_ID, next: `hog query run --wait ${SECOND_ID}` })
+
+        const resumed = await runHog(['query', 'run', '--wait', FIRST_ID], {
+            env: TEST_CREDENTIALS,
+            respond: slowQueries(2),
+        })
+
+        expect(resumed.exitCode).toBe(EXIT_SUCCESS)
+        expect(resumed.json()).toMatchObject({ rows: ROWS.results, hasMore: false })
+        expect(resumed.requests.map((request) => request.url)).toEqual([statusUrl(FIRST_ID), statusUrl(FIRST_ID)])
+    })
+
+    test.each([
+        ['an ID with a quote and a #', JOINED_QUERY, JOINED_ID, [['joined', 1]]],
+        ['an ID that ends a PowerShell string', SMART_QUOTE_QUERY, SMART_QUOTE_ID, [['smart quote', 1]]],
+    ])(
+        'run waits to the end, without a resume command, for a run another caller named with %s',
+        async (_name, query, id, rows) => {
+            const result = await runHog(['query', 'run', query], {
+                env: TEST_CREDENTIALS,
+                respond: slowQueries(STATUS_CHECKS_PAST_THE_MINUTE),
+            })
+
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
+            expect(result.json()).toMatchObject({ rows })
+            expect(result.json()).not.toHaveProperty('next')
+            expect(result.requests.at(-1)?.url).toBe(statusUrl(id))
+            expect(`${result.stdout}${result.stderr}`).not.toContain(id)
+        }
+    )
+
+    test.each([
+        ['without an ID', ['--wait'], { code: 'usage_error', hint: expect.stringContaining('--wait <query-id>') }],
+        ['with an ID that leaves the status path', ['--wait', '../../users/@me'], { code: 'invalid_input' }],
+        ['with an ID that needs quoting', ['--wait', JOINED_ID], { code: 'invalid_input' }],
+        ['with a query as well', ['select 1', '--wait', FIRST_ID], { code: 'query_with_wait' }],
+    ])('run --wait %s is a usage error that sends nothing', async (_name, flags, error) => {
+        const result = await runHog(['query', 'run', ...flags], { env: TEST_CREDENTIALS, respond: slowQueries(1) })
+
+        expect(result.exitCode).toBe(EXIT_USAGE)
+        expect(result.error()).toMatchObject(error)
+        expect(result.requests).toEqual([])
+    })
+
+    test.each([
+        [
+            'a query PostHog rejects keeps its reason',
+            {
+                status: 400,
+                body: {
+                    query_status: {
+                        id: FIRST_ID,
+                        complete: true,
+                        error: true,
+                        error_code: 'hogql_query_error',
+                        error_message: 'Unable to resolve field: nope',
+                    },
+                },
+            },
+            { code: 'hogql_query_error', message: 'The query failed in PostHog: Unable to resolve field: nope' },
+        ],
+        [
+            'a query PostHog no longer has says to run it again',
+            { status: 404, body: { type: 'invalid_request', code: 'not_found', detail: 'Query not found' } },
+            { code: 'query_expired', hint: expect.stringContaining('hog query run <query>') },
+        ],
+    ])('run --wait: %s', async (_name, final, error) => {
+        const resumed = await runHog(['query', 'run', '--wait', FIRST_ID], {
+            env: TEST_CREDENTIALS,
+            respond: slowQueries(1, final),
+        })
+
+        expect(resumed.exitCode).toBe(EXIT_FAILURE)
+        expect(resumed.error()).toMatchObject(error)
+        expect(resumed.elapsedMs).toBe(0)
     })
 
     test.each([
@@ -62,7 +267,7 @@ describe('hog query', () => {
             'a pipe keeps integers beyond the safe range exact',
             false,
             '{"columns":["n"],"results":[[18446744073709551615, 1.5]]}',
-            '[18446744073709551615,1.5]\n',
+            '"rows":[[18446744073709551615,1.5]]',
         ],
         [
             'a table keeps integers beyond the safe range exact',
@@ -139,7 +344,7 @@ describe('hog query', () => {
             stdin: 'select 2',
             respond: () => ({ status: 200, body: ROWS }),
         })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.requests[0]?.body).toMatchObject({ query: { query: 'select 2' } })
     })
 
@@ -196,7 +401,7 @@ describe('hog query', () => {
             respond: () => ({ status, body }),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject(error)
     })
 
@@ -205,42 +410,42 @@ describe('hog query', () => {
             'a valid query exits 0',
             'select from',
             { isValid: true, errors: [], warnings: [], notices: [] },
-            0,
+            EXIT_SUCCESS,
             'Query is valid',
         ],
         [
             'a query with errors exits 1 and points at the error',
             'select from',
             { isValid: false, errors: [{ message: 'expected ), got Ident', start: 7, end: 11 }] },
-            1,
+            EXIT_FAILURE,
             '  1 | select from\n             ^^^^',
         ],
         [
             'offsets count code points, so an emoji earlier on does not shift the error',
             "select '😀',\nnope",
             { isValid: false, errors: [{ message: 'Unable to resolve field: nope', start: 12, end: 16 }] },
-            1,
+            EXIT_FAILURE,
             '  2 | nope\n      ^^^^',
         ],
         [
             'an error at the very start of a multiline query points at line 1',
             'nope\nselect 1',
             { isValid: false, errors: [{ message: 'Unable to resolve field: nope', start: 0, end: 4 }] },
-            1,
+            EXIT_FAILURE,
             '  --> line 1, column 1\n  1 | nope\n      ^^^^',
         ],
         [
             'a diagnostic without a location prints no source line',
             'select 1',
             { isValid: false, errors: [{ message: 'Query is too complex', start: null, end: null }] },
-            1,
-            'error: Query is too complex\n1 error',
+            EXIT_FAILURE,
+            '✗ Query has 1 error, 0 warnings, 0 notices\nerror: Query is too complex\n',
         ],
         [
             'terminal escapes in the source and the message are printed escaped',
             'select \u001b]52;c;eA==\u0007',
             { isValid: false, errors: [{ message: 'bad \u001b[2J', start: 7, end: 8 }] },
-            1,
+            EXIT_FAILURE,
             'error: bad \\x1b[2J\n  --> line 1, column 8\n  1 | select \\x1b]52;c;eA==\\x07\n             ^^^^',
         ],
     ])('check: %s', async (_name, query, body, exitCode, expected) => {

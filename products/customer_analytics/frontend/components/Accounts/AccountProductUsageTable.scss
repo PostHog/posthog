@@ -1,0 +1,30 @@
+.AccountProductUsageTable {
+    container-type: inline-size;
+
+    .DotMatrix__table.LemonTable table > tbody > tr {
+        height: 42px;
+
+        > td {
+            padding-top: 4px;
+            padding-bottom: 4px;
+        }
+
+        &.AccountProductUsageTable__summary > td {
+            font-weight: 600;
+            border-bottom: 1px solid var(--color-border-primary);
+        }
+
+        &.AccountProductUsageTable__group {
+            height: 30px;
+
+            > td {
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--color-text-secondary);
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                background: var(--color-bg-surface-secondary);
+            }
+        }
+    }
+}

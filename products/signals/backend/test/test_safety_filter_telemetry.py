@@ -1,12 +1,19 @@
+import uuid
+
 import pytest
 from unittest.mock import patch
 
+from posthog.exceptions import QuotaLimitExceeded
+from posthog.sync import database_sync_to_async
+
+from products.signals.backend.spend import finalized_signal_ids
 from products.signals.backend.temporal.safety_filter import (
     BLOCKED_SIGNAL_SPAN_NAME,
     SafetyFilterInput,
     SafetyFilterJudgeResponse,
     safety_filter_activity,
 )
+from products.signals.backend.trial.policy import TrialRefused
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.safety_filter"
 
@@ -93,5 +100,26 @@ async def test_blocked_signal_without_team_id_skips_capture():
         )
 
     assert result.safe is False
+    capture.assert_not_called()
+    capture_ai.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("billing_limit")])
+async def test_admission_refusal_drops_signal_instead_of_failing(ateam, refusal):
+    signal_id = str(uuid.uuid4())
+
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.safety_filter", side_effect=refusal),
+        patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
+        patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture_ai") as capture_ai,
+    ):
+        result = await safety_filter_activity(
+            SafetyFilterInput(team_id=ateam.id, signal_id=signal_id, description="a finding"),
+        )
+
+    assert result.safe is False
+    assert await database_sync_to_async(finalized_signal_ids)(team_id=ateam.id, signal_ids=[signal_id]) == {signal_id}
     capture.assert_not_called()
     capture_ai.assert_not_called()

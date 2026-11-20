@@ -30,9 +30,8 @@ A fix that lands only in `cli/` leaves the bug in hog, and the reverse ships a h
 
 The only exceptions are commands that exist on one side:
 
-- `hog/src/commands/legacy.ts` lists the commands posthog-cli still owns (`logs`, `tasks`, `upgrade`). A change to those touches only `cli/`.
 - hog-only commands, such as `hog setup`, `hog api`, `hog ci` and `hog auth migrate`, have no Rust counterpart.
-- The "Not planned" list in `hog/README.md` names posthog-cli commands hog will not port.
+- `hog/MIGRATING.md` lists the posthog-cli commands that don't come to hog. A change to those touches only `cli/`.
 
 When a change does not apply to the other CLI, say why in the PR description, for example "hog prints only the error message, which never contains the URL".
 Reviewers: a PR that touches `cli/src/` or `hog/src/` without the other side, and without that sentence, is incomplete.
@@ -58,7 +57,8 @@ Port the behavior, not the code. The two CLIs are laid out differently.
 
 - hog: read `hog/AGENTS.md` before the first edit. It holds the command, output, error and typed-boundary rules.
 - Uploads: hog must send the same bytes, content hashes and requests as posthog-cli, or re-uploads fail with `content_hash_mismatch`. Read `hog/test/parity/README.md` before changing anything that reaches an upload. When a Rust change alters what posthog-cli uploads, regenerate the goldens from the new binary as that README describes, and review the diff.
-- posthog-cli: every user-visible change needs a sampo changeset in `cli/.sampo/changesets/`, as `cli/.sampo/README.md` describes. hog has no changesets yet.
+- Releases: every user-visible change needs a sampo changeset on each side it touches, in `cli/.sampo/changesets/` (`--package cargo/posthog-cli`) and in `hog/.sampo/changesets/` (`--package npm/hog`). Write it in the pull request, with a sentence that tells users what changed, and rename the file sampo writes after the change. `cli/.sampo/README.md` and the Releases section of `hog/README.md` have the commands.
+- hog release timing: the changeset's file name decides it, because sampo accepts nothing but packages and bumps in the front matter. `weekly-<name>.md` waits for the weekly run on Tuesdays, so use it when the change can wait. Any other name starts a release, which a person approves, when the pull request merges. The `hog changeset` workflow adds `weekly-pr-<number>.md` to a pull request with MCP or catalog changes and no changeset, so those wait for the weekly run too.
 
 ## Test both sides
 
@@ -69,16 +69,28 @@ cargo clippy --locked --manifest-path cli/Cargo.toml --all-targets -- -D warning
 cargo fmt --manifest-path cli/Cargo.toml -- --check
 
 # hog
-pnpm --filter @posthog/hog unit
-pnpm --filter @posthog/hog typecheck
+pnpm --filter hog unit
+pnpm --filter hog typecheck
 ```
 
 Add the regression test on both sides too. hog tests drive the real CLI with `runHog` from `hog/src/testing.ts`, and its `respond` option fakes PostHog and object storage, so a hog test can cover the same failure as the Rust one without a server.
 Use `/writing-tests` for both.
 
+## Show the terminal in the PR
+
+A PR that changes what either CLI prints, asks or exits with shows it in the description.
+Add a mockup of the terminal for each case that changed: success, each error, and each prompt, as a person at a terminal sees it.
+When agent output (`-o json`) changed, show that too.
+
+- Copy the mockup from a real run, such as `pnpm --filter hog hog <command>` or `cargo run --manifest-path cli/Cargo.toml -- <command>`. Write one by hand only for a state you can't reach locally, and say which.
+- Put each in a `console` code block that starts with the command, and give the exit code when it isn't 0.
+- Every new error code, and every case a review fix adds or changes, gets its mockup in the same push.
+- Reviewers judge wording, order and hints from the mockup, so they don't have to check out the branch to see what users get.
+
 ## Before you report done
 
+- The PR description shows the terminal for each changed case.
 - Both CLIs carry the change, or the PR says why one does not need it.
 - Both test suites pass, and `hog/test/parity/` is green.
-- `cli/` has a changeset when its behavior changed.
+- `cli/` and `hog/` each have a changeset when their behavior changed.
 - Use the `cli` scope in the PR title, as in `fix(cli): ...`, for a change to either CLI.

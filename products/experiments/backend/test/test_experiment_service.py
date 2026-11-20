@@ -732,11 +732,12 @@ class TestExperimentService(APIBaseTest):
         assert "baseline variant cannot be excluded" in str(ctx.exception)
 
     def test_existing_flag_in_another_config_format_raises(self):
+        # A config version 2 flag is linked by one of its rules, so this is a format that nothing reads.
         FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
             key="other-format",
-            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+            filters={"version": 3, "rules": []},
         )
 
         with self.assertRaises(ValidationError) as ctx:
@@ -2769,6 +2770,18 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, {"deleted": False})
 
         assert "linked feature flag has been deleted" in str(ctx.exception)
+
+    def test_update_experiment_restore_with_flag_adopted_by_another_product_raises(self):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        experiment.deleted = True
+        experiment.save()
+        Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=experiment.feature_flag)
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"deleted": False})
+
+        assert "now belongs to a survey" in str(ctx.exception)
 
     def test_update_experiment_updates_holdout_on_draft(self):
         holdout = ExperimentHoldout.objects.create(
@@ -8301,6 +8314,17 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
         assert experiment.exposure_criteria["exposure_config"]["connection_id"] == connection_id
         assert experiment.metrics[0]["source"]["kind"] == "ExperimentWarehouseNativeNode"
 
+    def test_a_save_turns_the_test_account_filter_off_for_a_warehouse_native_exposure(self) -> None:
+        connection_id = str(self.bigquery.id)
+        criteria_with_filter = {**_warehouse_exposure(connection_id), "filterTestAccounts": True}
+        experiment = self._create(exposure_criteria=criteria_with_filter, metrics=[_warehouse_metric(connection_id)])
+        assert (experiment.exposure_criteria or {})["filterTestAccounts"] is False
+
+        self.service.update_experiment(experiment, {"exposure_criteria": criteria_with_filter})
+
+        experiment.refresh_from_db()
+        assert (experiment.exposure_criteria or {})["filterTestAccounts"] is False
+
     @parameterized.expand(
         [
             (
@@ -8337,7 +8361,7 @@ class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
                 "connection_does_not_exist",
                 "missing",
                 ["missing"],
-                "Invalid connectionId",
+                "does not exist, or you do not have access",
             ),
             (
                 "flag_off",

@@ -8,6 +8,7 @@ import {
     handleToolError,
     PostHogApiError,
     PostHogPermissionError,
+    PostHogTransportError,
     PostHogValidationError,
     wrapError,
 } from '@/lib/errors'
@@ -222,7 +223,7 @@ describe('handleToolError with permission errors', () => {
         handleToolError(error, 'insights-list')
         handleToolError(error, 'dashboards-list')
 
-        const fingerprints = captureException.mock.calls.map(([, , props]) => props.$exception_fingerprint)
+        const fingerprints = captureException.mock.calls.map(([, options]) => options.properties.$exception_fingerprint)
         expect(fingerprints).toEqual([
             'posthog-permission-error:insights-list:user:read',
             'posthog-permission-error:dashboards-list:user:read',
@@ -481,11 +482,37 @@ describe('handleToolError with API errors', () => {
         const result = handleToolError(error, 'some-tool', 'user-123', undefined, suppressAnalytics)
 
         expect(captureException).toHaveBeenCalledTimes(1)
-        expect(captureException).toHaveBeenCalledWith(
-            expect.any(Error),
-            'user-123',
-            expect.objectContaining({ suppress_analytics: suppressAnalytics })
-        )
+        expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+            distinctId: 'user-123',
+            properties: expect.objectContaining({ suppress_analytics: suppressAnalytics }),
+        })
         expect(result.isError).toBe(true)
+    })
+})
+
+describe('handleToolError with transport errors', () => {
+    beforeEach(() => {
+        captureException.mockClear()
+    })
+
+    it('reports the transport cause to error tracking but not to the agent', () => {
+        const error = new PostHogTransportError({
+            url: 'https://us.posthog.com/api/projects/2/insights/',
+            method: 'GET',
+            attempts: 3,
+            retryable: true,
+            cause: Object.assign(new TypeError('fetch failed'), {
+                cause: Object.assign(new Error('getaddrinfo ENOTFOUND us.posthog.com'), { code: 'ENOTFOUND' }),
+            }),
+        })
+
+        const result = handleToolError(wrapError('Failed to list insights', error), 'insights-list')
+
+        expect(captureException).toHaveBeenCalledWith(expect.anything(), {
+            distinctId: undefined,
+            properties: expect.objectContaining({ transport_failure: 'TypeError > Error(ENOTFOUND)' }),
+        })
+        const [content] = result.content as Array<{ type: string; text: string }>
+        expect(content?.text).not.toContain('ENOTFOUND')
     })
 })

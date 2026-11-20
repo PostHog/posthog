@@ -20,6 +20,8 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import PropertyGroupFilter
 
+from posthog.hogql.errors import QueryError
+
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Team
@@ -932,6 +934,13 @@ def _run_per_alert_queries(cohort: _AlertCohort) -> _CohortQueryResult:
     return _CohortQueryResult(per_alert=per_alert)
 
 
+def _is_alert_filter_error(exc: Exception) -> bool:
+    # HogQL rejects the alert's own filters with a QueryError, which the user sees and fixes, so it is not a
+    # PostHog error. ClickHouse errors classified as invalid_query (UNKNOWN_FUNCTION, TYPE_MISMATCH) can come from
+    # a regression in the generated query, so they still go to error tracking.
+    return isinstance(exc, QueryError)
+
+
 def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
     """Batched CH query for a cohort; per-alert fallback on non-transient failure.
 
@@ -972,7 +981,8 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
             error=str(e),
             classification=classified.code,
         )
-        capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size, "alert_ids": alert_ids})
+        if not _is_alert_filter_error(e):
+            capture_exception(e, {"team_id": team_id, "cohort_size": cohort_size, "alert_ids": alert_ids})
         _safe_record("cohort_query_fallback counter", increment_cohort_query_fallback, "batched_failure")
         return _run_per_alert_queries(cohort)
 
@@ -1508,7 +1518,8 @@ def _evaluate_single_alert(
     except Exception as e:
         classified = classify_check_error(e)
         error_category = classified.code
-        capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
+        if not _is_alert_filter_error(e):
+            capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
         logger.warning(
             "Alert check query failed",
             alert_id=str(alert.id),

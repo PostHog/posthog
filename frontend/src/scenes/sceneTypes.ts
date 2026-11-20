@@ -43,8 +43,10 @@ export enum Scene {
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
+    DashboardV2 = 'DashboardV2',
     Dashboards = 'Dashboards',
     DashboardTemplateCopy = 'DashboardTemplateCopy',
+    DataDeletionRequestNew = 'DataDeletionRequestNew',
     DataManagement = 'DataManagement',
     DataPipelinesNew = 'DataPipelinesNew',
     DataOps = 'DataOps',
@@ -82,6 +84,7 @@ export enum Scene {
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
+    ExploreFlagCalls = 'ExploreFlagCalls',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
     Game368 = 'Game368',
@@ -103,16 +106,18 @@ export enum Scene {
     IdentityProviderConfig = 'IdentityProviderConfig',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
+    BusinessKnowledgeLibraries = 'BusinessKnowledgeLibraries',
+    BusinessKnowledgeLibrary = 'BusinessKnowledgeLibrary',
     BusinessKnowledgePlayground = 'BusinessKnowledgePlayground',
     BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
     BusinessKnowledgeSource = 'BusinessKnowledgeSource',
+    BusinessKnowledgeUsage = 'BusinessKnowledgeUsage',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
     Library = 'Library',
     AnalyticsList = 'AnalyticsList',
     AnalyticsSpaces = 'AnalyticsSpaces',
-    AnalyticsProductHome = 'AnalyticsProductHome',
     Tools = 'Tools',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',
@@ -187,9 +192,6 @@ export enum Scene {
     PipelineOverview = 'PipelineOverview',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
-    Stamphog = 'Stamphog',
-    StamphogRuns = 'StamphogRuns',
-    StamphogDigests = 'StamphogDigests',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
@@ -227,11 +229,13 @@ export enum Scene {
     Broadcasts = 'Broadcasts',
     Transactional = 'Transactional',
     TransactionalEmailLogEntry = 'TransactionalEmailLogEntry',
+    TransactionalCodeEmail = 'TransactionalCodeEmail',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
     WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
+    ReleaseAll = 'ReleaseAll',
     ReleaseCalendar = 'ReleaseCalendar',
     Releases = 'Releases',
     Release = 'Release',
@@ -281,6 +285,7 @@ export enum Scene {
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
     SupportTicketDetail = 'SupportTicketDetail',
     SupportSettings = 'SupportSettings',
+    SupportOverview = 'SupportOverview',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -394,6 +399,7 @@ export const sceneToAccessControlResourceType: Partial<
 
     // Dashboards
     [Scene.Dashboard]: AccessControlResourceType.Dashboard,
+    [Scene.DashboardV2]: AccessControlResourceType.Dashboard,
     [Scene.Dashboards]: AccessControlResourceType.Dashboard,
     [Scene.DashboardTemplateCopy]: AccessControlResourceType.Dashboard,
 
@@ -443,24 +449,23 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
 
-    // Stamphog
-    [Scene.Stamphog]: AccessControlResourceType.Stamphog,
-    [Scene.StamphogRuns]: AccessControlResourceType.Stamphog,
-    [Scene.StamphogDigests]: AccessControlResourceType.Stamphog,
-
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
 
     // Support (conversations)
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
+    [Scene.SupportOverview]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
     // Business knowledge
     [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeLibraries]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeLibrary]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeUsage]: AccessControlResourceType.BusinessKnowledge,
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
@@ -470,6 +475,7 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.Broadcasts]: AccessControlResourceType.Workflow,
     [Scene.Transactional]: AccessControlResourceType.Workflow,
     [Scene.TransactionalEmailLogEntry]: AccessControlResourceType.Workflow,
+    [Scene.TransactionalCodeEmail]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
     [Scene.WorkflowsEmailDomain]: AccessControlResourceType.Workflow,

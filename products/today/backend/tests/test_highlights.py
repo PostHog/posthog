@@ -695,6 +695,143 @@ class TestProgressiveHighlights(BaseTest):
             (HighlightsStatus.COMPUTING, 2, ["insight:p"]),
         )
 
+    @parameterized.expand(
+        [
+            (
+                "an own insight hides fallbacks",
+                ("routine", PulseSlotStatus.READY),
+                3,
+                PulseSlotStatus.READY,
+                ["insight:own"],
+            ),
+            (
+                "an experiment number hides fallbacks",
+                ("experiment_numbers", PulseSlotStatus.READY),
+                3,
+                PulseSlotStatus.READY,
+                ["experiment:1"],
+            ),
+            ("key metrics hide popular numbers", None, 3, PulseSlotStatus.READY, ["key:0", "key:1", "key:2"]),
+            ("four key metrics fill the row", None, 4, PulseSlotStatus.READY, ["key:0", "key:1", "key:2", "key:3"]),
+            (
+                "popular numbers fill a row that is otherwise empty",
+                None,
+                1,
+                PulseSlotStatus.EMPTY,
+                ["insight:pop0", "insight:pop1"],
+            ),
+            (
+                "a failed own insight brings key metrics back",
+                ("routine", PulseSlotStatus.ERROR),
+                3,
+                PulseSlotStatus.READY,
+                ["insight:own", "key:0", "key:1", "key:2"],
+            ),
+        ]
+    )
+    def test_key_metrics_and_popular_numbers_show_only_without_other_numbers(
+        self,
+        _name: str,
+        own: tuple[str, PulseSlotStatus] | None,
+        key_metric_count: int,
+        last_status: PulseSlotStatus,
+        expected: list[str],
+    ) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="popular"
+        )
+        inputs = HighlightSourceInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            source_name="experiment_numbers",
+            highlights_id=str(row.id),
+        )
+        if own is not None:
+            source, status = own
+            key, reason = (
+                ("insight:own", HighlightMetricReason.ROUTINE)
+                if source == "routine"
+                else ("experiment:1", HighlightMetricReason.EXPERIMENT)
+            )
+            if status == PulseSlotStatus.READY:
+                found = HighlightFindings(pulse=(replace(metric(key), reason=reason),))
+                highlights.publish_pulse(replace(inputs, source_name=source), found, [])
+            else:
+                failed = contracts.PulseSlot(key=key, name=key, reason=reason, status=status)
+                highlights.publish_pulse(replace(inputs, source_name=source), HighlightFindings(), [failed])
+        key_slots = [contracts.PulseSlot(key=f"key:{i}", name=f"Key {i}") for i in range(key_metric_count)]
+        key_slots[-1] = replace(key_slots[-1], status=last_status)
+        highlights.publish_pulse(replace(inputs, source_name="key_metrics"), HighlightFindings(), key_slots)
+        popular = [replace(metric(f"insight:pop{i}"), reason=HighlightMetricReason.POPULAR) for i in range(2)]
+        highlights.publish_pulse(replace(inputs, source_name="routine"), HighlightFindings(pulse=tuple(popular)), [])
+        row.refresh_from_db()
+        content = HIGHLIGHTS.validate_python(row.content)
+
+        self.assertEqual(
+            (
+                [slot.key for slot in content.pulse_slots or []],
+                [m.key for m in content.pulse if m.reason == HighlightMetricReason.POPULAR],
+            ),
+            (expected, [key for key in expected if key.startswith("insight:pop")]),
+        )
+
+    @parameterized.expand(
+        [
+            ("no own numbers keep every key metric", [], 4, ["key:0", "key:1", "key:2", "key:3"]),
+            ("one own number hides every fallback", ["own:0"], 4, ["own:0"]),
+            ("popular numbers fill an otherwise empty row", [], 0, ["pop:0", "pop:1", "pop:2", "pop:3"]),
+        ]
+    )
+    def test_fallback_numbers_are_chosen_before_the_candidate_limit(
+        self, _name: str, own: list[str], key_metric_count: int, expected: list[str]
+    ) -> None:
+        def numbers(keys: list[str], reason: HighlightMetricReason) -> tuple[contracts.HighlightMetric, ...]:
+            return tuple(replace(metric(key), reason=reason) for key in keys)
+
+        sources = (
+            HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
+            HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
+        )
+        found = {
+            "routine": HighlightFindings(
+                pulse=numbers(own, HighlightMetricReason.ROUTINE)
+                + numbers([f"pop:{i}" for i in range(4)], HighlightMetricReason.POPULAR)
+            ),
+            "key_metrics": HighlightFindings(
+                pulse=numbers([f"key:{i}" for i in range(key_metric_count)], HighlightMetricReason.KEY_METRIC)
+            ),
+        }
+
+        built = highlights.build_highlights(sources, found, Team(timezone="UTC"), DAY)
+
+        self.assertEqual([m.key for m in built.pulse], expected)
+
+    def test_a_pinned_key_metric_stays_beside_own_numbers(self) -> None:
+        slots = [
+            contracts.PulseSlot(key="key:0", name="Key 0", status=PulseSlotStatus.READY),
+            contracts.PulseSlot(key="insight:a", name="A", reason=HighlightMetricReason.ROUTINE),
+            contracts.PulseSlot(key="key:1", name="Key 1"),
+        ]
+
+        kept = highlights._key_metrics_without_own_numbers(slots, {"key:0", "key:1"}, {"key:0"})
+
+        self.assertEqual([slot.key for slot in kept], ["key:0", "insight:a"])
+
+    def test_healthy_popular_numbers_come_before_failed_ones(self) -> None:
+        def slot(key: str, reason: HighlightMetricReason, status: PulseSlotStatus) -> contracts.PulseSlot:
+            return contracts.PulseSlot(key=key, name=key, reason=reason, status=status)
+
+        slots = [
+            slot("insight:pop0", HighlightMetricReason.POPULAR, PulseSlotStatus.ERROR),
+            *(slot(f"insight:pop{i}", HighlightMetricReason.POPULAR, PulseSlotStatus.READY) for i in (1, 2, 3, 4)),
+        ]
+
+        kept = highlights._popular_within_row(slots, set())
+
+        self.assertEqual([s.key for s in kept], ["insight:pop1", "insight:pop2", "insight:pop3", "insight:pop4"])
+
     @parameterized.expand([5, 6])
     def test_progress_keeps_source_ranking_limit_and_dates_after_failure(self, routine_count: int) -> None:
         row = TodayHighlights.objects.for_team(self.team.id).create(
@@ -732,7 +869,7 @@ class TestProgressiveHighlights(BaseTest):
         )
         row.refresh_from_db()
         final = HIGHLIGHTS.validate_python(row.content)
-        expected = [m.key for m in [*routine, *configured]][:6]
+        expected = [m.key for m in routine][:6]
         self.assertEqual([m.key for m in final.pulse], expected)
         self.assertEqual([slot.key for slot in final.pulse_slots or []], expected)
         self.assertTrue(all(m.period_starts == [DAY - timedelta(days=1)] for m in final.pulse))

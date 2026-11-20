@@ -9,6 +9,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.api import resolve_slack_user
 from products.slack_app.backend.models import SlackUserProfileCache
@@ -30,8 +31,26 @@ class TestResolveSlackUser:
             sensitive_config={"access_token": "xoxb-test"},
         )
 
+    @pytest.mark.parametrize(
+        "is_active,has_link",
+        [
+            pytest.param(True, False, id="active"),
+            pytest.param(False, False, id="inactive"),
+            pytest.param(False, True, id="inactive_with_link"),
+        ],
+    )
     @patch("posthog.models.integration.slack.WebClient")
-    def test_success(self, mock_webclient_class):
+    def test_success(self, mock_webclient_class: MagicMock, is_active: bool, has_link: bool) -> None:
+        self.user.is_active = is_active
+        self.user.save(update_fields=["is_active"])
+        if has_link:
+            UserIntegration.objects.create(
+                user=self.user,
+                kind="slack",
+                integration_id="U123",
+                config={"slack_team_id": self.integration.integration_id},
+            )
+
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.return_value = {"user": {"profile": {"email": "dev@example.com", "display_name": "Dev"}}}
@@ -39,9 +58,12 @@ class TestResolveSlackUser:
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
 
-        assert result is not None
-        assert result.user.email == "dev@example.com"
-        assert result.slack_email == "dev@example.com"
+        if is_active:
+            assert result is not None
+            assert result.user.email == "dev@example.com"
+            assert result.slack_email == "dev@example.com"
+        else:
+            assert result is None
 
     @pytest.mark.parametrize(
         "slack_email",
@@ -124,8 +146,12 @@ class TestResolveSlackUser:
         call_text = mock_client.chat_postEphemeral.call_args.kwargs["text"]
         assert "access" in call_text.lower()
 
+    @pytest.mark.parametrize("is_active", [True, False], ids=["active", "inactive"])
     @patch("posthog.models.integration.slack.WebClient")
-    def test_uses_db_cached_slack_profile(self, mock_webclient_class):
+    def test_uses_db_cached_slack_profile(self, mock_webclient_class: MagicMock, is_active: bool) -> None:
+        self.user.is_active = is_active
+        self.user.save(update_fields=["is_active"])
+
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.side_effect = Exception("rate limited")
@@ -142,9 +168,12 @@ class TestResolveSlackUser:
         slack = SlackIntegration(self.integration)
         result = resolve_slack_user(slack, self.integration, "U123", "C001", "1234.5678")
 
-        assert result is not None
-        assert result.user.email == "dev@example.com"
-        assert result.slack_email == "dev@example.com"
+        if is_active:
+            assert result is not None
+            assert result.user.email == "dev@example.com"
+            assert result.slack_email == "dev@example.com"
+        else:
+            assert result is None
         mock_client.users_info.assert_not_called()
 
     @pytest.mark.parametrize(

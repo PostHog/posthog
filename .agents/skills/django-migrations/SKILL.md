@@ -25,6 +25,7 @@ Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNN
 To retire a model/table:
 
 1. Remove all usage and the model class. `makemigrations`, then wrap the generated `DeleteModel` in `migrations.SeparateDatabaseAndState(state_operations=[...])` (state only, no DB change). KEEP this file. Keep the app in `INSTALLED_APPS`.
+   Note: other apps' squash migrations depend on this app's migration files, not on its models, so the model class does not need to stay for them.
    **If the model has a `ForeignKey` to `posthog_team`, `posthog_user`, `posthog_organization` or `posthog_project`, drop that constraint with `DropForeignKey` in `database_operations` in this same migration.** This is required, not a cleanup. Django stops cascading into a table it can no longer see, so the child rows survive a parent delete. Those constraints are `DEFERRABLE INITIALLY DEFERRED`, so the parent delete runs its whole cascade and then fails at `COMMIT`, and team and organization deletion stay broken until someone drops the table.
 2. Deploy, wait at least one full deploy cycle.
 3. `SafeDropTable` later in a NEW migration — never by deleting old files. Treat this as owed work rather than an option whenever step 1 left a foreign key to a hot parent in place.
@@ -77,6 +78,16 @@ Do not apply this rule to migration tooling, migration safety checks, reusable b
    For merge conflicts: `python manage.py rebase_migration <app> && git add <app>/migrations` (`posthog` or `ee`).
 3. **Apply safety rules** from `safe-django-migrations.md` — the doc covers multi-phase rollouts, `SeparateDatabaseAndState`, concurrent operations, idempotency, and all risky patterns in detail.
 4. **Validate**: `./manage.py sqlmigrate <app> <migration_number>`, run tests, confirm linear migration sequence.
+
+## Data migrations: count before you design
+
+A data migration runs in the deploy hook, and every Django deploy in every region waits for it.
+
+- Count the rows of every table the migration touches, in US and in EU (`/querying-production-databases`), before you choose the design. The counts are private scale: the PR description says only "small" or "large", never the numbers.
+- A large table, or one you could not count, gets a management command run after deploy, not a migration.
+- First ask whether you need the data change at all. If the new code can read the old value (translation at read time, a fallback map), skip the backfill. If review turns the change into expand-only, ask the question again.
+- Page by primary key, never by the filter. See [Count the rows first](../../../docs/published/handbook/engineering/safe-django-migrations.md#count-the-rows-first) and Pattern 2 under it.
+- Show the user the counts and the choice between a backfill and read-time handling before you write the migration. That choice is theirs.
 
 ## Use the migration helpers
 

@@ -2,7 +2,10 @@ import { build } from 'esbuild'
 
 await build({
     // The migrate entry is its own bundle, so the server bundle does not carry the migration runner.
-    entryPoints: { 'credentials-service': 'src/index.ts', 'credentials-service-migrate': 'src/migrate.ts' },
+    entryPoints: {
+        'credentials-service': 'src/index.ts',
+        'credentials-service-migrate': 'src/migrate.ts',
+    },
     bundle: true,
     platform: 'node',
     target: 'node22',

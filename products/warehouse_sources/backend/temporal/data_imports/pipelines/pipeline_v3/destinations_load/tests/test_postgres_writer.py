@@ -1,7 +1,8 @@
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
+from unittest import mock
 
 from django.conf import settings
 
@@ -67,7 +68,11 @@ def table_name() -> str:
 
 
 def _ctx(
-    table_name: str, sync_type: str, primary_keys: tuple[str, ...] = (), schema_id: str = "schema"
+    table_name: str,
+    sync_type: str,
+    primary_keys: tuple[str, ...] = (),
+    schema_id: str = "schema",
+    schema: str = "public",
 ) -> DestinationRunContext:
     return DestinationRunContext(
         team_id=1,
@@ -81,7 +86,7 @@ def _ctx(
         table_name=table_name,
         sync_type=sync_type,
         primary_keys=primary_keys,
-        config={"schema": "public"},
+        config={"schema": schema},
     )
 
 
@@ -298,6 +303,62 @@ class TestFullRefresh:
             _drop(dsn, table_name, staging_table_name(first), staging_table_name(second))
 
 
+class TestTableExistsAgainstAMissingSchema:
+    """`write_batch`'s first batch calls `_table_exists` before `_ensure_table` has had a
+    chance to run its `CREATE SCHEMA IF NOT EXISTS`, so a destination's first-ever run
+    against a schema nothing created yet must not raise out of this probe. Redshift (and
+    some Postgres error paths) report that case as `InvalidSchemaName`, worded
+    `schema "x" does not exist`, rather than `UndefinedTable`.
+    """
+
+    async def test_a_missing_schema_reads_as_the_table_missing(self) -> None:
+        ctx = _ctx("charges", "incremental", schema="metaads")
+        client = mock.AsyncMock(spec=PostgreSQLClient)
+        client.aget_table_columns.side_effect = psycopg.errors.InvalidSchemaName('schema "metaads" does not exist')
+        writer = PostgresDestinationWriter(ctx)
+
+        assert await writer._table_exists(client, "charges") is False
+
+
+class TestCatalogProbesLeaveTheConnectionIdle:
+    """`_table_comment` and `_has_unique_index_on` run their catalog lookups directly on
+    the writer's own connection, between other statements in the same `write_batch` call.
+    Left inside an open transaction, the next statement on that connection (`_ensure_table`
+    or `_ensure_unique_index`, both opening their own `transaction()`) would nest into it as
+    a savepoint instead of starting clean. Redshift has no savepoints, so that next
+    statement fails outright with "current transaction is aborted" -- for a probe that
+    already returned its answer and had nothing left to protect.
+    """
+
+    async def test_reading_a_tables_comment_leaves_the_connection_idle(self, dsn, table_name) -> None:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f'CREATE TABLE public."{table_name}" (id BIGINT)')
+
+        ctx = _ctx(table_name, "incremental")
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            async with writer._client() as client:
+                await writer._table_comment(client, table_name)
+
+                assert client.connection.pgconn.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        finally:
+            _drop(dsn, table_name)
+
+    async def test_checking_for_a_unique_index_leaves_the_connection_idle(self, dsn, table_name) -> None:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f'CREATE TABLE public."{table_name}" (id BIGINT)')
+
+        ctx = _ctx(table_name, "incremental", primary_keys=("id",))
+        writer = LocalPostgresWriter(ctx, dsn)
+        try:
+            async with writer._client() as client:
+                await writer._has_unique_index_on(client, table_name, ["id"])
+
+                assert client.connection.pgconn.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        finally:
+            _drop(dsn, table_name)
+
+
 class TestFullRefreshTableOwnership:
     """`table_name` is derived from the source's resource name, which a custom-source
     manifest controls. A full refresh must never take over a table it did not create just
@@ -470,6 +531,39 @@ class TestIncremental:
             with psycopg.connect(dsn, autocommit=True) as conn:
                 rows = conn.execute(f'SELECT id, extra FROM public."{table_name}" ORDER BY id').fetchall()
             assert rows == [(1, None), (2, "kept")]
+        finally:
+            _drop(dsn, table_name)
+
+    async def test_an_untyped_null_batch_column_merges_against_an_already_typed_destination_column(
+        self, dsn, table_name
+    ) -> None:
+        """Regression test: a batch whose rows are all null for a column carries no real type
+        for it -- Arrow infers such a column as `null`, which `sql_types` falls back to mapping
+        as TEXT -- but an earlier run already gave the destination column a real type (BIGINT).
+        The merge stage used to derive its own columns straight from the current batch, so this
+        run's stage would recreate the column as TEXT, and the upsert's `INSERT ... SELECT`
+        then refused to assign the stage's TEXT output into the destination's BIGINT column.
+        """
+        first_run = _ctx(table_name, "incremental", primary_keys=("id",))
+        first_writer = LocalPostgresWriter(first_run, dsn)
+        second_run = _ctx(table_name, "incremental", primary_keys=("id",))
+        second_writer = LocalPostgresWriter(second_run, dsn)
+        try:
+            typed = pa.RecordBatch.from_pydict({"id": [1], "name": ["a"], "count": [5]})
+            await first_writer.write_batch(
+                _batches(typed), DestinationBatchContext(run=first_run, batch_index=0, is_final_batch=True)
+            )
+            await first_writer.finalize_run(first_run)
+
+            untyped = pa.RecordBatch.from_pydict({"id": [2], "name": ["b"], "count": [None]})
+            await second_writer.write_batch(
+                _batches(untyped), DestinationBatchContext(run=second_run, batch_index=0, is_final_batch=True)
+            )
+            await second_writer.finalize_run(second_run)
+
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                rows = conn.execute(f'SELECT id, count FROM public."{table_name}" ORDER BY id').fetchall()
+            assert rows == [(1, 5), (2, None)]
         finally:
             _drop(dsn, table_name)
 
@@ -754,3 +848,66 @@ class TestMergeConstraints:
             assert len(self._unique_indexes(dsn, table_name)) == 1
         finally:
             _drop(dsn, table_name)
+
+
+@pytest.fixture
+def limited_login(dsn: str) -> Iterator[tuple[str, str, str]]:
+    """A login without CREATE on the database, with USAGE on a schema of its own."""
+    suffix = uuid.uuid4().hex[:10]
+    role, schema = f"dest_writer_{suffix}", f"dest_priv_{suffix}"
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(f"CREATE ROLE {role} LOGIN PASSWORD 'writer'")
+    try:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f"CREATE SCHEMA {schema}")
+            conn.execute(f"GRANT USAGE ON SCHEMA {schema} TO {role}")
+        yield role, psycopg.conninfo.make_conninfo(dsn, user=role, password="writer"), schema
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+            conn.execute(f"DROP OWNED BY {role}")
+            conn.execute(f"DROP ROLE {role}")
+
+
+def _read_from(dsn: str, schema: str, table: str) -> list[tuple]:
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        return conn.execute(f'SELECT id, name FROM "{schema}"."{table}" ORDER BY id').fetchall()
+
+
+class TestLeastPrivilegeLogin:
+    @pytest.mark.parametrize(
+        "sync_type, primary_keys",
+        [("full_refresh", ()), ("incremental", ("id",)), ("incremental", ())],
+        ids=["full_refresh", "incremental_merge", "incremental_append"],
+    )
+    async def test_create_on_an_existing_schema_is_enough(
+        self, dsn, limited_login, sync_type: str, primary_keys: tuple[str, ...]
+    ) -> None:
+        role, login, schema = limited_login
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f"GRANT CREATE ON SCHEMA {schema} TO {role}")
+        ctx = _ctx("orders", sync_type, primary_keys=primary_keys, schema=schema)
+        writer = LocalPostgresWriter(ctx, login)
+
+        await writer.write_batch(
+            _batches(_rows(["a"], [1])), DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=True)
+        )
+        await writer.finalize_run(ctx)
+
+        assert _read_from(dsn, schema, "orders") == [(1, "a")]
+
+    async def test_write_access_to_an_existing_table_is_enough_to_append(self, dsn, limited_login) -> None:
+        role, login, schema = limited_login
+        first = _ctx("orders", "incremental", schema=schema)
+        await LocalPostgresWriter(first, dsn).write_batch(
+            _batches(_rows(["a"], [1])), DestinationBatchContext(run=first, batch_index=0, is_final_batch=True)
+        )
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            conn.execute(f'GRANT SELECT, INSERT ON "{schema}"."orders" TO {role}')
+
+        second = _ctx("orders", "incremental", schema=schema)
+        await LocalPostgresWriter(second, login).write_batch(
+            _batches(_rows(["b"], [2])), DestinationBatchContext(run=second, batch_index=0, is_final_batch=True)
+        )
+
+        assert _read_from(dsn, schema, "orders") == [(1, "a"), (2, "b")]

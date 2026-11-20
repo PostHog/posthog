@@ -1,21 +1,19 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ToolbarMenu } from '~/toolbar/floating/components/bar/ToolbarMenu'
 import { toolbarLockedFeatureLogic } from '~/toolbar/floating/logics/toolbarLockedFeatureLogic'
-import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarAppUrl } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarEntitlementsLogic } from '~/toolbar/shared/toolbarEntitlementsLogic'
 import { urls } from '~/toolbar/shared/urls'
-import { joinWithUiHost } from '~/toolbar/shared/utils'
 
 export interface ToolbarLockedFeatureProps {
     featureName: string
 }
 
 export function ToolbarLockedFeature({ featureName }: ToolbarLockedFeatureProps): JSX.Element {
-    const { uiHost } = useValues(toolbarConfigLogic)
     const { reportViewPlansClicked } = useActions(toolbarLockedFeatureLogic({ featureName }))
     const { loadEntitlements } = useActions(toolbarEntitlementsLogic)
 
@@ -44,7 +42,7 @@ export function ToolbarLockedFeature({ featureName }: ToolbarLockedFeatureProps)
                     type="primary"
                     fullWidth
                     center
-                    to={joinWithUiHost(uiHost, urls.organizationBilling())}
+                    to={toolbarAppUrl(urls.organizationBilling())}
                     targetBlank
                     data-attr="toolbar-locked-feature-view-plans"
                     onClick={reportViewPlansClicked}

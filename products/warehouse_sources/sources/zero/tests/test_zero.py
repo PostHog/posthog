@@ -69,6 +69,14 @@ class TestGetResource:
             ("Memberships", "memberships", "/api/memberships"),
             ("Workspaces", "workspaces", "/api/workspaces"),
             ("Users", "users", "/api/users"),
+            ("Lists", "lists", "/api/lists"),
+            ("Quotes", "quotes", "/api/quotes"),
+            ("SequenceEnrollments", "sequence_enrollments", "/api/sequenceContactStatuses"),
+            ("SequenceSteps", "sequence_steps", "/api/sequenceSteps"),
+            ("Sequences", "sequences", "/api/sequences"),
+            ("Products", "products", "/api/products"),
+            ("CustomActivities", "custom_activities", "/api/customActivities"),
+            ("CustomActivityTypes", "custom_activity_types", "/api/customActivityTypes"),
         ]
     )
     def test_endpoint_name_maps_to_table_and_path(self, endpoint: str, table_name: str, path: str) -> None:
@@ -78,6 +86,46 @@ class TestGetResource:
         assert isinstance(endpoint_config, dict)
         assert endpoint_config["path"] == path
         assert resource["primary_key"] == ["id"]
+
+    @parameterized.expand(
+        [
+            (endpoint, incremental_field)
+            for endpoint in ("Companies", "Sequences", "Products", "CustomActivities", "CustomActivityTypes")
+            for incremental_field in ("updatedAt", "createdAt")
+        ]
+    )
+    def test_incremental_request_is_workspace_scoped_and_sorted_on_cursor(
+        self, endpoint: str, incremental_field: str
+    ) -> None:
+        resource = get_resource(
+            endpoint, WORKSPACE_ID, should_use_incremental_field=True, incremental_field=incremental_field
+        )
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        params = endpoint_config["params"]
+        assert isinstance(params, dict)
+        where = params["where"]
+        assert isinstance(where, dict)
+        assert where["cursor_path"] == incremental_field  # ty: ignore[invalid-key]
+        convert = where["convert"]  # ty: ignore[invalid-key]
+        assert convert is not None
+        assert json.loads(convert(datetime(2026, 3, 1, tzinfo=UTC))) == {
+            "workspaceId": WORKSPACE_ID,
+            incremental_field: {"$gt": "2026-03-01T00:00:00+00:00"},
+        }
+        assert json.loads(params["orderBy"]) == {incremental_field: "asc"}
+        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+
+    @parameterized.expand([("Sequences",), ("Products",), ("CustomActivities",), ("CustomActivityTypes",)])
+    def test_full_refresh_request_is_workspace_scoped_and_sorted_on_created_at(self, endpoint: str) -> None:
+        resource = get_resource(endpoint, WORKSPACE_ID, should_use_incremental_field=False, incremental_field=None)
+        endpoint_config = resource["endpoint"]
+        assert isinstance(endpoint_config, dict)
+        params = endpoint_config["params"]
+        assert isinstance(params, dict)
+        assert json.loads(params["where"]) == {"workspaceId": WORKSPACE_ID}
+        assert json.loads(params["orderBy"]) == {"createdAt": "asc"}
+        assert resource["write_disposition"] == "replace"
 
     def test_incremental_field_falls_back_to_first_advertised_option(self) -> None:
         resource = get_resource(

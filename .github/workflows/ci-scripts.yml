@@ -8,10 +8,16 @@ on:
         paths:
             - .github/scripts/**
             - .github/auto-assign-labels.json
+            - common/storybook/test-sequencer.js
             - bin/find-affected-stories
             - bin/find-affected-stories.test.mjs
+            - .github/workflows/cd-credentials-service-image.yml
+            - .github/workflows/ci-nodejs-container.yml
             - .github/workflows/ci-scripts.yml
             - .github/workflows/cd-sandbox-base-image.yml
+            - .github/workflows/container-images-cd.yml
+            - .github/workflows/ordered-image-alias-alerts.yml
+            - .github/workflows/rust-docker-build.yml
             - .github/workflows/update-sandbox-agent-version.yml
             - .github/actions/wait-for-check/**
             - .github/actions/setup-uv/**
@@ -31,6 +37,10 @@ on:
             - tools/test_selection_verdict.py
             - tools/test_test_selection_verdict.py
             - tools/test_manage_diagnostics.py
+            # The deploy requirements contract test runs the Rust manifest writer.
+            - tools/deploy-requirements/**
+            - tools/change-prover/**
+            - rust/bin/write-deploy-requirements
             - manage.py
             # test_tach_map.py holds tach_map.py's pin to the locked tach version,
             # and a routine dependency bump is what moves it.
@@ -62,6 +72,7 @@ jobs:
                   fetch-depth: 1
                   sparse-checkout: |
                       /.github/
+                      /common/storybook/test-sequencer.js
                       /bin/find-affected-stories
                       /bin/find-affected-stories.test.mjs
                       /bin/render-jest-timings-example
@@ -103,10 +114,11 @@ jobs:
             # The preinstalled python3 runs these standalone tests, so no
             # setup-python step. defusedxml + opentelemetry + the owners resolver are
             # report_test_timings.py's script deps; coverage is coverage_report.py's.
+            # pyyaml is for the scripts that read YAML. jsonschema is the deploy requirements contract test's.
             - name: Install pytest
               run: |
                   uv --no-config venv --python python3 "$RUNNER_TEMP/script-tests-venv"
-                  uv --no-config pip install --python "$RUNNER_TEMP/script-tests-venv/bin/python" --quiet pytest parameterized defusedxml==0.7.1 coverage==7.16.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners-yaml
+                  uv --no-config pip install --python "$RUNNER_TEMP/script-tests-venv/bin/python" --quiet pytest parameterized defusedxml==0.7.1 coverage==7.16.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 pyyaml==6.0.3 jsonschema==4.24.0 ./packages/owners-yaml
                   echo "$RUNNER_TEMP/script-tests-venv/bin" >> "$GITHUB_PATH"
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
@@ -119,12 +131,25 @@ jobs:
             # the script under test, not a test.
             - name: Python script tests
               run: |
+                  # An open PR that has not rebased onto this commit does not carry the
+                  # deploy requirements test, so it joins the run only when it exists.
+                  optional_tests=()
+                  if [ -f tools/deploy-requirements/test_deploy_requirements.py ]; then
+                      optional_tests+=(tools/deploy-requirements/test_deploy_requirements.py)
+                  fi
                   python3 -m pytest -v -c /dev/null -p no:cacheprovider --noconftest \
                       .github/scripts/test_*.py \
-                      .github/scripts/dependency_proof/test_*.py \
                       tools/test_snob_backend_test_selection_shadow.py \
                       tools/test_test_selection_verdict.py \
-                      tools/test_manage_diagnostics.py
+                      tools/test_manage_diagnostics.py \
+                      "${optional_tests[@]}"
+
+            # The dependency proof is its own uv project, so its tests run with its own locked
+            # dependencies and its own pytest settings rather than the shared venv above.
+            # An open PR that has not rebased onto the prover's move does not carry the package.
+            - name: Dependency proof tests
+              if: hashFiles('tools/change-prover/pyproject.toml') != ''
+              run: uv run --frozen --project tools/change-prover --group test python -m pytest tools/change-prover
 
             # schema-impact.test.js shells out to schema_usage_scan.py via the same
             # preinstalled python3.

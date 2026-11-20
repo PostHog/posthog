@@ -13,6 +13,7 @@ import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-g
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PersonHogClient } from '~/common/personhog/client'
+import { GetOrCreateCoalescer } from '~/common/personhog/get-or-create-coalescer'
 import { createIdentityClients } from '~/common/personhog/identity-clients'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
@@ -21,7 +22,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
-import { GeoIPService } from '~/common/utils/geoip'
+import { GeoIPServiceComponent, geoipServerDefaultMode } from '~/common/utils/geoip'
 import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -227,8 +228,10 @@ export class IngestionApiServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
-        await geoipService.get()
+        const { value: geoipService, stop: stopGeoIPService } = await new GeoIPServiceComponent(
+            this.config.MMDB_FILE_LOCATION,
+            geoipServerDefaultMode(this.config.CLOUD_DEPLOYMENT)
+        ).start()
 
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
@@ -396,10 +399,19 @@ export class IngestionApiServer implements NodeServer {
                 { mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS }
             )
             this.personhogClientClosers = [() => routerClient.close(), identityClients.close]
+            const createCoalescer = this.config.PERSONHOG_BATCH_CREATE_ENABLED
+                ? new GetOrCreateCoalescer(identityClients.identity, {
+                      windowMs: this.config.PERSONHOG_BATCH_CREATE_WINDOW_MS,
+                      maxBatchSize: this.config.PERSONHOG_BATCH_CREATE_MAX_SIZE,
+                      maxBatchBytes: this.config.PERSONHOG_BATCH_CREATE_MAX_BYTES,
+                      clientLabel: 'ingestion-persons-store',
+                  })
+                : undefined
             const writeRepository = new PersonHogPersonWriteRepository(
                 routerClient,
                 identityClients.identity,
-                'ingestion-persons-store'
+                'ingestion-persons-store',
+                createCoalescer
             )
             const personhogStore = new PersonhogPersonsStore(writeRepository, {
                 maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
@@ -536,6 +548,7 @@ export class IngestionApiServer implements NodeServer {
                     await this.hogTransformer.stop()
                     await eventFilterManagerStarted.stop()
                     await stopEventIngestionRestrictionManager()
+                    await stopGeoIPService()
                 }
             },
             healthcheck: () => this.isHealthy(),

@@ -77,7 +77,9 @@ class TestInboxOnboarding(APIBaseTest):
         assert self.source.enabled is False
         assert SignalTeamConfig.objects.get(team=self.team).autostart_enabled is None
 
-    def test_exposure_is_recorded_once(self) -> None:
+    @parameterized.expand([(None,), ("agent",)])
+    def test_exposure_is_recorded_once(self, onboarding_origin: str | None) -> None:
+        body = {"onboarding_origin": onboarding_origin} if onboarding_origin else {}
         with (
             patch("posthog.event_usage.posthoganalytics.capture") as capture,
             patch(
@@ -85,16 +87,18 @@ class TestInboxOnboarding(APIBaseTest):
             ) as flag,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            first = self.client.post(f"{self.url}expose/")
-            second = self.client.post(f"{self.url}expose/")
+            first = self.client.post(f"{self.url}expose/", body, format="json")
+            second = self.client.post(f"{self.url}expose/", body, format="json")
         assert first.status_code == 200, first.json()
         assert first.json() == second.json()
         assert capture.call_count == 1
         assert capture.call_args.kwargs["properties"]["setup_mode"] is None
         assert capture.call_args.kwargs["properties"]["self_driving_ubp"] is True
+        assert capture.call_args.kwargs["properties"]["onboarding_origin"] == (onboarding_origin or "app")
         state = SignalTeamConfig.objects.get(team=self.team).onboarding
         assert state is not None
         assert state["exposed_by"] == self.user.pk
+        assert state["onboarding_origin"] == (onboarding_origin or "app")
         assert "variant" not in state
         assert capture.call_args.kwargs["properties"]["$set_once"] == {"email": self.user.email}
         assert capture.call_args.kwargs["groups"]["project"] == str(self.team.uuid)
@@ -133,20 +137,22 @@ class TestInboxOnboarding(APIBaseTest):
 
     @parameterized.expand(
         [
-            (None, False, None),
-            ("guided", False, None),
-            ("guided", False, "test-sol"),
-            ("guided", False, "control"),
-            ("quick", False, None),
-            ("quick", True, "test-sol"),
+            (None, False, None, None),
+            ("guided", False, None, None),
+            ("guided", False, "test-sol", "agent"),
+            ("guided", False, "control", None),
+            ("quick", False, None, "agent"),
+            ("quick", True, "test-sol", None),
         ]
     )
     def test_completion_is_durable_and_retry_safe(
-        self, setup_mode: str | None, automatic_implementation: bool, arm: str | None
+        self, setup_mode: str | None, automatic_implementation: bool, arm: str | None, onboarding_origin: str | None
     ) -> None:
         self.draft["automatic_implementation"] = automatic_implementation
         if setup_mode:
             self.draft["setup_mode"] = setup_mode
+        if onboarding_origin:
+            self.draft["onboarding_origin"] = onboarding_origin
         quick = setup_mode == "quick"
         has_scout = quick and automatic_implementation
         if has_scout:
@@ -194,6 +200,7 @@ class TestInboxOnboarding(APIBaseTest):
             "project_id": self.team.id,
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",
+            "onboarding_origin": onboarding_origin or "app",
             "setup_mode": setup_mode or "guided",
             "self_driving_ubp": not automatic_implementation,
             "automatic_implementation": automatic_implementation,

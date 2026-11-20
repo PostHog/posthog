@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { IconChevronDown, IconExternal } from '@posthog/icons'
 import {
@@ -14,14 +15,12 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -37,15 +36,16 @@ import type {
     ReviewRecentReviewApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
-    ReviewHogReviewsListScope,
+    CodeReviewReviewsListScope,
     ReviewTriggerRequestRunModeEnumApi,
     ReviewTurnDesignEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { AdoptSkillModal } from './AdoptSkillModal'
+import { CodeReviewTab, isReviewTab, visibleCodeReviewTabs } from './codeReviewTabs'
 import { PipelineDetailModal } from './PipelineDetailModal'
 import { reviewTitle } from './reviewDisplay'
-import { CodeReviewTab, ReviewDrawerTab, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
+import { ReviewDrawerTab, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 import { ReviewModeTag } from './ReviewModeTag'
 import { ReviewsFilters } from './ReviewsFilters'
 import { ReviewsTable } from './ReviewsTable'
@@ -54,21 +54,39 @@ import { InboxSection } from './settings/InboxSection'
 import { StandardArea } from './settings/StandardArea'
 import { prettifySkillName } from './skillNames'
 
+// The auto-approval tabs come from the stamphog product. Each loads in its own chunk, so the first
+// load of Code review does not carry them.
+const AutoApprovalArea = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogScene/AutoApprovalArea')).then((m) => ({
+        default: m.AutoApprovalArea,
+    }))
+)
+const ApprovalHistory = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogRunsScene/ApprovalHistory')).then((m) => ({
+        default: m.ApprovalHistory,
+    }))
+)
+const CodeYouOwn = lazy(() =>
+    retryImport(() => import('products/stamphog/frontend/scenes/StamphogAreaScene/CodeYouOwn')).then((m) => ({
+        default: m.CodeYouOwn,
+    }))
+)
+
 // The Mine tooltip states what the backend's `mine` scope matches: the PR author OR the user who started the run.
 const REVIEWS_SCOPE_OPTIONS: {
-    value: ReviewHogReviewsListScope
+    value: CodeReviewReviewsListScope
     label: string
     tooltip: string
     'data-attr': string
 }[] = [
     {
-        value: ReviewHogReviewsListScope.Mine,
+        value: CodeReviewReviewsListScope.Mine,
         label: 'Mine',
         tooltip: 'Reviews of pull requests you authored, plus reviews you started',
         'data-attr': 'code-review-reviews-scope-mine',
     },
     {
-        value: ReviewHogReviewsListScope.Everyone,
+        value: CodeReviewReviewsListScope.Everyone,
         label: 'Everyone',
         tooltip: 'Reviews of every pull request in this project',
         'data-attr': 'code-review-reviews-scope-everyone',
@@ -95,7 +113,7 @@ function ReviewsScopeFilter(): JSX.Element {
 function StatsWindowLabel({ reportCount }: { reportCount: number }): JSX.Element {
     const { reviewsScope } = useValues(reviewHogSettingsLogic)
     const scopeOption = REVIEWS_SCOPE_OPTIONS.find((option) => option.value === reviewsScope)
-    const owner = reviewsScope === ReviewHogReviewsListScope.Everyone ? "The project's" : 'Your'
+    const owner = reviewsScope === CodeReviewReviewsListScope.Everyone ? "The project's" : 'Your'
     return (
         <Tooltip title={scopeOption?.tooltip}>
             <span className="text-xxs text-tertiary">
@@ -837,6 +855,19 @@ export const scene: SceneExport = {
     logic: reviewHogSettingsLogic,
 }
 
+function LazySectionFallback(): JSX.Element {
+    return <LemonSkeleton className="h-40 w-full" />
+}
+
+function ReviewsUnavailableBanner(): JSX.Element {
+    return (
+        <LemonBanner type="info" data-attr="code-review-feature-flag-gated">
+            PostHog Review is not available for this project yet. If you just turned on the feature preview, refresh the
+            page in a moment. Otherwise, ask an admin of your PostHog instance to turn it on.
+        </LemonBanner>
+    )
+}
+
 function ActivityTab(): JSX.Element {
     return (
         <>
@@ -846,77 +877,93 @@ function ActivityTab(): JSX.Element {
     )
 }
 
+function ApprovalHistoryTab(): JSX.Element {
+    return (
+        <Suspense fallback={<LazySectionFallback />}>
+            <ApprovalHistory />
+        </Suspense>
+    )
+}
+
+function CodeYouOwnTab(): JSX.Element {
+    return (
+        <SceneSection
+            title="Code you own"
+            description="What changed in code your team owns, and whether your team saw it before it merged."
+        >
+            <Suspense fallback={<LazySectionFallback />}>
+                <CodeYouOwn />
+            </Suspense>
+        </SceneSection>
+    )
+}
+
+function SettingsTab(): JSX.Element {
+    return (
+        <>
+            <StandardArea />
+            <DeepArea />
+            <InboxSection />
+        </>
+    )
+}
+
+function ApprovalSettingsTab(): JSX.Element {
+    return (
+        <Suspense fallback={<LazySectionFallback />}>
+            <AutoApprovalArea />
+        </Suspense>
+    )
+}
+
 /**
- * The "Code review" scene: ReviewHog's activity and settings page, split into an Activity tab
- * (trigger a review, recent reviews), a My preferences tab (the viewer's own choices), and a
- * Project settings tab (the rules and defaults that project admins set for everyone).
+ * The "Code review" scene: the page of PostHog Review and of auto-approval. Review activity and Review
+ * settings belong to PostHog Review and show only with FEATURE_FLAGS.REVIEW_HOG, the flag of its menu
+ * entry and its API. Approval history, Code you own and Approval settings belong to auto-approval,
+ * which was never behind that flag, so they work for everyone.
  * Every control is live from load, no save step. See `reviewHogSettingsLogic` for the data flow.
- * Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same flag that shows the menu entry, so whoever
- * discovers the entry can open the page.
  */
 export function CodeReviewScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab, initialLoadFailed, featureFlagGated } = useValues(reviewHogSettingsLogic)
+    const { activeTab, initialLoadFailed, featureFlagGated, reviewsEnabled } = useValues(reviewHogSettingsLogic)
     const { setActiveTab, loadAll } = useActions(reviewHogSettingsLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REVIEW_HOG]) {
-        return <NotFound object="page" />
-    }
-
-    const titleSection = (
-        <SceneTitleSection
-            name="Code review"
-            description="Automated code reviews of your pull requests."
-            resourceType={{ type: 'code_review' }}
-        />
-    )
-
-    // The browser flag shows the page, but the server flag gate refuses its API.
-    if (featureFlagGated) {
-        return (
-            <SceneContent>
-                {titleSection}
-                <LemonBanner type="info" data-attr="code-review-feature-flag-gated">
-                    PostHog Review is not available for this project yet. If you just turned on the feature preview,
-                    refresh the page in a moment. Otherwise, ask an admin of your PostHog instance to turn it on.
-                </LemonBanner>
-            </SceneContent>
-        )
-    }
+    // The browser flag shows the review tabs, but the server flag gate can still refuse their API.
+    const reviewTabBlocked = isReviewTab(activeTab) && featureFlagGated
 
     return (
         <SceneContent>
-            {titleSection}
+            <SceneTitleSection
+                name="Code review"
+                description="Automated reviews and approvals of your pull requests."
+                resourceType={{ type: 'code_review' }}
+            />
             <LemonTabs<CodeReviewTab>
                 activeKey={activeTab}
                 onChange={setActiveTab}
-                tabs={[
-                    { key: 'activity', label: 'Activity', 'data-attr': 'code-review-tab-activity' },
-                    { key: 'settings', label: 'Settings', 'data-attr': 'code-review-tab-settings' },
-                ]}
+                tabs={visibleCodeReviewTabs(reviewsEnabled)}
                 sceneInset
             />
             <div className="flex flex-col gap-8 pb-8">
-                {initialLoadFailed && (
+                {initialLoadFailed && isReviewTab(activeTab) && (
                     <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadAll() }}>
                         Some PostHog Review settings failed to load.
                     </LemonBanner>
                 )}
 
-                {activeTab === 'activity' ? (
-                    <ActivityTab />
-                ) : (
-                    <>
-                        <StandardArea />
-                        <DeepArea />
-                        <InboxSection />
-                    </>
-                )}
+                {reviewTabBlocked && <ReviewsUnavailableBanner />}
+                {activeTab === 'activity' && !reviewTabBlocked && <ActivityTab />}
+                {activeTab === 'approval_history' && <ApprovalHistoryTab />}
+                {activeTab === 'code_you_own' && <CodeYouOwnTab />}
+                {activeTab === 'settings' && !reviewTabBlocked && <SettingsTab />}
+                {activeTab === 'approval_settings' && <ApprovalSettingsTab />}
 
                 {/* Overlays stay mounted on every tab, so a `?review=` deep link opens on any of them. */}
-                <AdoptSkillModal />
-                <PipelineDetailModal />
-                <ReviewDetailDrawer />
+                {reviewsEnabled && (
+                    <>
+                        <AdoptSkillModal />
+                        <PipelineDetailModal />
+                        <ReviewDetailDrawer />
+                    </>
+                )}
             </div>
         </SceneContent>
     )

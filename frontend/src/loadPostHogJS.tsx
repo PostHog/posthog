@@ -12,6 +12,7 @@ import {
 } from 'lib/utils/exceptionFilters'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
+import { networkMetricName } from 'lib/utils/networkMetricName'
 import { isOAuthMode } from 'lib/utils/oauthClient'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 import { consumeMobileHandoff, installMobileHandoff } from 'lib/utils/webMobileHandoff'
@@ -162,7 +163,7 @@ export function loadPostHogJS(): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            metrics: { network: true, flags: true, serviceName: 'posthog-app' },
+            metrics: { network: { name: networkMetricName }, flags: true, serviceName: 'posthog-app' },
             before_send: [
                 dropScopeNotFoundExceptions,
                 dropHandledAuthGateExceptions,

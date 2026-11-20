@@ -192,7 +192,7 @@ describe('SandboxEmailActionHandler', () => {
             jobOnEmailStep('hogflow', { sandboxEmail: { outcome: 'failed', reason: 'ses_rejected' } })
         )
 
-        expect(result.error).toBe('Sandbox email was not sent: ses_rejected')
+        expect(result.error).toBe("The PostHog test sender didn't send the email: ses_rejected")
         expect(result.finished).toBe(expectedFinished)
         expect(result.invocation.state.currentAction?.id).toBe(expectedActionId)
     })
@@ -227,7 +227,7 @@ describe('SandboxEmailActionHandler', () => {
             { isTest: true },
             null,
             { status: 'failed', reason: 'sandbox_worker_unavailable' },
-            'Sandbox email was not sent: sandbox_worker_unavailable',
+            "The PostHog test sender didn't send the email: sandbox_worker_unavailable",
         ],
         [
             'a real test reports what the sandbox worker answered',
@@ -235,6 +235,13 @@ describe('SandboxEmailActionHandler', () => {
             { send: () => Promise.resolve({ status: 'pending', reason: 'pause_state_unavailable' }) },
             { status: 'pending', reason: 'pause_state_unavailable' },
             undefined,
+        ],
+        [
+            'a real test over the shared send rate asks the editor to try again',
+            { isTest: true },
+            { send: () => Promise.resolve({ status: 'failed', reason: 'send_rate_limited' }) },
+            { status: 'failed', reason: 'send_rate_limited' },
+            'Too many emails are being sent right now. Send the test again in a moment.',
         ],
     ])('runs a test inline: %s', async (_name, hogExecutorOptions, testClient, execResult, error) => {
         const mailbox = new FakeMailbox()

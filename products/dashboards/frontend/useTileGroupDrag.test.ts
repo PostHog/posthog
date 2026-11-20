@@ -140,7 +140,7 @@ describe('useTileGroupDrag', () => {
         },
         {
             name: 'on the drop zone without a group to leave',
-            sourceKey: 'tiles-start',
+            sourceKey: 'tiles-0',
             dropOn: (dashboard) => [dashboard.dropZone],
             moved: null,
             restored: true,

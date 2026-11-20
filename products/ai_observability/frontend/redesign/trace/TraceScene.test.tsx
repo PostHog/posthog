@@ -2,7 +2,6 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -14,7 +13,6 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { saveToDatasetButtonLogic } from '../../datasets/saveToDatasetButtonLogic'
 import type { TraceClusterApi } from '../../generated/api.schemas'
 import { queryEvaluationRuns } from '../../utils'
@@ -22,24 +20,20 @@ import {
     decodeIdSegment,
     makeEvaluationResult,
     makeEvaluationResults,
-    makeEvent,
     makeFeedback,
     makeFeedbackScore,
     makeFeedbackText,
     makeMessage,
     makeNodeDetail,
     makeRawNode,
-    makeTrace,
     makeTraceCluster,
     makeTraceResource,
 } from './testFixtures'
 import { traceReviewLogic } from './traceReviewLogic'
-import { TraceScene } from './TraceScene'
+import { TraceScene, scene } from './TraceScene'
 
-const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
 const ENGINEERING_ANALYTICS_FLAG = FEATURE_FLAGS.ENGINEERING_ANALYTICS
-const TRACE_NAVIGATION_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
 jest.mock('../../utils', () => ({
@@ -122,18 +116,6 @@ const reviewMock = {
     [REVIEW_QUEUES_URL]: () => [200, { count: 0, next: null, previous: null, results: [] }],
 }
 
-const generation = makeEvent({
-    id: 'gen-1',
-    event: '$ai_generation',
-    createdAt: '2026-09-01T10:15:02Z',
-    properties: {
-        $ai_trace_id: 'trace-1',
-        $ai_parent_id: 'trace-1',
-        $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
-        $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
-    },
-})
-
 function findElement(container: HTMLElement, dataAttr: string): HTMLElement {
     const element = container.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`)
     if (!element) {
@@ -168,7 +150,6 @@ function renderNewView(
     datasetItemRequests = []
     jest.mocked(performQuery).mockReset()
     jest.mocked(performQuery).mockResolvedValue({ results: [] })
-    aiObservabilityTraceLogic.mount()
     router.actions.push(urls.aiObservabilityTrace('trace-1', params))
     return render(<TraceScene />)
 }
@@ -225,17 +206,13 @@ describe('TraceScene', () => {
             })
         })
 
-        it('opens on the default node without the legacy trace, neighbours or evaluation runs queries', async () => {
-            const apiQuery = jest.spyOn(api, 'query').mockResolvedValue({ results: [] })
-            const { findAllByText, findByText } = renderNewView({ [TRACE_NAVIGATION_FLAG]: true })
+        it('opens on the default node without the trace query or the evaluation runs query', async () => {
+            const { findAllByText, findByText } = renderNewView()
 
             expect((await findAllByText('answer-billing-question')).length).toBeGreaterThan(0)
             expect(await findByText('Two seats were added.')).toBeTruthy()
-            await expectLogic(aiObservabilityTraceLogic).toFinishAllListeners()
             expect(jest.mocked(performQuery).mock.calls.some(([query]) => query.kind === 'TraceQuery')).toBe(false)
-            expect(apiQuery.mock.calls.some(([query]) => query.kind === 'TraceNeighborsQuery')).toBe(false)
             expect(queryEvaluationRuns).not.toHaveBeenCalled()
-            apiQuery.mockRestore()
         })
 
         it('starts another trace with an empty search, its own timestamp and Spans', async () => {
@@ -762,7 +739,7 @@ describe('TraceScene', () => {
         })
     })
 
-    describe('behind the flag gate', () => {
+    describe('the trace route', () => {
         beforeEach(() => {
             useMocks({
                 get: {
@@ -776,28 +753,15 @@ describe('TraceScene', () => {
             })
         })
 
-        async function renderTraceRoute(flagEnabled: boolean): Promise<ReturnType<typeof render>> {
+        it('renders the trace view with no flags loaded', async () => {
             localStorage.clear()
             initKeaTests()
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: flagEnabled })
-            jest.mocked(performQuery).mockResolvedValue({ results: [makeTrace({ events: [generation] })] })
-            aiObservabilityTraceLogic.mount()
+            scene.logic?.mount()
             router.actions.push(urls.aiObservabilityTrace('trace-1'))
-            // The old scene reads the project id while its modules load, so the import must follow initKeaTests.
-            const { scene } = await import('../../AIObservabilityTraceScene')
             const TraceRoute = scene.component
-            return render(<TraceRoute />)
-        }
+            const { container } = render(<TraceRoute />)
 
-        it.each([
-            ['new', true, '[data-attr="trace-view-tree-node"]', '.AIObservabilityTraceScene__wrapper'],
-            ['old', false, '.AIObservabilityTraceScene__wrapper', '[data-attr="trace-view-tree-node"]'],
-        ])('renders only the %s view when the flag is %s', async (_view, flagEnabled, shown, hidden) => {
-            const { container } = await renderTraceRoute(flagEnabled)
-
-            await waitFor(() => expect(container.querySelector(shown)).not.toBeNull())
-            expect(container.querySelector(hidden)).toBeNull()
+            await waitFor(() => expect(container.querySelector('[data-attr="trace-view-tree-node"]')).not.toBeNull())
         })
     })
 })

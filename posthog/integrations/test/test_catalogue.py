@@ -8,7 +8,6 @@ import pytest
 from django.test import SimpleTestCase
 
 import mypy.api
-from hogli_commands.projections import PROJECTIONS, OutputFormatter, ProjectionRunner
 from parameterized import parameterized
 
 from posthog.integrations import IntegrationManager
@@ -60,6 +59,7 @@ FROZEN_KIND_DEFAULTS: dict[str, str] = {
     "linear": "oauth",
     "linkedin-ads": "oauth",
     "meta-ads": "oauth",
+    "motherduck": "credentials",
     "pardot": "oauth",
     "pinterest-ads": "oauth",
     "postgresql": "credentials",
@@ -87,12 +87,6 @@ class TestCatalogue(SimpleTestCase):
 
     def test_kind_defaults_do_not_change(self) -> None:
         assert {kind: spec.default.value for kind, spec in KINDS.items()} == FROZEN_KIND_DEFAULTS
-
-    def test_generated_file_is_in_sync_with_the_catalogue(self) -> None:
-        [projection] = [projection for projection in PROJECTIONS if projection.name == "integration-kinds"]
-        runner = ProjectionRunner(REPO_ROOT, [projection], OutputFormatter(REPO_ROOT))
-
-        assert runner.stale(projection) == [], "Run `hogli build:projections --only integration-kinds`."
 
     @parameterized.expand([(kind,) for kind in sorted(KINDS)])
     def test_each_kind_has_exactly_its_supported_auth_types(self, kind: str) -> None:

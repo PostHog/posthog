@@ -333,6 +333,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    flags-cache-builder:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service flags-cache-builder
+        capability: flag_evaluation
+        ready_pattern: 'Consumer loop started'
+        groups:
+            layer: Product services
+            tech: Rust
+
     flags-consumer:
         shell: |-
             bin/wait-for-docker && \

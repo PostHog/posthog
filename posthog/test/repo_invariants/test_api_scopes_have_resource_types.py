@@ -10,7 +10,7 @@ To clear a violation, add a member for each new scope to `ResourceType` in
     pytest posthog/test/repo_invariants/test_api_scopes_have_resource_types.py
 """
 
-from posthog.scopes import API_SCOPE_OBJECTS
+from posthog.scopes.catalog import API_SCOPE_OBJECTS
 
 from products.authorization.backend.facade.enums import ResourceType
 

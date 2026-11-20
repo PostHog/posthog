@@ -238,6 +238,7 @@ const ExperimentCreateSchema = () => {
     return ExperimentsCreateBody.omit({
         start_date: true,
         end_date: true,
+        feature_flag_rule_id: true,
         parameters: true,
         excluded_variants: true,
         secondary_metrics: true,
@@ -440,6 +441,7 @@ const ExperimentDuplicateSchema = () => {
                     description: true,
                     start_date: true,
                     end_date: true,
+                    feature_flag_rule_id: true,
                     holdout_id: true,
                     parameters: true,
                     running_time_calculation: true,
@@ -1532,6 +1534,7 @@ const ExperimentUpdateSchema = () => {
                     start_date: true,
                     end_date: true,
                     feature_flag_key: true,
+                    feature_flag_rule_id: true,
                     parameters: true,
                     secondary_metrics: true,
                     filters: true,

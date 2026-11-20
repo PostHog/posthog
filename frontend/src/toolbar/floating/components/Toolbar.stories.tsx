@@ -1,6 +1,8 @@
 import '~/styles'
 import '~/toolbar/shared/styles.scss'
 
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
@@ -79,6 +81,8 @@ const meta: Meta<StoryArgs> = {
     render: (props, { parameters }) => {
         const toolbarParams: ToolbarParams = {
             accessToken: props.unauthenticated ? undefined : 'UExb1dCsoqBtrhrZYxzmxXQ7XdjVH5Ea_zbQjTFuJqk',
+            teamId: props.unauthenticated ? undefined : MOCK_TEAM_ID,
+            projectId: props.unauthenticated ? undefined : MOCK_TEAM_ID,
             actionId: undefined,
             userIntent: undefined,
             dataAttributes: ['data-attr'],
@@ -107,8 +111,8 @@ const meta: Meta<StoryArgs> = {
                         endpoint: '/s/',
                     },
                 },
-                '/api/element/stats/': listHeatmapStatsAPIResponse,
-                '/api/heatmap/': { results: [] },
+                '/api/projects/:team_id/elements/stats/': listHeatmapStatsAPIResponse,
+                '/api/projects/:team_id/heatmaps/': { results: [] },
                 '/api/user/toolbar_entitlements': () => {
                     if (props.entitlementsState === 'loading') {
                         return new Promise(() => {})
@@ -118,10 +122,10 @@ const meta: Meta<StoryArgs> = {
                     }
                     return { entitlements: { toolbar_heatmaps: !props.heatmapLocked } }
                 },
-                '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
-                '/api/projects/@current/actions/': listActionsAPIResponse,
-                '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,
-                '/api/environments/@current/web_vitals/': listWebVitalsAPIResponse,
+                '/api/projects/:project_id/feature_flags/my_flags': listMyFlagsAPIResponse,
+                '/api/projects/:project_id/actions/': listActionsAPIResponse,
+                '/api/projects/:project_id/web_experiments/': listExperimentsAPIResponse,
+                '/api/projects/:team_id/web_vitals/': listWebVitalsAPIResponse,
                 '/api/users/@me/hedgehog_config/': {},
             },
         })

@@ -3675,6 +3675,23 @@ describe('runStreamLogic', () => {
             ).toBe(true)
         })
 
+        it('reconciles and deduplicates coalesced thought chunks', () => {
+            const thought = (text: string, id: string, first?: string): StoredLogEntry => ({
+                ...sessionUpdate({ sessionUpdate: 'agent_thought_chunk', content: { text } }),
+                event_id: id,
+                first_event_id: first,
+            })
+            const saved = thought('abc', 'boot-3', 'boot-1')
+            const chunks = [thought('a', 'boot-1'), thought('b', 'boot-2'), thought('c', 'boot-3')]
+            const result = reconcileRunLog([saved], [], [...chunks, saved])
+            expect(result.entries.map(({ entry }) => entry)).toEqual([saved])
+            const merged = mergeCoalescedRunLog(
+                { entries: chunks.map((entry) => ({ entry, source: 'live' as const })), toolUpdateIndex: {} },
+                saved
+            )
+            expect(merged.entries.map(({ entry }) => entry)).toEqual([saved])
+        })
+
         it('merges a coalesced frame into a long transcript without losing unrelated entries', () => {
             const entries = Array.from({ length: 2000 }, (_, index) => ({
                 entry: chunk(`Message ${index}`, `boot-${index * 2 + 2}`, `boot-${index * 2 + 1}`),

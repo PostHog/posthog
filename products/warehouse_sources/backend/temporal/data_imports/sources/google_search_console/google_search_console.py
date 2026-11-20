@@ -112,10 +112,11 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
 
 
 class GoogleSearchConsoleServerError(Exception):
-    """Raised when listing sites/sitemaps hits a transient Google-side 5xx.
+    """Raised when a transient Google-side 5xx outlasts whatever inline retry budget the caller has.
 
-    Unlike `_query_search_analytics`, `list_sites`/`list_sitemaps` have no inline retry
-    budget, so a 5xx otherwise reaches `get_non_retryable_errors`/error tracking as a bare
+    `list_sites`/`list_sitemaps` have no inline retry budget at all; `_query_search_analytics`
+    raises this once its own `QUOTA_MAX_RETRIES` backoff is spent. Either way, a bare
+    `raise_for_status()` would reach `get_non_retryable_errors`/error tracking as an unmarked
     HTTPError. Its messages carry a `(retryable)` marker that `get_retryable_errors`
     matches, so Temporal retries the activity and the self-recovering failure is logged as
     a warning instead of tracked as noise.
@@ -519,9 +520,15 @@ def _query_search_analytics(
 
         if attempt == QUOTA_MAX_RETRIES:
             if _is_server_error(response):
-                # Still 5xx after the inline budget — surface the real HTTPError so Temporal
-                # retries the activity (resuming from the last saved date).
-                response.raise_for_status()
+                # Still 5xx after the inline budget. A bare `raise_for_status()` here would reach
+                # `get_non_retryable_errors`/error tracking as an unmarked HTTPError and get
+                # reported as a bug even though Temporal retries it anyway (resuming from the last
+                # saved date) — same reason `_property_rows` raises `GoogleSearchConsoleServerError`
+                # for its own un-budgeted 5xx.
+                raise GoogleSearchConsoleServerError(
+                    f"Google Search Console server error querying Search Analytics for '{site_url}'; "
+                    "retrying (retryable)"
+                )
             raise GoogleSearchConsoleQuotaExceededError(
                 f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries (retryable)"
             )
@@ -699,6 +706,20 @@ def _property_rows(
                 f"Google Search Console server error while listing {resource_name}; retrying (retryable)"
             ) from e
         raise
+    except RefreshError as e:
+        # `list_sites`/`list_sitemaps` call out through `AuthorizedSession`, which refreshes the
+        # access token first — a failing token endpoint raises here before any response exists, the
+        # same OAuth-refresh class `_query_search_analytics` retries inline. These two calls have no
+        # inline retry budget of their own, so mark a transient failure (e.g. the token endpoint's own
+        # 502) the same way rather than letting a bare RefreshError fall through and get logged as an
+        # exception. A permanent failure (invalid_grant/invalid_scope) still raises unchanged, so it
+        # keeps reaching `get_non_retryable_errors`.
+        if _is_transient_refresh_error(e):
+            raise GoogleSearchConsoleServerError(
+                f"Google Search Console server error refreshing credentials while listing {resource_name}; "
+                "retrying (retryable)"
+            ) from e
+        raise
 
     if rows:
         yield rows
@@ -769,6 +790,25 @@ def google_search_console_source(
                 resume_start_row = resume.start_row
 
         session = google_search_console_session(config.google_search_console_integration_id, team_id)
+
+        if "searchAppearance" in dimensions:
+            # A property without rich results never gets a watermark, so the walk below would make one
+            # slow call per day of the full history. One call over the window says whether any day has rows.
+            probe_start = max(start_date.isoformat(), resume_date or "")
+            probe_end = end_date.isoformat()
+            if probe_start > probe_end:
+                return
+            if probe_start < probe_end and not _query_search_analytics(
+                session=session,
+                site_url=site_url,
+                start_date=probe_start,
+                end_date=probe_end,
+                dimensions=dimensions,
+                start_row=0,
+                data_state=data_state,
+                search_type=search_type,
+            ):
+                return
 
         for current in _iter_dates(start_date, end_date):
             iso = current.isoformat()

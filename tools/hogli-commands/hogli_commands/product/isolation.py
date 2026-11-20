@@ -501,9 +501,10 @@ def uncovered_permanent_modules(product_dir: Path, permanent_modules: frozenset[
 # Products whose permanent-interface marker is justified by a coupling channel other than
 # ClickHouse DDL, so the DDL-qualification rule below doesn't apply. warehouse_sources: core's
 # HogQL direct-SQL adapters and system tables reach source internals through the facade's lazy
-# (PEP 562) re-exports; the exposed set is pinned by the product's own guard test
-# (test_ci_core_coupled_sources.py) and stays watched via the turbo-input rule above. Extending
-# this set requires a devex-reviewed change here — which is the point.
+# (PEP 562) re-exports. The exposed set stays watched via the turbo-input rule above, and
+# posthog/test/repo_invariants/test_warehouse_sources_contract_inputs.py checks that every file
+# under backend/temporal/ that outside code reaches through the facade is an input. Extending this set requires a
+# devex-reviewed change here, which is the point.
 _QUALIFICATION_EXEMPT_PRODUCTS: frozenset[str] = frozenset({"products.warehouse_sources"})
 
 
@@ -599,6 +600,14 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
 # products/architecture.md § Wiring couplings.
 MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
     {
+        ("data_modeling", "DAG"),
+        ("data_modeling", "DataModelingJob"),
+        ("data_modeling", "DataWarehouseManagedViewSet"),
+        ("data_modeling", "DataWarehouseSavedQuery"),
+        ("data_modeling", "DataWarehouseSavedQueryColumnAnnotation"),
+        ("data_modeling", "DataWarehouseSavedQueryDraft"),
+        ("data_modeling", "Edge"),
+        ("data_modeling", "Node"),
         ("product_analytics", "Insight"),
         ("product_analytics", "InsightVariable"),
         ("warehouse_sources", "DataWarehouseCredential"),
@@ -1766,6 +1775,14 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
 # ---------------------------------------------------------------------------
 
 
+# Sealed products whose skip stays off, see products/architecture.md "What makes the skip sound".
+# DevEx owns this map: a product leaves it only through a DevEx-reviewed change.
+SKIP_WITHHELD: dict[str, str] = {
+    "authorization": "core enforces every access decision this product returns, and the tests for them live in core",
+    "security": "core authentication refuses accounts on this product's decisions, and the tests for them live in core",
+}
+
+
 class IsolationRung(StrEnum):
     """The isolation ladder. Each rung includes the one before it."""
 
@@ -1814,6 +1831,7 @@ class IsolationStatus:
     unapproved_wiring: tuple[UnapprovedWiringClass, ...] = ()
     # Read only for a product with 'backend:contract-check', the one kind that skips the suite.
     channel_modules: tuple[ChannelModule, ...] = ()
+    skip_withheld_reason: str | None = None
 
     @property
     def deferred_count(self) -> int:
@@ -1911,4 +1929,5 @@ def compute_isolation_status(
         uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),
         unapproved_wiring=tuple(facade_unapproved_wiring(backend_dir, name)),
         channel_modules=channel_modules,
+        skip_withheld_reason=SKIP_WITHHELD.get(name),
     )

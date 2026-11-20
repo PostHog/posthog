@@ -225,6 +225,7 @@ class Integration(models.Model):
         LINEAR = "linear"
         LINKEDIN_ADS = "linkedin-ads"
         META_ADS = "meta-ads"
+        MOTHERDUCK = "motherduck"
         PARDOT = "pardot"
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
@@ -375,6 +376,8 @@ class Integration(models.Model):
             auth_type = self.config.get("authentication_type", "password")
             account = self.config.get("account")
             return f"{name} (account: {account}, {auth_type} auth)"
+        if self.kind == Integration.IntegrationKind.MOTHERDUCK:
+            return self.integration_id or "unknown ID"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":

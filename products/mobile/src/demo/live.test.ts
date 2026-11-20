@@ -7,6 +7,7 @@ import {
     liveRankedRows,
     liveReferrerCounts,
     liveUsersOnlineFromQuery,
+    liveWorld,
 } from '@/model/adapters/live'
 
 import { LiveDemo } from './live'
@@ -24,6 +25,19 @@ const KEYS: LiveQueryKey[] = [
 ]
 
 describe('LiveDemo', () => {
+    test.each(['app_only', 'mixed'] as const)('%s fixtures include mobile screens and platform data', (state) => {
+        const demo = new LiveDemo(1105, START, state)
+        const activity = liveActivity(demo.respond('usersPageviews', START), START)
+        expect(activity.screenviews).toBeGreaterThan(0)
+        expect(livePathCounts(demo.respond('screens', START)).size).toBeGreaterThan(0)
+        const platforms = liveBreakdown(demo.respond('platforms', START), 'platforms')
+        expect(platforms.rows.map((row) => row.label).sort()).toEqual(['Android', 'iOS'])
+        expect(liveEvents(demo.respond('recentEvents', START)).some((event) => event.kind === 'screen')).toBe(true)
+        expect(activity.pageviews === 0).toBe(state === 'app_only')
+        const same = new LiveDemo(1105, START, state)
+        expect(same.respond('mobileMetrics', START)).toEqual(demo.respond('mobileMetrics', START))
+    })
+
     test('answers every live job in the shape the adapters read, with totals that agree', () => {
         const demo = new LiveDemo(1105, START)
         const now = START + 45_000
@@ -38,6 +52,7 @@ describe('LiveDemo', () => {
         expect(referrers.reduce((sum, row) => sum + row.views, 0)).toBe(activity.pageviews)
         expect(liveBreakdown(demo.respond('device', now), 'devices').rows.length).toBeGreaterThan(1)
         expect(liveBreakdown(demo.respond('geo', now), 'countries').total).toBe(activity.uniqueVisitors)
+        expect(liveWorld(demo.respond('geo', now)).countries.length).toBeGreaterThanOrEqual(15)
         expect(liveEvents(demo.respond('recentEvents', now))).toHaveLength(50)
         expect(liveUsersOnlineFromQuery(demo.respond('usersOnline', now))).toBeGreaterThan(0)
     })

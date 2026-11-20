@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +18,7 @@ import { ScratchTemplateCard } from './components/ScratchTemplateCard'
 import { TemplateCard } from './components/TemplateCard'
 import { getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
 import { recommendedTemplates } from './EvaluationTemplates'
+import { EvaluationSuggestions } from './suggestions/EvaluationSuggestions'
 import type { EvaluationTemplate } from './templates'
 
 export function EvaluationQuickStart({
@@ -29,6 +31,7 @@ export function EvaluationQuickStart({
     const { reportSetupInteraction } = useActions(productSetupStatusLogic({ productKey: ProductKey.LLM_EVALUATIONS }))
     const { requiresProviderKey } = useValues(llmProviderKeysLogic)
     const quickStartTemplates = recommendedTemplates(requiresProviderKey).slice(0, 3)
+    const suggestionsEnabled = useFeatureFlag('LLM_ANALYTICS_EVAL_SUGGESTIONS')
 
     const selectTemplate = (template: EvaluationTemplate, placement: 'card' | 'example'): void => {
         // pinned: same analytics event as the template picker, so template funnels count both entry points
@@ -58,21 +61,24 @@ export function EvaluationQuickStart({
     }
 
     return (
-        <div className="flex flex-col gap-2">
-            <div className="grid gap-2">
-                {quickStartTemplates.map((template) => (
-                    <TemplateCard key={template.key} template={template} onSelect={selectTemplate} />
-                ))}
-                <ScratchTemplateCard onSelect={startFromScratch} />
+        <div className="flex flex-col gap-4">
+            {suggestionsEnabled && <EvaluationSuggestions />}
+            <div className="flex flex-col gap-2">
+                <div className="grid gap-2">
+                    {quickStartTemplates.map((template) => (
+                        <TemplateCard key={template.key} template={template} onSelect={selectTemplate} />
+                    ))}
+                    <ScratchTemplateCard onSelect={startFromScratch} />
+                </div>
+                <Link
+                    to={urls.aiObservabilityEvaluationTemplates()}
+                    className="self-start text-sm"
+                    data-attr="evaluation-quick-start-more-templates"
+                    onClick={() => reportSetupInteraction('more templates clicked', mode, null, preview)}
+                >
+                    Or choose from more templates
+                </Link>
             </div>
-            <Link
-                to={urls.aiObservabilityEvaluationTemplates()}
-                className="self-start text-sm"
-                data-attr="evaluation-quick-start-more-templates"
-                onClick={() => reportSetupInteraction('more templates clicked', mode, null, preview)}
-            >
-                Or choose from more templates
-            </Link>
         </div>
     )
 }

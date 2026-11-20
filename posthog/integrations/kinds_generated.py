@@ -51,6 +51,7 @@ class IntegrationKind(StrEnum):
     LINEAR = "linear"
     LINKEDIN_ADS = "linkedin-ads"
     META_ADS = "meta-ads"
+    MOTHERDUCK = "motherduck"
     PARDOT = "pardot"
     PINTEREST_ADS = "pinterest-ads"
     POSTGRESQL = "postgresql"
@@ -285,6 +286,12 @@ class MetaAdsKind(KindAccessor):
     any = IntegrationReader(kinds=frozenset({"meta-ads"}))
 
 
+class MotherduckKind(KindAccessor):
+    kind = "motherduck"
+    credentials = AuthAccessor(kind="motherduck", auth_type=AuthType.CREDENTIALS)  # the default
+    any = IntegrationReader(kinds=frozenset({"motherduck"}))
+
+
 class PardotKind(KindAccessor):
     kind = "pardot"
     oauth = OAuthAccessor(kind="pardot")  # the default
@@ -435,6 +442,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     linear = LinearKind()
     linkedin_ads = LinkedinAdsKind()
     meta_ads = MetaAdsKind()
+    motherduck = MotherduckKind()
     pardot = PardotKind()
     pinterest_ads = PinterestAdsKind()
     postgresql = PostgresqlKind()

@@ -15,7 +15,7 @@ import { TileCanvasControls } from './TileCanvasControls'
 import { TileCanvasLayoutError } from './TileCanvasLayoutError'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { TileCanvasMeasureLayer } from './TileCanvasMeasureLayer'
-import { CANVAS_MIN_ZOOM, hasStepMenu } from './tileCanvasModel'
+import { CANVAS_MIN_ZOOM } from './tileCanvasModel'
 import {
     buildCanvasEdges,
     buildCanvasNodes,
@@ -73,6 +73,7 @@ export function TileCanvasContent(): JSX.Element {
         isDraggingNewStep,
         placeableEdgeKeys,
         dropTargetEdgeKey,
+        stepHasMenu,
     } = useValues(tileCanvasLogic)
     const { activateNode, openStepMenu, handlePaneClick, setDropTargetEdgeKey, dropAt } = useActions(tileCanvasLogic)
     const { screenToFlowPosition } = useReactFlow()
@@ -111,7 +112,7 @@ export function TileCanvasContent(): JSX.Element {
     const edges = useMemo(() => buildCanvasEdges(drawnGraph, layout), [drawnGraph, layout])
 
     const hasMenu = (nodeId: string): boolean =>
-        drawnGraph.nodes.some((node) => node.id === nodeId && node.kind === 'step' && hasStepMenu(node.action))
+        drawnGraph.nodes.some((node) => node.id === nodeId && node.kind === 'step' && stepHasMenu(node.action))
 
     const stepDropCanvas: StepDropCanvas = {
         edges,

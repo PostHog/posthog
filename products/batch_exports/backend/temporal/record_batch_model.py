@@ -16,12 +16,10 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.custom_events_schema import recompile_stored_schema
 from products.batch_exports.backend.hogql_source import (
     DATA_INTERVAL_END_PLACEHOLDER,
     UnsupportedHogQLQueryError,
@@ -53,7 +51,6 @@ from products.batch_exports.backend.temporal.sql.sessions import SELECT_FROM_SES
 LOGGER = get_write_only_logger()
 
 Query = str
-QueryParameters = dict[str, typing.Any]
 BatchExportDateRange = tuple[dt.datetime | None, dt.datetime | None]
 
 
@@ -128,8 +125,8 @@ class RecordBatchModel(abc.ABC):
 
     async def _print_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None, output_format: str | None
-    ) -> tuple[str, QueryParameters]:
-        """Transpile the model's HogQL query to ClickHouse SQL, returning it with its parameters."""
+    ) -> tuple[str, HogQLContext]:
+        """Transpile the model's HogQL query to ClickHouse SQL, retaining its compilation context."""
         hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
         context = await self.get_hogql_context()
 
@@ -144,30 +141,30 @@ class RecordBatchModel(abc.ABC):
         printed = await database_sync_to_async(print_prepared_ast)(
             prepared_hogql_query, context=context, dialect="clickhouse", stack=[]
         )
-        return printed, context.values
+        return printed, context
 
-    async def as_query_with_parameters(
+    async def as_query_with_context(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
-    ) -> tuple[Query, QueryParameters]:
-        """Produce a printed query and any necessary ClickHouse query parameters."""
+    ) -> tuple[Query, HogQLContext]:
+        """Produce a printed query and its HogQL context, including ClickHouse query parameters."""
         return await self._print_query(data_interval_start, data_interval_end, output_format="ArrowStream")
 
-    async def as_insert_into_s3_query_with_parameters(
+    async def as_insert_into_s3_query_with_context(
         self,
         data_interval_start: dt.datetime | None,
         data_interval_end: dt.datetime | None,
         s3_folder: str,
         credentials: AWSKeyPair | None,
         num_partitions: int,
-    ) -> tuple[Query, QueryParameters]:
-        """Produce an `INSERT INTO FUNCTION s3(...)` query and its ClickHouse parameters."""
-        printed, parameters = await self._print_query(data_interval_start, data_interval_end, output_format=None)
+    ) -> tuple[Query, HogQLContext]:
+        """Produce an `INSERT INTO FUNCTION s3(...)` query and its HogQL context, including ClickHouse parameters."""
+        printed, context = await self._print_query(data_interval_start, data_interval_end, output_format=None)
         s3_function = get_s3_function_call(s3_folder, credentials, num_partitions)
         insert_query = f"""
 INSERT INTO FUNCTION {s3_function}
 {printed}
 """
-        return insert_query, parameters
+        return insert_query, context
 
 
 class SessionsRecordBatchModel(RecordBatchModel):
@@ -415,7 +412,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
 
     async def _print_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None, output_format: str | None
-    ) -> tuple[str, QueryParameters]:
+    ) -> tuple[str, HogQLContext]:
         try:
             return await super()._print_query(data_interval_start, data_interval_end, output_format)
         except ExposedHogQLError as e:
@@ -479,8 +476,5 @@ def resolve_batch_exports_model(
                 user_id=model.user_id,
                 hogql_modifiers=model.modifiers,
             )
-
-    if schema is not None and (query := schema.get("hogql_query")) and use_new_events_schema(team_id):
-        fields, extra_query_parameters = recompile_stored_schema(team_id, schema, query)
 
     return model, record_batch_model, model_name, fields, filters, extra_query_parameters

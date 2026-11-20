@@ -42,6 +42,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
@@ -138,7 +139,7 @@ async def aorganization():
         is_ai_data_processing_approved=True,
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -153,7 +154,7 @@ async def ateam(aorganization, request: pytest.FixtureRequest):
     # `canonical=True` skips the sync DB resolution lookup (illegal from async).
     with team_scope(team.id, canonical=True):
         yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture
@@ -1257,6 +1258,12 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        # A scout's notes look like its owner's, so the note grant has to say they are tagged and how to read them.
+        assert "Account notes carry your name" not in granted
+        note_granted = _prompt(write_scopes=["account_note:write"])
+        assert "notes on Customer analytics accounts" in note_granted
+        assert "Account notes carry your name" in note_granted
+        assert "context-core" in note_granted
         assert "Ticket messages: private notes only" not in granted
         assert "Ticket messages: private notes only" in _prompt(write_scopes=["ticket:write"])
         # A scout run cannot create a canvas, so the canvas grant has to steer it at an existing one.
@@ -1340,6 +1347,8 @@ class TestPromptBuilder(BaseTest):
         # reference must survive in the signal tail.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        # A signal-channel scout authors no reports, so it has no discussions to read.
+        assert "scout-report-discussions-list" not in prompt
         # The fleet-seams section is shared across both channels, but each tail is assembled by
         # its own code path, so assert it on both to catch a drop from either list.
         assert "Working alongside the rest of the fleet" in prompt
@@ -1539,6 +1548,7 @@ class TestPromptBuilder(BaseTest):
         # Steering notes are prior context on the report channel too.
         assert "Notes left for you" in prompt
         assert "scout-notes-list" in prompt
+        assert "scout-report-discussions-list" in prompt
         # Fleet seams too — the report tail is built by `_report_tail_sections`, a separate list
         # from the signal tail, so it can lose the shared section independently.
         assert "Working alongside the rest of the fleet" in prompt
@@ -2146,7 +2156,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         skill_body="scout",
         skill_origin="custom",
         allowed_tools=["emit_report"],
-        capabilities=trial_capabilities(config),
+        capabilities=await database_sync_to_async(trial_capabilities)(config),
         runtime_adapter="codex",
         model="gpt-5.6-sol",
         reasoning_effort="medium",
@@ -2518,18 +2528,19 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "emit,acting_user_resolves,expected_grant,expected_mcp_scopes",
+    "emit,acting_user_resolves,expected_grant,expected_mcp_scopes,expected_report_actions",
     [
         pytest.param(
             True,
             True,
             ["dashboard:write", "notebook:write"],
             {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write", "notebook:write"]},
+            ["make_it_green"],
             id="live_run_holds_the_grant",
         ),
         # Dry run is how a person previews a scout before trusting it, so a dry run that could
         # edit dashboards would do the thing they wanted to look at first.
-        pytest.param(False, True, [], "signals_scout", id="dry_run_holds_no_grant"),
+        pytest.param(False, True, [], "signals_scout", [], id="dry_run_holds_no_grant"),
         # The grant was approved for the person the runs act as. When that identity no longer
         # resolves, the team fallback is a member who never approved it and cannot revoke it. The
         # default notebook scope was granted by the fleet rather than a person, so it stays.
@@ -2538,12 +2549,13 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
             False,
             ["notebook:write"],
             {"preset": "signals_scout", "extra_write_scopes": ["notebook:write"]},
+            [],
             id="team_fallback_holds_only_the_default_grant",
         ),
     ],
 )
 async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
-    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant, expected_mcp_scopes
+    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant, expected_mcp_scopes, expected_report_actions
 ):
     # The grant is what the run's token carries, so a composition that loses it leaves a scout
     # unable to do the job it was granted for, and one that passes the column through unfiltered
@@ -2557,6 +2569,8 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
             skill_name="signals-scout-errors",
             emit=emit,
             write_scopes=["dashboard:write", "feature_flag:write", "notebook:write"],
+            # A hand-edited stored kind outside the allowlist must not reach the stamp the endpoint reads.
+            report_actions=["make_it_green", "get_it_merged"],
         )
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()
@@ -2596,6 +2610,7 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
         thread_sensitive=False,
     )()
     assert metadata.get("write_scopes", []) == expected_grant
+    assert metadata.get("report_actions", []) == expected_report_actions
 
 
 @pytest.mark.asyncio
@@ -2972,10 +2987,10 @@ def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expe
                 model="claude-opus-5", runtime_adapter="claude", reasoning_effort="high", service_tier="priority"
             ),
             AgentRuntime(runtime_adapter="claude", model="claude-opus-5", reasoning_effort="high"),
-            "gpt-6-luna",
+            "gpt-5.6-luna",
             "codex",
             None,
-            None,
+            "flex",
             "active",
         ),
         (

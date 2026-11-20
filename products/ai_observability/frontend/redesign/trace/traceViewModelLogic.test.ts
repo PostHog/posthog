@@ -18,10 +18,12 @@ import {
     makeMessage,
     makeNodeDetail,
     makeRawNode,
+    makeSeededRow,
     makeTraceCluster,
     makeTraceResource,
 } from './testFixtures'
 import { traceClustersLogic } from './traceClustersLogic'
+import { tracePreloadLogic } from './tracePreloadLogic'
 import { traceSummaryLogic } from './traceSummaryLogic'
 import { traceViewHostLogic } from './traceViewHostLogic'
 import { traceViewModelLogic } from './traceViewModelLogic'
@@ -197,7 +199,7 @@ describe('traceViewModelLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('reads a deep-linked node alongside the trace, then the thread node, and never runs the legacy trace query', async () => {
+    it('reads a deep-linked node alongside the trace, then the thread node, and never runs a TraceQuery', async () => {
         let releaseTrace = (): void => {}
         traceGate = new Promise<void>((resolve) => {
             releaseTrace = resolve
@@ -213,6 +215,49 @@ describe('traceViewModelLogic', () => {
         expect(nodeRequests).toEqual(['span-1', 'gen-2'])
         expect(jest.mocked(performQuery).mock.calls.some(([query]) => query.kind === 'TraceQuery')).toBe(false)
     })
+
+    it.each<[string, string | null, HostState, string, string[], string[]]>([
+        ['the seeded default step', 'gen-1', {}, 'gen-1', ['gen-1'], ['gen-1', 'gen-2']],
+        [
+            'the requested step over the seeded one',
+            'gen-1',
+            { requestedStepId: 'span-1' },
+            'gen-1',
+            ['span-1'],
+            ['gen-2', 'span-1'],
+        ],
+        ['no step before a summary opening', 'gen-1', { openingMode: 'summary' }, 'gen-1', [], ['gen-2', 'trace-1']],
+        ['no step before the trace without a seed', null, {}, 'gen-1', [], ['gen-1', 'gen-2']],
+        [
+            'the trace default after a seeded one it differs from',
+            'gen-1',
+            {},
+            'span-1',
+            ['gen-1'],
+            ['gen-1', 'gen-2', 'span-1'],
+        ],
+    ])(
+        'reads %s alongside the trace',
+        async (_name, seededStepId, state, traceDefaultNodeId, readWhileLoading, readInAll) => {
+            let releaseTrace = (): void => {}
+            traceGate = new Promise<void>((resolve) => {
+                releaseTrace = resolve
+            })
+            traceResource = makeTraceResource({ defaultNodeId: traceDefaultNodeId })
+            if (seededStepId) {
+                tracePreloadLogic.mount()
+                tracePreloadLogic.actions.seedRows([makeSeededRow({}, seededStepId)])
+            }
+            mountAt(state)
+
+            expect(logic.values.status).toBe('loading')
+            expect([...logic.values.nodes.keys()]).toEqual(readWhileLoading)
+
+            releaseTrace()
+            await expectLogic(logic).toFinishAllListeners()
+            expect([...nodeRequests].sort()).toEqual(readInAll)
+        }
+    )
 
     it.each([
         ['a node in the tree', { requestedStepId: 'span-1' }, 'span-1'],

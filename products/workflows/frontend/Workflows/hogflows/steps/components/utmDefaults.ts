@@ -1,4 +1,4 @@
-import type { WorkflowsConfig } from '~/types'
+import type { TeamWorkflowsConfigApi } from '~/generated/core/api.schemas'
 
 import { UTM_TAG_KEYS, type UtmTagKey, type UtmTagValues } from './UtmTagFields'
 
@@ -19,7 +19,7 @@ export function cleanUtmParams(params: UtmTagValues | null | undefined): UtmTagV
     return cleaned
 }
 
-export function getTeamUtmDefaults(config: WorkflowsConfig | null | undefined): TeamUtmDefaults {
+export function getTeamUtmDefaults(config: TeamWorkflowsConfigApi | null | undefined): TeamUtmDefaults {
     return { enabled: config?.email_utm_tags_enabled === true, params: cleanUtmParams(config?.email_utm_params) }
 }
 

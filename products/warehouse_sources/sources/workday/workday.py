@@ -8,17 +8,23 @@ from typing import Any, Optional
 import requests
 
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    DependentEndpointConfig,
+    Endpoint,
     OffsetPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
     _is_host_safe,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
 )
 from products.warehouse_sources.sources.workday.settings import (
     DEFAULT_PAGE_SIZE,
     WORKDAY_ENDPOINTS,
+    FanoutEndpoint,
+    WorkdayEndpointConfig,
     build_endpoint_path,
 )
 
@@ -83,7 +89,9 @@ def _read_capped_body(response: requests.Response) -> bytes:
 
 @dataclasses.dataclass(frozen=False)
 class WorkdayResumeConfig:
-    offset: int
+    offset: int = 0
+    # Per-worker tables: the state `build_dependent_resource` checkpoints over the worker listing.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def normalize_hostname(hostname: str) -> str:
@@ -199,6 +207,9 @@ def validate_credentials(
         return False, str(e)
 
     endpoint = WORKDAY_ENDPOINTS.get(schema_name or "") or WORKDAY_ENDPOINTS["workers"]
+    if endpoint.fanout is not None:
+        # A per-worker path needs a worker ID, so probe the worker listing that drives it.
+        endpoint = WORKDAY_ENDPOINTS[endpoint.fanout.parent_name]
     url = f"{base_url(hostname)}{build_endpoint_path(endpoint, normalize_tenant(tenant), staffing_version)}"
 
     try:
@@ -237,6 +248,53 @@ def validate_credentials(
     return False, f"Workday returned an unexpected response (HTTP {response.status_code})"
 
 
+def _endpoint_extra(config: WorkdayEndpointConfig) -> Endpoint:
+    extra: Endpoint = {"data_selector": "data"}
+    if not config.paginated:
+        extra["paginator"] = "single_page"
+    return extra
+
+
+def _fanout_resource(
+    endpoint_config: WorkdayEndpointConfig,
+    fanout: DependentEndpointConfig,
+    client_config: ClientConfig,
+    tenant: str,
+    staffing_version: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[WorkdayResumeConfig],
+) -> Any:
+    parent_config = WORKDAY_ENDPOINTS[fanout.parent_name]
+    endpoint_configs = {
+        config.name: FanoutEndpoint(name=config.name, path=build_endpoint_path(config, tenant, staffing_version))
+        for config in (parent_config, endpoint_config)
+    }
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(WorkdayResumeConfig(fanout_state=state))
+
+    return build_dependent_resource(
+        endpoint_configs=endpoint_configs,
+        child_endpoint=endpoint_config.name,
+        fanout=fanout,
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra=_endpoint_extra(parent_config),
+        child_endpoint_extra=_endpoint_extra(endpoint_config),
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume else None,
+        # The worker listing saves its own offset, so a resume skips the workers already read.
+        resume_parent_pagination=True,
+    )
+
+
 def workday_source(
     hostname: str,
     tenant: str,
@@ -253,60 +311,75 @@ def workday_source(
     host = normalize_hostname(hostname)
     normalized_tenant = normalize_tenant(tenant)
 
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(hostname),
-            "headers": {"Accept": "application/json"},
-            # The framework auth mints (and re-mints on expiry) the ~1h tenant access token, and
-            # redacts the client secret / refresh token / access token from logs and samples.
-            "auth": {
-                "type": "oauth2",
-                "token_url": token_url(hostname, tenant),
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "refresh_token": refresh_token,
-                "grant_type": "refresh_token",
-                # Workday's token endpoint expects the client credentials as HTTP Basic.
-                "client_auth_method": "basic",
-            },
-            "paginator": OffsetPaginator(limit=DEFAULT_PAGE_SIZE, total_path="total"),
-            # Pin every request — including resumed pages — to the validated tenant host, and
-            # refuse redirects so a 3xx can't bounce the bearer token off-host (SSRF).
-            "allowed_hosts": [host],
-            "allow_redirects": False,
-            "request_timeout": REQUEST_TIMEOUT,
+    client_config: ClientConfig = {
+        "base_url": base_url(hostname),
+        "headers": {"Accept": "application/json"},
+        # The framework auth mints (and re-mints on expiry) the ~1h tenant access token, and
+        # redacts the client secret / refresh token / access token from logs and samples.
+        "auth": {
+            "type": "oauth2",
+            "token_url": token_url(hostname, tenant),
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+            # Workday's token endpoint expects the client credentials as HTTP Basic.
+            "client_auth_method": "basic",
         },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": build_endpoint_path(endpoint_config, normalized_tenant, staffing_version),
-                    "data_selector": "data",
-                },
-            }
-        ],
+        "paginator": OffsetPaginator(limit=DEFAULT_PAGE_SIZE, total_path="total"),
+        # Pin every request — including resumed pages — to the validated tenant host, and
+        # refuse redirects so a 3xx can't bounce the bearer token off-host (SSRF).
+        "allowed_hosts": [host],
+        "allow_redirects": False,
+        "request_timeout": REQUEST_TIMEOUT,
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and resume.offset > 0:
-            initial_paginator_state = {"offset": resume.offset}
+    resource: Any
+    if endpoint_config.fanout is not None:
+        resource = _fanout_resource(
+            endpoint_config,
+            endpoint_config.fanout,
+            client_config,
+            normalized_tenant,
+            staffing_version,
+            team_id,
+            job_id,
+            resumable_source_manager,
+        )
+    else:
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": build_endpoint_path(endpoint_config, normalized_tenant, staffing_version),
+                        **_endpoint_extra(endpoint_config),
+                    },
+                }
+            ],
+        }
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Saved AFTER a page is yielded, so a crash re-fetches the last page (merge dedupes)
-        # rather than skipping it.
-        if state and state.get("offset"):
-            resumable_source_manager.save_state(WorkdayResumeConfig(offset=int(state["offset"])))
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resumable_source_manager.can_resume():
+            resume = resumable_source_manager.load_state()
+            if resume is not None and resume.offset > 0:
+                initial_paginator_state = {"offset": resume.offset}
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Saved AFTER a page is yielded, so a crash re-fetches the last page (merge dedupes)
+            # rather than skipping it.
+            if state and state.get("offset"):
+                resumable_source_manager.save_state(WorkdayResumeConfig(offset=int(state["offset"])))
+
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     def items() -> Iterator[Any]:
         # Re-check at run time in case the hostname was edited, or now resolves to an internal
@@ -319,7 +392,7 @@ def workday_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=list(endpoint_config.primary_keys),
         partition_count=1,
         partition_size=1,
         # Workday's REST collections have no documented ordering guarantee and no server-side

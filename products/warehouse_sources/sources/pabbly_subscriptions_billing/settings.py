@@ -61,7 +61,13 @@ PABBLY_ENDPOINTS: dict[str, PabblyEndpointConfig] = {
         capture_http_samples=True,
     ),
     "payment_gateways": PabblyEndpointConfig(name="payment_gateways", path="/paymentgateways"),
-    "commissions": PabblyEndpointConfig(name="commissions", path="/commissions"),
+    "commissions": PabblyEndpointConfig(
+        name="commissions",
+        path="/commissions",
+        # Commissions belong to Pabbly's optional Affiliate module; an account that never enabled
+        # it gets a 400 on the very first page, the same "no data" shape as addons/licenses/etc.
+        ignore_no_data_errors=True,
+    ),
     "addons": PabblyEndpointConfig(
         name="addons",
         path="/addons/{parent_id}",

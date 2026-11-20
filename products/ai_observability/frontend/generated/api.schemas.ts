@@ -705,6 +705,11 @@ export const OfflineEvaluationResultStatusEnumApi = {
 } as const
 
 export interface OfflineResultCellApi {
+    /**
+     * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
+     * @nullable
+     */
+    input_result_ids: string[] | null
     /** Stable result UUID. */
     id: string
     /** Item evaluated by this result. */
@@ -805,6 +810,39 @@ export interface OfflineItemReadApi {
     payload_expires_at: string | null
     /** Cells for explicitly selected scorer versions; empty when none selected. */
     results: OfflineResultCellApi[]
+}
+
+/**
+ * * `reported` - Reported
+ * * `composite` - Composite
+ */
+export type ScoreDefinitionCalculationEnumApi =
+    (typeof ScoreDefinitionCalculationEnumApi)[keyof typeof ScoreDefinitionCalculationEnumApi]
+
+export const ScoreDefinitionCalculationEnumApi = {
+    Reported: 'reported',
+    Composite: 'composite',
+} as const
+
+export interface CompositeInputApi {
+    /**
+     * Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.
+     * @maxLength 32
+     * @pattern ^[a-z][a-z0-9_]{0,31}$
+     */
+    alias: string
+    /** Exact immutable version of an ordinary input scorer. */
+    scorer_version_id: string
+}
+
+export interface CompositeConfigApi {
+    /**
+     * Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use "good" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; "good" if correct else "bad". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.
+     * @maxLength 1024
+     */
+    expression: string
+    /** Named, version-pinned input scorers for the same item. Nested composites are not supported. */
+    inputs: CompositeInputApi[]
 }
 
 /**
@@ -936,6 +974,13 @@ export type ScoreDefinitionConfigApi =
     | BooleanScoreDefinitionConfigApi
 
 export interface OfflineScorerVersionReadApi {
+    /** Reported or computed from other item scores.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite */
+    calculation: ScoreDefinitionCalculationEnumApi
+    /** Immutable formula and exact input versions for a composite. */
+    composition: CompositeConfigApi | null
     /** Exact immutable scorer-version UUID. */
     id: string
     /** Stable scorer definition UUID. */
@@ -1045,6 +1090,11 @@ export interface OfflineItemPayloadReadApi {
 }
 
 export interface OfflineResultReadApi {
+    /**
+     * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
+     * @nullable
+     */
+    input_result_ids: string[] | null
     /** Stable result UUID. */
     id: string
     /** Item evaluated by this result. */
@@ -1182,6 +1232,8 @@ export interface OfflineCategorySummaryApi {
 }
 
 export interface OfflineScorerSummaryApi {
+    /** Items without a composite request. These are excluded from missing results and pass rates. */
+    not_requested_count: number
     /** Exact scorer version summarized. */
     scorer: OfflineScorerVersionReadApi
     /** All observed experiment items, independent of scorer selection or item pagination. */
@@ -1319,14 +1371,16 @@ export interface ResultSubmissionApi {
     item_id: string
     /** Exact UUID of an existing scorer version in this project. */
     scorer_version_id: string
+    /** Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result. */
+    calculate?: boolean
     /** Outcome of this scorer execution.
      *
      * * `ok` - OK
      * * `error` - Error
      * * `skipped` - Skipped
      * * `not_applicable` - Not applicable */
-    status: OfflineEvaluationResultStatusEnumApi
-    /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+    status?: OfflineEvaluationResultStatusEnumApi
+    /** Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true. */
     value?: number | boolean | string[] | null
     /**
      * Optional stable error code, permitted only for error outcomes.
@@ -1383,6 +1437,18 @@ export interface ResultReceiptApi {
     item_id: string
     /** Pinned scorer version used by this result. */
     scorer_version_id: string
+    /** Stored result status, including calculation failures.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /**
+     * Error code for a failed result, otherwise null.
+     * @nullable
+     */
+    error_code: string | null
 }
 
 export interface UploadReceiptApi {
@@ -1427,6 +1493,91 @@ export interface OfflineHistoryPageApi {
     next_cursor: string | null
     /** Experiment/scorer-version history page. */
     results: OfflineHistoryPointApi[]
+}
+
+export interface TraceNodeStatsApi {
+    costUsd: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    latencyMs: number | null
+}
+
+export interface TraceHumanReviewScoreApi {
+    /** The scorer's name. */
+    name: string
+    /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+    value: string
+    /** The scorer's name and the score together, such as `Tone: 4.5`. */
+    label: string
+}
+
+export interface TraceHumanReviewApi {
+    /** The display name of whoever last saved the review, or null when that user was removed. */
+    reviewedBy: string | null
+    /** When the review was last saved. */
+    reviewedAt: string
+    /** The reviewer's reasoning, if any. */
+    comment: string | null
+    /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+    scores: TraceHumanReviewScoreApi[]
+}
+
+export interface TraceReviewQueueAssignmentApi {
+    /** The review queue's id. */
+    id: string
+    /** The review queue's name. */
+    name: string
+    /** The queue item that holds the trace, for moving or removing it. */
+    itemId: string
+}
+
+export interface TraceReviewStatusApi {
+    /** The trace's human review, or null when it has none or the user may not see it. */
+    review: TraceHumanReviewApi | null
+    /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+    queue: TraceReviewQueueAssignmentApi | null
+}
+
+export interface TraceListItemApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+    totalsPartial: boolean
+    /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
+    defaultNodeId: string | null
+    /** The error text of the trace's earliest failed step that carries one, cut at 200 characters. Null when no failed step carries error text. */
+    firstError: string | null
+    /** The tools the trace's steps called, each once, in the order first called. */
+    toolsCalled: string[]
+    /** Whether a support agent ran the trace while impersonating the user. */
+    isSupportTrace: boolean
+    /** The trace's review and review queue, or null when it has neither that the user may see. */
+    review: TraceReviewStatusApi | null
+}
+
+export interface TraceListCountsApi {
+    /** How many traces the selection holds, ignoring its quick filter. */
+    total: number
+    /** How many of them have an error. */
+    errors: number
+    /** How many of them have user feedback. */
+    feedback: number
+}
+
+export interface TraceListApi {
+    /** A page of traces, newest first. */
+    items: TraceListItemApi[]
+    /** The selection's counts, on the first page only. */
+    counts: TraceListCountsApi | null
+    /** The cursor of the next page, or null on the last one. */
+    nextCursor: string | null
 }
 
 export interface TraceClusterApi {
@@ -1544,15 +1695,6 @@ export interface TracePersonApi {
     label: string
 }
 
-export interface TraceNodeStatsApi {
-    costUsd: number | null
-    inputTokens: number | null
-    outputTokens: number | null
-    cacheReadTokens: number | null
-    cacheWriteTokens: number | null
-    latencyMs: number | null
-}
-
 export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
 
 export const TraceNodeKindEnumApi = {
@@ -1598,10 +1740,12 @@ export interface TraceApi {
     name: string | null
     createdAt: string
     sessionId: string | null
-    person: TracePersonApi | null
     totals: TraceNodeStatsApi
     hasError: boolean
     errorCount: number
+    /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+    totalsPartial: boolean
+    person: TracePersonApi | null
     tree: TraceNodeApi[]
     timeline: TraceTimelineRowApi[]
     totalMs: number
@@ -1820,9 +1964,9 @@ export interface TraceToolCallPartApi {
     kind: 'toolCall'
     /** The name of the called tool, or an empty string when the event has none. */
     name: string
-    /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+    /** The call's arguments, parsed from JSON text when they parse, with JSON text inside them parsed too. Otherwise the text as captured. */
     args: unknown
-    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser, with JSON text inside it parsed the same way. Null when no tool message answers the call. */
     result: unknown
 }
 
@@ -1867,7 +2011,7 @@ export interface TraceMessagesSideApi {
 
 export interface TraceJsonSideApi {
     kind: 'json'
-    /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+    /** The side's value for a side that is not a conversation, with JSON text in it parsed when no number loses precision in a browser. The value as captured when the side could not be normalized. */
     value: unknown
 }
 
@@ -1985,42 +2129,6 @@ export interface TracePullRequestLookupApi {
     pullRequest: TracePullRequestApi | null
 }
 
-export interface TraceHumanReviewScoreApi {
-    /** The scorer's name. */
-    name: string
-    /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
-    value: string
-    /** The scorer's name and the score together, such as `Tone: 4.5`. */
-    label: string
-}
-
-export interface TraceHumanReviewApi {
-    /** The display name of whoever last saved the review, or null when that user was removed. */
-    reviewedBy: string | null
-    /** When the review was last saved. */
-    reviewedAt: string
-    /** The reviewer's reasoning, if any. */
-    comment: string | null
-    /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
-    scores: TraceHumanReviewScoreApi[]
-}
-
-export interface TraceReviewQueueAssignmentApi {
-    /** The review queue's id. */
-    id: string
-    /** The review queue's name. */
-    name: string
-    /** The queue item that holds the trace, for moving or removing it. */
-    itemId: string
-}
-
-export interface TraceReviewStatusApi {
-    /** The trace's human review, or null when it has none or the user may not see it. */
-    review: TraceHumanReviewApi | null
-    /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
-    queue: TraceReviewQueueAssignmentApi | null
-}
-
 export interface TraceSearchMatchApi {
     /** A step whose stored data contains the query. The root's id is the trace id. */
     nodeId: string
@@ -2109,6 +2217,93 @@ export interface TraceAvailabilityRequestApi {
 export interface TraceAvailabilityApi {
     /** Requested trace IDs readable from AI events or the shared events table. */
     available_trace_ids: string[]
+}
+
+export interface TracePageWithBoundsRequestApi {
+    /**
+     * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+     * @minItems 1
+     * @maxItems 100
+     */
+    trace_ids: string[]
+    /** The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention. */
+    earliest_created_at: string
+    /** The latest createdAt of the rows on the page. It can't be before earliest_created_at. */
+    latest_created_at: string
+}
+
+export interface TracePersonItemApi {
+    /** The trace the person belongs to. */
+    traceId: string
+    /** The person the trace ran for, labeled by the project's display name properties or else by their distinct id. Null when the trace is not found or carries no distinct id. */
+    person: TracePersonApi | null
+}
+
+export interface TracePeopleListApi {
+    /** One item per requested trace, in the order requested. */
+    items: TracePersonItemApi[]
+}
+
+export interface TracePageRequestApi {
+    /**
+     * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+     * @minItems 1
+     * @maxItems 100
+     */
+    trace_ids: string[]
+}
+
+export type TracePreviewMissingReasonApi =
+    (typeof TracePreviewMissingReasonApi)[keyof typeof TracePreviewMissingReasonApi]
+
+export const TracePreviewMissingReasonApi = {
+    TooLarge: 'too_large',
+    TimedOut: 'timed_out',
+} as const
+
+export interface TracePreviewApi {
+    /** The trace the preview belongs to. */
+    traceId: string
+    /** The user's message the trace answered, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `inputMissingReason` says why. */
+    input: string | null
+    /** The trace's answer, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `outputMissingReason` says why. */
+    output: string | null
+    /** Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there is nothing to show. */
+    inputMissingReason: TracePreviewMissingReasonApi | null
+    /** Why `output` is null: `too_large` when the answer is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `output` is null. Null with a null `output` means there is nothing to show. */
+    outputMissingReason: TracePreviewMissingReasonApi | null
+}
+
+export interface TracePreviewListApi {
+    /** One preview per requested trace, in the order requested. A trace that is not found previews as nulls. */
+    items: TracePreviewApi[]
+}
+
+export type TraceSentimentLabelEnumApi = (typeof TraceSentimentLabelEnumApi)[keyof typeof TraceSentimentLabelEnumApi]
+
+export const TraceSentimentLabelEnumApi = {
+    Positive: 'positive',
+    Neutral: 'neutral',
+    Negative: 'negative',
+} as const
+
+export interface TraceSentimentApi {
+    /** The trace's sentiment, from the average of its latest sentiment result per generation. Neutral when neither positive nor negative beats neutral by a clear margin. */
+    label: TraceSentimentLabelEnumApi
+    /** The average score of the label, from 0 to 1. */
+    score: number
+}
+
+export interface TraceSentimentItemApi {
+    /** The trace the sentiment belongs to. */
+    traceId: string
+    /** Null when the trace is not found or has no sentiment result. */
+    sentiment: TraceSentimentApi | null
+}
+
+export interface TraceSentimentListApi {
+    /** One item per requested trace, in the order requested. */
+    items: TraceSentimentItemApi[]
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -2237,9 +2432,10 @@ export const CodeEnumApi = {
 } as const
 
 /**
- * * `datasets` - datasets
- * * `dataset_items` - dataset_items
- * * `dataset_item_versions` - dataset_item_versions
+ * * `datasets` - Datasets
+ * * `dataset_items` - Dataset Items
+ * * `dataset_item_versions` - Dataset Item Versions
+ * * `project_dataset_item_versions` - Project Dataset Item Versions
  */
 export type DatasetConflictResponseResourceEnumApi =
     (typeof DatasetConflictResponseResourceEnumApi)[keyof typeof DatasetConflictResponseResourceEnumApi]
@@ -2248,6 +2444,7 @@ export const DatasetConflictResponseResourceEnumApi = {
     Datasets: 'datasets',
     DatasetItems: 'dataset_items',
     DatasetItemVersions: 'dataset_item_versions',
+    ProjectDatasetItemVersions: 'project_dataset_item_versions',
 } as const
 
 export interface DatasetConflictResponseApi {
@@ -2275,9 +2472,10 @@ export interface DatasetConflictResponseApi {
     current_item_id?: string | null
     /** Resource whose configured limit was reached.
      *
-     * * `datasets` - datasets
-     * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions */
+     * * `datasets` - Datasets
+     * * `dataset_items` - Dataset Items
+     * * `dataset_item_versions` - Dataset Item Versions
+     * * `project_dataset_item_versions` - Project Dataset Item Versions */
     resource?: DatasetConflictResponseResourceEnumApi
     /** Number of resources that already exist. */
     current_count?: number
@@ -2580,6 +2778,300 @@ export interface EvaluationRunResponseApi {
 }
 
 /**
+ * * `scheduled` - Scheduled
+ * * `first_visit` - First visit
+ * * `manual` - Manual
+ */
+export type EvalSuggestionRunTriggerEnumApi =
+    (typeof EvalSuggestionRunTriggerEnumApi)[keyof typeof EvalSuggestionRunTriggerEnumApi]
+
+export const EvalSuggestionRunTriggerEnumApi = {
+    Scheduled: 'scheduled',
+    FirstVisit: 'first_visit',
+    Manual: 'manual',
+} as const
+
+export interface EvalSuggestionRunApi {
+    /** Run identifier. */
+    readonly id: string
+    /** scheduled (weekly), first_visit, or manual.
+     *
+     * * `scheduled` - Scheduled
+     * * `first_visit` - First visit
+     * * `manual` - Manual */
+    readonly trigger: EvalSuggestionRunTriggerEnumApi
+    /** When the run started. */
+    readonly created_at: string
+    /**
+     * When the run published its suggestions.
+     * @nullable
+     */
+    readonly completed_at: string | null
+}
+
+/**
+ * * `new_hog` - New Hog eval
+ * * `new_llm_judge` - New LLM judge
+ * * `fix_eval` - Fix an evaluation
+ * * `fix_prompt` - Fix a prompt
+ */
+export type EvalSuggestionKindEnumApi = (typeof EvalSuggestionKindEnumApi)[keyof typeof EvalSuggestionKindEnumApi]
+
+export const EvalSuggestionKindEnumApi = {
+    NewHog: 'new_hog',
+    NewLlmJudge: 'new_llm_judge',
+    FixEval: 'fix_eval',
+    FixPrompt: 'fix_prompt',
+} as const
+
+/**
+ * * `proposed` - Proposed
+ * * `accepted` - Accepted
+ * * `dismissed` - Dismissed
+ * * `expired` - Expired
+ */
+export type EvalSuggestionStatusEnumApi = (typeof EvalSuggestionStatusEnumApi)[keyof typeof EvalSuggestionStatusEnumApi]
+
+export const EvalSuggestionStatusEnumApi = {
+    Proposed: 'proposed',
+    Accepted: 'accepted',
+    Dismissed: 'dismissed',
+    Expired: 'expired',
+} as const
+
+export interface EvalSuggestionFilterApi {
+    /** Event property the suggested evaluation filters on. */
+    key: string
+    /** Values that match. Any of them matches. */
+    value: string[]
+    /** Property filter operator, such as 'exact'. */
+    operator: string
+    /** Property filter type, such as 'event'. */
+    type: string
+}
+
+export interface EvalSuggestionEvidenceApi {
+    /** Trace that shows the problem. Open it to read the example. */
+    trace_id: string
+    /** One line on what this trace shows. */
+    reason: string
+}
+
+/**
+ * * `no_runs` - No runs
+ * * `one_outcome` - One outcome
+ */
+export type EvalFixProblemEnumApi = (typeof EvalFixProblemEnumApi)[keyof typeof EvalFixProblemEnumApi]
+
+export const EvalFixProblemEnumApi = {
+    NoRuns: 'no_runs',
+    OneOutcome: 'one_outcome',
+} as const
+
+/**
+ * * `not_relevant` - Not relevant
+ * * `already_covered` - Already covered
+ * * `too_noisy` - Too noisy
+ * * `fixed_cause` - Fixed the cause
+ */
+export type EvalSuggestionDismissReasonEnumApi =
+    (typeof EvalSuggestionDismissReasonEnumApi)[keyof typeof EvalSuggestionDismissReasonEnumApi]
+
+export const EvalSuggestionDismissReasonEnumApi = {
+    NotRelevant: 'not_relevant',
+    AlreadyCovered: 'already_covered',
+    TooNoisy: 'too_noisy',
+    FixedCause: 'fixed_cause',
+} as const
+
+/**
+ * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
+ */
+export type EvalSuggestionApiDraft = { [key: string]: unknown }
+
+export interface EvalSuggestionApi {
+    /** Suggestion identifier. */
+    readonly id: string
+    /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results. fix_prompt: a rule the prompt sets that most sampled calls break, which a prompt change fixes and an evaluation cannot; it has no evaluation to accept.
+     *
+     * * `new_hog` - New Hog eval
+     * * `new_llm_judge` - New LLM judge
+     * * `fix_eval` - Fix an evaluation
+     * * `fix_prompt` - Fix a prompt */
+    readonly kind: EvalSuggestionKindEnumApi
+    /** proposed until someone accepts or dismisses it.
+     *
+     * * `proposed` - Proposed
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     * * `expired` - Expired */
+    readonly status: EvalSuggestionStatusEnumApi
+    /** False for a fix_eval whose evaluation is gone or changed after the run, so its patch would undo that change. Always true for other kinds. */
+    readonly applies: boolean
+    /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
+    readonly template_key: string
+    /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
+    readonly headline: string
+    /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
+    readonly outcome: string
+    /** Why the issue matters for the project's users, or empty when nothing supports it. */
+    readonly reason: string
+    /** What the sample showed, such as '9 of 27 sampled generations flagged', or empty when nothing was measured. */
+    readonly observation: string
+    /** Where the observation came from, such as 'Sampled from the last 7 days'. */
+    readonly observation_scope: string
+    /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule. */
+    readonly draft: EvalSuggestionApiDraft
+    /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
+    readonly filters: readonly EvalSuggestionFilterApi[]
+    /** Percentage (0-100) of matching units the evaluation runs on. */
+    readonly rollout_percentage: number
+    /**
+     * Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.
+     * @nullable
+     */
+    readonly measured_failure_rate: number | null
+    /**
+     * Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.
+     * @nullable
+     */
+    readonly sample_size: number | null
+    /** Up to 5 example traces, each with a one-line reason. */
+    readonly evidence: readonly EvalSuggestionEvidenceApi[]
+    /**
+     * Runs a week at the suggested rollout, for judges.
+     * @nullable
+     */
+    readonly estimated_weekly_runs: number | null
+    /**
+     * Estimated weekly cost in USD on the project's own provider key, for judges. Null when unknown.
+     * @nullable
+     */
+    readonly estimated_weekly_cost_usd: number | null
+    /** Model the weekly cost assumes, for LLM judges. Empty for Hog checks and fixes. */
+    readonly judge_model: string
+    /**
+     * Evaluation that accepting this suggestion created.
+     * @nullable
+     */
+    readonly created_evaluation: string | null
+    /**
+     * Evaluation a fix_eval suggestion repairs.
+     * @nullable
+     */
+    readonly target_evaluation: string | null
+    /**
+     * Name of the evaluation a fix_eval suggestion repairs.
+     * @nullable
+     */
+    readonly target_evaluation_name: string | null
+    /** What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it returned the same result and reasoning almost every time. Null for other kinds.
+     *
+     * * `no_runs` - No runs
+     * * `one_outcome` - One outcome */
+    readonly fix_problem: EvalFixProblemEnumApi | null
+    /**
+     * Existing evaluation that may already cover this suggestion.
+     * @nullable
+     */
+    readonly similar_evaluation: string | null
+    /**
+     * Name of an existing evaluation that may already cover this suggestion.
+     * @nullable
+     */
+    readonly similar_evaluation_name: string | null
+    /** Reason given when the suggestion was dismissed, if any.
+     *
+     * * `not_relevant` - Not relevant
+     * * `already_covered` - Already covered
+     * * `too_noisy` - Too noisy
+     * * `fixed_cause` - Fixed the cause */
+    readonly dismiss_reason: EvalSuggestionDismissReasonEnumApi | null
+    /** When the run that produced the suggestion published it. */
+    readonly created_at: string
+}
+
+export interface EvalSuggestionListApi {
+    /** The latest completed run, which the suggestions come from. Null before the first one. */
+    run: EvalSuggestionRunApi | null
+    /** True while a run for this project is in progress. */
+    pending: boolean
+    /** Open suggestions of the latest run, best first. At most 3. */
+    results: EvalSuggestionApi[]
+}
+
+export interface EvalSuggestionAcceptApi {
+    /** The accepted suggestion. */
+    suggestion: EvalSuggestionApi
+    /** The evaluation the suggestion created, enabled. */
+    evaluation_id: string
+    /**
+     * Backfill that runs the new evaluation on recent data. Null when recent data holds no matching unit.
+     * @nullable
+     */
+    backfill_id: string | null
+    /**
+     * Units the backfill evaluates: at most 500 for a Hog check and 50 for a judge.
+     * @nullable
+     */
+    backfill_units: number | null
+}
+
+/**
+ * * `generation` - Generation
+ * * `trace` - Trace
+ * * `session` - Session
+ */
+export type EvaluationTargetEnumApi = (typeof EvaluationTargetEnumApi)[keyof typeof EvaluationTargetEnumApi]
+
+export const EvaluationTargetEnumApi = {
+    Generation: 'generation',
+    Trace: 'trace',
+    Session: 'session',
+} as const
+
+export interface EvalSuggestionEstimateApi {
+    /** What one unit is: a generation, a trace, or a session.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    target: EvaluationTargetEnumApi
+    /** Units accept would evaluate on recent data. */
+    units: number
+    /**
+     * Start of the recent window accept covers.
+     * @nullable
+     */
+    window_start: string | null
+    /**
+     * End of the recent window accept covers.
+     * @nullable
+     */
+    window_end: string | null
+    /**
+     * Model a judge runs on: the default for the project's active key. Null for Hog checks.
+     * @nullable
+     */
+    judge_model: string | null
+    /**
+     * units x input tokens one judge run reads x the input price of the model accept uses, in USD. 0 for Hog checks, null when the price or token count is unknown.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+}
+
+export interface EvalSuggestionDismissApi {
+    /** Optional reason: not_relevant, already_covered, too_noisy, or fixed_cause.
+     *
+     * * `not_relevant` - Not relevant
+     * * `already_covered` - Already covered
+     * * `too_noisy` - Too noisy
+     * * `fixed_cause` - Fixed the cause */
+    reason?: EvalSuggestionDismissReasonEnumApi | null
+}
+
+/**
  * * `active` - Active
  * * `paused` - Paused
  * * `error` - Error
@@ -2679,19 +3171,6 @@ export interface EvaluationConditionApi {
     /** Property filters (event or person) that scope which generations match this condition set. */
     properties?: EvaluationConditionApiPropertiesItem[]
 }
-
-/**
- * * `generation` - Generation
- * * `trace` - Trace
- * * `session` - Session
- */
-export type EvaluationTargetEnumApi = (typeof EvaluationTargetEnumApi)[keyof typeof EvaluationTargetEnumApi]
-
-export const EvaluationTargetEnumApi = {
-    Generation: 'generation',
-    Trace: 'trace',
-    Session: 'session',
-} as const
 
 /**
  * 'fixed_window' waits a fixed window after the first matching generation, then evaluates. 'inactivity' evaluates once the unit has had no new activity for the quiet period. Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'.
@@ -3015,6 +3494,11 @@ export interface EvaluationBackfillApi {
     readonly conditions: readonly EvaluationBackfillConditionApi[]
     /** Whether units with an existing result are evaluated again. */
     readonly rerun_existing: boolean
+    /**
+     * Most units this backfill evaluates, for a capped preview such as an accepted eval suggestion. Null means no cap.
+     * @nullable
+     */
+    readonly max_units: number | null
     /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
     readonly total_count: number
     /** Units the backfill has started an evaluation for so far. */
@@ -4038,10 +4522,17 @@ export interface EvaluationTestOnSampleRequestApi {
 export type ClusteringConfigApiEventFiltersItem = { [key: string]: unknown }
 
 export interface ClusteringConfigApi {
+    /** Whether this project has opted in to automated clustering. */
+    enabled: boolean
     /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
     event_filters: ClusteringConfigApiEventFiltersItem[]
     readonly created_at: string
     readonly updated_at: string
+}
+
+export interface ClusteringConfigSetEnabledApi {
+    /** Enable or disable automated clustering for this project. */
+    enabled: boolean
 }
 
 export type ClusteringConfigSetEventFiltersApiEventFiltersItem = { [key: string]: unknown }
@@ -4056,9 +4547,10 @@ export interface ClusteringConfigSetEventFiltersApi {
  * * `generation` - generation
  * * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringAnalysisLevelEnumApi =
+    (typeof ClusteringAnalysisLevelEnumApi)[keyof typeof ClusteringAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
     Evaluation: 'evaluation',
@@ -4070,7 +4562,7 @@ export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
@@ -4093,7 +4585,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
@@ -4378,7 +4870,7 @@ export interface EvaluationReportApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
      * @minimum 60
      * @maximum 1440
      */
@@ -4454,7 +4946,7 @@ export interface EvaluationReportUpdateApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
      * @minimum 60
      * @maximum 1440
      */
@@ -4521,7 +5013,7 @@ export interface PatchedEvaluationReportUpdateApi {
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 1440.
      * @minimum 60
      * @maximum 1440
      */
@@ -4535,6 +5027,11 @@ export interface PatchedEvaluationReportUpdateApi {
     /** @nullable */
     readonly created_by?: number | null
     readonly created_at?: string
+}
+
+export interface EvaluationReportGenerateResponseApi {
+    /** Server time of the request. The new report is the first run created after it. */
+    requested_at: string
 }
 
 export interface EvaluationReportSectionApi {
@@ -4711,7 +5208,7 @@ export interface EvaluationReportMetricsApi {
      */
     previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
     /**
-     * Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.
+     * Pass percentage excluding N/A. Null when no results passed or failed.
      * @nullable
      */
     pass_rate?: number | null
@@ -4762,6 +5259,28 @@ export const EvaluationReportRunDeliveryStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+/**
+ * * `slack` - Slack
+ * * `email` - Email
+ */
+export type EvaluationReportRunDestinationTypeEnumApi =
+    (typeof EvaluationReportRunDestinationTypeEnumApi)[keyof typeof EvaluationReportRunDestinationTypeEnumApi]
+
+export const EvaluationReportRunDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Email: 'email',
+} as const
+
+export interface EvaluationReportDestinationApi {
+    /** Destination kind: 'slack' or 'email'.
+     *
+     * * `slack` - Slack
+     * * `email` - Email */
+    type: EvaluationReportRunDestinationTypeEnumApi
+    /** Slack channel name or email address. */
+    name: string
+}
+
 export interface EvaluationReportRunApi {
     /** UUID of this report run. */
     readonly id: string
@@ -4785,6 +5304,8 @@ export interface EvaluationReportRunApi {
     readonly delivery_status: EvaluationReportRunDeliveryStatusEnumApi
     /** Delivery error messages. Empty when all configured deliveries succeeded. */
     readonly delivery_errors: readonly string[]
+    /** Slack channels and email addresses this report was addressed to, including any that failed (see delivery_errors). Empty for reports sent before this was recorded. */
+    readonly delivery_destinations: readonly EvaluationReportDestinationApi[]
     /** When this report run was created. */
     readonly created_at: string
 }
@@ -5060,6 +5581,37 @@ export interface PatchedReviewQueueUpdateApi {
     name?: string
 }
 
+export interface CompositeInputReadApi {
+    /** Input name in the formula. */
+    alias: string
+    /** Pinned immutable input version. */
+    scorer_version_id: string
+    /** Input scorer definition. */
+    definition_id: string
+    /** Input scorer name. */
+    name: string
+    /** Input value kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    kind: ScoreDefinitionKindEnumApi
+    /** Pinned input version number. */
+    version: number
+    /** Scoring rules of the pinned input version. */
+    readonly config: ScoreDefinitionConfigApi
+    /**
+     * Current input version. Updating requires a new composite version.
+     * @nullable
+     */
+    latest_version_id: string | null
+    /**
+     * Current input version number.
+     * @nullable
+     */
+    latest_version: number | null
+}
+
 export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
@@ -5069,6 +5621,17 @@ export interface ScoreDefinitionApi {
     /** Project tag names assigned to this resource. */
     readonly tags: readonly string[]
     readonly kind: ScoreDefinitionKindEnumApi
+    /** Whether results are reported by the caller or calculated from other item scores.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite */
+    readonly calculation: ScoreDefinitionCalculationEnumApi
+    /** Formula and exact input versions for a composite scorer. */
+    readonly composition: CompositeConfigApi | null
+    /** Pinned inputs and their latest versions. Empty for reported scorers. */
+    readonly input_scorers: readonly CompositeInputReadApi[]
+    /** Accessible active composite scorers whose current version depends on a version of this scorer. */
+    readonly dependent_composite_count: number
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -5105,6 +5668,13 @@ export interface ScoreDefinitionCreateApi {
      * @items.maxLength 255
      */
     tags?: string[]
+    /** Reported or composite. This cannot be changed after creation.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite */
+    calculation?: ScoreDefinitionCalculationEnumApi
+    /** Required for composite scorers: expression and exact input versions. */
+    composition?: CompositeConfigApi | null
     /**
      * Human-readable scorer name.
      * @maxLength 255
@@ -5159,6 +5729,8 @@ export interface PatchedScoreDefinitionMetadataApi {
 }
 
 export interface ScoreDefinitionNewVersionApi {
+    /** Required for a composite scorer. Creates a new immutable formula and input selection. */
+    composition?: CompositeConfigApi | null
     /**
      * Updated compact label, saved with this version.
      * @maxLength 40
@@ -5196,6 +5768,13 @@ export interface ScoreDefinitionVersionApi {
      * * `numeric` - numeric
      * * `boolean` - boolean */
     readonly kind: ScoreDefinitionKindEnumApi
+    /** How this scorer's results are produced.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite */
+    readonly calculation: ScoreDefinitionCalculationEnumApi
+    /** Immutable formula and input versions, or null for reported scores. */
+    readonly composition: CompositeConfigApi | null
     /** Immutable configuration for this exact version. */
     readonly config: ScoreDefinitionConfigApi
     /** Time this version was created. */
@@ -5227,6 +5806,24 @@ export interface ScoreDefinitionVersionPageApi {
     next_cursor: string | null
     /** Versions on this page, newest first. */
     results: ScoreDefinitionVersionApi[]
+}
+
+export interface CompositeValidationApi {
+    /** Expected formula output kind.
+     *
+     * * `categorical` - categorical
+     * * `numeric` - numeric
+     * * `boolean` - boolean */
+    kind: ScoreDefinitionKindEnumApi
+    /** Formula and pinned input versions to validate without saving. */
+    composition: CompositeConfigApi
+    /** Output configuration to check literal categories and composite scoring rules. */
+    config?: ScoreDefinitionConfigApi
+}
+
+export interface CompositeValidationResponseApi {
+    /** Whether the formula and any supplied output configuration are valid. */
+    valid: boolean
 }
 
 /**
@@ -5973,6 +6570,11 @@ export interface TaggerApi {
     readonly updated_at: string
     readonly created_by: UserBasicApi
     deleted?: boolean
+    /**
+     * The evaluation that replaced this tagger when it was migrated. Null until then.
+     * @nullable
+     */
+    readonly migrated_to_evaluation_id: string | null
 }
 
 export interface PaginatedTaggerListApi {
@@ -6499,6 +7101,75 @@ export type AiObservabilityOfflineScorersHistoryListTagMatch =
 export const AiObservabilityOfflineScorersHistoryListTagMatch = {
     Any: 'any',
     All: 'all',
+} as const
+
+export type AiObservabilityTracesListParams = {
+    /**
+     * The nextCursor of the previous page, to read the page after it. Leave it out for the first page.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+    /**
+     * Lists only traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     */
+    group_key?: string
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number
+    /**
+     * How many traces a page holds, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Lists only traces whose events belong to the person with this UUID.
+     */
+    person_id?: string
+    /**
+     * Up to 50 property filters as a JSON-encoded list. A trace is listed when one of its events matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string
+    /**
+     * Text to look for in the inputs and outputs of the trace's generations and embeddings, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    search?: string
+    /**
+     * Lists only traces with an error, or only traces with user feedback. The counts ignore it.
+     *
+     * * `errors` - errors
+     * * `feedback` - feedback
+     * @minLength 1
+     */
+    view?: AiObservabilityTracesListView
+}
+
+export type AiObservabilityTracesListView =
+    (typeof AiObservabilityTracesListView)[keyof typeof AiObservabilityTracesListView]
+
+export const AiObservabilityTracesListView = {
+    Errors: 'errors',
+    Feedback: 'feedback',
 } as const
 
 export type AiObservabilityTracesClustersRetrieveParams = {
@@ -7060,9 +7731,20 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     archived?: boolean
     /**
+     * Filter reported or composite scorers.
+     *
+     * * `reported` - Reported
+     * * `composite` - Composite
+     */
+    calculation?: LlmAnalyticsScoreDefinitionsListCalculation
+    /**
      * Filter by the creator's user ID.
      */
     created_by?: number
+    /**
+     * Find current composite scorers that depend on this input scorer.
+     */
+    input_definition_id?: string
     /**
      * Filter by scorer kind.
      */
@@ -7096,6 +7778,14 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
      */
     tags?: string
 }
+
+export type LlmAnalyticsScoreDefinitionsListCalculation =
+    (typeof LlmAnalyticsScoreDefinitionsListCalculation)[keyof typeof LlmAnalyticsScoreDefinitionsListCalculation]
+
+export const LlmAnalyticsScoreDefinitionsListCalculation = {
+    Composite: 'composite',
+    Reported: 'reported',
+} as const
 
 export type LlmAnalyticsScoreDefinitionsListTagMatch =
     (typeof LlmAnalyticsScoreDefinitionsListTagMatch)[keyof typeof LlmAnalyticsScoreDefinitionsListTagMatch]
@@ -7322,6 +8012,10 @@ export type TaggersListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Only the tagger that was migrated to this evaluation
+     */
+    migrated_to_evaluation_id?: string
     /**
      * The initial index from which to return the results.
      */

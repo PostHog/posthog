@@ -5,9 +5,8 @@ from collections.abc import Mapping
 from functools import reduce
 from typing import Any, Literal, Protocol, TypedDict, cast
 
-from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, Q, QuerySet, Subquery, Value
-from django.db.models.functions import Cast, JSONObject
+from django.db.models.functions import Cast, JSONObject, Lower
 from django.db.models.lookups import Contains
 from django.http import HttpResponse
 
@@ -38,11 +37,6 @@ from products.surveys.backend.models import Survey
 from products.workflows.backend.facade.api import search_workflows
 
 LIMIT = 25
-
-
-class _PostgresILikeContains(Contains):
-    def get_rhs_op(self, connection: BaseDatabaseWrapper, rhs: str) -> str:
-        return f"ILIKE {rhs}"
 
 
 class EntityConfig(TypedDict, total=False):
@@ -464,7 +458,7 @@ def class_queryset(
         if klass in (EventDefinition, PropertyDefinition):
             words = re.findall(r"[^\W_]+", query)
             if words:
-                qs = qs.filter(reduce(operator.or_, (Q(_PostgresILikeContains(F("name"), word)) for word in words)))
+                qs = qs.filter(reduce(operator.or_, (Q(Contains(Lower("name"), Lower(Value(word)))) for word in words)))
         qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")

@@ -27,6 +27,7 @@ import { NewEventsTableBar } from '~/layout/navigation/NewEventsTableBar'
 
 import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
 
+import { mountRealtimeCohortsJoin } from './mountRealtimeCohortsJoin'
 import { sceneLogic } from './sceneLogic'
 
 const TerminalDock = lazyWithRetry(() =>
@@ -50,6 +51,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(billingLogic)
     // Resolves product setup statuses on idle, so gated scenes open without a spinner.
     useMountedLogic(productSetupPreloadLogic)
+    useEffect(() => mountRealtimeCohortsJoin(), [])
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
