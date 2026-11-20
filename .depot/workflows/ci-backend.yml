@@ -111,6 +111,9 @@ on:
         # Eligible source PRs run the snob-selected Django subset (one shard per active segment),
         # draft or ready; turbo-tests still skip drafts. When selection can't be
         # trusted, a ready source PR runs the full matrices and a draft skips them.
+        # Once a full run passed on the PR, a selector full-run request or a product cascade
+        # with a selection runs the subset instead, until a failed merge queue attempt
+        # re-arms full runs (.github/scripts/backend-full-run-state.js).
         # Add the `run-ci-backend` label to force the full matrices on a PR's next run;
         # the gate removes it once that run completes, so later pushes select again. The
         # `no-ci` label silences the workflow on a draft entirely. No
@@ -739,6 +742,12 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         name: Discover product tests
+        # checks: read lets the full-run lookup read the gate check on earlier PR heads.
+        permissions:
+            contents: read
+            actions: read
+            pull-requests: read
+            checks: read
         env:
             # Whether this run selects backend tests at all: a PR, off the merge queue's
             # trunk-merge/** run (that run is the merge gate and stays full), and without
@@ -873,6 +882,31 @@ jobs:
               uses: ./.depot/actions/setup-pnpm
               with:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # With the Depot-issued github.token the lookup read the pull request without an error but found
+            # no full pass that an app token with checks: read finds, so it reads with the paths-filter app.
+            - name: Mint full-run lookup token
+              id: full-run-token
+              if: env.SELECTION_APPLIES == 'true' && github.event.pull_request.draft != true && vars.DISABLE_BACKEND_TEST_SELECTION != 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - name: Look up an earlier full backend pass on this PR
+              id: full-run-state
+              # A ready PR runs the full matrices at most once: after a full run passes, a selector
+              # full-run request or an untrusted product cascade runs the selected subset. The
+              # selector runs on legacy diffs only, so a product-only cascade stays full for now.
+              # A failed read leaves `passed` empty, so the run stays full.
+              if: env.SELECTION_APPLIES == 'true' && github.event.pull_request.draft != true && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
+              continue-on-error: true
+              timeout-minutes: 2
+              env:
+                  GH_TOKEN: ${{ steps.full-run-token.outputs.token || github.token }}
+                  TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: node .github/scripts/backend-full-run-state.js >> "$GITHUB_OUTPUT"
             - name: Install turbo
               uses: ./.depot/actions/setup-turbo
             # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
@@ -1007,6 +1041,8 @@ jobs:
                   # A draft has a later ready run to defer to, so an untrusted selection skips
                   # the heavy matrices there instead of running all of them.
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
+                  FULL_RUN_ALREADY_PASSED: ${{ steps.full-run-state.outputs.passed == 'true' }}
+                  QUEUE_KICK_REARMED: ${{ steps.full-run-state.outputs.rearmed_by_queue_kick == 'true' }}
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
@@ -4617,6 +4653,9 @@ jobs:
                   REPO: ${{ github.repository }}
                   SHA: ${{ github.event.pull_request.head.sha }}
                   GATE_CHECK: Backend CI on Depot / Test results
+                  # backend-full-run-state.js reads this on later pushes. Full means the whole Django
+                  # suite ran: the label, an untrusted selection, or a run that does not select.
+                  MATRIX_SCOPE: ${{ needs.turbo-discover.outputs.run_legacy == 'true' && needs.turbo-discover.outputs.mode != 'selected' && needs.turbo-discover.outputs.mode != 'skip' && 'full' || 'partial' }}
                   # A `no-ci` draft skips change detection and every check.
                   CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || needs.changes.result == 'skipped' && 'skipped' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
                   # A completed check stays on the commit, so a draft's passing verdict would satisfy
@@ -4641,14 +4680,15 @@ jobs:
                   # The retry hint goes first, because the byte budget trims the summary from the end.
                   touch "$GATE_SUMMARY"
                   jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
-                      --arg title "$title" --rawfile summary "$GATE_SUMMARY" \
-                      '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, details_url: $url,
+                      --arg title "$title" --rawfile summary "$GATE_SUMMARY" --arg external_id "backend-matrix=$MATRIX_SCOPE" \
+                      '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, details_url: $url, external_id: $external_id,
                         output: {title: $title, summary: ((if $conclusion == "failure" then "To retry the failed jobs without a new push, comment `/depot retry` on this pull request.\n\n" else "" end) + $summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end)}}' \
                       | gh api "repos/$REPO/check-runs" --method POST --input - --silent && exit 0
                   # A rejected output must not lose the check.
                   echo "::warning::Could not post the gate check with its summary. Posting it without."
                   gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
-                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
+                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" \
+                      -f external_id="backend-matrix=$MATRIX_SCOPE" --silent
             - name: Mint full-run label token
               id: full-run-label-token
               if: >-
