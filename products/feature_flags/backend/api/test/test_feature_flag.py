@@ -9700,6 +9700,61 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(detail_fragment, response.json()["detail"])
 
+    def _restrict_for_member(self, name: str, type_: str, group_type_index: int | None = None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        # Org admins bypass member-specific rules.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name=name, property_type="String", type=type_, group_type_index=group_type_index
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=definition.id,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member_id=self.organization_membership.id,
+        )
+
+    @parameterized.expand([("v1", False), ("v2_sampled", True)])
+    def test_user_blast_radius_honors_member_property_access(self, _name, use_v2):
+        _create_person(team_id=self.team.pk, distinct_ids=["a"], properties={"email": "a@example.com"})
+        _create_person(team_id=self.team.pk, distinct_ids=["b"], properties={"email": "b@example.com"})
+        flush_persons_and_events()
+        condition = {"properties": [{"key": "email", "type": "person", "value": "a@example.com", "operator": "exact"}]}
+        url = f"/api/projects/{self.team.id}/feature_flags/user_blast_radius"
+
+        with patch("products.feature_flags.backend.api.feature_flag.use_blast_radius_query_v2", return_value=use_v2):
+            self._restrict_for_member("email", PropertyDefinition.Type.PERSON)
+            after = self.client.post(url, {"condition": condition})
+
+        assert after.status_code == status.HTTP_200_OK
+        assert (after.json()["affected"], after.json()["total"]) == (0, 2)
+
+    def test_user_blast_radius_honors_member_group_property_access(self):
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="acme", properties={"industry": "tech"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="beta", properties={"industry": "retail"})
+        flush_persons_and_events()
+        body = {
+            "condition": {
+                "properties": [
+                    {"key": "industry", "type": "group", "value": "tech", "operator": "exact", "group_type_index": 0}
+                ]
+            },
+            "group_type_index": 0,
+        }
+        url = f"/api/projects/{self.team.id}/feature_flags/user_blast_radius"
+
+        self._restrict_for_member("industry", PropertyDefinition.Type.GROUP, group_type_index=0)
+        after = self.client.post(url, body)
+
+        assert (after.json()["affected"], after.json()["total"]) == (0, 2)
+
     def test_user_blast_radius_endpoint_ignores_test_account_filters(self):
         for i in range(3):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})

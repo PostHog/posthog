@@ -27,6 +27,7 @@ from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, Pro
 from posthog.models.property.parse import parse_properties_for_team
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -64,7 +65,9 @@ def use_blast_radius_query_v2(team: Team) -> bool:
     )
 
 
-def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_type: str) -> BlastRadiusResult:
+def sampled_person_blast_radius(
+    team: Team, prop_group: PropertyGroup, query_type: str, user: Optional[User] = None
+) -> BlastRadiusResult:
     """
     Person blast radius that counts a sample of the persons and extrapolates, so the dedup
     aggregation holds only the sampled persons and keeps the fast parallel hash aggregation.
@@ -82,13 +85,13 @@ def sampled_person_blast_radius(team: Team, prop_group: PropertyGroup, query_typ
 
     weight = _flag_dependency_weight(team, prop_group)
     try:
-        affected = count_matching_persons(team, prop_group, database, query_type=query_type, weight=weight)
+        affected = count_matching_persons(team, prop_group, database, query_type=query_type, weight=weight, user=user)
     except InternalCHQueryError as e:
         if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
         # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
         # the caller's input, so the dependency sizes neutrally instead of failing the request.
-        affected = count_matching_persons(team, prop_group, database, query_type=query_type)
+        affected = count_matching_persons(team, prop_group, database, query_type=query_type, user=user)
     return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
@@ -197,18 +200,21 @@ def get_user_blast_radius(
     team: Team,
     feature_flag_condition: dict,
     group_type_index: Optional[GroupTypeIndex] = None,
+    user: Optional[User] = None,
 ) -> BlastRadiusResult:
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
         if group_type_index is not None:
-            return _get_group_blast_radius(team, cleaned_filter, group_type_index)
+            return _get_group_blast_radius(team, cleaned_filter, group_type_index, user=user)
         else:
-            return _get_person_blast_radius(team, cleaned_filter)
+            return _get_person_blast_radius(team, cleaned_filter, user=user)
 
 
-def get_person_blast_radius_v2(team: Team, feature_flag_condition: dict) -> BlastRadiusResult:
+def get_person_blast_radius_v2(
+    team: Team, feature_flag_condition: dict, user: Optional[User] = None
+) -> BlastRadiusResult:
     """
     Flags-owned entry point for the sampled person count, behind flags-blast-radius-query-v2.
 
@@ -219,7 +225,7 @@ def get_person_blast_radius_v2(team: Team, feature_flag_condition: dict) -> Blas
         cleaned_filter = replace_proxy_properties(team, feature_flag_condition)
 
         tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
-        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE_V2)
+        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE_V2, user=user)
 
 
 def get_user_blast_radius_persons(
@@ -238,7 +244,7 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
-def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadiusResult:
+def _get_person_blast_radius(team: Team, prop_group: PropertyGroup, user: Optional[User] = None) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
 
     properties = prop_group.flat
@@ -255,13 +261,13 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
     database = Database.create_for(team=team)
     weight = _flag_dependency_weight(team, prop_group)
     try:
-        estimate = _run_exact_person_count(team, prop_group, database, weight)
+        estimate = _run_exact_person_count(team, prop_group, database, weight, user)
     except InternalCHQueryError as e:
         if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
             raise
         # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
         # the caller's input, so the dependency sizes neutrally instead of failing the request.
-        estimate = _run_exact_person_count(team, prop_group, database, weight=None)
+        estimate = _run_exact_person_count(team, prop_group, database, weight=None, user=user)
     # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
     total_count = int(round(estimate))
     total_users = team.count_persons_seen_so_far(database=database, settings=bounded_memory_settings())
@@ -271,7 +277,7 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
 
 
 def _run_exact_person_count(
-    team: Team, prop_group: PropertyGroup, database: Database, weight: Optional[ast.Expr]
+    team: Team, prop_group: PropertyGroup, database: Database, weight: Optional[ast.Expr], user: Optional[User] = None
 ) -> float:
     # property_to_expr handles all properties including cohorts
     select_query = build_person_count_query(team, prop_group, sample_modulus=None, weight=weight)
@@ -279,6 +285,7 @@ def _run_exact_person_count(
         query=select_query,
         team=team,
         context=HogQLContext(team_id=team.pk, database=database),
+        user=user,
         settings=bounded_memory_settings(),
     )
     return read_person_count(response.results, weighted=weight is not None)[1]
@@ -340,7 +347,7 @@ def _build_person_query(team: Team, prop_group: PropertyGroup, cursor: Optional[
 
 
 def _get_group_blast_radius(
-    team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex
+    team: Team, prop_group: PropertyGroup, group_type_index: GroupTypeIndex, user: Optional[User] = None
 ) -> BlastRadiusResult:
     """Calculate blast radius for group-based feature flags using HogQL."""
 
@@ -375,6 +382,7 @@ def _get_group_blast_radius(
         team=team,
         workload=Workload.OFFLINE,
         context=HogQLContext(team_id=team.pk, database=database, globals=_group_property_globals(group_type_index)),
+        user=user,
     )
 
     total_affected = response.results[0][0] if response.results else 0

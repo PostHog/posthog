@@ -6052,9 +6052,9 @@ class FeatureFlagViewSet(
         group_type_index = request.data.get("group_type_index", None)
 
         if group_type_index is None and use_blast_radius_query_v2(self.team):
-            result = get_person_blast_radius_v2(self.team, condition)
+            result = get_person_blast_radius_v2(self.team, condition, user=request.user)
         else:
-            result = get_user_blast_radius(self.team, condition, group_type_index)
+            result = get_user_blast_radius(self.team, condition, group_type_index, user=request.user)
 
         return Response({"affected": result.affected, "total": result.total})
 
