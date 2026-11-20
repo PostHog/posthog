@@ -109,6 +109,59 @@ const formatCurrency = (value: unknown, first?: unknown, second?: unknown): unkn
 // Customer.io templates write the unsubscribe link as a tag, `{% unsubscribe_url %}`, where we expose a
 // variable. The tag renders `{{ unsubscribe_url }}`, so it gets the same escaping as the variable and
 // renders empty when the send has no unsubscribe URL.
+// liquidjs 10.27.0's own strip_html never returns on input such as 'a<' (GHSA-m7fp-h3p4-hr49), and previews render
+// as the page draws, so a saved template could freeze every viewer's tab. This drops the same blocks as Liquid's
+// filter in one pass: a closer that a search does not find is never searched for again, so no input makes it slow.
+const STRIPPED_BLOCKS: [opener: string, closer: string][] = [
+    ['<!--', '-->'],
+    ['<script', '</script>'],
+    ['<style', '</style>'],
+]
+
+const STRIP_HTML_INPUT_LIMIT = 10_000_000
+
+function stripHtml(value: unknown): string {
+    const parts = Array.isArray(value) ? value.map(String) : [String(value ?? '')]
+    // Joining is the one allocation here that the template's memory budget does not see.
+    if (parts.reduce((total, part) => total + part.length, 0) > STRIP_HTML_INPUT_LIMIT) {
+        throw new Error('strip_html input is too large')
+    }
+    const text = parts.join('')
+    // ASCII only, so every offset in `lower` points at the same character in `text`.
+    const lower = text.replace(/[A-Z]/g, (char) => char.toLowerCase())
+    const missingClosers = new Set<string>()
+    let out = ''
+    let cursor = 0
+    while (cursor < text.length) {
+        const open = text.indexOf('<', cursor)
+        if (open === -1) {
+            break
+        }
+        let end = -1
+        const block = STRIPPED_BLOCKS.find(
+            ([opener, closer]) => !missingClosers.has(closer) && lower.startsWith(opener, open)
+        )
+        if (block) {
+            const close = lower.indexOf(block[1], open + block[0].length)
+            if (close === -1) {
+                missingClosers.add(block[1])
+            } else {
+                end = close + block[1].length
+            }
+        }
+        if (end === -1) {
+            const close = text.indexOf('>', open)
+            if (close === -1) {
+                break
+            }
+            end = close + 1
+        }
+        out += text.slice(cursor, open)
+        cursor = end
+    }
+    return out + text.slice(cursor)
+}
+
 class UnsubscribeUrlTag extends Tag {
     private readonly templates: Template[]
 
@@ -133,8 +186,13 @@ export class LiquidRenderer {
                 // Render partials from an in-memory map only: this disables LiquidJS's filesystem-backed
                 // partial loading, so user-controlled templates can't read local files via include/render/layout.
                 templates: {},
+                // Previews render while the page draws, so a runaway loop must fail fast instead of freezing the tab.
+                // The worker's budgets, from nodejs/src/cdp/utils/liquid.ts.
+                renderLimit: 500,
+                memoryLimit: 1_000_000,
             })
             this._liquid.registerFilter('currency', formatCurrency)
+            this._liquid.registerFilter('strip_html', stripHtml)
             this._liquid.registerTag('unsubscribe_url', UnsubscribeUrlTag)
         }
         return this._liquid
@@ -239,6 +297,43 @@ export class LiquidRenderer {
         }
     }
 
+    // Every output tag in source order, including those inside `if`, `case`, `for` and other blocks. Blocks keep
+    // their children in arrays of templates, or in branches that each hold one.
+    // Names the template binds itself, such as a `for` loop's item or an `assign` target. Their values only exist
+    // while the template runs, so checking them against the context would wrongly report them missing.
+    private static readonly LOOP_GLOBALS = ['forloop', 'tablerowloop']
+
+    private static outputsOf(templates: unknown[]): { outputs: Output[]; locals: Set<string> } {
+        const found: Output[] = []
+        const locals = new Set<string>(this.LOOP_GLOBALS)
+        const visit = (nodes: unknown[]): void => {
+            for (const node of nodes) {
+                if (node instanceof Tag) {
+                    const { key, variable } = node as unknown as { key?: unknown; variable?: unknown }
+                    for (const name of [key, variable]) {
+                        if (typeof name === 'string') {
+                            locals.add(name)
+                        }
+                    }
+                }
+                if (node instanceof Output) {
+                    found.push(node)
+                } else if (
+                    node instanceof Tag ||
+                    (node && Array.isArray((node as { templates?: unknown }).templates))
+                ) {
+                    for (const [key, value] of Object.entries(node as object)) {
+                        if (key !== 'liquid' && Array.isArray(value)) {
+                            visit(value)
+                        }
+                    }
+                }
+            }
+        }
+        visit(templates)
+        return { outputs: found.sort((a, b) => (a.token as any).begin - (b.token as any).begin), locals }
+    }
+
     /**
      * Render, but leave an output tag whose expression resolves to nothing as its own source text
      * instead of the empty string a plain render produces, so a reader sees which variables are
@@ -249,20 +344,28 @@ export class LiquidRenderer {
      *
      * Additive to the worker's copy of this class, which only ever renders the real thing.
      */
-    public static renderKeepingUnresolved(template: string, context: Record<string, any>): string {
+    public static renderKeepingUnresolved(
+        template: string,
+        context: Record<string, any>,
+        markUnresolved: (source: string) => string = (source) => source
+    ): string {
         const decoded = this.decode(template)
         let marked = ''
         let cursor = 0
-        for (const node of this.liquid.parse(decoded)) {
-            if (!(node instanceof Output)) {
-                continue
-            }
+        const { outputs, locals } = this.outputsOf(this.liquid.parse(decoded))
+        for (const node of outputs) {
             const { begin, end, content } = node.token as unknown as { begin: number; end: number; content: string }
             const expression = content.trim()
-            if (!expression || expression.includes('|') || this.resolvesDecoded(expression, context)) {
+            const root = expression.split(/[.[\s]/)[0]
+            if (
+                !expression ||
+                expression.includes('|') ||
+                locals.has(root) ||
+                this.resolvesDecoded(expression, context)
+            ) {
                 continue
             }
-            marked += `${decoded.slice(cursor, begin)}{% raw %}${decoded.slice(begin, end)}{% endraw %}`
+            marked += `${decoded.slice(cursor, begin)}{% raw %}${markUnresolved(decoded.slice(begin, end))}{% endraw %}`
             cursor = end
         }
         // `marked` is already decoded, so render it without a second pass.

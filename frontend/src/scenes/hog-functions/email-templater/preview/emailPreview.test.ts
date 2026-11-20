@@ -1,9 +1,15 @@
-import { renderEmailPreview } from './emailPreview'
+import {
+    countUnresolved,
+    personPropertiesUsed,
+    renderEmailPreview,
+    renderEmailPreviewMarked,
+    withUnresolvedChips,
+} from './emailPreview'
 
 describe('renderEmailPreview', () => {
     const person = {
         id: 'person-1',
-        properties: { email: 'sam@example.com', first_name: 'Sam' },
+        properties: { email: 'sam@example.com', first_name: 'Sam', seats: ['a', 'b'] },
     }
 
     it.each([
@@ -24,6 +30,13 @@ describe('renderEmailPreview', () => {
             'Hi {{\n person.properties.nickname \n}}',
             'Hi {{\n person.properties.nickname \n}}',
         ],
+        [
+            'keeps a missing property visible inside a block',
+            "{% if person.properties.email contains 'example' %}Hi {{ person.properties.nickname }}{% endif %}",
+            'Hi {{ person.properties.nickname }}',
+        ],
+        ['renders a loop item', '{% for seat in person.properties.seats %}{{ seat }}{% endfor %}', 'ab'],
+        ['renders a name the template assigns', '{% assign n = person.properties.first_name %}Hi {{ n }}', 'Hi Sam'],
         [
             'leaves a tag the template already marked raw alone',
             'Hi {% raw %}{{ person.properties.nickname }}{% endraw %}',
@@ -54,7 +67,94 @@ describe('renderEmailPreview', () => {
         )
     })
 
+    it('falls back to the template when the output would be huge', () => {
+        const template = `{% for i in (1..1100) %}${'x'.repeat(10000)}{% endfor %}`
+
+        expect(renderEmailPreview(template, person)).toBe(template)
+    })
+
+    it('gives up on a runaway loop instead of freezing the page', () => {
+        const template = '{% for i in (1..100000000) %}x{% endfor %}'
+
+        expect(renderEmailPreview(template, person)).toBe(template)
+    })
+
+    it('finds person properties the editor wrote in bracket notation', () => {
+        expect(personPropertiesUsed(['{{ person.properties.plan }} {{ person.properties["renews on"] }}'])).toEqual([
+            'plan',
+            'renews on',
+        ])
+    })
+
+    it.each([
+        ['an unclosed tag', "{{ 'a<' | strip_html }} {{ '<b>bold</b>' | strip_html }}", 'a&lt; bold'],
+        ['a list, joined as Liquid joins it', '{{ person.properties.seats | strip_html }}', 'ab'],
+        ['text whose lowercase form is longer', "{{ 'İ<style>x</style>tail' | strip_html }}", 'İtail'],
+        [
+            'a script, style or comment block',
+            "{{ '<script>x</script><style>.a{}</style>b<!-- c > d -->e' | strip_html }}",
+            'be',
+        ],
+    ])('strips html from %s without hanging', (_name, template, expected) => {
+        expect(renderEmailPreview(template, person)).toBe(expected)
+    })
+
     it('falls back to the template rather than throwing on a broken tag', () => {
         expect(renderEmailPreview('{% for %}', person)).toBe('{% for %}')
+    })
+
+    it('shows a missing value as a chip in the text and as its label inside an attribute', () => {
+        const html = withUnresolvedChips(
+            renderEmailPreviewMarked(
+                '<p>Hi {{ person.properties.first_name }}, <a href="/{{ person.properties.plan_name }}">plan</a></p>',
+                { id: 'person-3', properties: {} }
+            )
+        )
+        const doc = new DOMParser().parseFromString(html, 'text/html')
+
+        expect(doc.querySelector('p > span')?.textContent).toBe('first name')
+        expect(doc.querySelector('a')?.getAttribute('href')).toBe('/plan name')
+    })
+
+    it('counts quickly when a person value is full of chip fences', () => {
+        const rendered = renderEmailPreviewMarked('{{ person.properties.bio }}', {
+            id: 'person-5',
+            properties: { bio: '\uE000'.repeat(80000) },
+        })
+        const started = performance.now()
+
+        expect(countUnresolved(rendered)).toBe(0)
+        expect(performance.now() - started).toBeLessThan(1000)
+    })
+
+    it('never lets a person value fake a missing-value chip', () => {
+        const rendered = renderEmailPreviewMarked('{{ person.properties.bio }}', {
+            id: 'person-6',
+            properties: { bio: 'hi \uE000plan\uE001 there' },
+        })
+        const fromKey = renderEmailPreviewMarked('{% for pair in person.properties %}{{ pair[0] }}{% endfor %}', {
+            id: 'person-6',
+            properties: { '\uE000plan\uE001': 'x' },
+        })
+
+        expect(countUnresolved(rendered)).toBe(0)
+        expect(rendered).toBe('hi plan there')
+        expect(countUnresolved(fromKey)).toBe(0)
+    })
+
+    it('falls back to the template when strip_html gets oversized input', () => {
+        const template = '{{ person.properties.chunks | strip_html | size }}'
+        const chunks = Array.from({ length: 11 }, () => 'x'.repeat(1_000_000))
+
+        expect(renderEmailPreview(template, { id: 'person-7', properties: { chunks } })).toBe(template)
+    })
+
+    it('counts a missing value once however often the email uses it', () => {
+        const rendered = renderEmailPreviewMarked(
+            '{{ person.properties.plan }} {{ person.properties.plan }} {{ person.properties.seats }}',
+            { id: 'person-4', properties: {} }
+        )
+
+        expect(countUnresolved(rendered)).toBe(2)
     })
 })
