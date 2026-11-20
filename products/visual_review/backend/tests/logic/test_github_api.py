@@ -182,21 +182,21 @@ def test_a_refused_ancestry_read_propagates_and_commit_contains_answers_false(re
 
 
 def test_branch_heads_read_every_page_and_only_merge_queue_branches() -> None:
-    def respond(method, path, *, params, **kwargs):
-        first = (params["page"] - 1) * params["per_page"]
-        count = max(0, min(params["per_page"], 101 - first))
+    def respond(method, path, *, params=None, **kwargs):
         response = MagicMock(status_code=200)
         if path.endswith("/pulls"):
+            first = (params["page"] - 1) * params["per_page"]
+            count = max(0, min(params["per_page"], 101 - first))
             response.json.return_value = [
                 {"number": first + i, "head": {"sha": f"pr-head-{first + i}"}} for i in range(count)
             ]
         else:
-            # Every hundredth ref is a queue branch, so the last one is only on the second page.
+            # The refs endpoint ignores paging and answers with every matching ref.
             response.json.return_value = [
                 {"ref": f"refs/heads/trunk-merge/pr-{n}/abc", "object": {"sha": f"queue-head-{n}"}}
                 if n % 100 == 0
                 else {"ref": f"refs/heads/trunk-merge-notes-{n}", "object": {"sha": "other"}}
-                for n in range(first, first + count)
+                for n in range(101)
             ]
         return response
 
@@ -214,3 +214,5 @@ def test_branch_heads_read_every_page_and_only_merge_queue_branches() -> None:
         github_api.BranchHead(commit_sha="queue-head-0", pr_number=0),
         github_api.BranchHead(commit_sha="queue-head-100", pr_number=100),
     ]
+    ref_reads = [call for call in github.api_request.call_args_list if "matching-refs" in call.args[1]]
+    assert len(ref_reads) == 1

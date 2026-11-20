@@ -15,6 +15,7 @@ from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, NoRunNeededInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import (
+    BaselineApprovalState,
     BaselineMode,
     NoRunNeededOutcome,
     ReviewState,
@@ -938,6 +939,10 @@ def _approve_in_own_pull_request(repo: Repo) -> None:
     approve(repo, 1, "Button", "Button-new")
 
 
+def _approve_removal(repo: Repo) -> None:
+    approve(repo, 1, "Button", "")
+
+
 def _approve_in_another_pull_request(repo: Repo) -> None:
     approve(repo, 2, "Button", "Button-new")
 
@@ -959,6 +964,36 @@ def _recompute(run: Run) -> None:
 
 def _retry_task(run: Run) -> None:
     tasks.publish_visual_review_commit_status.apply(args=(run.team_id, str(run.repo_id), run.commit_sha, run.run_type))
+
+
+def _serve_heads(mocker, pull_requests: dict[int, str], merge_queue: dict[int, str]) -> None:
+    mocker.patch.object(
+        github_api,
+        "open_pull_request_heads",
+        return_value=[github_api.BranchHead(commit_sha=sha, pr_number=n) for n, sha in pull_requests.items()],
+    )
+    mocker.patch.object(
+        github_api,
+        "merge_queue_branch_heads",
+        return_value=[github_api.BranchHead(commit_sha=sha, pr_number=n) for n, sha in merge_queue.items()],
+    )
+
+
+def _recheck_command(repo: Repo, *flags: str) -> str:
+    output = StringIO()
+    call_command(
+        "visual_review_baseline_ledger",
+        "recheck",
+        "--repo",
+        repo.repo_full_name,
+        "--run-type",
+        RunType.STORYBOOK,
+        "--pause",
+        "0",
+        *flags,
+        stdout=output,
+    )
+    return output.getvalue()
 
 
 def _push_again(repo: Repo, run: Run) -> None:
@@ -1183,6 +1218,19 @@ class TestStatusByCommit:
         assert _posted(sender) == [(self.GATING, expected.state, expected.description)]
         assert api.get_run(run.id).stale_approval_count == stale_count
 
+    def test_the_recheck_posts_what_its_dry_run_shows_for_a_stale_approval_in_shadow_mode(
+        self, repo, sender, mocker
+    ) -> None:
+        run = _finalized_run_on_a_moved_baseline(repo, RunGate.CI_JOB)
+        set_baseline_mode(repo, BaselineMode.SHADOW, status_gate=True)
+        _serve_heads(mocker, {1: run.commit_sha}, {})
+
+        output = _recheck_command(repo)
+        _recheck_command(repo, "--apply")
+
+        assert f"storybook {STALE_ONE.state} (1) " in output
+        assert _posted(sender) == [(self.GATING, STALE_ONE.state, STALE_ONE.description)]
+
     def test_with_the_status_gate_off_no_approval_counts_as_stale(self, repo) -> None:
         run = _finalized_run_on_a_moved_baseline(repo, RunGate.COMMIT_STATUS)
         set_baseline_mode(repo, BaselineMode.SHADOW, status_gate=False)
@@ -1294,6 +1342,31 @@ class TestLedgerRecheck:
 
         assert ledger_recheck.recheck_run(run) == expected
 
+    @pytest.mark.parametrize(
+        ("is_partial", "arrange", "expected"),
+        [
+            pytest.param(False, _nothing, _recheck(unsure=1), id="full_run_without_a_story_the_ledger_has"),
+            pytest.param(False, _approve_removal, _recheck(), id="the_removal_is_approved"),
+            pytest.param(True, _nothing, _recheck(), id="partial_run"),
+        ],
+    )
+    def test_recheck_of_a_story_the_baseline_file_dropped(self, repo, is_partial, arrange, expected) -> None:
+        arrange(repo)
+        run = _run(
+            repo, status=RunStatus.COMPLETED, is_partial=is_partial, metadata={METADATA_KEY: SHADOW_RECORD.to_json()}
+        )
+        RunSnapshot.objects.create(
+            run=run, team_id=run.team_id, identifier="Card", result=SnapshotResult.NEW, current_hash="Card-new"
+        )
+
+        assert ledger_recheck.recheck_run(run) == expected
+
+    def test_an_approval_that_landed_after_the_run_position_still_counts(self, repo) -> None:
+        parent = approve(repo, 2, "Button", "Button-new", state=BaselineApprovalState.PROMOTED, landed_position=1)
+        run = _shadow_run(repo, "Button-new", record=replace(SHADOW_RECORD, candidate_approval_ids=(parent.id,)))
+
+        assert ledger_recheck.recheck_run(run) == _recheck()
+
     @pytest.mark.parametrize("mode", [BaselineMode.SHADOW, BaselineMode.LEDGER])
     @pytest.mark.parametrize("publish", [_recompute, _retry_task])
     def test_with_the_gate_on_no_publisher_posts_a_pass_the_ledger_cannot_confirm(
@@ -1324,34 +1397,6 @@ class TestLedgerRecheck:
             (self.GATING, "success", "Visual changes approved"),
         ]
 
-    def _serve_heads(self, mocker, pull_requests: dict[int, str], merge_queue: dict[int, str]) -> None:
-        mocker.patch.object(
-            github_api,
-            "open_pull_request_heads",
-            return_value=[github_api.BranchHead(commit_sha=sha, pr_number=n) for n, sha in pull_requests.items()],
-        )
-        mocker.patch.object(
-            github_api,
-            "merge_queue_branch_heads",
-            return_value=[github_api.BranchHead(commit_sha=sha, pr_number=n) for n, sha in merge_queue.items()],
-        )
-
-    def _recheck_command(self, repo: Repo, *flags: str) -> str:
-        output = StringIO()
-        call_command(
-            "visual_review_baseline_ledger",
-            "recheck",
-            "--repo",
-            repo.repo_full_name,
-            "--run-type",
-            RunType.STORYBOOK,
-            "--pause",
-            "0",
-            *flags,
-            stdout=output,
-        )
-        return output.getvalue()
-
     def test_the_recheck_dry_run_shows_the_ledger_verdicts_and_posts_nothing(self, repo, sender, mocker) -> None:
         set_baseline_mode(repo, BaselineMode.SHADOW, status_gate=False)
         _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
@@ -1359,9 +1404,9 @@ class TestLedgerRecheck:
         _shadow_run(
             repo, "y0", commit_sha="queue-3", pr_number=None, purpose=RunPurpose.OBSERVE, branch="trunk-merge/pr-3/x"
         )
-        self._serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {3: "queue-3"})
+        _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {3: "queue-3"})
 
-        output = self._recheck_command(repo)
+        output = _recheck_command(repo)
 
         assert output.splitlines()[1:] == [
             "Dry run, nothing was posted. Pull requests per run type, state and reason:",
@@ -1372,14 +1417,14 @@ class TestLedgerRecheck:
         ]
         assert sender.call_count == 0
         with pytest.raises(CommandError, match="needs the commit status gate"):
-            self._recheck_command(repo, "--apply")
+            _recheck_command(repo, "--apply")
 
     def test_the_recheck_posts_on_every_head(self, repo, sender, mocker) -> None:
         _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
         _shadow_run(repo, "b0", commit_sha="head-2", branch="pr-2", pr_number=2)
-        self._serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {})
+        _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {})
 
-        self._recheck_command(repo, "--apply")
+        _recheck_command(repo, "--apply")
 
         posted = {call.args[1]: _posted_one(call) for call in sender.call_args_list}
         assert posted == {
@@ -1387,3 +1432,12 @@ class TestLedgerRecheck:
             "head-2": (self.GATING, "success", "No visual changes"),
             "head-4": (self.GATING, "success", commit_status.NO_RUN_DESCRIPTION),
         }
+
+    def test_the_recheck_stops_at_the_first_refused_post(self, repo, sender, mocker) -> None:
+        sender.side_effect = [ci_status.StatusPost.POSTED, ci_status.StatusPost.REFUSED, ci_status.StatusPost.POSTED]
+        _serve_heads(mocker, {1: "head-1", 2: "head-2", 3: "head-3"}, {})
+
+        with pytest.raises(CommandError, match="1 of 3 statuses posted, 2 remain"):
+            _recheck_command(repo, "--apply")
+
+        assert sender.call_count == 2

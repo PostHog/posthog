@@ -249,11 +249,11 @@ def _status_of(run: Run, repo: Repo, ledger_mode: bool) -> _Status:
     )
 
 
-def _current_status(repo: Repo, commit_sha: str, run_type: str) -> _Status | None:
+def _current_status(repo: Repo, commit_sha: str, run_type: str, ledger_mode: bool) -> _Status | None:
     run = _newest_run(repo, commit_sha, run_type)
     if run is None:
         return None
-    return _status_of(run, repo, ledger_mode=repo.baseline_mode == BaselineMode.LEDGER)
+    return _status_of(run, repo, ledger_mode)
 
 
 def _send(repo: Repo, commit_sha: str, status: _Status) -> ci_status.StatusPost:
@@ -267,14 +267,16 @@ def _send(repo: Repo, commit_sha: str, status: _Status) -> ci_status.StatusPost:
     )
 
 
-def publish_rounds(repo: Repo, commit_sha: str, run_type: str) -> bool:
+def publish_rounds(repo: Repo, commit_sha: str, run_type: str, *, force_ledger_mode: bool = False) -> bool:
     """Post the verdict of the newest run until a read after the post finds it unchanged.
 
     Returns False when the status may not be settled: GitHub refused a post, a read raised, or
     the verdict still changed after the last round. The caller then retries later.
+    `force_ledger_mode` decides as `ledger` mode does in any mode, as the recheck command shows it.
     """
+    ledger_mode = force_ledger_mode or repo.baseline_mode == BaselineMode.LEDGER
     try:
-        status = _current_status(repo, commit_sha, run_type)
+        status = _current_status(repo, commit_sha, run_type, ledger_mode)
         for _round in range(MAX_ROUNDS):
             if status is None:
                 return True
@@ -283,7 +285,7 @@ def publish_rounds(repo: Repo, commit_sha: str, run_type: str) -> bool:
                 return False
             if posted == ci_status.StatusPost.SKIPPED:
                 return True
-            newer = _current_status(repo, commit_sha, run_type)
+            newer = _current_status(repo, commit_sha, run_type, ledger_mode)
             if newer == status:
                 return True
             status = newer
@@ -438,6 +440,7 @@ def publish_after_switch(repo: Repo, commit_sha: str, run_type: str) -> bool:
 
     A commit without a run passes, because the CI jobs stay required and block a commit whose
     workflow failed. A run created during the post owns the status, as in `report_no_run_needed`.
+    It decides as `ledger_verdict` does, so the recheck command posts what its dry run showed.
     """
     if _newest_run(repo, commit_sha, run_type) is None:
         posted = ci_status._send_commit_status(
@@ -452,4 +455,4 @@ def publish_after_switch(repo: Repo, commit_sha: str, run_type: str) -> bool:
             return False
         if _newest_run(repo, commit_sha, run_type) is None:
             return True
-    return publish_rounds(repo, commit_sha, run_type)
+    return publish_rounds(repo, commit_sha, run_type, force_ledger_mode=True)

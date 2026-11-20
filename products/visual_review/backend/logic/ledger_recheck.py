@@ -36,17 +36,24 @@ class LedgerRecheck:
 
 
 def _candidates(run: Run, record: baseline_record.BaselineRecord, identifiers: set[str]) -> list[BaselineApproval]:
-    """The open approvals the run's record applied, and the open approvals of the run's own pull request."""
+    """The approvals the run's record applied and the approvals of the run's own pull request, outside the ledger it reads.
+
+    An approval that landed after the record's position is promoted, but the ledger at that position
+    does not hold its hash, so it still counts, as in ledger resolution.
+    """
     applied_or_own = Q(id__in=record.candidate_approval_ids)
     if run.pr_number is not None:
         applied_or_own |= Q(pr_number=run.pr_number)
+    outside_ledger = Q(state=BaselineApprovalState.OPEN) | Q(
+        state=BaselineApprovalState.PROMOTED, landed_position__gt=record.position
+    )
     return list(
         BaselineApproval.objects.using(WRITER_DB).filter(
             applied_or_own,
+            outside_ledger,
             repo_id=run.repo_id,
             run_type=run.run_type,
             identifier__in=identifiers,
-            state=BaselineApprovalState.OPEN,
         )
     )
 
@@ -57,6 +64,10 @@ def recheck_run(run: Run) -> LedgerRecheck | None:
     A rendered snapshot counts as unsure when its ledger baseline differs from the stored baseline
     and its stored render is neither the ledger hash nor the overlay hash, nor tolerated against one
     of them. Only a pixel diff could decide it, and that needs a new run.
+
+    A full run also counts each identifier that the ledger holds and the run has no snapshot of,
+    unless an open approval removes it. The YAML file dropped it as well, so the run stored no
+    removal, but a run in `ledger` mode reports it as removed.
     """
     record = baseline_record.record_for_run(run)
     if record is None:
@@ -71,18 +82,23 @@ def recheck_run(run: Run) -> LedgerRecheck | None:
         .exclude(current_hash="")
         .only("identifier", "current_hash", "baseline_hash")
     )
-    identifiers = {snapshot.identifier for snapshot in snapshots}
+    rendered = {snapshot.identifier for snapshot in snapshots}
+    ledger_only: set[str] = set()
+    if not run.is_partial:
+        stored = set(RunSnapshot.objects.using(WRITER_DB).filter(run_id=run.id).values_list("identifier", flat=True))
+        ledger_only = set(ledger.ledger_at(run.repo_id, run.run_type, record.position)) - stored
+    identifiers = rendered | ledger_only
     ledger_hashes = ledger.hashes_at(run.repo_id, run.run_type, identifiers, record.position)
     overlay = baseline_approvals.reduce_overlay(_candidates(run, record, identifiers), ledger_hashes)
     overlay_hashes = {identifier: entry.content_hash for identifier, entry in overlay.entries.items()}
     tolerated_lookup = toleration.build_tolerated_lookup(
         run.repo_id,
-        identifiers,
+        rendered,
         set(ledger_hashes.values()) | {content_hash for content_hash in overlay_hashes.values() if content_hash},
         now=timezone.now(),
     )
 
-    unsure = 0
+    unsure = sum(1 for identifier in ledger_only if overlay_hashes.get(identifier) != "")
     for snapshot in snapshots:
         identifier = snapshot.identifier
         ledger_hash = ledger_hashes.get(identifier, "")

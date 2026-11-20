@@ -342,19 +342,18 @@ class Command(BaseCommand):
         self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str], pause: float
     ) -> None:
         commits = sorted({head.commit_sha for head in heads})
-        not_settled: list[str] = []
-        for index, (commit_sha, run_type) in enumerate((sha, run_type) for sha in commits for run_type in run_types):
+        statuses = [(commit_sha, run_type) for commit_sha in commits for run_type in run_types]
+        for index, (commit_sha, run_type) in enumerate(statuses):
             if index > 0:
                 time.sleep(pause)
+            # A refusal is usually GitHub's rate limit, and every further post would be refused too.
             if not commit_status.publish_after_switch(repo, commit_sha, run_type):
-                not_settled.append(f"{commit_sha} {run_type}")
-
-        self.stdout.write(f"Posted the status of {len(commits)} commits for {', '.join(run_types)}.")
-        if not not_settled:
-            return
-        for line in not_settled:
-            self.stdout.write(f"Not settled: {line}")
-        raise CommandError(f"{len(not_settled)} statuses may not be settled. Run recheck --apply again.")
+                raise CommandError(
+                    f"The {run_type} status of {commit_sha} did not settle, so the command stopped. "
+                    f"{index} of {len(statuses)} statuses posted, {len(statuses) - index} remain. "
+                    "Run recheck --apply again: posting a status twice is safe."
+                )
+        self.stdout.write(f"Posted {len(statuses)} statuses on {len(commits)} commits for {', '.join(run_types)}.")
 
     def _recheck(self, repo: Repo, options: dict[str, Any]) -> None:
         apply = options["apply"]

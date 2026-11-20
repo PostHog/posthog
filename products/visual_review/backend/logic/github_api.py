@@ -474,8 +474,11 @@ def merge_queue_branch_heads(repo: Repo) -> list[BranchHead] | None:
 
     The queue deletes a branch once its test is decided, so the branches that exist are the tests in progress.
     """
-    refs = _read_all_pages(
-        "visual_review.merge_queue_branches_fetch_failed", repo, "git/matching-refs/heads/trunk-merge", {}
+    # This endpoint does not page: one response holds every matching ref.
+    refs = _read_json(
+        "visual_review.merge_queue_branches_fetch_failed",
+        partial(_github_api_request, "GET", repo, "git/matching-refs/heads/trunk-merge"),
+        repo_id=str(repo.id),
     )
     if refs is None:
         return None
