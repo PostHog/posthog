@@ -133,14 +133,14 @@ export interface emailSenderControlLogicMeta {
         defaultSender: (
             canAdoptSandbox: boolean,
             integrations: IntegrationType[] | null,
-            projectDefaultSenderId: any
+            projectDefaultSenderId: number | null
         ) => DefaultEmailSender | null
         senderToPreselect: (
             action: EmailStepAction | null,
             defaultSender: DefaultEmailSender | null,
-            projectDefaultSenderId: any,
+            projectDefaultSenderId: number | null,
             integrations: IntegrationType[] | null,
-            isViewOnly: any
+            isViewOnly: boolean
         ) => number | null
         showSandboxOption: (
             action: EmailStepAction | null,
