@@ -378,35 +378,38 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
 
         self.assertIsNotNone(self._read_blob(credential_hash(credential)))
 
-    def test_a_write_that_cannot_be_verified_is_cleared(self):
+    @parameterized.expand(
+        [
+            ("trailing_read_fails", [False, OperationalError("database unavailable")], OperationalError),
+            ("next_leading_read_fails", [False, True, OperationalError("database unavailable")], OperationalError),
+            ("never_settles", [False, True, True, False, False, True], RuntimeError),
+        ]
+    )
+    def test_an_unverified_write_is_cleared(self, _name, organization_reads, expected_error):
         credential, _ = self._make_secret_key([GATEWAY_SCOPE])
 
         with (
-            patch.object(
-                gateway_credential_cache,
-                "_organization_deactivated",
-                side_effect=[False, False, OperationalError("database unavailable")],
-            ),
-            self.assertRaises(OperationalError),
+            patch.object(gateway_credential_cache, "_organization_deactivated", side_effect=organization_reads),
+            self.assertRaises(expected_error),
         ):
             project_gateway_credential(credential)
 
         self.assertIsNone(self._read_blob(credential_hash(credential)))
 
-    def test_a_projection_that_never_settles_is_cleared(self):
+    def test_a_transient_reactivation_does_not_publish_a_blob(self):
         credential, _ = self._make_secret_key([GATEWAY_SCOPE])
 
-        with (
-            patch.object(
-                gateway_credential_cache,
-                "_organization_deactivated",
-                side_effect=[False, False, True, True, True, False, False, False, True],
-            ),
-            self.assertRaises(RuntimeError),
-        ):
+        with patch.object(gateway_credential_cache, "_organization_deactivated", side_effect=[True, False, True, True]):
             project_gateway_credential(credential)
 
         self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    @parameterized.expand([("deactivated", False, False), ("unset", None, True)])
+    def test_oauth_authorization_follows_the_organization_state(self, _name, is_active, expected):
+        credential = self._make_oauth(GATEWAY_SCOPE)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=is_active)
+
+        self.assertIs(oauth_credential_authorized(credential, self.team), expected)
 
     def test_expired_oauth_token_clears(self):
         credential = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=-1)
