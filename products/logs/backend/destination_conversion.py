@@ -3,8 +3,9 @@
 Each stock HogFunction group becomes one `AlertDestination` row that copies it, and the group's
 HogFunctions are retired in the same transaction. Delivery skips a row while any HogFunction it
 copies exists, so the row starts sending only once they are gone, and never beside them. A row the
-alert page already wrote for the group is replaced, because an edit through the HogFunction API
-since then changed the HogFunctions and not the row.
+alert page already wrote for the group is kept, with its id, and rewritten from the group's live
+settings, because an edit through the HogFunction API since then changed the HogFunctions and not the
+row. A group that several rows copy has them replaced by one new row.
 
 Each alert converts in its own transaction, under its logs row's lock, which the destination routes
 and the rollback also take first, then its HogFunctions' locks. A run is safe to repeat: a retired
@@ -40,6 +41,7 @@ from products.alerts_platform.backend.facade.api import (
     legacy_events_emitted_since,
     list_source_destinations,
     record_source_destination,
+    refresh_source_destination,
     runtime_by_public_id,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -62,6 +64,8 @@ LEGACY_EVENTS_QUIET_PERIOD = timedelta(minutes=15)
 
 class GroupOutcome(StrEnum):
     CONVERTED = "converted"
+    KEPT_ROW = "kept_row"
+    # Several rows copied the group, so one new row replaces them all and the old ids go.
     REPLACED_ROW = "replaced_row"
     CUSTOMIZED = "customized"
     # A HogFunction opened the firing's incident under a key the row's resolve would not match, so the
@@ -235,25 +239,43 @@ def _convert_group(
     if copied and copied != set(group.hog_function_ids):
         return result(GroupOutcome.PARTLY_COPIED)
 
+    event_kinds = row_event_kinds(facts.event_kinds)
+    enabled = facts.enabled_count > 0
+    keeps_legacy_webhook_body = sends_legacy_body and facts.data["type"] == DestinationType.WEBHOOK
     try:
         with transaction.atomic():
-            if copied:
-                delete_source_destination_rows(
-                    team_id=alert.team_id, public_id=alert.id, destination_ids=(), hog_function_ids=copied
+            kept = (
+                refresh_source_destination(
+                    team_id=alert.team_id,
+                    public_id=alert.id,
+                    data=facts.data,
+                    event_kinds=event_kinds,
+                    hog_function_ids=group.hog_function_ids,
+                    hog_function_groups=groups,
+                    enabled=enabled,
+                    keeps_legacy_webhook_body=keeps_legacy_webhook_body,
                 )
-            recorded = record_source_destination(
-                team_id=alert.team_id,
-                public_id=alert.id,
-                data=facts.data,
-                event_kinds=row_event_kinds(facts.event_kinds),
-                hog_function_ids=group.hog_function_ids,
-                # Every group, so a second group that sends to the same place keeps both on HogFunctions.
-                hog_function_groups=groups,
-                enabled=facts.enabled_count > 0,
-                keeps_legacy_webhook_body=sends_legacy_body and facts.data["type"] == DestinationType.WEBHOOK,
+                if copied
+                else None
             )
-            if recorded is None:
-                raise _NoSourceDestinations
+            if kept is None:
+                if copied:
+                    delete_source_destination_rows(
+                        team_id=alert.team_id, public_id=alert.id, destination_ids=(), hog_function_ids=copied
+                    )
+                recorded = record_source_destination(
+                    team_id=alert.team_id,
+                    public_id=alert.id,
+                    data=facts.data,
+                    event_kinds=event_kinds,
+                    hog_function_ids=group.hog_function_ids,
+                    # Every group, so a second group that sends to the same place keeps both on HogFunctions.
+                    hog_function_groups=groups,
+                    enabled=enabled,
+                    keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+                )
+                if recorded is None:
+                    raise _NoSourceDestinations
             # A queryset update, not a save: a HogFunction saved as deleted deletes every row that copies it.
             soft_delete_alert_destinations(
                 team_id=alert.team_id,
@@ -265,6 +287,8 @@ def _convert_group(
         return result(GroupOutcome.REFUSED, str(error))
     except _NoSourceDestinations:
         return result(GroupOutcome.NO_SOURCE_DESTINATIONS)
+    if kept is not None:
+        return result(GroupOutcome.KEPT_ROW)
     return result(GroupOutcome.REPLACED_ROW if copied else GroupOutcome.CONVERTED)
 
 
