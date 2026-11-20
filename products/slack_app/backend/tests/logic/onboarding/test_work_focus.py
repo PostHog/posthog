@@ -47,6 +47,7 @@ WORK_FOCUS = "products.slack_app.backend.logic.onboarding.work_focus"
 SECRET_MESSAGE = "the churn numbers for the enterprise plan look wrong again"
 SIGNUP_MESSAGE = "can someone check why signups dropped after the release"
 CHATTER = "lunch at noon?"
+ASKED_THE_APP = "<@U_BOT> can you check why signups dropped after the release"
 REQUEST = "Find out why churn by plan looks wrong for the enterprise plan, and fix the query."
 
 
@@ -85,7 +86,9 @@ def _search(found: int) -> Any:
             # Both searches find the same few messages, so they count once.
             return {"ok": True, "results": {"messages": _messages([CHATTER] * found, prefix="few")}}
         if not params.get("cursor"):
-            first = [SECRET_MESSAGE, CHATTER, CHATTER] if query_key == "mine" else [SIGNUP_MESSAGE, CHATTER]
+            first = (
+                [SECRET_MESSAGE, CHATTER, CHATTER] if query_key == "mine" else [SIGNUP_MESSAGE, CHATTER, ASKED_THE_APP]
+            )
             bots = [{"channel_id": "C1", "message_ts": "9", "content": "bot noise", "is_author_bot": True}]
             return {
                 "ok": True,
@@ -104,7 +107,7 @@ def _search(found: int) -> Any:
 
 def _rank(*, state: dict[str, Any], questions: dict[str, NoulQuestion]) -> SystemOneResult:
     def probability(content: str) -> float:
-        return {SECRET_MESSAGE: 0.9, SIGNUP_MESSAGE: 0.7}.get(content, 0.1)
+        return {SECRET_MESSAGE: 0.9, SIGNUP_MESSAGE: 0.7, ASKED_THE_APP: 0.95}.get(content, 0.1)
 
     messages = state["messages"]
     return SystemOneResult(
@@ -134,6 +137,7 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
         patch(f"{WORK_FOCUS}.capture_slack_event"),
         # The first work focus rolls out with the daily one; a test that needs it off turns it off.
         patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True) as daily_flag,
+        patch(f"{WORK_FOCUS}.get_cached_bot_user_id", return_value="U_BOT"),
         patch("posthog.models.integration.slack.WebClient") as bot_client,
     ):
         search_client.return_value.api_call.side_effect = _search(found=6)
@@ -188,6 +192,12 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     written_from = create.call_args.kwargs["messages"][1]["content"]
     assert SECRET_MESSAGE in written_from and SIGNUP_MESSAGE in written_from
     assert CHATTER not in written_from and "bot noise" not in written_from
+    # A message that tagged the app was answered in its thread, so it is never ranked or offered again.
+    assert ASKED_THE_APP not in written_from
+    assert all(
+        ASKED_THE_APP not in json.dumps(call.kwargs["state"])
+        for call in slack["ranker"].return_value.decide.call_args_list
+    )
     dm = slack["bot"].chat_postMessage.call_args.kwargs
     assert dm["channel"] == SLACK_USER_ID
     # The daily flag is on, so the first DM also turns the daily one on and carries its footer.
@@ -537,12 +547,9 @@ def test_a_daily_run_opens_with_what_moved_in_the_shared_channels(
     assert "<threads>\n[1] in <#C1>:\n<@U_LEAD>: we are rolling back" in prompt
     blocks = bot_integration.return_value.client.chat_postMessage.call_args.kwargs["blocks"]
     text = all_block_text(blocks)
-    # A quiet inbox still gets the news from its channels, without an empty "Where I can help".
-    assert (
-        "*What happened*\n• <@U_LEAD> rolled back the release. <https://example.slack.com/archives/C1/p17001|[1]>"
-        in text
-    )
-    assert ("*Where I can help*" in text) is not quiet_inbox
+    # A quiet inbox still gets the news from its channels, without an empty offer list.
+    assert "• <@U_LEAD> rolled back the release in <#C1>. <https://example.slack.com/archives/C1/p17001|[1]>" in text
+    assert ("Here's where I can jump in" in text) is not quiet_inbox
     assert "I read your messages and the channels we share since Friday" in text
 
 

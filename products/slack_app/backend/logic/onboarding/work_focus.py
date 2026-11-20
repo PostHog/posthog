@@ -45,6 +45,7 @@ from products.slack_app.backend.logic.onboarding.daily_summary import SummaryThr
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, read_action_value
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
+from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
 from products.slack_app.backend.services.slack_user_oauth import (
     LinkedUserToken,
     linked_posthog_distinct_id,
@@ -136,8 +137,9 @@ ignore edited query parameters, and open a pull request with the fix." At most 5
   - "source": the number of the message the task comes from.
 - "summary": at most 5 one-line items on what happened in the threads, the ones the person is in first, then the \
 most consequential. Each item has:
-  - "text": one plain sentence of at most 110 characters that says what was decided, reported, launched or asked, \
-and who did it. Refer to people only with the `<@U…>` tokens exactly as they appear, which Slack shows as names.
+  - "text": one plain sentence of at most 110 characters that starts with who did it and says what was decided, \
+reported, launched or asked. Refer to people only with the `<@U…>` tokens exactly as they appear, which Slack \
+shows as names. Do not name the channel; it is added after the sentence.
   - "source": the number of the thread the item comes from.
   Leave out a thread that is only chat or a status note, and a thread that already became a suggestion. Return an \
 empty list when no threads are given.
@@ -212,6 +214,7 @@ class WorkFocusSuggestion:
 @frozen
 class WorkFocusSummaryItem:
     text: str
+    channel_id: str
     permalink: str | None
 
 
@@ -396,6 +399,9 @@ def _find(
     messages = _search_messages(integration, token.access_token, slack_user_id, channel_types, after=after, pages=pages)
     if messages is None:
         raise WorkFocusTransientError("search failed")
+    # A message that tagged the app already got its answer in its thread, so it is never offered again.
+    if bot_user_id := get_cached_bot_user_id(SlackIntegration(integration), integration):
+        messages = [message for message in messages if f"<@{bot_user_id}>" not in message.content]
     candidates: list[_FoundMessage] = []
     if len(messages) >= min_messages:
         try:
@@ -623,7 +629,7 @@ def _clean_summary(raw: Any, threads: list[SummaryThread]) -> list[WorkFocusSumm
         source = item.get("source")
         thread = threads[source - 1] if isinstance(source, int) and 1 <= source <= len(threads) else None
         if text and thread is not None:
-            items.append(WorkFocusSummaryItem(text=text, permalink=thread.permalink))
+            items.append(WorkFocusSummaryItem(text=text, channel_id=thread.channel_id, permalink=thread.permalink))
     return items[:MAX_SUMMARY_ITEMS]
 
 
@@ -668,13 +674,15 @@ def work_focus_blocks(
     if not focus.summary:
         blocks: list[dict] = [section_block(f"{focus.intro} Here's where I can jump in:")]
     else:
+        # Slackbot's own search answers: one line per finding, the channel after it, a small numbered link to the thread.
         lines = [
-            f"• {item.text}" + (f" <{item.permalink}|[{number}]>" if item.permalink else "")
+            f"• {item.text.rstrip('.')} in <#{item.channel_id}>."
+            + (f" <{item.permalink}|[{number}]>" if item.permalink else "")
             for number, item in enumerate(focus.summary, start=1)
         ]
-        blocks = [section_block(focus.intro), section_block("*What happened*\n" + "\n".join(lines))]
+        blocks = [section_block(focus.intro + "\n" + "\n".join(lines))]
         if focus.suggestions:
-            blocks.append(section_block("*Where I can help*"))
+            blocks.append(section_block("Here's where I can jump in:"))
     for index, suggestion in enumerate(focus.suggestions):
         # The DM posts with unfurling off, so the link shows no preview.
         line = source_line(suggestion, slack_user_id)
