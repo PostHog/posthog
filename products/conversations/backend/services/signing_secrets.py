@@ -65,6 +65,9 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> SigningSecretRetir
             )
             replaced = True
         if row.previous_secret == token:
+            # An expired previous secret is still cleared, but the email must not claim a
+            # grace window ended when the widget already rejected the value.
+            grace_window_ended = row.previous_secret_active
             row.previous_secret = None
             row.previous_secret_rotated_at = None
             update_fields += ["previous_secret", "previous_secret_rotated_at"]
@@ -77,7 +80,6 @@ def retire_leaked_signing_secret(team_id: int, token: str) -> SigningSecretRetir
                     after=None,
                 )
             )
-            grace_window_ended = True
         if not update_fields:
             return SigningSecretRetirement(replaced=False, grace_window_ended=False)
         row.save(update_fields=update_fields)

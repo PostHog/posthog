@@ -642,6 +642,35 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         self.assertIs(mock_ff_exposed.call_args.kwargs["grace_window_ended"], False)
         mock_psak_exposed.assert_not_called()
 
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_leaked_token_lingering_as_previous_signing_secret_ends_the_grace_window(
+        self, mock_psak_exposed, mock_ff_exposed, mock_verify
+    ):
+        mock_verify.return_value = None
+        token = "phs_legacy_team_secret_token_123"
+        self.team.secret_api_token = token
+        self.team.save()
+        signing_secret = SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret="phs_rotated_fresh_secret",
+            previous_secret=token,
+            previous_secret_rotated_at=timezone.now(),
+            rotated_independently=True,
+        )
+
+        response = self._post_alert([token])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        signing_secret.refresh_from_db()
+        self.assertEqual(signing_secret.secret, "phs_rotated_fresh_secret")
+        self.assertIsNone(signing_secret.previous_secret)
+        mock_ff_exposed.assert_called_once()
+        self.assertIs(mock_ff_exposed.call_args.kwargs["signing_secret_replaced"], False)
+        self.assertIs(mock_ff_exposed.call_args.kwargs["grace_window_ended"], True)
+        mock_psak_exposed.assert_not_called()
+
     @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
     @patch("posthog.api.github.posthoganalytics.capture")
     @patch("posthog.api.github.verify_github_signature")
@@ -671,6 +700,7 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         mock_ff_exposed.assert_called_once()
         # No signing secret row carried the token, so the email must not claim a replacement.
         self.assertIs(mock_ff_exposed.call_args.kwargs["signing_secret_replaced"], False)
+        self.assertIs(mock_ff_exposed.call_args.kwargs["grace_window_ended"], False)
         alert_events = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "github_secret_alert"]
         self.assertEqual(len(alert_events), 1)
         self.assertEqual(alert_events[0].kwargs["properties"]["key_kind"], "team_secret_token")

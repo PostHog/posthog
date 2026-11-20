@@ -29,13 +29,13 @@ from posthog.settings import EE_AVAILABLE
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
 from posthog.utils import get_trusted_client_ip
 
-if TYPE_CHECKING:
-    from products.conversations.backend.services.signing_secrets import SigningSecretRetirement
-
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
+
+if TYPE_CHECKING:
+    from products.conversations.backend.services.signing_secrets import SigningSecretRetirement
 
 if EE_AVAILABLE:
     from ee.billing.grants import BillingEntitlement, effective_billing_grants
