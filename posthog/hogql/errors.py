@@ -71,6 +71,14 @@ class QueryError(ExposedHogQLError):
     code_name = "hogql_query_error"
 
 
+class AmbiguousFieldError(QueryError):
+    def __init__(self, name: str, field_sources: list[str]):
+        source_names = ", ".join(f"{source}.{name}" for source in field_sources)
+        super().__init__(
+            f"Ambiguous query. Found multiple sources for field: {name} ({source_names}). Use a qualified field name."
+        )
+
+
 class BoundedResolverError(QueryError):
     """Base class for saved view resolution failures: cycles, nesting depth and deadlines.
 

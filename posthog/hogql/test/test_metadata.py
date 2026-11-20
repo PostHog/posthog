@@ -365,6 +365,18 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
+    @override_settings(DEBUG=False)
+    def test_metadata_marks_the_ambiguous_field_and_names_its_sources(self):
+        query = "SELECT label FROM (SELECT 1 AS label) AS a CROSS JOIN (SELECT 2 AS label) AS b"
+        metadata = self._select(query)
+
+        self.assertFalse(metadata.isValid)
+        self.assertFalse(metadata.internalError)
+        [error] = metadata.errors
+        self.assertEqual((error.start, error.end), (7, 12))
+        self.assertIn("a.label, b.label", error.message)
+        self.assertIn("Use a qualified field name", error.message)
+
     @parameterized.expand(
         [
             ("SELECT tiemstamp FROM events", "tiemstamp", "timestamp"),

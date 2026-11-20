@@ -26,7 +26,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     UUIDDatabaseField,
 )
-from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
+from posthog.hogql.errors import AmbiguousFieldError, QueryError, ResolutionError, SyntaxError
 from posthog.hogql.escape_sql import escape_hogql_identifier, quote_hogql_identifier
 
 # Bounds the message for wide warehouse tables. A longer list stops helping the reader pick a column.
@@ -46,7 +46,7 @@ def lookup_field_by_name(
             if new_field:
                 if field:
                     field_sources.append(_select_set_type_source_name(index))
-                    raise _ambiguous_field_resolution_error(name, field_sources)
+                    raise AmbiguousFieldError(name, field_sources)
                 field_sources.append(_select_set_type_source_name(index))
                 field = new_field
         return field
@@ -64,7 +64,7 @@ def lookup_field_by_name(
             field_sources = [
                 _table_source_name(table, context, alias=table_alias) for table_alias, table in named_tables
             ] + [_anonymous_table_source_name(table, index) for index, table in enumerate(anonymous_tables, start=1)]
-            raise _ambiguous_field_resolution_error(name, field_sources)
+            raise AmbiguousFieldError(name, field_sources)
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name, context)
 
@@ -72,13 +72,6 @@ def lookup_field_by_name(
             return lookup_field_by_name(scope.parent, name, context)
 
         return None
-
-
-def _ambiguous_field_resolution_error(name: str, field_sources: list[str]) -> ResolutionError:
-    source_names = ", ".join(f"{source}.{name}" for source in field_sources)
-    return ResolutionError(
-        f"Ambiguous query. Found multiple sources for field: {name} ({source_names}). Use a qualified field name."
-    )
 
 
 def _table_source_name(table: ast.TableOrSelectType, context: HogQLContext, *, alias: str | None = None) -> str:
