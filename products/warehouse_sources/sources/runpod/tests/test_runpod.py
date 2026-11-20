@@ -233,11 +233,17 @@ class TestFetchJson:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("forbidden_scope", 403, True)])
+    @parameterized.expand([("valid_key", 200, True), ("forbidden_scope", 403, True)])
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         # 403 is accepted at create time (real key restricted to other endpoints); 401 means a bad key.
-        with scripted_network([ScriptedResponse(status=status)]):
+        body = (
+            {"pods": [{"id": "pod_example", "env": {"CUSTOM_SETTING": "synthetic-only-value"}, "args": "test-command"}]}
+            if status == 200
+            else {}
+        )
+        with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
             assert validate_credentials("rpa_test") is expected
+        assert network.session_options[0].get("capture") is False
 
 
 class TestNonRetryableErrors:

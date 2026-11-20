@@ -120,7 +120,7 @@ def validate_credentials(api_key: str) -> bool:
     # A single cheap probe against the pods list confirms the API key is genuine.
     url = _build_url("/pods", {"limit": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session(capture=False).get(url, headers=_get_headers(api_key), timeout=10)
     except Exception:
         return False
     # 200 => valid. 403 => valid key restricted to other endpoints; still a real key, so accept it at
