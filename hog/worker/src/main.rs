@@ -938,8 +938,9 @@ impl Worker {
         Ok(Answer::SourcePaths { sources })
     }
 
-    // A dSYM symbol set that fits wins over a native file with its UUID, so dSYMs pack first and
-    // such a native file never packs. Its sources are still read, for the warnings.
+    // A dSYM symbol set that fits wins over a native file with its UUID, so a native file that shares
+    // a dSYM's UUID packs only after it, and only when the dSYM does not fit. Its sources are still
+    // read, for the warnings.
     fn pack_native(
         &mut self,
         sources: &[Vec<String>],
@@ -968,15 +969,24 @@ impl Worker {
             let sources = item.sources.map(|place| &collected[place]);
             native::pack(binary, sources, folder).map_err(|error| format!("{error:#}"))
         };
-        let dsyms: Vec<Option<upload::Container>> = items
+        let dsym_ids: HashSet<&str> = items
+            .iter()
+            .filter(|item| item.dsym)
+            .map(|item| item.chunk_id.as_str())
+            .collect();
+        let first: Vec<Option<upload::Container>> = items
             .par_iter()
             .zip(&binaries)
-            .map(|(item, binary)| item.dsym.then(|| pack(item, binary)).transpose())
+            .map(|(item, binary)| {
+                let waits = !item.dsym && dsym_ids.contains(item.chunk_id.as_str());
+                (!waits).then(|| pack(item, binary)).transpose()
+            })
             .collect::<Result<_, _>>()
             .map_err(Failure::failed)?;
         let fitting: HashSet<&str> = items
             .iter()
-            .zip(&dsyms)
+            .zip(&first)
+            .filter(|(item, _)| item.dsym)
             .filter_map(|(item, packed)| packed.as_ref().map(|packed| (item, packed)))
             .filter(|(_, packed)| packed.size <= max_size)
             .map(|(item, _)| item.chunk_id.as_str())
@@ -985,7 +995,7 @@ impl Worker {
         let containers: Vec<Option<upload::Container>> = items
             .par_iter()
             .zip(binaries)
-            .zip(dsyms)
+            .zip(first)
             .map(|((item, binary), packed)| match packed {
                 Some(packed) => Ok(Some(packed)),
                 None if fitting.contains(item.chunk_id.as_str()) => Ok(None),
