@@ -5,7 +5,7 @@ import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
-import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
+import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
@@ -18,8 +18,11 @@ export function TransactionalEmailResults(): JSX.Element {
         resultsFailed,
         canLoadResults,
         codeEmailsFailed,
+        codeEmailsLoading,
     } = useValues(transactionalEmailMetricsLogic)
     const { setResultsQuery, loadResults, loadCodeEmails } = useActions(transactionalEmailMetricsLogic)
+    const { transactionalTemplatesFailed, transactionalTemplatesLoading } = useValues(transactionalTemplatesLogic)
+    const { loadTransactionalTemplates } = useActions(transactionalTemplatesLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -31,6 +34,7 @@ export function TransactionalEmailResults(): JSX.Element {
                     value={resultsQuery.workflowId}
                     onChange={(workflowId) => setResultsQuery({ workflowId })}
                     options={resultsEmailOptions}
+                    loading={codeEmailsLoading || transactionalTemplatesLoading}
                     data-attr="transactional-email-results-email"
                 />
                 <span>how many did</span>
@@ -69,21 +73,23 @@ export function TransactionalEmailResults(): JSX.Element {
                     data-attr="transactional-email-results-revenue"
                 />
             </div>
-            <TransactionalTemplatesLoadError
-                message="Your email templates couldn't load, so the list may be missing some emails. Check your connection and try again."
-                dataAttr="transactional-email-results-templates-retry"
-            />
-            {codeEmailsFailed ? (
+            {codeEmailsFailed || transactionalTemplatesFailed ? (
                 <LemonBanner
                     type="error"
                     action={{
                         children: 'Try again',
-                        onClick: () => loadCodeEmails(),
-                        'data-attr': 'transactional-email-results-code-emails-retry',
+                        onClick: () => {
+                            if (codeEmailsFailed) {
+                                loadCodeEmails()
+                            }
+                            if (transactionalTemplatesFailed) {
+                                loadTransactionalTemplates()
+                            }
+                        },
+                        'data-attr': 'transactional-email-results-templates-retry',
                     }}
                 >
-                    Your emails sent from code couldn't load, so the list may be missing some emails. Check your
-                    connection and try again.
+                    Some of your emails couldn't load, so the list may be missing them. Try again.
                 </LemonBanner>
             ) : null}
             {!canLoadResults ? (

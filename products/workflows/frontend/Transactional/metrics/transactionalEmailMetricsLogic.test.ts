@@ -82,7 +82,7 @@ describe('transactionalEmailMetricsLogic', () => {
         expect(logic.values.templateStatsLinks).toEqual(links)
     })
 
-    it('offers the transactional templates and the emails sent from code, whatever the period', async () => {
+    it('offers the transactional templates and the emails sent from code', async () => {
         logic = transactionalEmailMetricsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
