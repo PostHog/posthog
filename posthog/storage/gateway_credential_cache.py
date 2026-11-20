@@ -19,7 +19,6 @@ cold Redis.
 """
 
 import os
-import time
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -517,21 +516,22 @@ def refresh_all_gateway_credentials() -> int:
     return count
 
 
-def reproject_organization_gateway_credentials(organization_id: str, deadline: float | None = None) -> None:
+def reproject_organization_gateway_credentials(organization_id: str) -> None:
     credentials: Iterable[Credential] = chain(
         ProjectSecretAPIKey.objects.using("default")
         .select_related("team")
-        .filter(team__organization_id=organization_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]),
+        .filter(team__organization_id=organization_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE])
+        .iterator(),
         OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
         .using("default")
         .select_related("user", "application")
-        .filter(application__organization_id=organization_id),
+        .filter(application__organization_id=organization_id, expires__gt=timezone.now())
+        .order_by("-expires")
+        .iterator(),
     )
     first_error: Exception | None = None
     infra_failures_in_a_row = 0
     for credential in credentials:
-        if deadline is not None and time.monotonic() >= deadline:
-            break
         try:
             project_gateway_credential(credential)
         except Exception as e:

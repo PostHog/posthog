@@ -341,7 +341,7 @@ def _reproject_organization_on_active_change(
                 error=str(e),
             )
         try:
-            reproject_organization_gateway_credentials_task(organization_id, time_budget_seconds=5)
+            reproject_organization_gateway_credentials_task(organization_id)
         except Exception as e:
             logger.exception(
                 "Synchronous organization gateway credential reprojection failed",

@@ -1,7 +1,4 @@
-import time
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
-from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -275,32 +272,6 @@ class TestProjectTeamQuota(QuotaProjectionTestMixin):
         ):
             self.assertEqual(project_org_quota(self.organization), 0)
         self.assertEqual(len(attempted), 3)
-
-    @parameterized.expand([("mid_projection", 5.0, 4), ("before_the_first_batch", 0.0, 0)])
-    def test_a_projection_reads_no_new_batch_past_its_deadline(self, mock_settings, _name, deadline, expected_reads):
-        self._enable(mock_settings)
-        for index in range(4):
-            Team.objects.create(organization=self.organization, name=f"team {index}")
-        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
-        clock = [0.0]
-        real_write = hypercache.set_cache_value_redis_only
-
-        def slow_write(*args: Any, **kwargs: Any) -> Any:
-            clock[0] += 3.0
-            return real_write(*args, **kwargs)
-
-        from posthog.storage import team_llm_gateway_quota_cache as module
-
-        with (
-            patch.object(module, "_BATCH_SIZE", 1),
-            patch.object(module, "time", SimpleNamespace(monotonic=lambda: clock[0], time=time.time)),
-            patch.object(hypercache, "set_cache_value_redis_only", side_effect=slow_write),
-            CaptureQueriesContext(connection) as queries,
-        ):
-            project_org_quota(self.organization, deadline)
-
-        org_reads = [q["sql"] for q in queries.captured_queries if 'FROM "posthog_organization"' in q["sql"]]
-        self.assertEqual(len(org_reads), expected_reads, org_reads)
 
     def test_a_stale_clear_is_rewritten_when_later_writes_keep_failing(self, mock_settings):
         self._enable(mock_settings)

@@ -3,7 +3,6 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest
@@ -783,6 +782,23 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
         still_cached = [c for c in credentials if self._read_blob(credential_hash(c)) is not None]
         self.assertEqual(len(still_cached), 1)
 
+    def test_reproject_organization_task_sweeps_live_oauth_tokens_newest_first(self):
+        expiring_soon = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=1)
+        expiring_late = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=2)
+        self._make_oauth(GATEWAY_SCOPE, expires_in_hours=-1)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        real_delete = hypercache.delete_cache_entry
+        cleared: list[str] = []
+
+        def record_delete(cache_hash: str, kinds: list[str]) -> None:
+            cleared.append(cache_hash)
+            real_delete(cache_hash, kinds=kinds)
+
+        with patch.object(hypercache, "delete_cache_entry", side_effect=record_delete):
+            reproject_organization_gateway_credentials_task(str(self.organization.pk))
+
+        self.assertEqual(cleared, [credential_hash(expiring_late), credential_hash(expiring_soon)])
+
     def test_reproject_organization_task_stops_once_the_cache_keeps_failing(self):
         for _ in range(5):
             self._make_secret_key([GATEWAY_SCOPE])
@@ -1185,34 +1201,6 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
                 self.organization.save()
 
         self.assertEqual(queued, [str(self.organization.pk)])
-
-    def test_organization_deactivation_stops_sweeping_once_its_time_budget_is_spent(self):
-        for _ in range(5):
-            self._make_secret_key([GATEWAY_SCOPE])
-        clock = [0.0]
-        fake_time = SimpleNamespace(monotonic=lambda: clock[0])
-        real_delete = hypercache.delete_cache_entry
-        attempted: list[str] = []
-
-        def slow_delete(cache_hash: str, kinds: list[str]) -> None:
-            attempted.append(cache_hash)
-            clock[0] += 3.0
-            real_delete(cache_hash, kinds=kinds)
-
-        with (
-            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
-            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
-            patch("posthog.tasks.gateway_credential.time", fake_time),
-            patch("posthog.storage.gateway_credential_cache.time", fake_time),
-            patch.object(hypercache, "delete_cache_entry", side_effect=slow_delete),
-            patch("posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay"),
-        ):
-            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
-            mock_transaction.on_commit.side_effect = lambda fn: fn()
-            self.organization.is_active = False
-            self.organization.save()
-
-        self.assertEqual(len(attempted), 2)
 
     @parameterized.expand([("broker_up", True), ("broker_down", False)])
     def test_organization_deactivation_queues_a_follow_up_without_failing_the_save(self, _name, broker_up):
