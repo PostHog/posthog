@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing as t
+import contextlib
 from datetime import date, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
@@ -173,13 +174,23 @@ _PH_HISTORY_NAMING_FLAG = (
 )
 
 
-def _test_team_not_allowlisted_for_internal_hosts():
+def _test_team_not_allowlisted_for_internal_hosts() -> contextlib.ExitStack:
     # The test team's id depends on which tests ran before it in the same database. The allowlist exempts
     # team 2 in the US region and team 1 in the EU region from the internal-host check.
-    return patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_team_allowlisted_for_internal_hosts",
-        return_value=False,
+    stack = contextlib.ExitStack()
+    stack.enter_context(
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_team_allowlisted_for_internal_hosts",
+            return_value=False,
+        )
     )
+    stack.enter_context(
+        patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.is_team_allowlisted_for_internal_hosts",
+            return_value=False,
+        )
+    )
+    return stack
 
 
 def _mock_source_without_oauth_fields(mock_get_source) -> None:
@@ -6932,6 +6943,7 @@ class TestExternalDataSource(APIBaseTest):
                 "supports_webhooks": False,
                 "webhook_only": False,
                 "prefers_full_refresh": False,
+                "declares_primary_keys": False,
                 "available_columns": [
                     {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
                 ],
@@ -13839,14 +13851,21 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
 class TestExternalDataSourceSetup(APIBaseTest):
     # Stripe enables revenue analytics, whose post-create view sync builds the HogQL Database — patched
     # out here so the test exercises setup's own logic rather than that unrelated side effect.
+    @parameterized.expand(
+        [
+            # The MCP tool injects `mcp`; a direct API call sends nothing.
+            ("mcp_tool", {"created_via": "mcp"}, ExternalDataSource.CreatedVia.MCP),
+            ("direct_api_call", {}, ExternalDataSource.CreatedVia.API),
+        ]
+    )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join")
     @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_setup_creates_source_with_all_tables_and_mcp_created_via(
-        self, _mock_validate, _mock_sync_views, _mock_person_join
+    def test_setup_creates_source_with_all_tables_and_records_created_via(
+        self, _name, extra_body, expected_created_via, _mock_validate, _mock_sync_views, _mock_person_join
     ):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
@@ -13854,12 +13873,13 @@ class TestExternalDataSourceSetup(APIBaseTest):
                 "source_type": "Stripe",
                 "prefix": "stripe_setup_test",
                 "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                **extra_body,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
         source = ExternalDataSource.objects.get(pk=response.json()["id"])
-        assert source.created_via == ExternalDataSource.CreatedVia.MCP
+        assert source.created_via == expected_created_via
         assert source.prefix == "stripe_setup_test"
 
         schemas = ExternalDataSchema.objects.filter(source=source)
@@ -14164,8 +14184,6 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-        source = ExternalDataSource.objects.get(pk=response.json()["id"])
-        assert source.created_via == ExternalDataSource.CreatedVia.MCP
         # The stored secret was merged in server-side and used for validation.
         validated_config = mock_validate.call_args.args[0]
         assert validated_config.auth_method.stripe_secret_key == "sk_test_stored"
@@ -15633,7 +15651,6 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.source_type == "Custom"
-        assert source.created_via == ExternalDataSource.CreatedVia.MCP
 
 
 class TestGetDirectConnectionMetadata(SimpleTestCase):

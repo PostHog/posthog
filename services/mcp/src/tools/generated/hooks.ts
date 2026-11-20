@@ -17,6 +17,7 @@ import hooks13 from '@/tools/signals/inboxMySettingsHooks'
 import type { ToolHooks } from '@/tools/tool-hooks'
 import hooks14 from '@/tools/workflows/broadcastLinkHooks'
 import hooks15 from '@/tools/workflows/dataSuggestionCreateHooks'
+import hooks16 from '@/tools/workflows/testSenderNoteHooks'
 
 export const GENERATED_TOOL_HOOKS: Record<string, ToolHooks<any>> = {
     'dataWarehouse/viewGetHooks': hooks0,
@@ -35,4 +36,5 @@ export const GENERATED_TOOL_HOOKS: Record<string, ToolHooks<any>> = {
     'signals/inboxMySettingsHooks': hooks13,
     'workflows/broadcastLinkHooks': hooks14,
     'workflows/dataSuggestionCreateHooks': hooks15,
+    'workflows/testSenderNoteHooks': hooks16,
 }

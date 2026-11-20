@@ -164,6 +164,7 @@ const REASON_PHRASE: Record<RoutingOwnerReasonEnumApi, string> = {
     [RoutingOwnerReasonEnumApi.ModelKept]: "the model judged your team's part worth a review",
     [RoutingOwnerReasonEnumApi.ModelCut]: "the model judged your team's part did not need a review",
     [RoutingOwnerReasonEnumApi.StamphogApproved]: 'it was auto-approved',
+    [RoutingOwnerReasonEnumApi.Attested]: 'a verified proof covered every file it changed',
 }
 
 const WHY_BY_OUTCOME: Record<RoutingOwnerOutcomeEnumApi, (decision: CodeReviewApprovalRoutingRunOwnerApi) => string> = {
@@ -175,10 +176,15 @@ const WHY_BY_OUTCOME: Record<RoutingOwnerOutcomeEnumApi, (decision: CodeReviewAp
         'The pull request came from a fork, so your team got a label on it instead of a review request.',
     [RoutingOwnerOutcomeEnumApi.Refused]: () =>
         'Your team should have been asked, but GitHub refused the review request.',
-    [RoutingOwnerOutcomeEnumApi.NotRequested]: (decision) =>
-        decision.reason === RoutingOwnerReasonEnumApi.StamphogApproved
-            ? 'It was auto-approved, so your team was not asked.'
-            : `Your team would have been asked because ${REASON_PHRASE[decision.reason]}, but it was auto-approved first.`,
+    [RoutingOwnerOutcomeEnumApi.NotRequested]: (decision) => {
+        if (decision.reason === RoutingOwnerReasonEnumApi.StamphogApproved) {
+            return 'It was auto-approved, so your team was not asked.'
+        }
+        if (decision.reason === RoutingOwnerReasonEnumApi.Attested) {
+            return 'A verified proof covered every file it changed and it already had a reviewer, so your team was not asked.'
+        }
+        return `Your team would have been asked because ${REASON_PHRASE[decision.reason]}, but it was auto-approved first.`
+    },
     [RoutingOwnerOutcomeEnumApi.Cut]: () =>
         'Your part of the change was small, so a review from your team was not needed.',
 }

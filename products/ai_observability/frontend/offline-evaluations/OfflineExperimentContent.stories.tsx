@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -21,7 +20,6 @@ const meta: Meta<typeof OfflineExperimentContent> = {
     parameters: {
         mockDate: '2026-09-28T12:00:00Z',
         pageUrl: urls.aiObservabilityOfflineEvaluationExperiment(detailExperiment.id),
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
     },
     decorators: [
         mswDecorator({
@@ -212,6 +210,31 @@ export const DetailedResult: Story = {
                         },
                     },
                 }),
+            },
+        }),
+    ],
+}
+
+export const UpdatedItem: Story = {
+    parameters: DetailedResult.parameters,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/ai_observability/offline_experiments/:id/': {
+                    ...detailExperiment,
+                    updated_at: '2026-09-27T14:34:00Z',
+                },
+                '/api/projects/:team/ai_observability/offline_experiments/:id/items/:itemId/': {
+                    ...detailItems[0],
+                    content_updated_at: '2026-09-27T14:34:00Z',
+                },
+                '/api/projects/:team/ai_observability/offline_experiments/:id/items/:itemId/results/': ({ params }) => {
+                    const results = offlineDetailItemResults(String(params.itemId)).map((result) => ({
+                        ...result,
+                        is_stale: true,
+                    }))
+                    return { count: results.length, next_cursor: null, results }
+                },
             },
         }),
     ],

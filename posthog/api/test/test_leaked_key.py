@@ -36,6 +36,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.rate_limit import LeakedKeyReportThrottle
 from posthog.test.api_keys import create_project_secret_api_key
 
+from products.conversations.backend.models import SigningSecret
+
 
 class TestPublicLeakedKeyReport(APIBaseTest):
     # Every case must exercise the anonymous path this endpoint exists to serve. With the
@@ -221,6 +223,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         setattr(self.team, token_field, token)
         self.team.save()
         row, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy secret API key", value=token)
+        signing_secret = SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=token)
 
         response = self._post(token)
 
@@ -232,8 +235,13 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         )
         self.team.refresh_from_db()
         self.assertEqual(getattr(self.team, token_field), token)
+        # The widget signing secret mirrored the leaked value; it must stop verifying it.
+        signing_secret.refresh_from_db()
+        self.assertNotEqual(signing_secret.secret, token)
+        self.assertTrue(signing_secret.rotated_independently)
         mock_psak_exposed.assert_not_called()
         mock_ff_exposed.assert_called_once()
+        self.assertIs(mock_ff_exposed.call_args[0][3], True)
 
     def test_expired_oauth_access_token_still_revokes_the_paired_refresh_token(self) -> None:
         # An expired access token can't authenticate on its own, but revoking still

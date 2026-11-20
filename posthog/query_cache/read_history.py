@@ -90,3 +90,22 @@ def read_since(*, team_id: int, since: datetime, now: datetime) -> set[str]:
     keys = [_redis_key(team_id, first_hour + timedelta(hours=hour)) for hour in range(hours)]
     members = redis.get_client().sunion(keys)
     return {member.decode("utf-8") if isinstance(member, bytes) else str(member) for member in members}
+
+
+def last_read_hours(
+    *, team_id: int, identifiers: list[str], since: datetime, now: datetime
+) -> dict[str, Optional[datetime]]:
+    """The start of the latest hour from `since` to `now` in which each identifier was read, or None if it was not."""
+    if not identifiers:
+        return {}
+    first_hour = since.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    hours = [first_hour + timedelta(hours=hour) for hour in range(int((now - first_hour) // timedelta(hours=1)) + 1)]
+    pipeline = redis.get_client().pipeline(transaction=False)
+    for hour in hours:
+        pipeline.smismember(_redis_key(team_id, hour), identifiers)
+    last_read: dict[str, Optional[datetime]] = dict.fromkeys(identifiers)
+    for hour, membership in zip(hours, pipeline.execute()):
+        for identifier, was_read in zip(identifiers, membership):
+            if was_read:
+                last_read[identifier] = hour
+    return last_read

@@ -50,8 +50,11 @@ QUESTIONS: dict[str, DecisionQuestion] = {
     ),
     "malformed_payload": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
-        instructions=f"{_FRAMING} Does the function build malformed, oversized, or probing payloads that are meant "
-        "to break, crash, or test the limits of the systems that process them later?",
+        instructions=f"{_FRAMING} Does the function build payloads that are meant to break, crash, or test the "
+        "limits of the systems that process them later? Examples are malformed JSON, huge or deeply nested "
+        "structures, invalid encodings, and boundary or fuzzing values. Answer yes only when the structure, size, "
+        "encoding or values of the payload are chosen for that. Message text that only describes security events, "
+        "attacks, probing or abuse is ordinary content, not a probing payload.",
     ),
     "runtime_escape": DecisionQuestion(
         type=DecisionQuestionType.NOUL,
@@ -71,6 +74,8 @@ QUESTIONS: dict[str, DecisionQuestion] = {
 }
 CONTROL_QUESTION = "normal_integration"
 MALICIOUS_QUESTIONS = tuple(question for question in QUESTIONS if question != CONTROL_QUESTION)
+# Code that sends no request cannot reach an internal address, however its wording reads to the model.
+OUTBOUND_QUESTIONS = frozenset({"internal_network"})
 
 
 class FailureReason(StrEnum):
@@ -263,6 +268,7 @@ def classify(
     *,
     team_id: int,
     thresholds: Thresholds,
+    outbound_call: bool,
 ) -> AbuseVerdict:
     # The facade pulls the LLM SDKs through the gateway client, which must stay out of Django startup.
     from posthog.llm.gateway_client import GatewayNotConfiguredError  # noqa: PLC0415
@@ -297,11 +303,14 @@ def classify(
 
     scores = _scores(result.answers)
     risk_score = max(scores[question] for question in MALICIOUS_QUESTIONS)
+    acted_on_risk = max(
+        scores[question] for question in MALICIOUS_QUESTIONS if outbound_call or question not in OUTBOUND_QUESTIONS
+    )
     return AbuseVerdict(
         scores=scores,
         risk_score=risk_score,
-        would_alert=_would_alert(scores, risk_score, thresholds),
-        would_block=risk_score >= thresholds.block,
+        would_alert=_would_alert(scores, acted_on_risk, thresholds),
+        would_block=acted_on_risk >= thresholds.block,
         state_truncated=truncated,
         model=result.model,
         latency_ms=latency_ms,

@@ -4,6 +4,8 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { QuillSettingSwitch } from 'scenes/settings/components/QuillSettingSwitch'
 
 import { organizationLogic } from '~/scenes/organizationLogic'
 
@@ -16,12 +18,27 @@ export function OrgIPAnonymizationDefault(): JSX.Element {
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleChange = (checked: boolean): void => {
+        updateOrganization({ default_anonymize_ips: checked })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillSettingSwitch
+                label="Discard client IP data by default for new projects"
+                checked={!!currentOrganization?.default_anonymize_ips}
+                onCheckedChange={handleChange}
+                disabled={currentOrganizationLoading}
+                disabledReason={restrictionReason ? ORG_ADMIN_REQUIRED_TOOLTIP : undefined}
+            />
+        )
+    }
 
     return (
         <LemonSwitch
-            onChange={(checked) => {
-                updateOrganization({ default_anonymize_ips: checked })
-            }}
+            onChange={handleChange}
             checked={!!currentOrganization?.default_anonymize_ips}
             disabledReason={restrictionReason ? ORG_ADMIN_REQUIRED_TOOLTIP : undefined}
             loading={currentOrganizationLoading}

@@ -138,6 +138,7 @@ class TestPagination:
             ("pipelines", "pipeline", None),
             ("custom_fields", "custom_field", "created_at"),
             ("deal_fields", "deal_field", None),
+            ("company_fields", "company_field", None),
         ]
     )
     def test_lookup_endpoints_walk_pages_and_only_sort_where_documented(

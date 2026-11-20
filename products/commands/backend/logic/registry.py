@@ -17,6 +17,7 @@ from .handlers import (
     handle_docs,
     handle_loop,
     handle_qa,
+    handle_recreate,
     handle_resolve,
     handle_review,
     handle_stamp,
@@ -29,6 +30,7 @@ from .schema import (
     DOCS,
     LOOP,
     QA,
+    RECREATE,
     RESOLVE,
     REVIEW,
     STAMP,
@@ -79,6 +81,7 @@ COMMANDS: Mapping[str, CommandSpec[Any]] = _index(
     (
         CommandSpec(declaration=REVIEW, handler=handle_review, target=review_target),
         CommandSpec(declaration=STAMP, handler=handle_stamp, target=stamp_target),
+        CommandSpec(declaration=RECREATE, handler=handle_recreate, target=review_target),
         CommandSpec(declaration=QA, handler=handle_qa),
         CommandSpec(declaration=DOCS, handler=handle_docs, target=docs_target, listed=docs_listed),
         CommandSpec(declaration=LOOP, handler=handle_loop),

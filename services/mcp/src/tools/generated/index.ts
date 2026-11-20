@@ -74,6 +74,7 @@ import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
 import { GENERATED_TOOLS as warehouse_suggestions } from './warehouse_suggestions'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as wizard } from './wizard'
+import { GENERATED_TOOLS as workflow_email_log } from './workflow_email_log'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -150,5 +151,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...warehouse_suggestions,
     ...web_analytics,
     ...wizard,
+    ...workflow_email_log,
     ...workflows,
 }

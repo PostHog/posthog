@@ -239,6 +239,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'A catalog of all user sessions with your app or website.',
         iconType: 'session_replay',
     },
+    [Scene.ExploreFlagCalls]: {
+        projectBased: true,
+        name: 'Flag calls',
+        description: 'Feature flag calls from your app or website, across all flags.',
+        iconType: 'feature_flag',
+    },
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
@@ -825,6 +831,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.database()]: [Scene.DataManagement, 'database'],
     [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],
     [urls.activity(ActivityTab.ExploreSessions)]: [Scene.ExploreSessions, 'exploreSessions'],
+    [urls.activity(ActivityTab.ExploreFlagCalls)]: [Scene.ExploreFlagCalls, 'exploreFlagCalls'],
     [urls.activity(ActivityTab.LiveEvents)]: [Scene.LiveEvents, 'liveEvents'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab

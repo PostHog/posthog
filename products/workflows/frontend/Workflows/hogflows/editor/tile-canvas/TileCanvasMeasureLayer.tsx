@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
 import type { HogFlow } from '../../types'
+import { CanvasPreviewPersonContext } from './CanvasPreviewPersonContext'
 import type { NodeSize } from './tileCanvasLayout'
 import { TemplateNameOf, tileCanvasLogic } from './tileCanvasLogic'
 import { outgoingEdges, pathActions, VisibleNode } from './tileCanvasModel'
@@ -133,10 +134,12 @@ export function TileCanvasMeasureLayer(): JSX.Element {
     const { hogFunctionTemplatesById } = useValues(workflowLogic)
     const { setMeasuredSizes } = useActions(tileCanvasLogic)
     const fontsLoaded = useFontsLoaded()
+    // Email captions render as this person, so their length changes with them.
+    const previewPerson = useContext(CanvasPreviewPersonContext)
 
     const nodes = visibleGraph.nodes.map((node) => ({
         node,
-        inputs: [...sizeInputs(node, workflow, hogFunctionTemplatesById), fontsLoaded],
+        inputs: [...sizeInputs(node, workflow, hogFunctionTemplatesById), fontsLoaded, previewPerson],
     }))
     const changed = nodes.filter(({ node, inputs }) => !sameInputs(measured.current.get(node.id)?.inputs, inputs))
 
@@ -161,7 +164,7 @@ export function TileCanvasMeasureLayer(): JSX.Element {
         )
         // `changed` and `nodes` derive from these inputs on every render.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [visibleGraph, workflow, hogFunctionTemplatesById, fontsLoaded, setMeasuredSizes])
+    }, [visibleGraph, workflow, hogFunctionTemplatesById, fontsLoaded, previewPerson, setMeasuredSizes])
 
     return (
         <div ref={ref} aria-hidden className="pointer-events-none invisible absolute left-[-20000px] top-0">
