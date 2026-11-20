@@ -329,6 +329,43 @@ class TestCreateObservationActivity:
         observation = ReplayObservation.objects.get(id=result.observation_id)
         assert observation.scanner_snapshot["variant_sampling_rates"] == {"control": 0.055, "test": 0.5}
 
+    def test_records_that_a_scope_only_scanner_watches_an_experiment(self) -> None:
+        # The workflow gates variant attribution on this flag, and must read it from recorded
+        # activity output to stay deterministic across replays. Deriving it from `scanner_type`
+        # instead would leave every session of a scope-only scanner unlabeled.
+        scanner = _make_scanner(
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p"},
+            scope={"kind": "experiment", "experiment_id": 42, "variants": ["control", "test"]},
+        )
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-scope-only",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-scope-only",
+            )
+        )
+
+        assert result.watches_experiment is True
+
+    def test_records_that_a_scanner_with_no_scope_watches_no_experiment(self) -> None:
+        scanner = _make_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-no-scope",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-no-scope",
+            )
+        )
+
+        assert result.watches_experiment is False
+
     def test_decays_enqueue_claim_once_the_row_exists(self) -> None:
         # A claim that never decays holds a phantom cap slot for the full TTL.
         scanner = _make_scanner()
@@ -397,7 +434,13 @@ class TestCreateObservationActivity:
         )
 
         assert result == CreateObservationOutput(
-            observation_id=existing.id, was_created=False, scanner_type=ScannerType.MONITOR
+            observation_id=existing.id,
+            was_created=False,
+            scanner_type=ScannerType.MONITOR,
+            # The conflict path returns a row the workflow goes on to use, so it answers this for
+            # real. Leaving it None would read as "recorded before the field existed" and send the
+            # workflow to its scanner-type fallback.
+            watches_experiment=False,
         )
         # The original row wasn't touched.
         existing.refresh_from_db()

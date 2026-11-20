@@ -12,6 +12,7 @@ from products.warehouse_sources.sources.fastly.settings import FASTLY_ENDPOINTS,
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     retry_with_deadline,
@@ -293,25 +294,6 @@ def _date_to_epoch_seconds(value: Any) -> int | None:
     return int(parsed.timestamp())
 
 
-def _flatten_json_api(item: dict[str, Any]) -> dict[str, Any]:
-    """Lift a JSON:API resource's `attributes` into the row root and each `relationships` member down
-    to a `<name>_id` column, so the row reads like every other Fastly table."""
-    row = {key: value for key, value in item.items() if key not in ("attributes", "relationships")}
-
-    attributes = item.get("attributes")
-    if isinstance(attributes, dict):
-        row.update(attributes)
-
-    relationships = item.get("relationships")
-    if isinstance(relationships, dict):
-        for name, relationship in relationships.items():
-            related = relationship.get("data") if isinstance(relationship, dict) else None
-            if isinstance(related, dict):
-                row[f"{name}_id"] = related.get("id")
-
-    return row
-
-
 def _next_body_link(payload: dict[str, Any]) -> str | None:
     """Read the next page from a JSON:API `links` object. Fastly returns a path there rather than an
     absolute URL, so resolve it against the API host."""
@@ -459,7 +441,11 @@ def _get_json_api_rows(
             return
 
         data = payload.get("data")
-        rows = [_flatten_json_api(item) for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+        rows = (
+            [flatten_jsonapi(item, on_clash="nested") for item in data if isinstance(item, dict)]
+            if isinstance(data, list)
+            else []
+        )
         if rows:
             yield rows
 
