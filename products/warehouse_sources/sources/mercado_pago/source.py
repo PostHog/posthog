@@ -6,7 +6,12 @@ from products.warehouse_sources.sources.mercado_pago.mercado_pago import (
     mercado_pago_source,
     validate_credentials,
 )
-from products.warehouse_sources.sources.mercado_pago.settings import AUTH_ERROR, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.mercado_pago.settings import (
+    AUTH_ERROR,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    MERGE_ONLY_ENDPOINTS,
+)
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -68,7 +73,7 @@ class MercadoPagoSource(ResumableSource[MercadoPagoSourceConfig, MercadoPagoResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"payments"})
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
 
     def validate_credentials(
         self,

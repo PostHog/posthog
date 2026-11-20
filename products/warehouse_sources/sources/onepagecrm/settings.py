@@ -42,8 +42,8 @@ class OnepagecrmEndpointConfig:
 # OnePageCRM API v3 list endpoints (https://developer.onepagecrm.com/api/). Contacts, deals,
 # actions, notes, calls, and meetings support incremental sync via the server-side
 # `modified_since` UNIX-timestamp filter; companies documents no `modified_since`, and the config
-# endpoints (users, statuses, lead_sources, call_results, pipelines, custom_fields, deal_fields)
-# are small lookup lists — all full refresh only.
+# endpoints (users, statuses, lead_sources, call_results, pipelines, custom_fields, deal_fields,
+# company_fields) are small lookup lists — all full refresh only.
 ONEPAGECRM_ENDPOINTS: dict[str, OnepagecrmEndpointConfig] = {
     "contacts": OnepagecrmEndpointConfig(
         name="contacts",
@@ -155,6 +155,12 @@ ONEPAGECRM_ENDPOINTS: dict[str, OnepagecrmEndpointConfig] = {
         path="/deal_fields",
         data_key="deal_fields",
         item_key="deal_field",
+    ),
+    "company_fields": OnepagecrmEndpointConfig(
+        name="company_fields",
+        path="/company_fields",
+        data_key="company_fields",
+        item_key="company_field",
     ),
 }
 

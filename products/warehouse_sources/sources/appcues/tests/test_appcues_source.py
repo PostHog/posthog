@@ -19,13 +19,20 @@ from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scr
         (403, None, True, None),
         (403, "segments", False, "cannot read this table"),
         (404, None, False, "Check your account ID and region"),
+        (404, "ingestion_filtering_rules", True, None),
+        (200, "events", True, None),
+        (200, "segment_membership", True, None),
     ],
 )
 def test_credential_probe_maps_authentication_and_table_permission_failures(
     status: int, schema_name: str | None, valid: bool, message: str | None
 ) -> None:
     config = AppcuesSourceConfig(api_key="test-key", api_secret="test-secret", account_id="12345", region="eu")
-    body = [] if status == 200 else {"error": True, "status": status, "title": "Access denied"}
+    body = (
+        ([] if schema_name != "ingestion_filtering_rules" else {})
+        if status == 200
+        else {"error": True, "status": status, "title": "Access denied"}
+    )
     with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
         result = AppcuesSource().validate_credentials(config, team_id=1, schema_name=schema_name)
 
@@ -34,7 +41,9 @@ def test_credential_probe_maps_authentication_and_table_permission_failures(
         assert result[1] is None
     else:
         assert result[1] is not None and message in result[1]
-    path = "flows-v2" if schema_name == "flows_v2" else schema_name or "flows"
+    path = {"flows_v2": "flows-v2", "events": "jobs", "segment_membership": "segments"}.get(
+        schema_name or "flows", schema_name or "flows"
+    )
     assert network.requests_log[0].url == f"https://api.eu.appcues.com/v2/accounts/12345/{path}"
 
 

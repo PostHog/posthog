@@ -11,6 +11,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import type { AnyPropertyFilter, IntervalType, TeamBasicType } from '~/types'
+import type { OrganizationType } from '~/types'
 
 import { crossProjectDashboardTracking } from './crossProjectDashboardTracking'
 import { changedTileLayouts, layoutsDiffer, layoutsForTiles, type ResponsiveTileLayouts } from './crossProjectLayouts'
@@ -198,9 +199,7 @@ export interface crossProjectDashboardLogicMeta {
         tiles: (dashboard: CrossProjectDashboardApi | null) => readonly CrossProjectDashboardTileApi[]
         projectIds: (tiles: readonly CrossProjectDashboardTileApi[]) => number[]
         dashboardFilters: (dashboard: CrossProjectDashboardApi | null) => CrossProjectDashboardFilters
-        tileProjects: (
-            currentOrganization: null | import('~/types').OrganizationType
-        ) => Record<number, CrossProjectTileProject>
+        tileProjects: (currentOrganization: OrganizationType | null) => Record<number, CrossProjectTileProject>
         timezonesDiverge: (
             tiles: readonly CrossProjectDashboardTileApi[],
             tileProjects: Record<number, CrossProjectTileProject>

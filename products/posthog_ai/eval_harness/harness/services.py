@@ -342,6 +342,7 @@ def start_mcp_server(
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
                 "dashboard-widgets": True,
+                "notebook-app-builder": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
             }
         ),

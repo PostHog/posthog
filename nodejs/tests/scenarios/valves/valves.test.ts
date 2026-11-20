@@ -272,7 +272,7 @@ describe('valves', () => {
         ],
         [
             'records no intent for a failover whose capacity read has fewer values than timestamps',
-            { shortValuesOf: 'Maximum' },
+            { shortValuesOf: 'Average' },
             true,
             { error: expect.stringMatching(/^pg\.failover refused: .*'s capacity read has 5 timestamps and 4 values/) },
         ],

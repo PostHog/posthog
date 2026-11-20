@@ -6,7 +6,7 @@ together with the step's progress, and resumes a retried step from the last save
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field
 from typing import ClassVar, Literal
 
@@ -67,6 +67,24 @@ class ImportStepSpec:
 
 
 @frozen
+class ImportSettingChoice:
+    value: str
+    label: str
+
+
+@frozen
+class ImportSettingSpec:
+    """A choice the person makes before a run, beyond its steps and API key."""
+
+    key: str
+    label: str
+    help: str
+    choices: tuple[ImportSettingChoice, ...]
+    # None means the person has to choose.
+    default: str | None = None
+
+
+@frozen
 class ImportCredentials:
     api_key: str = field(repr=False)
 
@@ -80,6 +98,10 @@ class ImportContext:
     api_key: str | None = field(default=None, repr=False)
     # Every step the run imports, for a step whose work depends on another step being selected.
     steps: tuple[str, ...] = ()
+    # Names what the run stores, so a retried page overwrites what it stored before.
+    run_id: str = ""
+    settings: Mapping[str, str] = field(default_factory=dict)
+    completed_steps: tuple[str, ...] = ()
 
 
 ImportItemStatus = Literal["created", "skipped", "failed", "listed"]
@@ -97,6 +119,19 @@ class ImportItem:
 
 
 @frozen
+class PeopleImportPlan:
+    """A list of contacts a page stored, which the run's workflow sends part by part once the step completes."""
+
+    cohort_id: int
+    storage_prefix: str
+    chunks: int
+    # False for a list whose people another list of the same page sends, so it only sets its cohort.
+    send_events: bool
+    # Set by the runner. The workflow checks this person can still edit persons before each write.
+    created_by_id: int | None = None
+
+
+@frozen
 class SavedPage:
     # How many records the page added or changed in PostHog. Records that already match do not count.
     imported: int
@@ -105,6 +140,9 @@ class SavedPage:
     # Added to the step's totals, by the keys in the step's `count_labels`.
     counts: Mapping[str, int] = field(default_factory=dict)
     items: tuple[ImportItem, ...] = ()
+    people_imports: tuple[PeopleImportPlan, ...] = ()
+    # Fails the step after the page's own writes commit, and leaves the step's progress as it was.
+    error: str | None = None
 
 
 @frozen
@@ -136,10 +174,14 @@ class ImportProvider(ABC):
     not_imported: ClassVar[str] = ""
     # What the person does once the import has finished, in order.
     next_steps: ClassVar[tuple[str, ...]] = ()
+    settings: ClassVar[tuple[ImportSettingSpec, ...]] = ()
 
     @abstractmethod
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
-        """Choose the API key to import with and check it with the provider. Without `api_key`, use the stored key.
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
+        """Choose the API key to import with and check it can read the selected `steps`. Without `api_key`, use the
+        stored key.
 
         This runs before the import claims its run, so it must not store anything. Raises the ImportCredentials*
         errors, or ImportProviderUnavailable when the provider can't answer.

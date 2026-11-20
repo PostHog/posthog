@@ -48,7 +48,7 @@ from products.signals.backend.scout_harness.tools.report import (
     emit_report_sync,
 )
 from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
-from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
+from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry, ScratchpadRevivedExpiry
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_harness.trial_state import (
     ScoutTrialStateError,
@@ -153,6 +153,13 @@ class TestScoutTrialState(APIBaseTest):
         assert own.search_memory(key=original.key) == []
         assert sibling.search_memory(key=original.key)[0].content == "Second candidate"
 
+    def test_memory_search_filters_by_key_prefix(self) -> None:
+        store = ScoutTrialStore(self.scout_run, initial_memory=[])
+        store.remember(key="report:checkout", content="v")
+        store.remember(key="dedupe:checkout", content="filed as report:checkout")
+
+        assert [entry.key for entry in store.search_memory(key_prefix="report:")] == ["report:checkout"]
+
     def test_stale_store_instances_preserve_other_writes_and_task_state(self) -> None:
         first = ScoutTrialStore(self.scout_run, initial_memory=[])
         second = ScoutTrialStore(self.scout_run, initial_memory=[])
@@ -240,6 +247,16 @@ class TestScoutTrialState(APIBaseTest):
         assert len(store.search_memory(include_expired=True)) == 3
         assert store.search_memory(key="new", keys_only=True)[0].content == ""
         assert store.search_memory(key="new", content_max_chars=8)[0].content == "Checkout"
+        [marker] = store.search_memory(key="expired")
+        assert (marker.content, marker.expired, marker.expires_at, marker.last_changed_by_skill) == (
+            "",
+            True,
+            (now - timedelta(seconds=1)).isoformat(),
+            None,
+        )
+        revived = store.remember(key="expired", content="Checkout revived detail")
+        assert revived.revived_expiry == ScratchpadRevivedExpiry(expires_at=(now - timedelta(seconds=1)).isoformat())
+        assert store.search_memory(key="expired")[0].revived_expiry is None
 
 
 @override_settings(

@@ -735,6 +735,7 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             LOGS_REDIS_HOST: redis7
+            LOGS_REDIS_TLS: 'false'
             # Hog log transformations: function health state lives on CDP redis, and
             # encrypted function inputs need the salt keys (same as error tracking above)
             CDP_REDIS_HOST: redis7
@@ -749,6 +750,7 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             TRACES_REDIS_HOST: redis7
+            TRACES_REDIS_TLS: 'false'
 
     livestream:
         image: 'ghcr.io/posthog/posthog/livestream:master'

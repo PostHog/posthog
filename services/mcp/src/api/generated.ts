@@ -3379,6 +3379,8 @@ export namespace Schemas {
       mergeFederatedAggregateJoins?: boolean | null;
       /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
       negatedPersonFiltersNotIn?: boolean | null;
+      /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
+      optimizeCrossJoins?: boolean | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
@@ -6715,7 +6717,6 @@ export namespace Schemas {
      * * `personal_api_key` - personal_api_key
      * * `oauth` - oauth
      * * `project_secret_key` - project_secret_key
-     * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
      * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
@@ -6733,6 +6734,7 @@ export namespace Schemas {
      * * `webhook` - webhook
      * * `cross_region_signature` - cross_region_signature
      * * `unattributed` - unattributed
+     * * `team_secret_token` - team_secret_token
      */
     export type ActivityLogCredentialTypeEnum = typeof ActivityLogCredentialTypeEnum[keyof typeof ActivityLogCredentialTypeEnum];
 
@@ -6742,7 +6744,6 @@ export namespace Schemas {
       PersonalApiKey: 'personal_api_key',
       Oauth: 'oauth',
       ProjectSecretKey: 'project_secret_key',
-      TeamSecretToken: 'team_secret_token',
       IdJag: 'id_jag',
       OidcWorkload: 'oidc_workload',
       InternalJwt: 'internal_jwt',
@@ -6760,6 +6761,7 @@ export namespace Schemas {
       Webhook: 'webhook',
       CrossRegionSignature: 'cross_region_signature',
       Unattributed: 'unattributed',
+      TeamSecretToken: 'team_secret_token',
     } as const;
 
     export interface ActivityLog {
@@ -6792,7 +6794,6 @@ export namespace Schemas {
        * * `personal_api_key` - personal_api_key
        * * `oauth` - oauth
        * * `project_secret_key` - project_secret_key
-       * * `team_secret_token` - team_secret_token
        * * `id_jag` - id_jag
        * * `oidc_workload` - oidc_workload
        * * `internal_jwt` - internal_jwt
@@ -6809,7 +6810,8 @@ export namespace Schemas {
        * * `export_renderer` - export_renderer
        * * `webhook` - webhook
        * * `cross_region_signature` - cross_region_signature
-       * * `unattributed` - unattributed */
+       * * `unattributed` - unattributed
+       * * `team_secret_token` - team_secret_token */
       readonly credential_type: ActivityLogCredentialTypeEnum | null;
       /**
          * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
@@ -12699,6 +12701,7 @@ export namespace Schemas {
       /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
       legendPosition?: LegendPosition | null;
       metric?: MetricChartSettings | null;
+      movingAverageIntervals?: number | null;
       pie?: PieChartSettings | null;
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;
@@ -12707,6 +12710,7 @@ export namespace Schemas {
       seriesBreakdownColumn?: string | null;
       showAnnotations?: boolean | null;
       showLegend?: boolean | null;
+      showMovingAverage?: boolean | null;
       showNullsAsZero?: boolean | null;
       showPieTotal?: boolean | null;
       showTotalRow?: boolean | null;
@@ -16377,11 +16381,6 @@ export namespace Schemas {
          * @nullable
          */
       anomaly_rate: number | null;
-      /**
-         * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-         * @nullable
-         */
-      baseline_rate: number | null;
       /** Completed buckets in the range, scored or not. */
       expected_buckets: number;
       /**
@@ -16482,11 +16481,6 @@ export namespace Schemas {
          * @nullable
          */
       anomaly_rate: number | null;
-      /**
-         * The anomaly rate over the 30 days before the range.
-         * @nullable
-         */
-      baseline_rate: number | null;
     }
 
     export interface AnomalyInsightRow {
@@ -16585,7 +16579,7 @@ export namespace Schemas {
        * * `week` - Week
        * * `month` - Month */
       interval: AnomalyIntervalEnum;
-      /** The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. */
+      /** The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 14 days for `day`, 26 weeks for `week` and 24 months for `month`. */
       date_from: string;
       /** The scored buckets of the series in the chart window, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. */
       points: AnomalySeriesPoint[];
@@ -16649,11 +16643,6 @@ export namespace Schemas {
          */
       scored_through: string | null;
       /**
-         * The anomaly rate over the 30 days before the range. Null when no bucket was scored then.
-         * @nullable
-         */
-      baseline_rate: number | null;
-      /**
          * The oldest flagged bucket in the range, in the project timezone.
          * @nullable
          */
@@ -16701,10 +16690,16 @@ export namespace Schemas {
       series: AnomalySeries[];
       /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
       insights: AnomalyInsightRow[];
+      /** The applied noise filter limit. 1 means the filter is off. */
+      max_anomaly_rate: number;
+      /** Series that match every other filter but that the noise filter hid, because their anomaly rate over the chart window is above `max_anomaly_rate`. They are left out of the rows, the insight counts and `has_more`. Pass a higher `max_anomaly_rate`, or 1, to see them. */
+      hidden_series: number;
       /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
       has_more: boolean;
       /** True when `limit` or a read cap left rows out. */
       truncated: boolean;
+      /** True when the project has more scored series in the range than one search reads (10,000), so some series that match the filters are missing from every page. Narrow the range or the filters to see them. With `only_flagged`, series with a flagged bucket are read first, so this is true only when flagged series alone pass the cap. */
+      series_capped: boolean;
       /**
          * Says why the result is empty. Null when it is not.
          * @nullable
@@ -24862,6 +24857,8 @@ export namespace Schemas {
       readonly action_names: CachedTileInsightResultActionNames;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
       readonly warnings: _InsightResultWarnings | null;
+      /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
+      readonly query_scan: unknown;
       query?: _InsightQuerySchema | null;
     }
 
@@ -48627,6 +48624,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `email` - email
+     * * `push` - push
+     */
+    export type ExpectedTypeEnum = typeof ExpectedTypeEnum[keyof typeof ExpectedTypeEnum];
+
+
+    export const ExpectedTypeEnum = {
+      Email: 'email',
+      Push: 'push',
+    } as const;
+
+    /**
      * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
      * @nullable
      */
@@ -57662,6 +57671,18 @@ export namespace Schemas {
       install_url?: string | null;
     }
 
+    /**
+     * Response when the team's GitHub App installation is suspended or uninstalled.
+     */
+    export interface GitHubInstallationUnavailableError {
+      /** Stable code for a suspended or uninstalled GitHub App installation. */
+      readonly code: string;
+      /** What happened to the GitHub connection, and who can fix it. */
+      readonly error: string;
+      /** Project integrations settings where a project admin can reconnect GitHub. */
+      readonly remediation_url: string;
+    }
+
     export interface GitHubLinkExistingRequest {
       /**
          * Discovery response ID for diagnostics only; grants no authority.
@@ -58464,6 +58485,11 @@ export namespace Schemas {
      */
     export type HealthIssueCountsByKind = {[key: string]: number};
 
+    /**
+     * The most severe severity among the issues of each check kind in this group, keyed by kind.
+     */
+    export type HealthIssueCountsWorstSeverityByKind = {[key: string]: string};
+
     export interface HealthIssueCounts {
       /** Total number of issues in this group. */
       total: number;
@@ -58471,6 +58497,8 @@ export namespace Schemas {
       by_severity: HealthIssueCountsBySeverity;
       /** Count of issues in this group keyed by check kind (e.g. 'sdk_outdated'). */
       by_kind: HealthIssueCountsByKind;
+      /** The most severe severity among the issues of each check kind in this group, keyed by kind. */
+      worst_severity_by_kind: HealthIssueCountsWorstSeverityByKind;
     }
 
     /**
@@ -59449,6 +59477,7 @@ export namespace Schemas {
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
      * * `transactional_email_keys` - Transactional email keys
+     * * `transactional_push` - Transactional push notifications
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -59458,6 +59487,7 @@ export namespace Schemas {
       Broadcasts: 'broadcasts',
       TransactionalEmails: 'transactional_emails',
       TransactionalEmailKeys: 'transactional_email_keys',
+      TransactionalPush: 'transactional_push',
     } as const;
 
     export interface HogFlowMasking {
@@ -59730,6 +59760,25 @@ export namespace Schemas {
     }
 
     /**
+     * * `test_sender_live` - Test sender live
+     */
+    export type HogFlowWarningCodeEnum = typeof HogFlowWarningCodeEnum[keyof typeof HogFlowWarningCodeEnum];
+
+
+    export const HogFlowWarningCodeEnum = {
+      TestSenderLive: 'test_sender_live',
+    } as const;
+
+    export interface HogFlowWarning {
+      /** test_sender_live: the workflow is enabled and at least one email step sends from the PostHog test sender. Those steps reach only verified members of the organization.
+       *
+       * * `test_sender_live` - Test sender live */
+      readonly code: HogFlowWarningCodeEnum;
+      /** What to tell the user, with the link that fixes it. */
+      readonly message: string;
+    }
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface HogFlow {
@@ -59760,7 +59809,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       origin_product?: HogFlowOriginProductEnum | null;
       /**
          * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -59832,6 +59882,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings: readonly HogFlowWarning[];
     }
 
     /**
@@ -59915,7 +59967,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product: HogFlowOriginProductEnum;
     }
 
@@ -59990,9 +60043,126 @@ export namespace Schemas {
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
+    export type HogFlowTestConfigurationVariablesItem = {[key: string]: string};
+
+    /**
+     * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+     * @nullable
+     */
+    export type HogFlowTestConfigurationActionRedirects = {[key: string]: string} | null;
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface HogFlowTestConfiguration {
+      readonly id: string;
+      /**
+         * Workflow name.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional description. */
+      description?: string;
+      /**
+         * Tags for organizing workflows, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      readonly version: number;
+      /** draft (no execution), active (live), archived (disabled).
+       *
+       * * `draft` - Draft
+       * * `active` - Active
+       * * `archived` - Archived */
+      status?: HogFlowStateEnum;
+      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.
+       *
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
+      origin_product?: HogFlowOriginProductEnum | null;
+      /**
+         * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
+         * @maxLength 255
+         * @nullable
+         * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
+         */
+      source_record?: string | null;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+      readonly trigger: unknown;
+      /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
+      trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      conversion?: HogFlowConversion | null;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion'). Only event and cohort triggers are re-checked, so on any other trigger these two are stored as exit_only_at_end and exit_on_conversion. A cohort trigger no longer matches once the person leaves the cohort (or rejoins it, for a 'left' trigger).
+       *
+       * * `exit_on_conversion` - Conversion
+       * * `exit_on_trigger_not_matched` - Trigger Not Matched
+       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+       * * `exit_only_at_end` - Only At End */
+      exit_condition?: ExitConditionEnum;
+      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
+      actions: HogFlowAction[];
+      /** @nullable */
+      readonly abort_action: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
+      variables?: HogFlowTestConfigurationVariablesItem[];
+      readonly billable_action_types: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules: readonly HogFlowSchedule[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /** Staged content changes awaiting publish — a full snapshot of the workflow's actions, edges and settings. Null when there's nothing staged. Test it with a use_draft test run, then promote it with the publish endpoint or throw it away with discard_draft. */
+      readonly draft: unknown;
+      /**
+         * When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409.
+         * @nullable
+         */
+      readonly draft_updated_at: string | null;
+      /**
+         * Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.
+         * @nullable
+         */
+      readonly action_redirects: HogFlowTestConfigurationActionRedirects;
+      /**
+         * When PostHog paused this workflow's email automatically because its spam complaint or hard bounce rate crossed a threshold. Null when sending is not paused. Read-only: only the resume_email_sending endpoint clears a pause, so a normal update or publish can't lift it.
+         * @nullable
+         */
+      readonly email_sending_paused_at: string | null;
+      /** Plain-language reason for the pause, naming the signal and the window. Empty when not paused. */
+      readonly email_sending_paused_reason: string;
+      /** Who paused it: "auto" for the deliverability detector, "staff" for PostHog staff. A staff pause can only be resumed by staff, so the resume endpoint refuses it. Empty when not paused. */
+      readonly email_sending_paused_by: string;
+      /** True when only PostHog staff can lift the current pause: staff placed it, or it landed shortly after a resume, so another self-serve resume is not offered. False when not paused or when the resume endpoint would accept the caller. */
+      readonly email_sending_pause_requires_support: boolean;
+      /**
+         * When sending was last resumed. Every detector window starts after this, so resuming does not immediately re-trip on the feedback that caused the pause. Null if never paused.
+         * @nullable
+         */
+      readonly email_sending_resumed_at: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
+    }
+
     export interface HogFlowInvocation {
       /** Optional override; omit to use saved definition. */
-      configuration?: HogFlow;
+      configuration?: HogFlowTestConfiguration;
       /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
       globals?: HogFlowInvocationGlobals;
       /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
@@ -60049,6 +60219,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly suggestions_enabled: boolean | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings: readonly HogFlowWarning[];
     }
 
     /**
@@ -60156,6 +60328,11 @@ export namespace Schemas {
       confirm?: boolean;
       /** From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
       confirm_token?: string;
+      /**
+         * With confirm=true, whether the preview's moves_to_sandbox_sender warning was shown. False refuses the publish (409) when the live workflow changed so that it now moves steps onto the PostHog test sender. Omit it to skip that check.
+         * @nullable
+         */
+      sandbox_sender_warned?: boolean | null;
     }
 
     export interface HogFlowPublishResponse {
@@ -60178,6 +60355,11 @@ export namespace Schemas {
       confirm_token: string | null;
       /** What publishing does to people in-flight. Only set on previews; counts are approximate. */
       impact: HogFlowPublishImpact | null;
+      /**
+         * Whether publishing moves email steps of the enabled workflow onto the PostHog test sender, which reaches only verified members of the organization. Only set on previews.
+         * @nullable
+         */
+      moves_to_sandbox_sender: boolean | null;
       /** The workflow after publishing (only set when published=true). */
       workflow?: HogFlow | null;
     }
@@ -60387,7 +60569,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -60452,6 +60635,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings: readonly HogFlowWarning[];
     }
 
     /**
@@ -65079,6 +65264,7 @@ export namespace Schemas {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
+     * * `mailgun` - Mailgun
      */
     export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
 
@@ -65088,6 +65274,7 @@ export namespace Schemas {
       Resend: 'resend',
       Postmark: 'postmark',
       Sendgrid: 'sendgrid',
+      Mailgun: 'mailgun',
     } as const;
 
     export interface ImportStepOption {
@@ -65099,13 +65286,37 @@ export namespace Schemas {
       description: string;
     }
 
+    export interface ImportSettingChoice {
+      /** Value to send for this setting when starting an import. */
+      value: string;
+      /** Display name of the choice. */
+      label: string;
+    }
+
+    export interface ImportSettingOption {
+      /** Setting key to use in `settings` when starting an import, such as `region`. */
+      key: string;
+      /** Display name of the setting. */
+      label: string;
+      /** What the setting changes, and how to choose. */
+      help: string;
+      /** The values the setting accepts. */
+      choices: ImportSettingChoice[];
+      /**
+         * The value used when the request leaves this setting out. Null means it's required.
+         * @nullable
+         */
+      default: string | null;
+    }
+
     export interface ImportProviderOption {
       /** Provider key to send when starting an import.
        *
        * * `customerio` - Customer.io
        * * `resend` - Resend
        * * `postmark` - Postmark
-       * * `sendgrid` - SendGrid */
+       * * `sendgrid` - SendGrid
+       * * `mailgun` - Mailgun */
       key: ImportProviderKeyEnum;
       /** Display name of the provider. */
       label: string;
@@ -65126,6 +65337,8 @@ export namespace Schemas {
       not_imported: string;
       /** What the person does once the import has finished, in order. */
       next_steps: string[];
+      /** Choices to make before starting an import, such as Mailgun's region. Often empty. */
+      settings: ImportSettingOption[];
     }
 
     export interface ImportStepCount {
@@ -73229,10 +73442,15 @@ export namespace Schemas {
 
     export interface MakeTransactional {
       /**
-         * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender.
+         * ID of the verified email sender integration the email is sent from. Defaults to the project's default sender. Ignored for push templates.
          * @nullable
          */
       from_integration_id?: number | null;
+      /** The template type the caller means to make transactional. A template of another type is refused, so a push tool can't make an email template transactional, and the other way round.
+       *
+       * * `email` - email
+       * * `push` - push */
+      expected_type?: ExpectedTypeEnum;
     }
 
     /**
@@ -74739,6 +74957,41 @@ export namespace Schemas {
       Liquid: 'liquid',
     } as const;
 
+    /**
+     * Custom key-value data delivered to the app. Values are strings and support Liquid templating.
+     */
+    export type PushTemplateData = {[key: string]: string};
+
+    export interface PushTemplate {
+      /**
+         * Notification title. Supports Liquid templating, such as {{ variables.name }}. Required in `content` for push-type templates.
+         * @maxLength 1000
+         */
+      title?: string;
+      /**
+         * Notification body text. Supports Liquid templating. Required in `content` for push-type templates.
+         * @maxLength 4000
+         */
+      body?: string;
+      /**
+         * URL of an image to show in the notification. Supports Liquid templating.
+         * @maxLength 2000
+         */
+      image?: string;
+      /**
+         * Where a tap should take the person, such as myapp://orders/123 or a web URL. Sent to the app as the "link" key in the custom data. Supports Liquid templating.
+         * @maxLength 2000
+         */
+      link?: string;
+      /**
+         * IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps.
+         * @maxItems 20
+         */
+      channels?: number[];
+      /** Custom key-value data delivered to the app. Values are strings and support Liquid templating. */
+      data?: PushTemplateData;
+    }
+
     export interface MessageTemplateContent {
       /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
        *
@@ -74746,6 +74999,8 @@ export namespace Schemas {
       templating?: MessageTemplateContentTemplatingEnum;
       /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
+      /** Push notification content, for push-type templates. Replaced as a whole on update — send the complete object. */
+      push?: PushTemplate | null;
     }
 
     export interface MessageTemplate {
@@ -74771,7 +75026,7 @@ export namespace Schemas {
       content?: MessageTemplateContent;
       readonly created_by: UserBasic;
       /**
-         * Message channel of the template. Currently 'email'.
+         * Message channel of the template: 'email' (the default) or 'push'.
          * @maxLength 24
          */
       type?: string;
@@ -74785,7 +75040,7 @@ export namespace Schemas {
       /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
       sensitive?: boolean;
       /**
-         * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+         * The workflow that sends this template over the transactional email or push API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
          */
       readonly transactional_hog_flow_id: string | null;
@@ -76572,6 +76827,155 @@ export namespace Schemas {
       value?: unknown;
     }
 
+    export interface NotebookAppTab {
+      /**
+         * Stable tab identifier.
+         * @maxLength 80
+         */
+      id: string;
+      /**
+         * Tab label.
+         * @maxLength 80
+         */
+      title: string;
+    }
+
+    /**
+     * * `cell` - Notebook cell
+     * * `text` - Text
+     * * `input` - Input
+     * * `divider` - Divider
+     */
+    export type NotebookAppBlockKindEnum = typeof NotebookAppBlockKindEnum[keyof typeof NotebookAppBlockKindEnum];
+
+
+    export const NotebookAppBlockKindEnum = {
+      Cell: 'cell',
+      Text: 'text',
+      Input: 'input',
+      Divider: 'divider',
+    } as const;
+
+    /**
+     * * `auto` - Automatic
+     * * `select` - Dropdown
+     * * `slider` - Slider
+     */
+    export type NotebookAppInputKindEnum = typeof NotebookAppInputKindEnum[keyof typeof NotebookAppInputKindEnum];
+
+
+    export const NotebookAppInputKindEnum = {
+      Auto: 'auto',
+      Select: 'select',
+      Slider: 'slider',
+    } as const;
+
+    /**
+     * * `output` - Output
+     * * `source` - Source
+     * * `both` - Source and output
+     */
+    export type NotebookAppCellDisplayEnum = typeof NotebookAppCellDisplayEnum[keyof typeof NotebookAppCellDisplayEnum];
+
+
+    export const NotebookAppCellDisplayEnum = {
+      Output: 'output',
+      Source: 'source',
+      Both: 'both',
+    } as const;
+
+    export interface NotebookAppBlock {
+      /**
+         * Stable component identifier within the app.
+         * @maxLength 80
+         */
+      id: string;
+      /** Type of app component.
+       *
+       * * `cell` - Notebook cell
+       * * `text` - Text
+       * * `input` - Input
+       * * `divider` - Divider */
+      kind: NotebookAppBlockKindEnum;
+      /**
+         * Tab containing this component.
+         * @maxLength 80
+         */
+      tab_id: string;
+      /**
+         * Optional component title.
+         * @maxLength 256
+         */
+      title?: string;
+      /**
+         * Width in a twelve-column grid.
+         * @minimum 1
+         * @maximum 12
+         */
+      width?: number;
+      /**
+         * Source notebook cell ID.
+         * @maxLength 160
+         */
+      node_id?: string;
+      /**
+         * Markdown for a text component.
+         * @maxLength 20000
+         */
+      text?: string;
+      /**
+         * Notebook variable controlled by an input.
+         * @maxLength 80
+         */
+      variable?: string;
+      /** Control used for an input.
+       *
+       * * `auto` - Automatic
+       * * `select` - Dropdown
+       * * `slider` - Slider */
+      input_kind?: NotebookAppInputKindEnum;
+      /**
+         * Allowed values for a dropdown.
+         * @maxItems 100
+         * @items.maxLength 1000
+         */
+      options?: string[];
+      /** Slider minimum. */
+      min?: number;
+      /** Slider maximum. */
+      max?: number;
+      /**
+         * Slider increment.
+         * @minimum 0.000001
+         */
+      step?: number;
+      /** Whether to display cell source, output, or both.
+       *
+       * * `output` - Output
+       * * `source` - Source
+       * * `both` - Source and output */
+      display?: NotebookAppCellDisplayEnum;
+    }
+
+    export interface NotebookAppLayout {
+      /**
+         * App title, falling back to the notebook title.
+         * @maxLength 256
+         */
+      title?: string;
+      /**
+         * Description displayed below the app title.
+         * @maxLength 2000
+         */
+      description?: string;
+      /** Use all available width instead of a centered page. */
+      full_width?: boolean;
+      /** Ordered app tabs. */
+      tabs: NotebookAppTab[];
+      /** Ordered components, arranged in rows within each tab. */
+      blocks: NotebookAppBlock[];
+    }
+
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -76614,6 +77018,15 @@ export namespace Schemas {
       readonly parent_resource: NotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      /** Editable app layout. Does not change the published layout. */
+      app_draft?: NotebookAppLayout | null;
+      /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+      app_published?: NotebookAppLayout | null;
+      /**
+         * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
+         * @minimum 0
+         */
+      app_revision?: number;
       _create_in_folder?: string;
     }
 
@@ -77836,6 +78249,16 @@ export namespace Schemas {
     } as const;
 
     export interface OfflineExperimentRead {
+      /**
+         * Most recent item, result, or payload change.
+         * @nullable
+         */
+      updated_at?: string | null;
+      /**
+         * Number of items when the experiment closed.
+         * @nullable
+         */
+      closed_item_count?: number | null;
       /** User who submitted the experiment, or null for service credentials. */
       readonly created_by: UserBasic | null;
       /** Project tag names assigned to this experiment. */
@@ -78119,6 +78542,7 @@ export namespace Schemas {
      * * `not_provided` - Not provided
      * * `available` - Available
      * * `expired` - Expired
+     * * `deleted` - Deleted
      */
     export type PayloadStateEnum = typeof PayloadStateEnum[keyof typeof PayloadStateEnum];
 
@@ -78127,9 +78551,19 @@ export namespace Schemas {
       NotProvided: 'not_provided',
       Available: 'available',
       Expired: 'expired',
+      Deleted: 'deleted',
     } as const;
 
     export interface OfflineResultCell {
+      /** Whether the item's input, output, or expected output changed after this score. */
+      is_stale: boolean;
+      /** Current revision for updates and deletes. */
+      revision?: number;
+      /**
+         * Time of the latest score update. For composites, the oldest input score time.
+         * @nullable
+         */
+      score_updated_at?: string | null;
       /**
          * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
          * @nullable
@@ -78169,7 +78603,8 @@ export namespace Schemas {
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -78181,6 +78616,13 @@ export namespace Schemas {
     }
 
     export interface OfflineItemRead {
+      /** Current revision for updates and deletes. */
+      revision?: number;
+      /**
+         * Last change to the input, output, or expected output.
+         * @nullable
+         */
+      content_updated_at?: string | null;
       /**
          * Model used for the item, falling back to the experiment's model.
          * @nullable
@@ -78226,7 +78668,8 @@ export namespace Schemas {
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -78265,13 +78708,21 @@ export namespace Schemas {
     }
 
     export interface OfflineItemPayloadRead {
+      /** Current revision of the payload owner. */
+      revision?: number;
+      /**
+         * Time of explicit payload deletion.
+         * @nullable
+         */
+      deleted_at?: string | null;
       /** Owning item UUID. */
       id: string;
       /** Durable payload storage state.
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload retention deadline.
@@ -78292,6 +78743,15 @@ export namespace Schemas {
     }
 
     export interface OfflineResultRead {
+      /** Whether the item's input, output, or expected output changed after this score. */
+      is_stale: boolean;
+      /** Current revision for updates and deletes. */
+      revision?: number;
+      /**
+         * Time of the latest score update. For composites, the oldest input score time.
+         * @nullable
+         */
+      score_updated_at?: string | null;
       /**
          * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
          * @nullable
@@ -78331,7 +78791,8 @@ export namespace Schemas {
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -78368,13 +78829,21 @@ export namespace Schemas {
     }
 
     export interface OfflineResultPayloadRead {
+      /** Current revision of the payload owner. */
+      revision?: number;
+      /**
+         * Time of explicit payload deletion.
+         * @nullable
+         */
+      deleted_at?: string | null;
       /** Owning result UUID. */
       id: string;
       /** Durable payload storage state.
        *
        * * `not_provided` - Not provided
        * * `available` - Available
-       * * `expired` - Expired */
+       * * `expired` - Expired
+       * * `deleted` - Deleted */
       payload_state: PayloadStateEnum;
       /**
          * Payload retention deadline.
@@ -78385,6 +78854,14 @@ export namespace Schemas {
       available: boolean;
       /** Stored reasoning/error payload; null if unavailable. */
       data: OfflineEvaluationResultPayloadInput | null;
+    }
+
+    export interface OfflineRevision {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
     }
 
     /**
@@ -78831,7 +79308,10 @@ export namespace Schemas {
 
     export interface Organization {
       readonly id: string;
-      /** @maxLength 64 */
+      /**
+         * Name of the organization.
+         * @maxLength 64
+         */
       name: string;
       /** @pattern ^[-a-zA-Z0-9_]+$ */
       readonly slug: string;
@@ -93183,7 +93663,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -93248,6 +93729,8 @@ export namespace Schemas {
       readonly email_sending_resumed_at?: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run?: HogFlowLastRun | null;
+      /** Problems with how the live workflow sends that the user must hear about. Empty when there are none. Relay each message to the user. */
+      readonly warnings?: readonly HogFlowWarning[];
     }
 
     /**
@@ -94394,7 +94877,7 @@ export namespace Schemas {
       content?: MessageTemplateContent;
       readonly created_by?: UserBasic;
       /**
-         * Message channel of the template. Currently 'email'.
+         * Message channel of the template: 'email' (the default) or 'push'.
          * @maxLength 24
          */
       type?: string;
@@ -94408,7 +94891,7 @@ export namespace Schemas {
       /** For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time. */
       sensitive?: boolean;
       /**
-         * The workflow that sends this template over the transactional email API. Null until the template is made transactional. Each content save writes a new version of it.
+         * The workflow that sends this template over the transactional email or push API. Null until the template is made transactional. Each content save writes a new version of it.
          * @nullable
          */
       readonly transactional_hog_flow_id?: string | null;
@@ -94638,6 +95121,15 @@ export namespace Schemas {
       readonly parent_resource?: PatchedNotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      /** Editable app layout. Does not change the published layout. */
+      app_draft?: NotebookAppLayout | null;
+      /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+      app_published?: NotebookAppLayout | null;
+      /**
+         * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
+         * @minimum 0
+         */
+      app_revision?: number;
       _create_in_folder?: string;
     }
 
@@ -94672,13 +95164,91 @@ export namespace Schemas {
       tags?: string[];
     }
 
+    export interface PatchedOfflineItemPayloadUpdate {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
+      /** Top-level fields to update. Omitted fields keep their current values. */
+      payload: OfflineExperimentItemPayloadInput;
+    }
+
+    export interface PatchedOfflineItemUpdate {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
+      /**
+         * Case identifier.
+         * @maxLength 255
+         * @nullable
+         */
+      case_key?: string | null;
+      /**
+         * Trial identifier.
+         * @maxLength 255
+         * @nullable
+         */
+      trial?: string | null;
+      /**
+         * Model used for this item.
+         * @maxLength 255
+         * @nullable
+         */
+      model_version?: string | null;
+      /**
+         * Trace for this item's application execution.
+         * @maxLength 255
+         * @nullable
+         */
+      application_trace_id?: string | null;
+    }
+
+    export interface PatchedOfflineResultPayloadUpdate {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
+      /** Top-level fields to update. Omitted fields keep their current values. */
+      payload: OfflineEvaluationResultPayloadInput;
+    }
+
+    export interface PatchedOfflineResultUpdate {
+      /**
+         * Revision returned by the latest read of this item, result, or payload.
+         * @minimum 0
+         */
+      revision: number;
+      /** Execution status for this reported result.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status?: OfflineEvaluationResultStatusEnum;
+      /** Score for a successful result, validated against the pinned version. */
+      value?: number | boolean | string[] | null;
+      /**
+         * Error code for a failed execution.
+         * @maxLength 128
+         * @nullable
+         */
+      error_code?: string | null;
+    }
+
     export type PatchedOrganizationProjectsItem = { [key: string]: unknown };
 
     export type PatchedOrganizationMetadata = {[key: string]: string};
 
     export interface PatchedOrganization {
       readonly id?: string;
-      /** @maxLength 64 */
+      /**
+         * Name of the organization.
+         * @maxLength 64
+         */
       name?: string;
       /** @pattern ^[-a-zA-Z0-9_]+$ */
       readonly slug?: string;
@@ -96330,10 +96900,6 @@ export namespace Schemas {
          * @nullable
          */
       flags_persistence_default?: boolean | null;
-      /** @nullable */
-      readonly secret_api_token?: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup?: string | null;
       /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          * @nullable
@@ -97519,8 +98085,8 @@ export namespace Schemas {
          */
       write_scopes?: string[];
       /**
-         * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-         * @maxItems 1
+         * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+         * @maxItems 2
          */
       report_actions?: string[];
       /**
@@ -102783,10 +103349,6 @@ export namespace Schemas {
          * @nullable
          */
       flags_persistence_default?: boolean | null;
-      /** @nullable */
-      readonly secret_api_token: string | null;
-      /** @nullable */
-      readonly secret_api_token_backup: string | null;
       /**
          * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
          * @nullable
@@ -104700,6 +105262,11 @@ export namespace Schemas {
     }
 
     /**
+     * The settings the run started with, by setting key.
+     */
+    export type ProviderImportRunSettings = {[key: string]: string};
+
+    /**
      * * `queued` - Waiting to start
      * * `running` - Importing
      * * `completed` - Imported
@@ -104723,7 +105290,8 @@ export namespace Schemas {
        * * `customerio` - Customer.io
        * * `resend` - Resend
        * * `postmark` - Postmark
-       * * `sendgrid` - SendGrid */
+       * * `sendgrid` - SendGrid
+       * * `mailgun` - Mailgun */
       provider: ImportProviderKeyEnum;
       /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
        *
@@ -104746,6 +105314,8 @@ export namespace Schemas {
          * @nullable
          */
       finished_at: string | null;
+      /** The settings the run started with, by setting key. */
+      settings: ProviderImportRunSettings;
     }
 
     export interface ProviderKeyAlternative {
@@ -109094,6 +109664,18 @@ export namespace Schemas {
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ErrorTrackingIssueEventsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebPageDirectoryQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | MarketingAnalyticsRecommendationsQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | VectorSearchQuery | InboxUsageQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | AccountActivityMatrixQuery | BookActivityMatrixQuery | BookActivityPeopleQuery | BookActivityFirstsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | MCPDashboardQuery | PropertyValuesQuery;
     }
 
+    /**
+     * * `queued` - Queued
+     * * `scheduled` - Scheduled
+     */
+    export type QueuedEmailStatusEnum = typeof QueuedEmailStatusEnum[keyof typeof QueuedEmailStatusEnum];
+
+
+    export const QueuedEmailStatusEnum = {
+      Queued: 'queued',
+      Scheduled: 'scheduled',
+    } as const;
+
     export interface QuotaResourceLimit {
       /** True when the team is currently over its quota for this resource and limits are in effect. A deactivated organization additionally reads as limited on the two credit buckets `ai_credits` and `posthog_code_credits`, regardless of usage. */
       limited: boolean;
@@ -113426,8 +114008,12 @@ export namespace Schemas {
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       readonly flash_for: AutomaticFlashForEnum | null;
-      /** Whether draft pull requests in this repository get their automatic review when they open. */
+      /** Whether draft pull requests in this repository get their automatic review when they open, and one more when they are marked ready. */
       readonly review_drafts: boolean;
+      /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False gives each pull request its reviews only when it opens or is marked ready. */
+      readonly review_pushes: boolean;
+      /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+      readonly deep_review_gated_prs: boolean;
       /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
       readonly people: readonly ReviewRepositoryPerson[];
       /** Who added the repository. */
@@ -113535,8 +114121,14 @@ export namespace Schemas {
       repository_id: string | null;
       /** This project's repository exception. Null when the repository follows the project. */
       exception: ReviewRepositoryException | null;
-      /** Whether draft pull requests in this repository get their automatic review when they open. Authors who turned off reviews of their drafts still get none. */
+      /** Whether draft pull requests in this repository get their automatic review when they open, and one more when they are marked ready. Authors who turned off reviews of their drafts still get none. */
       review_drafts: boolean;
+      /** Whether later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. */
+      review_pushes: boolean;
+      /** Whether a pull request that auto-approval's size, restricted-path or tier rules send to a person gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also added to auto-approval. */
+      deep_review_gated_prs: boolean;
+      /** Whether auto-approval reviews this repository in this project. Only then can its size, restricted-path and tier rules make an automatic review a Deep review. */
+      auto_approval: boolean;
       /** The requesting user's own choice for this repository: 'flash', 'off', or null.
        *
        * * `flash` - Flash
@@ -113574,7 +114166,7 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
-      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise. */
+      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception, no draft reviews, no Deep reviews of pull requests that need a person and no own choice. 0 otherwise. */
       folded: number;
       /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
       folded_preview: string[];
@@ -113618,8 +114210,12 @@ export namespace Schemas {
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       flash_for?: AutomaticFlashForEnum | null;
-      /** True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value. */
+      /** True lets draft pull requests in this repository get their automatic review when they open, and one more when they are marked ready. False waits until they are ready for review. Omit it to keep the current value. */
       review_drafts?: boolean;
+      /** True gives a pull request that auto-approval's size, restricted-path or tier rules send to a person its automatic review as a Deep review instead of a Standard one, once per pull request. Works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value. */
+      deep_review_gated_prs?: boolean;
+      /** True lets later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False stops automatic reviews after the review at ready. Omit it to keep the current value. */
+      review_pushes?: boolean;
     }
 
     export interface ReviewRepositoryWriteResponse {
@@ -114672,8 +115268,8 @@ export namespace Schemas {
          */
       write_scopes?: string[];
       /**
-         * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-         * @maxItems 1
+         * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+         * @maxItems 2
          */
       report_actions?: string[];
       /**
@@ -115007,8 +115603,8 @@ export namespace Schemas {
          */
       readonly write_scopes: readonly string[];
       /**
-         * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-         * @maxItems 1
+         * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+         * @maxItems 2
          */
       readonly report_actions: readonly string[];
       /**
@@ -116743,6 +117339,71 @@ export namespace Schemas {
     }
 
     /**
+     * * `overwrite` - Overwrite
+     * * `forget` - Forget
+     */
+    export type SignalScratchpadRevisionChangeEnum = typeof SignalScratchpadRevisionChangeEnum[keyof typeof SignalScratchpadRevisionChangeEnum];
+
+
+    export const SignalScratchpadRevisionChangeEnum = {
+      Overwrite: 'overwrite',
+      Forget: 'forget',
+    } as const;
+
+    /**
+     * The state a scratchpad entry held before one write replaced or deleted it.
+     */
+    export interface ScratchpadRevision {
+      /** The entry's content before the change. */
+      content: string;
+      /**
+         * The entry's ISO-8601 expiry before the change, or null if it was durable.
+         * @nullable
+         */
+      expires_at: string | null;
+      /** `overwrite` when a `remember` or the daily report-pointer sweep replaced this state, `forget` when a delete removed it.
+       *
+       * * `overwrite` - Overwrite
+       * * `forget` - Forget */
+      change: SignalScratchpadRevisionChangeEnum;
+      /** ISO-8601 time of the change. */
+      changed_at: string;
+      /**
+         * Scout run that made the change, or null when a pipeline stage or a person did.
+         * @nullable
+         */
+      changed_by_run_id: string | null;
+      /**
+         * Who made the change: the skill name of the scout run, the report-pipeline stage (`pipeline:report-research`, `pipeline:implementation`), or `system:report-pointer-sweep` when the daily sweep expired a `report:` pointer to a deleted report. Null when a person deleted the entry.
+         * @nullable
+         */
+      changed_by_skill: string | null;
+      /**
+         * Relative Tasks UI deep-link to the run that made the change, or null.
+         * @nullable
+         */
+      changed_by_run_url: string | null;
+    }
+
+    /**
+     * The expiry a `remember` overruled when it wrote onto an expired entry.
+     */
+    export interface ScratchpadRevivedExpiry {
+      /** ISO-8601 expiry the entry had before this write replaced it. */
+      expires_at: string;
+      /**
+         * Who set that expiry: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. Null when the entry was created with the expiry or no saved version shows who set it.
+         * @nullable
+         */
+      set_by_skill: string | null;
+      /**
+         * ISO-8601 time the expiry was set, or null.
+         * @nullable
+         */
+      set_at: string | null;
+    }
+
+    /**
      * `SignalScratchpad` projection used by `search-memory` and `remember`.
      */
     export interface ScratchpadEntry {
@@ -116780,6 +117441,25 @@ export namespace Schemas {
          * @nullable
          */
       created_by_run_url?: string | null;
+      /**
+         * Earlier versions of this entry, newest first, when the search set `include_revisions`; null otherwise. For a key that was deleted, the entry has blank `content` and null `created_at`, and the newest revision is the deleted state.
+         * @nullable
+         */
+      revisions?: ScratchpadRevision[] | null;
+      /** True when an exact `key` search found the entry but its `expires_at` has passed. `content` is blank. Another writer or a time limit retired the entry on purpose, so read it with `include_expired=true` and weigh why before you rebuild it. The body stays readable until the janitor deletes the entry. */
+      expired?: boolean;
+      /**
+         * Exact `key` searches only. Who last changed the entry after its creator wrote it: a scout skill name, a `pipeline:*` stage, or `system:report-pointer-sweep`. When `expired` is true, it names who set the expiry. Null when no saved version shows a writer, and on every other search.
+         * @nullable
+         */
+      last_changed_by_skill?: string | null;
+      /**
+         * Exact `key` searches only. ISO-8601 time of the change `last_changed_by_skill` describes, or null when no saved version records one.
+         * @nullable
+         */
+      last_changed_at?: string | null;
+      /** Set on a `remember` response when the write landed on an entry whose `expires_at` had passed. The write succeeded and replaced that expiry. Null otherwise. */
+      revived_expiry?: ScratchpadRevivedExpiry | null;
     }
 
     /**
@@ -117293,7 +117973,8 @@ export namespace Schemas {
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails
-       * * `transactional_email_keys` - Transactional email keys */
+       * * `transactional_email_keys` - Transactional email keys
+       * * `transactional_push` - Transactional push notifications */
       readonly origin_product: HogFlowOriginProductEnum | null;
       /** User who created the workflow. */
       readonly created_by: UserBasic | null;
@@ -117401,6 +118082,11 @@ export namespace Schemas {
       capture_engagement?: boolean;
       /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
       tracking?: SendEmailTracking;
+      /**
+         * When to send the email, as `YYYY-MM-DDThh:mm:ss.sss` followed by a UTC offset, such as `2026-11-20T09:00:00Z` or `2026-11-20T10:00:00+01:00`. Seconds and their fraction are optional. PostHog holds the email until then, at most 7 days after the request, and rounds a finer time up to the next millisecond. A time that has passed sends the email now. Leave it out or send null to send now. Send it once: a JSON body that repeats it keeps the last value, and a form body that repeats it gets a 400. Scheduling is on only in some projects so far, and a project without it refuses a time with a 400.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
       sensitive?: boolean;
       /**
@@ -117444,7 +118130,7 @@ export namespace Schemas {
     } as const;
 
     export interface SendWarning {
-      /** What the warning is about. `sandbox_sender`: the email went out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
+      /** What the warning is about. `sandbox_sender`: the email goes out from the PostHog test sender because the project has no verified sending domain, so it only reaches members of the organization.
        *
        * * `sandbox_sender` - Sent from the PostHog test sender */
       code: SendWarningCodeEnum;
@@ -117463,6 +118149,16 @@ export namespace Schemas {
       replayed: boolean;
       /** Things the caller should act on although the email was queued. Left out when there are none. */
       warnings?: SendWarning[];
+      /** Only in the answer to a request with `scheduled_at`. `scheduled`: the email waits for `scheduled_at`. `queued`: the time had passed, so the email goes out now.
+       *
+       * * `queued` - Queued
+       * * `scheduled` - Scheduled */
+      status?: QueuedEmailStatusEnum;
+      /**
+         * Only in the answer to a request with `scheduled_at`. The time the email waits for, to the millisecond, or null when the time had passed and the email goes out now. A retry with the same `Idempotency-Key` answers the first request's time.
+         * @nullable
+         */
+      scheduled_at?: string | null;
     }
 
     export interface ServiceAccountAccessUpdate {
@@ -118705,6 +119401,34 @@ export namespace Schemas {
       Errored: 'errored',
     } as const;
 
+    export interface SignalReportPlanStepAddRequest {
+      /** Id of the report to add as a step of this plan. It must be a live report in this project that is not already a step of a plan. The report itself is unchanged. */
+      report_id: string;
+      /**
+         * Ids of steps already in this plan that the new step builds on. Omit when it builds on none. At most 10.
+         * @maxItems 10
+         */
+      depends_on?: string[];
+      /**
+         * Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
+    export interface SignalReportPlanStepDependenciesRequest {
+      /**
+         * Ids of the other steps of this plan that this step builds on, replacing the current set. Pass an empty list for a step that builds on none. At most 10.
+         * @maxItems 10
+         */
+      depends_on: string[];
+      /**
+         * Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.
+         * @maxLength 500
+         */
+      reason?: string;
+    }
+
     export interface SignalReportPriorityUpdate {
       /** New report priority, from P0 (critical) to P4 (minimal).
        *
@@ -119205,8 +119929,8 @@ export namespace Schemas {
          */
       write_scopes?: string[];
       /**
-         * Report actions this scout may start on inbox reports, from `make_it_green`. Empty by default, so every start is refused. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
-         * @maxItems 1
+         * Report actions this scout may start on inbox reports, from `make_it_green` and `resolve_conflicts`. Empty by default. A scout cannot send its own message with an action. Each action starts an agent run with the full access of the person the scout's runs act as, so only that person can add one. A project admin can remove one. A scoped API key needs `inbox:write` and `task:write`. A dry run never holds the grant. Applies from the scout's next run.
+         * @maxItems 2
          */
       report_actions?: string[];
       /**
@@ -121245,13 +121969,19 @@ export namespace Schemas {
       run: StaffWarmRun | null;
     }
 
+    /**
+     * Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required, such as Mailgun's `region`.
+     */
+    export type StartProviderImportSettings = {[key: string]: string};
+
     export interface StartProviderImport {
       /** The provider to import from.
        *
        * * `customerio` - Customer.io
        * * `resend` - Resend
        * * `postmark` - Postmark
-       * * `sendgrid` - SendGrid */
+       * * `sendgrid` - SendGrid
+       * * `mailgun` - Mailgun */
       provider: ImportProviderKeyEnum;
       /**
          * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -121260,10 +121990,12 @@ export namespace Schemas {
          */
       steps: string[];
       /**
-         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. PostHog deletes a Resend, Postmark or SendGrid key when the run ends, so send it every time.
+         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time.
          * @maxLength 512
          */
       api_key?: string;
+      /** Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required, such as Mailgun's `region`. */
+      settings?: StartProviderImportSettings;
     }
 
     export interface StartTrainingRequest {
@@ -125928,11 +126660,6 @@ export namespace Schemas {
 
     export type TraceNodeIdsByAlias = {[key: string]: string};
 
-    export interface TracePerson {
-      distinctId: string;
-      label: string;
-    }
-
     export interface TraceNodeStats {
       costUsd: number | null;
       inputTokens: number | null;
@@ -125940,6 +126667,11 @@ export namespace Schemas {
       cacheReadTokens: number | null;
       cacheWriteTokens: number | null;
       latencyMs: number | null;
+    }
+
+    export interface TracePerson {
+      distinctId: string;
+      label: string;
     }
 
     export type TraceNodeKindEnum = typeof TraceNodeKindEnum[keyof typeof TraceNodeKindEnum];
@@ -125986,10 +126718,12 @@ export namespace Schemas {
       name: string | null;
       createdAt: string;
       sessionId: string | null;
-      person: TracePerson | null;
       totals: TraceNodeStats;
       hasError: boolean;
       errorCount: number;
+      /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+      totalsPartial: boolean;
+      person: TracePerson | null;
       tree: TraceNode[];
       timeline: TraceTimelineRow[];
       totalMs: number;
@@ -126324,6 +127058,62 @@ export namespace Schemas {
       value: unknown;
     }
 
+    export interface TraceReviewQueueAssignment {
+      /** The review queue's id. */
+      id: string;
+      /** The review queue's name. */
+      name: string;
+      /** The queue item that holds the trace, for moving or removing it. */
+      itemId: string;
+    }
+
+    export interface TraceReviewStatus {
+      /** The trace's human review, or null when it has none or the user may not see it. */
+      review: TraceHumanReview | null;
+      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+      queue: TraceReviewQueueAssignment | null;
+    }
+
+    export interface TraceListItem {
+      id: string;
+      name: string | null;
+      createdAt: string;
+      sessionId: string | null;
+      totals: TraceNodeStats;
+      hasError: boolean;
+      errorCount: number;
+      /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+      totalsPartial: boolean;
+      /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
+      defaultNodeId: string | null;
+      /** The error text of the trace's earliest failed step that carries one, cut at 200 characters. Null when no failed step carries error text. */
+      firstError: string | null;
+      /** The tools the trace's steps called, each once, in the order first called. */
+      toolsCalled: string[];
+      /** Whether a support agent ran the trace while impersonating the user. */
+      isSupportTrace: boolean;
+      /** The trace's review and review queue, or null when it has neither that the user may see. */
+      review: TraceReviewStatus | null;
+    }
+
+    export interface TraceListCounts {
+      /** How many traces the selection holds, ignoring its quick filter. */
+      total: number;
+      /** How many of them have an error. */
+      errors: number;
+      /** How many of them have user feedback. */
+      feedback: number;
+    }
+
+    export interface TraceList {
+      /** A page of traces, newest first. */
+      items: TraceListItem[];
+      /** The selection's counts, on the first page only. */
+      counts: TraceListCounts | null;
+      /** The cursor of the next page, or null on the last one. */
+      nextCursor: string | null;
+    }
+
     export type TraceMessageRoleEnum = typeof TraceMessageRoleEnum[keyof typeof TraceMessageRoleEnum];
 
 
@@ -126480,6 +127270,66 @@ export namespace Schemas {
       source: string;
     }
 
+    export interface TracePageRequest {
+      /**
+         * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+         * @minItems 1
+         * @maxItems 100
+         */
+      trace_ids: string[];
+    }
+
+    export interface TracePageWithBoundsRequest {
+      /**
+         * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+         * @minItems 1
+         * @maxItems 100
+         */
+      trace_ids: string[];
+      /** The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention. */
+      earliest_created_at: string;
+      /** The latest createdAt of the rows on the page. It can't be before earliest_created_at. */
+      latest_created_at: string;
+    }
+
+    export interface TracePersonItem {
+      /** The trace the person belongs to. */
+      traceId: string;
+      /** The person the trace ran for, labeled by the project's display name properties or else by their distinct id. Null when the trace is not found or carries no distinct id. */
+      person: TracePerson | null;
+    }
+
+    export interface TracePeopleList {
+      /** One item per requested trace, in the order requested. */
+      items: TracePersonItem[];
+    }
+
+    export type TracePreviewMissingReason = typeof TracePreviewMissingReason[keyof typeof TracePreviewMissingReason];
+
+
+    export const TracePreviewMissingReason = {
+      TooLarge: 'too_large',
+      TimedOut: 'timed_out',
+    } as const;
+
+    export interface TracePreview {
+      /** The trace the preview belongs to. */
+      traceId: string;
+      /** The user's message the trace answered, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `inputMissingReason` says why. */
+      input: string | null;
+      /** The trace's answer, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `outputMissingReason` says why. */
+      output: string | null;
+      /** Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there is nothing to show. */
+      inputMissingReason: TracePreviewMissingReason | null;
+      /** Why `output` is null: `too_large` when the answer is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `output` is null. Null with a null `output` means there is nothing to show. */
+      outputMissingReason: TracePreviewMissingReason | null;
+    }
+
+    export interface TracePreviewList {
+      /** One preview per requested trace, in the order requested. A trace that is not found previews as nulls. */
+      items: TracePreview[];
+    }
+
     export interface TracePullRequest {
       /** The owner of the pull request's repository. */
       repoOwner: string;
@@ -126516,22 +127366,6 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
-    export interface TraceReviewQueueAssignment {
-      /** The review queue's id. */
-      id: string;
-      /** The review queue's name. */
-      name: string;
-      /** The queue item that holds the trace, for moving or removing it. */
-      itemId: string;
-    }
-
-    export interface TraceReviewStatus {
-      /** The trace's human review, or null when it has none or the user may not see it. */
-      review: TraceHumanReview | null;
-      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
-      queue: TraceReviewQueueAssignment | null;
-    }
-
     export interface TraceSearchMatch {
       /** A step whose stored data contains the query. The root's id is the trace id. */
       nodeId: string;
@@ -126544,6 +127378,34 @@ export namespace Schemas {
       total: number;
       /** Matching steps in tree order, the root first. Steps without a match are left out. */
       matches: TraceSearchMatch[];
+    }
+
+    export type TraceSentimentLabelEnum = typeof TraceSentimentLabelEnum[keyof typeof TraceSentimentLabelEnum];
+
+
+    export const TraceSentimentLabelEnum = {
+      Positive: 'positive',
+      Neutral: 'neutral',
+      Negative: 'negative',
+    } as const;
+
+    export interface TraceSentiment {
+      /** The trace's sentiment, from the average of its latest sentiment result per generation. Neutral when neither positive nor negative beats neutral by a clear margin. */
+      label: TraceSentimentLabelEnum;
+      /** The average score of the label, from 0 to 1. */
+      score: number;
+    }
+
+    export interface TraceSentimentItem {
+      /** The trace the sentiment belongs to. */
+      traceId: string;
+      /** Null when the trace is not found or has no sentiment result. */
+      sentiment: TraceSentiment | null;
+    }
+
+    export interface TraceSentimentList {
+      /** One item per requested trace, in the order requested. */
+      items: TraceSentimentItem[];
     }
 
     export type TraceSummaryStatusEnum = typeof TraceSummaryStatusEnum[keyof typeof TraceSummaryStatusEnum];
@@ -126741,7 +127603,7 @@ export namespace Schemas {
       clicked: number;
       /** Delivered sends nobody clicked. */
       not_clicked: number;
-      /** Sends that went out with open and click tracking off, as sensitive emails do, counted by when they were sent rather than queued. They can't record an open or a click. */
+      /** Sends that went out with open and click tracking off, as sensitive emails do, counted by when they were queued like the other counts. They can't record an open or a click. */
       untracked: number;
       /** How many days after the click or the send the event counts. */
       window_days: number;
@@ -136491,6 +137353,22 @@ export namespace Schemas {
     scorer_version_ids?: string;
     };
 
+    export type AiObservabilityOfflineExperimentsItemsDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number;
+    };
+
+    export type AiObservabilityOfflineExperimentsItemsPayloadDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number;
+    };
+
     export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
     /**
      * Continuation cursor returned by the previous page.
@@ -136529,6 +137407,22 @@ export namespace Schemas {
      * @maxLength 739
      */
     scorer_version_ids: string;
+    };
+
+    export type AiObservabilityOfflineExperimentsResultsDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number;
+    };
+
+    export type AiObservabilityOfflineExperimentsResultsPayloadDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number;
     };
 
     export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
@@ -136694,6 +137588,75 @@ export namespace Schemas {
     export const AiObservabilityOfflineScorersHistoryListTagMatch = {
       Any: 'any',
       All: 'all',
+    } as const;
+
+    export type AiObservabilityTracesListParams = {
+    /**
+     * The nextCursor of the previous page, to read the page after it. Leave it out for the first page.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * Lists only traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     */
+    group_key?: string;
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number;
+    /**
+     * How many traces a page holds, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Lists only traces whose events belong to the person with this UUID.
+     */
+    person_id?: string;
+    /**
+     * Up to 50 property filters as a JSON-encoded list. A trace is listed when one of its events matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string;
+    /**
+     * Text to look for in the inputs and outputs of the trace's generations and embeddings, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    search?: string;
+    /**
+     * Lists only traces with an error, or only traces with user feedback. The counts ignore it.
+     *
+     * * `errors` - errors
+     * * `feedback` - feedback
+     * @minLength 1
+     */
+    view?: AiObservabilityTracesListView;
+    };
+
+    export type AiObservabilityTracesListView = typeof AiObservabilityTracesListView[keyof typeof AiObservabilityTracesListView];
+
+
+    export const AiObservabilityTracesListView = {
+      Errors: 'errors',
+      Feedback: 'feedback',
     } as const;
 
     export type AiObservabilityTracesClustersRetrieveParams = {
@@ -139013,6 +139976,10 @@ export namespace Schemas {
      * Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.
      */
     include_dashboards?: boolean;
+    /**
+     * When true, return the layout and tile metadata without each insight tile's result, to be read separately through stream_query_results with cached_first. Only honored where dashboard-v2 is on. Elsewhere, and by default, tiles carry their cached results.
+     */
+    omit_tile_results?: boolean;
     /**
      * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
@@ -143760,6 +144727,7 @@ export namespace Schemas {
       Broadcasts: 'broadcasts',
       Loops: 'loops',
       TransactionalEmails: 'transactional_emails',
+      TransactionalPush: 'transactional_push',
     } as const;
 
     export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];
@@ -148356,7 +149324,7 @@ export namespace Schemas {
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy;
     /**
-     * Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 30 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.
+     * Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 14 days for `day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with `group_by: insight`.
      */
     include_points?: boolean;
     /**
@@ -148380,6 +149348,12 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * The noise filter: hide flagged series whose anomaly rate over the chart window of their interval is above this share, from 0 to 1. The chart window is the one `include_points` describes, not the requested range. A series flagged in many of its buckets is noisy, not unusual. Defaults to 0.1. Pass 1 to turn the filter off. A series with fewer than 10 scored buckets in its chart window is always shown, because its rate means little. `hidden_series` in the response counts the series it hid.
+     * @minimum 0
+     * @maximum 1
+     */
+    max_anomaly_rate?: number;
+    /**
      * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
      * @minimum 0
      * @maximum 10000
@@ -148390,7 +149364,7 @@ export namespace Schemas {
      */
     only_flagged?: boolean;
     /**
-     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     * `unusual` puts flagged series first, and among them the series that flagged the smallest share of the scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
      *
      * * `unusual` - Unusual
      * * `recent` - Recent
@@ -148515,6 +149489,10 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
+     * Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.
+     */
+    plan?: string;
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
@@ -148604,6 +149582,14 @@ export namespace Schemas {
       Me: 'me',
       Mine: 'mine',
     } as const;
+
+    export type SignalsReportsPlanStepsDestroyParams = {
+    /**
+     * Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.
+     * @maxLength 500
+     */
+    reason?: string;
+    };
 
     export type SignalsReportPrChecksParams = {
     /**
@@ -149195,10 +150181,18 @@ export namespace Schemas {
      */
     include_expired?: boolean;
     /**
-     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
+     * With `key`, also return the entry's earlier versions, newest first: what each `remember` that changed it replaced, and what a `forget` deleted, with who changed it and when. Versions are kept for two weeks, at most 10 per key. Works for a deleted key too. To restore one, `remember` its content.
+     */
+    include_revisions?: boolean;
+    /**
+     * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit. An entry hidden only by its expiry comes back with `expired=true` and a blank `content`, and every entry it returns carries `last_changed_by_skill` / `last_changed_at`.
      * @minLength 1
      */
     key?: string;
+    /**
+     * Return only the entries whose key starts with this prefix, case-sensitive, with `%` and `_` matched literally. Use it to read one family of keys, such as `followup:<skill-name>:`; unlike `text`, it ignores what entry bodies say. Combines with every other filter.
+     */
+    key_prefix?: string;
     /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
