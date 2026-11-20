@@ -326,18 +326,11 @@ def get_run_failure(run_id: UUID | str, team_id: int) -> contracts.BatchExportRu
     )
 
 
-def get_teams_with_billable_rows_exported(
-    begin: dt.datetime, end: dt.datetime, *, end_inclusive: bool = True
-) -> list[contracts.TeamTotal]:
-    """Sum the rows each team exported through billable runs that finished in the period.
-
-    With `end_inclusive=False` a run that finished exactly at `end` is left out, so two windows
-    that meet at one instant count that run once.
-    """
-    finished_before = Q(finished_at__lte=end) if end_inclusive else Q(finished_at__lt=end)
+def get_teams_with_billable_rows_exported(begin: dt.datetime, end: dt.datetime) -> list[contracts.TeamTotal]:
+    """Sum the rows each team exported through billable runs that finished in the period."""
     completed_runs = BatchExportRun.objects.filter(
-        finished_before,
         finished_at__gte=begin,
+        finished_at__lt=end,
         status=BatchExportRun.Status.COMPLETED,
     )
     rows = (

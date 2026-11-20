@@ -108,6 +108,7 @@ from products.tasks.backend.constants import (
     TASK_DESCRIPTION_PREVIEW_LENGTH,
     TASK_SESSION_MAX_SIZE_BYTES,
     TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
+    UPSTREAM_RETRYABLE_ERROR_CATEGORIES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
     is_html_artifact as is_html_artifact,
@@ -3446,10 +3447,7 @@ TASK_RUN_FAILURE_ERROR_TYPES = (
     "output_parse_failed",
     "poll_timeout",
     "pi_runtime_error",
-    "upstream_stream_terminated",
-    "upstream_connection_error",
-    "upstream_timeout",
-    "upstream_provider_failure",
+    *UPSTREAM_RETRYABLE_ERROR_CATEGORIES,
     "upstream_request_rejected",
     "content_block_rejection",
     "turn_ended_without_response",
@@ -9045,6 +9043,18 @@ def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> 
         task.soft_delete()
         soft_delete_conversations_for_task(task.id)
     return True
+
+
+def release_task_origin_key(team_id: int, origin_key: str) -> int:
+    """Soft-delete the tasks holding ``origin_key`` and clear it, since the unique keys ignore ``deleted``."""
+    with transaction.atomic():
+        tasks = list(Task.objects.select_for_update().filter(idempotency_key_q(origin_key), team_id=team_id))
+        for task in tasks:
+            if not task.deleted:
+                task.soft_delete()
+                soft_delete_conversations_for_task(task.id)
+        Task.objects.filter(id__in=[task.id for task in tasks]).update(origin_key=None, idempotency_key=None)
+    return len(tasks)
 
 
 # --- Task handoff (transfer ownership to a colleague) ---

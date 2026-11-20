@@ -189,14 +189,13 @@ def test_billable_rows_exported_drops_non_billable_runs(team, destination_type, 
     assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END) == []
 
 
-@pytest.mark.parametrize("end_inclusive,expected_total", [(True, 15), (False, 5)])
-def test_billable_rows_exported_end_bound(team, end_inclusive, expected_total):
+def test_billable_rows_exported_leaves_out_a_run_finishing_at_the_end(team):
     export_id = _create_export(team)
     _create_run(batch_export_id=export_id, finished_at=IN_WINDOW, records=5)
     _create_run(batch_export_id=export_id, finished_at=WINDOW_END, records=10)
 
-    assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END, end_inclusive=end_inclusive) == [
-        contracts.TeamTotal(team_id=team.pk, total=expected_total)
+    assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END) == [
+        contracts.TeamTotal(team_id=team.pk, total=5)
     ]
 
 

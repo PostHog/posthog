@@ -2404,12 +2404,9 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
     # From the cutover, export rows bill on rows_synced instead (see get_teams_with_rows_synced_in_period).
     if batch_exports_api.exports_bill_as_rows_synced(begin):
         return []
-    if batch_exports_api.exports_bill_as_rows_synced(end):
-        rows = batch_exports_api.get_teams_with_billable_rows_exported(
-            begin, batch_exports_api.UNIFIED_PIPELINES_PRICING_START, end_inclusive=False
-        )
-    else:
-        rows = batch_exports_api.get_teams_with_billable_rows_exported(begin, end)
+    rows = batch_exports_api.get_teams_with_billable_rows_exported(
+        begin, min(end, batch_exports_api.UNIFIED_PIPELINES_PRICING_START)
+    )
     return [{"team_id": row.team_id, "total": row.total} for row in rows]
 
 

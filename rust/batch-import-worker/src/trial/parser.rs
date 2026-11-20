@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::{
     cache::{GroupCache, IdentifyCache, MemoryGroupCache, MemoryIdentifyCache},
     context::AppContext,
-    error::UserError,
+    error::{get_user_message_or, UserError},
     job::model::JobModel,
     parse::{
         content::{
@@ -158,10 +158,7 @@ where
 /// outermost message (e.g. "No distinct_id found") is the most specific safe
 /// description we have — better than the generic unknown-error fallback.
 fn user_facing_transform_error(e: &Error) -> String {
-    match e.downcast_ref::<UserError>() {
-        Some(user_error) => user_error.msg.clone(),
-        None => e.to_string(),
-    }
+    get_user_message_or(e, &e.to_string())
 }
 
 /// The source line as JSON when it is valid JSON (so the UI renders an object),
