@@ -1,6 +1,7 @@
 import type { Profile } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
+import type { BarResult } from '../judge/bars'
 import type { Baseline } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
@@ -80,6 +81,14 @@ const exited = (role: Role, second: number, byValve = false, replica = 0): RoleE
 const exitedWithError = (role: Role, second: number): RoleExit => ({ ...exited(role, second), code: 1, signal: null })
 
 describe('statusOf', () => {
+    const UNSOURCED: BarResult = {
+        name: 'writer_cpu_under',
+        unit: '%',
+        limit: 70,
+        passed: false,
+        unjudged: 'the local stack has no Aurora writer to read CPU from',
+    }
+
     it.each<[string, Partial<Verdict>, string, string]>([
         ['every invariant held', {}, 'passed', 'every invariant held'],
         ['an invariant failed', { invariants: [BROKEN] }, 'failed', 'at_least_once failed: run-1 email: lost'],
@@ -94,6 +103,15 @@ describe('statusOf', () => {
             { units: { targetUnits: 60, offeredUnits: 53 }, invariants: [BROKEN] },
             'invalid',
             'the generator offered 53 of 60 units, under minOffered 0.9',
+        ],
+        [
+            'a ramp that broke at a step before a later step fell short of minOffered',
+            {
+                units: { targetUnits: 60, offeredUnits: 53 },
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'writer_cpu_under broke at the 2x step' },
+            },
+            'failed',
+            'the ramp broke: writer_cpu_under broke at the 2x step',
         ],
         [
             'a role was killed by its valve and every invariant held',
@@ -138,13 +156,143 @@ describe('statusOf', () => {
                     {
                         name: 'pickup_p99_under',
                         unit: 's',
+                        limit: 5,
                         passed: false,
-                        breakingPoint: { scale: 10, at: at(30), offeredPerSecond: 12.34, key: 'hogflow', value: 10 },
+                        breakingPoint: {
+                            scale: 10,
+                            at: at(30),
+                            offeredPerSecond: 12.34,
+                            key: 'hogflow',
+                            value: 10,
+                            part: 'role:cdp-cyclotron-worker-hogflow',
+                        },
                     },
                 ],
             },
             'failed',
             'pickup_p99_under broke at the 10x step, 12.3 units/s offered: hogflow 10 s',
+        ],
+        [
+            'a ramp that stopped at a harness limit in the step where a bar broke',
+            {
+                bars: [
+                    {
+                        name: 'pickup_p99_under',
+                        unit: 's',
+                        limit: 5,
+                        passed: false,
+                        breakingPoint: { scale: 5, at: at(30), offeredPerSecond: 0, value: 10, part: 'role:x' },
+                    },
+                ],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 2,
+                    reason: 'the generator offered 0 of 600 units in the 5x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 0 of 600 units in the 5x step, under minOffered 0.9',
+        ],
+        [
+            'a ramp that broke before a later step whose bar could not be judged',
+            {
+                bars: [
+                    {
+                        name: 'pickup_p99_under',
+                        unit: 's',
+                        limit: 5,
+                        passed: false,
+                        breakingPoint: { scale: 2, at: at(30), offeredPerSecond: 2, value: 10, part: 'role:x' },
+                    },
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        limit: 70,
+                        passed: false,
+                        unjudged: 'no writer CPU reading in the 5x step',
+                        harnessLimit: { scale: 5, by: 'run_host' },
+                    },
+                ],
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'pickup_p99_under broke at the 2x step' },
+            },
+            'failed',
+            'the ramp broke: pickup_p99_under broke at the 2x step',
+        ],
+        [
+            'a ramp that stopped at a harness limit before the step whose unit broke an invariant',
+            {
+                invariants: [{ ...BROKEN, crossedBy: 'run-1' }],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+        ],
+        [
+            'a ramp that stopped at a harness limit at the step whose accepted unit never delivered',
+            {
+                convergence: { converged: false, unfinishedJobs: 1, unrecorded: ['run-1'], tookMs: 120_000 },
+                invariants: [{ ...BROKEN, crossedBy: 'run-1' }],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            'the ramp hit a harness limit: the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+        ],
+        [
+            'a ramp that held up to its ceiling',
+            { ramp: { end: 'ceiling', sustainedScale: 5, reason: 'every step held up to the 5x ceiling' } },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a ramp that held up to its ceiling with a bar the stack has no source for',
+            {
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 5,
+                    reason: 'every judged bar held up to the 5x ceiling; writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+                },
+                bars: [UNSOURCED],
+            },
+            'invalid',
+            'writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+        ],
+        [
+            'a ramp that broke with a bar the stack has no source for',
+            {
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'pickup_p99_under broke at the 2x step' },
+                bars: [UNSOURCED],
+            },
+            'failed',
+            'the ramp broke: pickup_p99_under broke at the 2x step; writer_cpu_under was not judged: the local stack has no Aurora writer to read CPU from',
+        ],
+        [
+            'a ramp that stopped at a harness limit while an invariant no unit crossed failed',
+            {
+                invariants: [
+                    {
+                        name: 'resident_backlog_intact',
+                        passed: false,
+                        observed: 3,
+                        violation: '3 rows lost',
+                        unitIds: [],
+                    },
+                ],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'failed',
+            'resident_backlog_intact failed: 3 rows lost',
         ],
         [
             'a bar could not be judged',
@@ -153,6 +301,7 @@ describe('statusOf', () => {
                     {
                         name: 'writer_cpu_under',
                         unit: '%',
+                        limit: 70,
                         passed: false,
                         unjudged: 'no writer CPU reading off a run host in the 1x step',
                     },

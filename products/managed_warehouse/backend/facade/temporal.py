@@ -9,6 +9,8 @@ imported off the ``django.setup()`` path — the worker bootstrap, schedule setu
 temporal activity modules.
 """
 
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+
 from products.managed_warehouse.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.managed_warehouse.backend.temporal.compaction_types import DucklakeCompactionInput
 from products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow import (
@@ -38,3 +40,9 @@ __all__ = [
     "DucklakeCompactionInput",
     "build_register_data_imports_workflow_id",
 ]
+
+TEMPORAL = TemporalRegistration(
+    queues=(
+        QueueBinding(queue_setting="DUCKLAKE_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(ACTIVITIES)),
+    ),
+)

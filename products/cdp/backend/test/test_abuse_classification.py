@@ -6,6 +6,8 @@ from parameterized import parameterized
 
 from posthog.utils import absolute_uri
 
+from products.cdp.backend.abuse.classifier import MALICIOUS_QUESTIONS
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.tasks.abuse_classification import classify_hog_function_for_abuse
 from products.cdp.backend.test.abuse_support import (
     RULE_FREE_HOG,
@@ -15,6 +17,10 @@ from products.cdp.backend.test.abuse_support import (
     AbuseClassificationTestCase,
     decision_payload,
 )
+
+LOW_CONTROL_SCORES = {**SCORES, "normal_integration": 0.2}
+SSRF_SCORES = {**SCORES, "internal_network": 0.6, "resource_exhaustion": 0.1, "normal_integration": 0.6}
+NO_CALL_HOG = "print(event.properties.$ip)"
 
 
 class TestAbuseClassification(AbuseClassificationTestCase):
@@ -33,18 +39,47 @@ class TestAbuseClassification(AbuseClassificationTestCase):
 
     @parameterized.expand(
         [
-            ("default_thresholds", None, RULE_FREE_HOG, [], True, False),
+            ("high_control_skips_a_moderate_model_alert", SCORES, None, RULE_FREE_HOG, [], False, False),
+            ("low_control_keeps_a_moderate_model_alert", LOW_CONTROL_SCORES, None, RULE_FREE_HOG, [], True, False),
+            (
+                "high_control_still_alerts_and_blocks_at_the_block_threshold",
+                {**SCORES, "resource_exhaustion": 0.9},
+                None,
+                RULE_FREE_HOG,
+                [],
+                True,
+                True,
+            ),
             (
                 "thresholds_from_payload",
+                SCORES,
                 {"alert_threshold": 0.3, "block_threshold": 0.75},
                 RULE_FREE_HOG,
                 [],
                 True,
                 True,
             ),
-            ("invalid_payload_uses_defaults", {"alert_threshold": "high"}, RULE_FREE_HOG, [], True, False),
+            (
+                "control_threshold_from_payload",
+                SCORES,
+                {"alert_threshold": 0.5, "block_threshold": 0.9, "control_threshold": 0.99},
+                RULE_FREE_HOG,
+                [],
+                True,
+                False,
+            ),
+            (
+                "invalid_payload_uses_defaults",
+                LOW_CONTROL_SCORES,
+                {"alert_threshold": "high"},
+                RULE_FREE_HOG,
+                [],
+                True,
+                False,
+            ),
             (
                 "blocking_rule_overrides_the_model",
+                SCORES,
                 None,
                 "fetch('http://169.254.169.254/latest')",
                 ["internal_host"],
@@ -53,17 +88,68 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             ),
             (
                 "alerting_rule_does_not_block",
+                SCORES,
                 {"alert_threshold": 0.9, "block_threshold": 0.95},
                 "fetch('https://webhook.site/0000')",
                 ["request_catcher"],
                 True,
                 False,
             ),
+            (
+                "rule_alerts_when_high_control_skips_the_model_alert",
+                SCORES,
+                None,
+                "fetch('https://webhook.site/0000')",
+                ["request_catcher"],
+                True,
+                False,
+            ),
+            ("ssrf_score_alerts_with_an_outbound_call", SSRF_SCORES, None, RULE_FREE_HOG, [], True, False),
+            ("ssrf_score_is_ignored_without_an_outbound_call", SSRF_SCORES, None, NO_CALL_HOG, [], False, False, False),
+            (
+                "ssrf_score_at_the_block_threshold_is_ignored_without_an_outbound_call",
+                {**SSRF_SCORES, "internal_network": 0.95},
+                None,
+                NO_CALL_HOG,
+                [],
+                False,
+                False,
+                False,
+            ),
+            (
+                "other_risk_alerts_without_an_outbound_call",
+                LOW_CONTROL_SCORES,
+                None,
+                NO_CALL_HOG,
+                [],
+                True,
+                False,
+                False,
+            ),
+            (
+                "rule_alerts_without_an_outbound_call",
+                {**SSRF_SCORES, "internal_network": 0.95},
+                None,
+                "if (event.properties.$current_url == 'http://127.0.0.1/') {\n  return\n}\nprint(event.event)",
+                ["internal_host_reference"],
+                True,
+                False,
+                False,
+            ),
         ]
     )
     def test_a_verdict_is_captured_as_an_internal_event(
-        self, _name: str, payload: dict | None, hog: str, rule_hits: list[str], would_alert: bool, would_block: bool
+        self,
+        _name: str,
+        scores: dict[str, float],
+        payload: dict | None,
+        hog: str,
+        rule_hits: list[str],
+        would_alert: bool,
+        would_block: bool,
+        outbound_call: bool = True,
     ) -> None:
+        self.gateway.response = httpx.Response(200, json=decision_payload(scores))
         self.flags.payload = payload
         hog_function = self.create_destination(template_id="template-webhook", hog=hog)
 
@@ -83,13 +169,10 @@ class TestAbuseClassification(AbuseClassificationTestCase):
             "code_modified_from_template": None,
             "enabled": True,
             "trigger": "save",
-            "score_internal_network": 0.12,
-            "score_resource_exhaustion": 0.8,
-            "score_malformed_payload": 0.05,
-            "score_runtime_escape": 0.3,
-            "score_normal_integration": 0.95,
-            "risk_score": 0.8,
+            **{f"score_{question}": score for question, score in scores.items()},
+            "risk_score": max(scores[question] for question in MALICIOUS_QUESTIONS),
             "rule_hits": rule_hits,
+            "outbound_call": outbound_call,
             "would_alert": would_alert,
             "would_block": would_block,
             "state_truncated": False,
@@ -113,7 +196,13 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 None,
                 httpx.ConnectError("connection refused"),
                 {"hog": RULE_FREE_HOG},
-                {"error": "gateway_unreachable", "rule_hits": [], "would_alert": None, "would_block": None},
+                {
+                    "error": "gateway_unreachable",
+                    "rule_hits": [],
+                    "outbound_call": True,
+                    "would_alert": None,
+                    "would_block": None,
+                },
             ),
             (
                 "unreadable_with_padded_input",
@@ -127,6 +216,34 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 {
                     "error": "invalid_answer",
                     "rule_hits": ["oversized_input"],
+                    "would_alert": True,
+                    "would_block": False,
+                },
+            ),
+            (
+                "secret_input_runs_a_huge_range",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {"hog": RULE_FREE_HOG, "inputs": {"api_key": {"value": "{range(1000000)}"}}},
+                {"error": "gateway_error", "rule_hits": ["huge_range"], "would_alert": True, "would_block": False},
+            ),
+            (
+                "secret_mapping_input_amplifies_a_string",
+                httpx.Response(503, json={"error": "busy"}),
+                None,
+                {
+                    "hog": RULE_FREE_HOG,
+                    "mappings": [
+                        {
+                            "name": "Orders",
+                            "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+                            "inputs": {"token": {"value": "{replaceAll(event.event, '', 'xx')}"}},
+                        }
+                    ],
+                },
+                {
+                    "error": "gateway_error",
+                    "rule_hits": ["replace_amplification"],
                     "would_alert": True,
                     "would_block": False,
                 },
@@ -185,11 +302,50 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         if padding_seen is not None:
             assert state["inputs"]["padding"]["value"] == padding_seen
 
-    @parameterized.expand([("name_only", {"name": "Renamed"}, 1), ("code", {"hog": "print('changed')"}, 2)])
+    @parameterized.expand(
+        [
+            ("name_only", {"name": "Renamed"}, 1),
+            ("code", {"hog": "print('changed')"}, 2),
+            (
+                "secret_rotated_to_a_benign_value",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "sk-live-rotated"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                1,
+            ),
+            (
+                "secret_input_that_matches_a_rule",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "{range(1000000)}"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                2,
+            ),
+            (
+                "secret_input_that_adds_an_outbound_call",
+                {
+                    "inputs": {
+                        "url": {"value": "https://hooks.example.com/orders"},
+                        "api_key": {"value": "{fetch(event.uuid)}"},
+                        "body": {"value": {"bytecode": "https://collector.example.net"}},
+                    }
+                },
+                2,
+                {"hog": "print(event)"},
+            ),
+        ]
+    )
     def test_a_resave_is_scored_again_only_when_its_content_changes(
-        self, _name: str, changes: dict[str, str], expected_requests: int
+        self, _name: str, changes: dict[str, Any], expected_requests: int, initial: dict[str, Any] | None = None
     ) -> None:
-        hog_function = self.create_destination()
+        hog_function = self.create_destination(**(initial or {}))
 
         for field, value in changes.items():
             setattr(hog_function, field, value)
@@ -254,6 +410,17 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
 
         assert len(self.gateway.requests) == expected_requests
+
+    def test_an_undecryptable_secret_input_still_scores_the_public_config(self) -> None:
+        hog_function = self.create_destination(hog=RULE_FREE_HOG)
+        HogFunction.objects.filter(pk=hog_function.pk).update(
+            hog="print(event.event)", encrypted_inputs="ciphertext without its key"
+        )
+
+        classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
+
+        assert len(self.gateway.requests) == 2
+        assert "risk_score" in self.captured_events()[-1]["properties"]
 
     def test_enabling_a_function_that_was_never_scored_scores_it(self) -> None:
         hog_function = self.create_destination(enabled=False)

@@ -12,10 +12,12 @@
  */
 export function decodeLogAttributeValue(value: string): string {
     if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
-        // A quoted string whose interior has no backslash and no quote is escape-free
-        // valid JSON, so the decode is a plain slice and JSON.parse would return the
-        // identical string. Anything else ('"a"b"', escapes) falls through to
-        // JSON.parse to preserve its exact accept/reject behavior.
+        // A quoted string whose interior has no backslash and no quote has no escapes,
+        // so the decode is a plain slice. JSON.parse would reject a raw control character
+        // (U+0000 to U+001F) in that interior where the slice accepts it, but every
+        // capture encoder escapes control characters, so no stored value contains one.
+        // Anything else ('"a"b"', escapes) falls through to JSON.parse to preserve its
+        // exact accept/reject behavior.
         const interior = value.slice(1, -1)
         if (!interior.includes('\\') && !interior.includes('"')) {
             return interior

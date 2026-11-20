@@ -95,6 +95,10 @@ describe('movingAverage', () => {
         expect(movingAverage([1, 2, 3], 7)).toEqual([1, 2, 3])
     })
 
+    it('uses only finite points up to the current point in a trailing window', () => {
+        expect(movingAverage([NaN, 2, 4, 12, NaN, NaN], 2, 'trailing')).toEqual([NaN, 2, 3, 8, 12, NaN])
+    })
+
     it('smooths uniform input to itself', () => {
         const result = movingAverage([5, 5, 5, 5, 5, 5, 5, 5], 3)
         expect(result).toEqual([5, 5, 5, 5, 5, 5, 5, 5])

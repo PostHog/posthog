@@ -20,6 +20,7 @@ export interface AuditActor {
 
 export interface AuditEntry {
     actor: AuditActor
+    occurredAt: Date
     operation: string
     outcome: string
     ownerType: string | null
@@ -39,6 +40,7 @@ export interface AuditEntry {
 export function logAuditEntries(entries: readonly AuditEntry[]): void {
     for (const entry of entries) {
         logger.audit('integrations:audited', {
+            occurred_at: entry.occurredAt.toISOString(),
             deployment: entry.actor.deployment,
             caller: entry.actor.caller,
             user_id: entry.actor.userId,
@@ -60,9 +62,8 @@ export async function insertAuditRows(db: Queryable, entries: readonly AuditEntr
     if (entries.length === 0) {
         return
     }
-    const occurredAt = new Date().toISOString()
     const rows = entries.map((entry) => ({
-        occurred_at: occurredAt,
+        occurred_at: entry.occurredAt.toISOString(),
         deployment: entry.actor.deployment,
         caller: entry.actor.caller,
         user_id: entry.actor.userId,

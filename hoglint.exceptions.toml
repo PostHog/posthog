@@ -1,0 +1,4 @@
+# Reviewed hoglint exceptions. A person writes each one, and the owners of this file review it.
+# Each [[exception]] needs rule, match, reason, owners, scope ("prod" or "test") and review_by.
+# An exception that matches no finding fails the check. `hoglint help hook` says when to add one.
+schema = 1

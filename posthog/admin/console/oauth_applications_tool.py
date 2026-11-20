@@ -13,6 +13,7 @@ from posthog.admin.console.oauth_application_panels import (
     KIND_LABELS,
     OAUTH_APPLICATIONS_TOOL_KEY,
     app_kind,
+    decision_operation_links,
     provisioning_status,
     review_page_url,
 )
@@ -24,6 +25,8 @@ from posthog.admin.console.tools import (
     ConsoleTool,
     FieldGroup,
     Filters,
+    Link,
+    Links,
     Live,
     Notice,
     Output,
@@ -34,11 +37,12 @@ from posthog.admin.console.tools import (
     Stats,
     Table,
 )
-from posthog.api.oauth.provisioning_review import review_workflow_id
+from posthog.api.oauth.provisioning_review import partner_provisioning_status, review_workflow_id
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
+    PartnerProvisioningStatus,
     ProvisioningReviewStage,
     ProvisioningReviewStatus,
 )
@@ -243,16 +247,27 @@ class OAuthApplicationsTool(ConsoleTool):
         log = _run_log(review)
         app = review.application
         evidence = _evidence_text(review)
+        app_url = RECORD_TYPES["oauth-application"].url(app)
+        decisions = decision_operation_links(app)
+        if partner_provisioning_status(app, review) == PartnerProvisioningStatus.WAITING_FOR_STAFF:
+            summary = Notice(
+                text=(
+                    f"{app.name} is waiting for a staff decision. Read the review below, then accept or block the "
+                    "partner."
+                ),
+                tone=Tone.WARNING,
+            )
+        else:
+            summary = Notice(
+                text=(
+                    f"{app.name} registered for provisioning from {app.client_id}. Change the decision or its "
+                    "capabilities on the app's page."
+                )
+            )
         return Page(
             blocks=(
-                Notice(
-                    text=(
-                        f"{app.name} registered for provisioning from {app.client_id}. Accept or block the partner, "
-                        "and change its capabilities, on the app's page."
-                    ),
-                    link_text="Open the app",
-                    href=RECORD_TYPES["oauth-application"].url(app),
-                ),
+                summary,
+                Links(items=(*decisions, Link(label="Open the app", href=app_url, primary=not decisions))),
                 Stats(
                     items=(
                         Stat(label="Status", value=_status_cell(review).text, tone=_status_cell(review).tone),

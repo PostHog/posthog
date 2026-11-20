@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from 'react'
-import { Text, View } from 'react-native'
+import { type StyleProp, Text, View, type ViewStyle } from 'react-native'
 
 import { createStyles } from '@/ui/theme'
 import { fonts, type } from '@/ui/tokens'
@@ -10,6 +10,7 @@ interface SettingsRowProps {
     value?: string
     monoValue?: boolean
     accessory?: ReactNode
+    style?: StyleProp<ViewStyle>
     testID?: string
 }
 
@@ -19,11 +20,12 @@ export function SettingsRow({
     value,
     monoValue = false,
     accessory,
+    style,
     testID,
 }: SettingsRowProps): ReactElement {
     const styles = useStyles()
     return (
-        <View style={styles.row} testID={testID}>
+        <View style={[styles.row, style]} testID={testID}>
             <View style={value ? undefined : styles.labelFill}>
                 <Text style={styles.label}>{label}</Text>
                 {description ? <Text style={styles.description}>{description}</Text> : null}

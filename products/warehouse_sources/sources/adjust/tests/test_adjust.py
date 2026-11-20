@@ -174,13 +174,28 @@ class TestRequest:
         assert isinstance(result.raised, AdjustRetryableError)
         assert len(result.requests) > 1
 
+    def test_request_timeout_is_retryable_without_adapter_level_retry(self) -> None:
+        # Unlike 429/5xx, the tracked session's adapter retries don't cover 408 (it isn't in
+        # DEFAULT_RETRY's status_forcelist), so a single 408 must still classify as retryable
+        # rather than falling through as a hard client error like 400/404.
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                always(ScriptedResponse(status=408)),
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert isinstance(result.raised, AdjustRetryableError)
+        assert len(result.requests) == 1
+
     @parameterized.expand([(400,), (401,), (403,), (404,), (422,)])
     def test_client_errors_raise_http_error_with_url(self, status: int) -> None:
         with mock.patch.object(adjust, "_today", return_value=TODAY):
             result = _driver().run(
                 "daily_report",
                 # A JSON body that is not an object: the error message must still build.
-                [ScriptedResponse(status=status, body=b"null")],
+                always(ScriptedResponse(status=status, body=b"null")),
                 incremental_field="day",
                 db_incremental_field_last_value="2024-06-30",
             )
@@ -230,6 +245,32 @@ class TestRequest:
             )
 
         assert isinstance(result.raised, ValueError)
+
+    def test_a_403_that_clears_on_retry_does_not_fail_the_sync(self) -> None:
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                [ScriptedResponse(status=403), _scripted_page([{"day": "2024-06-30"}])],
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert result.raised is None
+        assert len(result.items) == 1
+        assert len(result.requests) == 2
+
+    @parameterized.expand([(400, 1), (401, 1), (403, 4), (404, 1), (422, 1)])
+    def test_only_a_403_is_retried_before_it_surfaces(self, status: int, expected_requests: int) -> None:
+        with mock.patch.object(adjust, "_today", return_value=TODAY):
+            result = _driver().run(
+                "daily_report",
+                always(ScriptedResponse(status=status)),
+                incremental_field="day",
+                db_incremental_field_last_value="2024-06-30",
+            )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert len(result.requests) == expected_requests
 
 
 class TestExtractRows:
@@ -439,7 +480,7 @@ class TestValidateCredentials:
         assert network.requests_log[0].param("metrics") == "installs"
         assert network.requests_log[0].param("app_token__in") == "abc123"
 
-    @parameterized.expand([(429,), (500,), (503,)])
+    @parameterized.expand([(408,), (429,), (500,), (503,)])
     def test_throttle_and_5xx_are_retryable(self, status: int) -> None:
         with pytest.raises(AdjustRetryableError):
             self._validate(ScriptedResponse(status=status))

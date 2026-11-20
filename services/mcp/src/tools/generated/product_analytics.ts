@@ -207,6 +207,10 @@ const AssistantDataVisualizationChartSettings = z.object({
     boxPlot: AssistantDataVisualizationBoxPlotSettings.describe(
         'Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.'
     ).optional(),
+    colorBarsByCategory: z.coerce
+        .boolean()
+        .describe('Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.')
+        .optional(),
     goalLines: z
         .array(AssistantDataVisualizationGoalLine)
         .describe('Horizontal goal lines drawn across the chart.')
