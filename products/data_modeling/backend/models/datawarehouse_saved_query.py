@@ -624,7 +624,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectMotherDuckTable,
         DirectTrinoTable,
     ]:
-        if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
+        if (
+            self.table is not None
+            # A table from another team must never back this view. The view then reads through its own query.
+            and self.table.team_id == self.team_id
+            and self.is_materialized
+            and modifiers is not None
+            and modifiers.useMaterializedViews
+        ):
             table = self.table.hogql_definition(modifiers)
             if isinstance(table, S3Table):
                 table.saved_query_id = str(self.id)

@@ -1179,9 +1179,13 @@ class ClickHousePrinter(BasePrinter):
                 )
             return None
 
+        if isinstance(table_type.table, SavedQuery):
+            # The resolver replaces a view with its query. A view left here would print as a bare table name
+            # with no team_id filter.
+            raise ImpossibleASTError(f'View "{table_type.table.to_printed_hogql()}" was not expanded before printing.')
+
         if (
             not isinstance(table_type.table, DataWarehouseTable)
-            and not isinstance(table_type.table, SavedQuery)
             and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
             and node_type is not None
         ):
