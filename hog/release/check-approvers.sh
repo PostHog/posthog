@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
 # Usage: check-approvers.sh <first commit> <last commit> <approver>...
 #        check-approvers.sh --report <first commit> <last commit>
+#        check-approvers.sh --list-paths
 #
 # The owners of a release are the people who opened, merged or wrote commits in a pull request that
 # changed anything under RELEASE_PATHS between the two commits: the hog changesets, and the trees hog
 # compiles in, whose changes ship whether or not a changeset names them. The check fails when an
 # approver is one of the owners, and writes `violations=<who (#pull requests)>` to GITHUB_OUTPUT.
 # --report checks nobody and writes the pull requests and their owners as Slack mrkdwn instead, as
-# `prs_mrkdwn` and `owners_mrkdwn`. Every lookup that fails stops the script, because a check that can't
-# run can't clear anyone.
+# `prs_mrkdwn` and `owners_mrkdwn`. --list-paths prints RELEASE_PATHS, one per line, so the release
+# workflow can check that they still cover what the release builds. Every lookup that fails stops the
+# script, because a check that can't run can't clear anyone.
 #
 # Needs GH_TOKEN and REPOSITORY, and the history of both commits in the checkout.
 set -euo pipefail
 
-# Every tree the hog and CLI library builds compile in, and more: all of hog/, which holds the changesets,
-# this script and catalog-gap.ts, and all of services/mcp/. The list lives here rather than coming from a
-# build, because the release workflow runs this script as the last release tag has it, so a pull request
-# can't narrow it for its own release. Counting too much only blocks more approvers.
+# Everything the release build reads from the release commit: every tree the hog and CLI library builds
+# compile in, the workspace packages and dependency files pnpm installs from, the local actions and the
+# workflow that run the build, and more. All of hog/ counts, which holds the changesets, this script and
+# catalog-gap.ts. The list lives here rather than coming from a build, because the release workflow runs
+# this script as the last release tag has it, so a pull request can't narrow it for its own release.
+# Counting too much only blocks more approvers: many people change pnpm-lock.yaml each week, and each of
+# them is one more person who can't approve that week's release.
 RELEASE_PATHS=(
     'hog'
     'services/mcp'
@@ -24,7 +29,27 @@ RELEASE_PATHS=(
     'products/notebooks'
     'products/posthog_ai/skills/querying-posthog-data/references/guidelines.md'
     'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
+    'tools/openapi-codegen'
+    'packages/llm-normalizer'
+    'packages/quill'
+    'package.json'
+    'pnpm-lock.yaml'
+    'pnpm-workspace.yaml'
+    '.npmrc'
+    '.pnpmfile.cjs'
+    '.nvmrc'
+    'patches'
+    '.husky'
+    'bin/fix-rdkafka-paths'
+    '.github/actions/pnpm-install'
+    '.github/actions/setup-pnpm'
+    '.github/workflows/release-hog.yml'
 )
+
+if [ "${1:-}" = --list-paths ]; then
+    printf '%s\n' "${RELEASE_PATHS[@]}"
+    exit 0
+fi
 
 report=false
 if [ "${1:-}" = --report ]; then

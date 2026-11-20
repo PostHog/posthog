@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +12,9 @@ import {
     findCatalogGaps,
     type GapResult,
     outsideCheckout,
+    outsideReleasePaths,
     readAt,
+    releaseBuildInputs,
     releaseCheckoutPatterns,
     untriggeredFiles,
 } from './catalog-gap'
@@ -382,4 +385,33 @@ test('lists compiled files the workflow trigger paths miss', () => {
         'products/notebooks/README.md',
         'products/notebooks/frontend/widget.ts',
     ])
+})
+
+test('lists the files the release paths of the approver check miss', () => {
+    const paths = ['hog', ':(glob)products/*/mcp/**', 'pnpm-lock.yaml']
+
+    expect(
+        outsideReleasePaths(
+            [
+                'hog/src/cli.ts',
+                'hogwarts/spell.ts',
+                'products/surveys/mcp/tools.yaml',
+                'products/surveys/backend/api.py',
+                'pnpm-lock.yaml',
+            ],
+            paths
+        )
+    ).toEqual(['hogwarts/spell.ts', 'products/surveys/backend/api.py'])
+})
+
+test("the approver check's release paths cover every input the release build names", () => {
+    const repoRoot = join(import.meta.dir, '../..')
+    const paths = execFileSync('bash', [join(import.meta.dir, 'check-approvers.sh'), '--list-paths'], {
+        encoding: 'utf8',
+    })
+        .split('\n')
+        .filter(Boolean)
+    const workflow = readFileSync(join(repoRoot, '.github/workflows/release-hog.yml'), 'utf8')
+
+    expect(outsideReleasePaths(releaseBuildInputs(workflow), paths)).toEqual([])
 })

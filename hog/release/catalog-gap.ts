@@ -18,6 +18,7 @@ export const CATALOG_SCHEMA = 'services/mcp/src/cli/catalog/schema.ts'
 const RELEASE_WORKFLOW = '.github/workflows/release-hog.yml'
 const CHANGESET_WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
 const RELEASE_BUILD_JOB = 'build'
+const GLOB_PATHSPEC = ':(glob)'
 const GENERATED_TOOLS_DIR = 'services/mcp/src/tools/generated/'
 const GENERATED_REGISTRY = `${GENERATED_TOOLS_DIR}index.ts`
 // Generated, but code rather than catalog data: the barrel, the hook registry and the query wrappers.
@@ -462,6 +463,31 @@ export function untriggeredFiles(compiled: Set<string>, workflow: string): strin
     )
 }
 
+// The release build's inputs that a path names: what its sparse checkout names without a wildcard, the local
+// actions the workflow runs, and the workflow itself.
+export function releaseBuildInputs(workflow: string): string[] {
+    const named = releaseCheckoutPatterns(workflow)
+        .filter((pattern) => !pattern.startsWith('!') && !pattern.includes('*'))
+        .map((pattern) => pattern.replace(/^\//, '').replace(/\/$/, ''))
+    const actions = Object.values(Workflow.parse(parseYaml(workflow)).jobs)
+        .flatMap((job) => job.steps)
+        .flatMap((step) => (step.uses?.startsWith('./') ? [step.uses.slice(2)] : []))
+    return [...new Set([...named, ...actions, RELEASE_WORKFLOW])]
+}
+
+// The paths check-approvers.sh doesn't count, given the git pathspecs it prints with --list-paths: a plain path
+// covers itself and everything under it, and `:(glob)` matches as a glob. A path may name a folder, which a glob
+// covers when it matches what the folder holds.
+export function outsideReleasePaths(files: string[], releasePaths: string[]): string[] {
+    const covers = (path: string, file: string): boolean =>
+        path.startsWith(GLOB_PATHSPEC)
+            ? [file, `${file}/file`].some((candidate) =>
+                  new Bun.Glob(path.slice(GLOB_PATHSPEC.length)).match(candidate)
+              )
+            : file === path || file.startsWith(`${path}/`)
+    return files.filter((file) => !releasePaths.some((path) => covers(path, file)))
+}
+
 export function releaseCheckoutPatterns(workflow: string): string[] {
     const steps = Workflow.parse(parseYaml(workflow)).jobs[RELEASE_BUILD_JOB]?.steps ?? []
     const sparse = steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.with?.['sparse-checkout']
@@ -522,6 +548,8 @@ if (import.meta.main) {
     const { values } = parseArgs({
         options: {
             base: { type: 'string' },
+            // What `check-approvers.sh --list-paths` prints for the checker the release will run.
+            'release-paths': { type: 'string' },
             'hog-metafile': { type: 'string', default: resolve(repoRoot, 'hog/dist/hog.metafile.json') },
             'mcp-metafile': {
                 type: 'string',
@@ -560,7 +588,21 @@ if (import.meta.main) {
     })
     const patterns = releaseCheckoutPatterns(readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8'))
     const untriggered = untriggeredFiles(compiled.files, readFileSync(resolve(repoRoot, CHANGESET_WORKFLOW), 'utf8'))
+    const releasePaths = values['release-paths']
+        ? readFileSync(values['release-paths'], 'utf8').split('\n').filter(Boolean)
+        : undefined
+    const releaseWorkflow = readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8')
     process.stdout.write(
-        `${JSON.stringify({ ...result, untriggered, outsideReleaseCheckout: outsideCheckout(compiled.files, patterns) })}\n`
+        `${JSON.stringify({
+            ...result,
+            untriggered,
+            outsideReleaseCheckout: outsideCheckout(compiled.files, patterns),
+            ...(releasePaths && {
+                outsideReleasePaths: outsideReleasePaths(
+                    [...compiled.files, ...releaseBuildInputs(releaseWorkflow)],
+                    releasePaths
+                ),
+            }),
+        })}\n`
     )
 }
