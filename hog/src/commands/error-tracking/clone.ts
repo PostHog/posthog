@@ -1,6 +1,5 @@
 import { defineCommand } from '@/core/command'
 import { cloneMaps } from '@/error-tracking/run'
-import { withWorker } from '@/error-tracking/worker'
 
 import { DRY_RUN_OPTION, readOptions, RELEASE_OPTIONS, releaseLines } from './shared'
 
@@ -23,7 +22,7 @@ export default defineCommand({
 
     async run({ args, options, ctx }) {
         const settings = await readOptions(options, ctx)
-        return withWorker((worker) => cloneMaps(ctx, worker, args.packagerMap, args.composedMap, settings))
+        return cloneMaps(ctx, args.packagerMap, args.composedMap, settings)
     },
 
     human({ result, out }) {

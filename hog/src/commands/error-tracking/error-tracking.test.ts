@@ -17,7 +17,7 @@ import { z } from 'zod'
 import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { contentHash, SymbolDataType } from '@/error-tracking/container'
 import { deriveBaseName } from '@/error-tracking/symbols'
-import { withWorker } from '@/error-tracking/worker'
+import { Worker } from '@/error-tracking/worker'
 import { runHog, TEST_CREDENTIALS } from '@/testing'
 
 import { GIT_REPO, SMALL_MAPPING } from '../../../test/parity/fixtures'
@@ -363,7 +363,9 @@ describe('hog error-tracking upload', () => {
         const path = join(folder, 'Shop')
         writeFileSync(path, Buffer.concat([header, Buffer.alloc(4096 - 48), slice, Buffer.alloc(8)]))
 
-        const files = await withWorker((worker) => worker.nativeCandidates([path]))
+        const worker = new Worker()
+
+        const files = await worker.nativeCandidates([path]).finally(() => worker.close())
 
         expect(files).toEqual([
             {

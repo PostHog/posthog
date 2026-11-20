@@ -2,9 +2,10 @@ import { readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
+import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 
-import type { Detected, Worker } from './worker'
+import { commandWorker, type Detected } from './worker'
 
 const JS_EXTENSIONS = ['.js', '.mjs', '.cjs'] as const
 
@@ -189,11 +190,12 @@ const MAPPING_EXTENSION = '.txt'
 const NATIVE_KINDS: readonly ArtifactKind[] = ['elf', 'dsym']
 
 export async function discover(
-    worker: Worker,
+    ctx: Context,
     roots: readonly Root[],
     cwd: string,
     options: DiscoverOptions = {}
 ): Promise<Artifact[]> {
+    const worker = commandWorker(ctx)
     const listed = roots.map((root) => rootFiles(root, cwd))
     // One request for every file, so the worker reads them in parallel.
     const answers = await worker.detect(

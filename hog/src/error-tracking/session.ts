@@ -10,14 +10,13 @@ import { GitError, gitInfo, type GitInfo } from './git'
 import { plistRelease } from './plist'
 import { fetchOrCreateRelease, packVersion, type Release, type ReleaseFields } from './release'
 import { SymbolSetClient, uuidv7 } from './upload'
+import type { InjectAction } from './worker'
 
 export type ReleaseMode = 'event' | 'symbol-set'
 
 // `intended` marks a file hog left out on purpose, such as one an ignore pattern matches, so the upload
 // still counts as complete.
 export type Skip = { path: string; reason: string; intended?: true }
-
-export type InjectAction = 'injected' | 'release_updated' | 'unchanged'
 
 export interface ErrorTrackingOptions {
     kind?: ArtifactKind

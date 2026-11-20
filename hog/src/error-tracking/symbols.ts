@@ -9,7 +9,7 @@ import type { RuntimeFetch } from '@/core/runtime'
 import { SymbolDataType } from './container'
 import { ApiFailure, type SymbolSetClient } from './upload'
 
-const MAGIC = Buffer.from('posthog_error_tracking', 'latin1')
+export const MAGIC = Buffer.from('posthog_error_tracking', 'latin1')
 // Uploads are at most 100 MB compressed. These caps stop a crafted symbol set from inflating
 // until the process runs out of memory.
 const MAX_PAYLOAD_BYTES = 2 * 1024 * 1024 * 1024
