@@ -21,7 +21,14 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
-from products.signals.backend.anomaly_scores.read import ChartShare, FlaggedPoint, SeriesSummary, rank_series, rollup
+from products.signals.backend.anomaly_scores.read import (
+    ChartShare,
+    FlaggedPoint,
+    SeriesSummary,
+    chart_shares,
+    rank_series,
+    rollup,
+)
 from products.signals.backend.anomaly_scores.search import (
     MAX_INSIGHT_SERIES,
     SCORING_DISABLED_MESSAGE,
@@ -440,17 +447,26 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flagged_only_reads_flagged_series_first", 1, {}, 1, False),
-            ("every_series_counts_against_the_cap", 1, {"only_flagged": False}, 1, True),
-            ("flagged_series_alone_pass_the_cap", 2, {}, 1, True),
-            ("insight_rollups_need_every_series", 1, {"group_by": "insight"}, 1, True),
+            ("flagged_only_reads_flagged_series_first", 1, 0, {}, 1, False),
+            ("every_series_counts_against_the_cap", 1, 0, {"only_flagged": False}, 1, True),
+            ("flagged_series_alone_pass_the_cap", 2, 0, {}, 1, True),
+            ("insight_rollups_need_every_series", 1, 0, {"group_by": "insight"}, 1, True),
+            ("forged_series_never_count_against_the_cap", 1, 3, {}, 1, False),
         ]
     )
     def test_search_reports_when_the_series_cap_drops_series_it_needs(
-        self, _name: str, flagged: int, params: dict[str, Any], expected_rows: int, expected_capped: bool
+        self,
+        _name: str,
+        flagged: int,
+        forged: int,
+        params: dict[str, Any],
+        expected_rows: int,
+        expected_capped: bool,
     ) -> None:
         for index in range(flagged):
             self._score(_day(22), score=0.99, flag=1, series_key=f"flagged_{index}")
+        for index in range(forged):
+            self._score(_day(22), score=0.99, flag=1, series_key=f"forged_{index}", interval="second")
         for index in range(30):
             self._score(_day(22), score=0.10, flag=0, series_key=f"quiet_{index}")
 
@@ -464,6 +480,21 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             expected_capped,
             expected_capped,
         )
+
+    def test_chart_shares_count_each_requested_series_in_the_window_of_its_requested_interval(self) -> None:
+        # The insight was hourly before it turned daily, and its series kept the same key.
+        self._score(_day(12), score=0.90, flag=1, interval="hour")
+        self._score(_day(20), score=0.10, flag=0)
+        self._score(_day(22), score=0.90, flag=1)
+        # Before the 14-day daily window.
+        self._score(_day(8), score=0.90, flag=1)
+        for index in range(20):
+            self._score(_day(22), score=0.10, flag=0, series_key=f"other_{index}")
+
+        with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES", 1):
+            shares = chart_shares(self.team, date_to=NOW, series={(self.insight.id, "signups"): IntervalType.DAY})
+
+        assert shares == {(self.insight.id, "signups"): ChartShare(scored_buckets=3, flagged_buckets=2)}
 
     def test_search_recent_order_mixes_intervals_on_the_first_page(self) -> None:
         for hours_ago in range(1, 25):

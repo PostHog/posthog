@@ -94,7 +94,7 @@ SELECT
     series_key,
     argMax(series_label, bucket_start),
     argMax(breakdown_value, bucket_start),
-    argMax(bucket_interval, bucket_start),
+    argMax(bucket_interval, bucket_start) AS series_interval,
     argMax(detector, bucket_start),
     argMax(detector_version, bucket_start),
     argMax(profile, bucket_start),
@@ -105,6 +105,7 @@ SELECT
     groupArrayIf(tuple(bucket_start, value, score), score IS NOT NULL AND flag = 1)
 FROM ({_LATEST_BUCKETS})
 GROUP BY insight_id, series_key
+HAVING insight_id IS NOT NULL AND notEmpty(ifNull(series_key, '')) AND series_interval IN {{intervals}}
 ORDER BY countIf(score IS NOT NULL AND flag = 1) > 0 DESC
 LIMIT {{limit}}
 """
@@ -120,7 +121,7 @@ LIMIT {{limit}}
 _POINTS_QUERY = f"""
 SELECT insight_id, series_key, bucket_start, value, flag
 FROM ({_LATEST_BUCKETS})
-WHERE score IS NOT NULL AND series_key IN {{series_keys}}
+WHERE score IS NOT NULL
 ORDER BY insight_id, series_key, bucket_start DESC
 LIMIT {{limit}} BY insight_id, series_key
 LIMIT {{total_limit}}
@@ -129,7 +130,7 @@ LIMIT {{total_limit}}
 _CHART_SHARES_QUERY = f"""
 SELECT insight_id, series_key, count(), countIf(flag = 1)
 FROM ({_LATEST_BUCKETS})
-WHERE score IS NOT NULL AND bucket_start >= {{chart_from}}
+WHERE score IS NOT NULL
 GROUP BY insight_id, series_key
 LIMIT {{limit}}
 """
@@ -325,13 +326,36 @@ def _scope(insight_ids: Collection[int] | None, series_key: str | None) -> ast.E
     return ast.And(exprs=exprs)
 
 
-def _placeholders(
-    *,
-    since: datetime.datetime,
-    until: datetime.datetime,
-    insight_ids: Collection[int] | None,
-    series_key: str | None,
-) -> dict[str, ast.Expr]:
+def _chart_windows(series: Mapping[tuple[int, str], IntervalType], date_to: datetime.datetime) -> ast.Expr:
+    """Keeps the rows of each ``(insight_id, series_key)`` in the chart window of the interval the caller asked for.
+
+    It filters before the read keeps the newest result of each bucket, so other series and older buckets never reach
+    that sort. A series key keeps its rows when its insight changes interval, so the stored interval of a row can
+    differ from the requested one.
+    """
+    by_interval: dict[IntervalType, list[tuple[int, str]]] = {}
+    for key, interval in series.items():
+        by_interval.setdefault(interval, []).append(key)
+    return ast.Or(
+        exprs=[
+            parse_expr(
+                "(insight_id, series_key) IN {series} AND bucket_start >= {chart_from}",
+                placeholders={
+                    "series": ast.Tuple(
+                        exprs=[
+                            ast.Tuple(exprs=[ast.Constant(value=insight_id), ast.Constant(value=key)])
+                            for insight_id, key in sorted(keys)
+                        ]
+                    ),
+                    "chart_from": ast.Constant(value=chart_from(interval, date_to)),
+                },
+            )
+            for interval, keys in sorted(by_interval.items())
+        ]
+    )
+
+
+def _placeholders(*, since: datetime.datetime, until: datetime.datetime, scope: ast.Expr) -> dict[str, ast.Expr]:
     return {
         "event": ast.Constant(value=SCORE_EVENT),
         "source": ast.Constant(value=SOURCE_INSIGHT),
@@ -339,7 +363,7 @@ def _placeholders(
         "until": ast.Constant(value=until),
         "scan_since": ast.Constant(value=since - TIMESTAMP_DRIFT),
         "scan_until": ast.Constant(value=until + TIMESTAMP_DRIFT),
-        "scope": _scope(insight_ids, series_key),
+        "scope": scope,
     }
 
 
@@ -360,7 +384,10 @@ def series_summaries(
         team,
         query_type="AnomalyScoresSeriesSummaries",
         placeholders={
-            **_placeholders(since=date_from, until=date_to, insight_ids=insight_ids, series_key=series_key),
+            **_placeholders(since=date_from, until=date_to, scope=_scope(insight_ids, series_key)),
+            # Any member can capture an event with any properties, so a row may not name a real series.
+            # The query drops those rows before the cap, so they neither take a place nor decide `flagged_truncated`.
+            "intervals": ast.Tuple(exprs=[ast.Constant(value=interval) for interval in sorted(SCORED_INTERVALS)]),
             "limit": ast.Constant(value=MAX_SERIES + 1),
         },
         ch_user=ClickHouseUser.DEFAULT,
@@ -383,9 +410,6 @@ def series_summaries(
         scored_through,
         points,
     ) in rows[:MAX_SERIES]:
-        # Any member can capture an event with any properties, so a row may not name a real series.
-        if insight_id is None or not key or interval not in SCORED_INTERVALS:
-            continue
         flagged_points = sorted(
             (
                 FlaggedPoint(bucket_start=_local(start, timezone), value=_float(value), score=_float(score))
@@ -440,7 +464,7 @@ def _count_scored_days(team: Team, *, now: datetime.datetime) -> int:
         team,
         query_type="AnomalyScoresScoredDays",
         placeholders={
-            **_placeholders(since=now - SCORED_HISTORY_WINDOW, until=now, insight_ids=None, series_key=None),
+            **_placeholders(since=now - SCORED_HISTORY_WINDOW, until=now, scope=_scope(None, None)),
             "interval": ast.Constant(value=IntervalType.DAY.value),
         },
         ch_user=ClickHouseUser.DEFAULT,
@@ -466,7 +490,7 @@ def latest_buckets(
         team,
         query_type="AnomalyScoresLatestBuckets",
         placeholders={
-            **_placeholders(since=date_from, until=date_to, insight_ids=[insight_id], series_key=series_key),
+            **_placeholders(since=date_from, until=date_to, scope=_scope([insight_id], series_key)),
             "date_from": ast.Constant(value=date_from),
             "keep": ast.Constant(value=True) if include_warmup else parse_expr("score IS NOT NULL"),
             "limit": ast.Constant(value=limit + 1),
@@ -510,7 +534,6 @@ def series_points(
     """
     if not series:
         return {}
-    starts = {key: chart_from(interval, date_to) for key, interval in series.items()}
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     response = execute_hogql_query(
         _POINTS_QUERY,
@@ -518,12 +541,10 @@ def series_points(
         query_type="AnomalyScoresSeriesPoints",
         placeholders={
             **_placeholders(
-                since=min(starts.values()),
+                since=min(chart_from(interval, date_to) for interval in series.values()),
                 until=date_to,
-                insight_ids={insight_id for insight_id, _ in series},
-                series_key=None,
+                scope=_chart_windows(series, date_to),
             ),
-            "series_keys": ast.Tuple(exprs=[ast.Constant(value=key) for key in sorted({key for _, key in series})]),
             "limit": ast.Constant(value=MAX_SERIES_POINTS),
             # Without a limit of its own, the query gets the default HogQL row cap, and most series lose their points.
             "total_limit": ast.Constant(value=MAX_SERIES_POINTS * len(series)),
@@ -534,13 +555,9 @@ def series_points(
     timezone = team.timezone_info
     points: dict[tuple[int, str], list[SeriesPoint]] = {key: [] for key in series}
     for insight_id, key, start, value, flag in reversed(rows):
-        bucket_start = _local(start, timezone)
-        # The scope matches insights and keys apart, so a key of another insight on the page can match too.
-        # One scan covers the longest window on the page, so each series drops the buckets before its own window.
-        if (insight_id, key) in points and bucket_start >= starts[(insight_id, key)]:
-            points[(insight_id, key)].append(
-                SeriesPoint(bucket_start=bucket_start, value=_float(value), flag=bool(flag))
-            )
+        points[(insight_id, key)].append(
+            SeriesPoint(bucket_start=_local(start, timezone), value=_float(value), flag=bool(flag))
+        )
     return points
 
 
@@ -556,18 +573,6 @@ def chart_shares(
     """
     if not series:
         return {}
-    intervals = set(series.values())
-    # Each row counts from the start of the chart window of its own interval. The scan covers the longest window.
-    window_start: ast.Expr = ast.Constant(value=chart_from(IntervalType.MONTH, date_to))
-    for interval in (IntervalType.WEEK, IntervalType.DAY, IntervalType.HOUR):
-        window_start = parse_expr(
-            "if(bucket_interval = {interval}, {start}, {otherwise})",
-            placeholders={
-                "interval": ast.Constant(value=interval.value),
-                "start": ast.Constant(value=chart_from(interval, date_to)),
-                "otherwise": window_start,
-            },
-        )
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     response = execute_hogql_query(
         _CHART_SHARES_QUERY,
@@ -575,22 +580,18 @@ def chart_shares(
         query_type="AnomalyScoresChartShares",
         placeholders={
             **_placeholders(
-                since=min(chart_from(interval, date_to) for interval in intervals),
+                since=min(chart_from(interval, date_to) for interval in series.values()),
                 until=date_to,
-                insight_ids={insight_id for insight_id, _ in series},
-                series_key=None,
+                scope=_chart_windows(series, date_to),
             ),
-            "chart_from": window_start,
-            "limit": ast.Constant(value=MAX_SERIES),
+            "limit": ast.Constant(value=len(series)),
         },
         ch_user=ClickHouseUser.DEFAULT,
     )
     rows = cast(list[tuple[Any, ...]], response.results or [])
-    # The scope matches insights, not keys, so the rows also hold the other series of those insights.
     return {
         (insight_id, key): ChartShare(scored_buckets=int(scored), flagged_buckets=int(flagged))
         for insight_id, key, scored, flagged in rows
-        if (insight_id, key) in series
     }
 
 
