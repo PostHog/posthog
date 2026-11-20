@@ -23,14 +23,13 @@ export function TodayRailHoverCard({ pane, onAction }: { pane: TodayRailPane; on
     }))
     const pins = railPreviewItems(shortcutData, pane)
     const recentRows = railRecentItems(railPreviewItems([...recents, ...localRecents], pane), pins)
-    const hasItems = pane !== 'settings'
 
     return (
         <TodayRailPreviewList
             title={TODAY_PANES[pane].label}
             pins={pins}
             recents={recentRows}
-            loading={hasItems && (shortcutDataLoading || recentsLoading)}
+            loading={shortcutDataLoading || recentsLoading}
             onAction={onAction}
         />
     )

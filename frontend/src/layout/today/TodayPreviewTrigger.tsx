@@ -15,6 +15,7 @@ const CLOSE_DELAY_MS = 100
 export function TodayPreviewTrigger({
     payload,
     inline = false,
+    disabled = false,
     className,
     children,
 }: {
@@ -22,6 +23,8 @@ export function TodayPreviewTrigger({
     /** Wraps a link inside running text, so the trigger must not break the line. */
     className?: string
     inline?: boolean
+    /** Shows no card, but keeps the trigger mounted so the row keeps its focus. */
+    disabled?: boolean
     children: ReactNode
 }): JSX.Element {
     const card = useContext(TodayPreviewCardContext)
@@ -31,7 +34,7 @@ export function TodayPreviewTrigger({
     return (
         <PreviewCard.Trigger
             handle={card.handle}
-            payload={payload}
+            payload={disabled ? undefined : payload}
             delay={OPEN_DELAY_MS}
             closeDelay={CLOSE_DELAY_MS}
             render={inline ? <span /> : <div className={className ?? 'min-w-0'} />}

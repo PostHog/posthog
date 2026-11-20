@@ -29,8 +29,10 @@ const WizardRailButton = lazyWithRetry(() =>
 const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'today-settings' }
 
 const RAIL_PREVIEWS = Object.fromEntries(
-    Object.keys(TODAY_PANES).map((pane) => [pane, { kind: 'rail', pane }])
-) as Record<TodayRailPane, TodayRailPreview>
+    Object.keys(TODAY_PANES)
+        .filter((pane) => pane !== 'settings')
+        .map((pane) => [pane, { kind: 'rail', pane }])
+) as Partial<Record<TodayRailPane, TodayRailPreview>>
 
 const RAIL_TILE_HEIGHT = 56
 const RAIL_GAP = 12
@@ -53,9 +55,10 @@ export function TodayRail(): JSX.Element {
     const visiblePanes = railPanes.slice(0, fitCount)
     const overflowPanes = railPanes.slice(fitCount)
 
-    const renderTile = (pane: TodayRailPane): JSX.Element => (
-        <TodayPreviewTrigger key={pane} payload={RAIL_PREVIEWS[pane]} className="w-full min-w-0">
+    const renderTile = (pane: TodayRailPane): JSX.Element => {
+        const tile = (
             <TodayRailTile
+                key={pane}
                 label={TODAY_PANES[pane].label}
                 icon={TODAY_PANES[pane].icon}
                 active={activePane === pane}
@@ -63,8 +66,16 @@ export function TodayRail(): JSX.Element {
                 onClick={() => clickRailPane(pane)}
                 dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}
             />
-        </TodayPreviewTrigger>
-    )
+        )
+        const preview = RAIL_PREVIEWS[pane]
+        return preview ? (
+            <TodayPreviewTrigger key={pane} payload={preview} disabled={activePane === pane} className="w-full min-w-0">
+                {tile}
+            </TodayPreviewTrigger>
+        ) : (
+            tile
+        )
+    }
 
     return (
         <TodayPreviewCardProvider disabled={tourActive}>

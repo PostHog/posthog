@@ -39,7 +39,15 @@ const TodaySessionHoverCard = lazyWithRetry(() =>
     import('./TodaySessionHoverCard').then((m) => ({ default: m.TodaySessionHoverCard }))
 )
 
-function TodayPreviewPositioner({ below, children }: { below: boolean; children: ReactNode }): JSX.Element {
+function TodayPreviewPositioner({
+    below,
+    alignStart,
+    children,
+}: {
+    below: boolean
+    alignStart: boolean
+    children: ReactNode
+}): JSX.Element {
     return (
         <PreviewCard.Positioner
             data-quill
@@ -47,7 +55,7 @@ function TodayPreviewPositioner({ below, children }: { below: boolean; children:
             // Quill's portal rule reads this token and wins over a z-index utility class.
             className="[--quill-z-popover:var(--z-popover-with-chart)]"
             side={below ? 'bottom' : 'right'}
-            align={below ? 'start' : 'center'}
+            align={below || alignStart ? 'start' : 'center'}
             sideOffset={below ? 6 : 10}
         >
             {children}
@@ -112,7 +120,10 @@ export function TodayPreviewCardProvider({
                 {({ payload }) =>
                     payload ? (
                         <PreviewCard.Portal>
-                            <TodayPreviewPositioner below={payload.kind === 'object'}>
+                            <TodayPreviewPositioner
+                                below={payload.kind === 'object'}
+                                alignStart={payload.kind === 'rail'}
+                            >
                                 {/* Inside the popup, not its `render`: on React 18 quill's Card takes no ref. */}
                                 <PreviewCard.Popup className="origin-[var(--transform-origin)] outline-none transition-[opacity,scale] duration-150 ease-out data-[ending-style]:scale-97 data-[ending-style]:opacity-0 data-[starting-style]:scale-97 data-[starting-style]:opacity-0 motion-reduce:transition-none">
                                     <Card
