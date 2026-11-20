@@ -290,6 +290,28 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    def test_restricted_member_renames_a_pipeline_platform_alert_with_its_config_unchanged(self) -> None:
+        config = {
+            "filters": {"serviceNames": [_PIPELINE]},
+            "condition": {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5},
+        }
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.pk}/platform_alerts/",
+                {"source_kind": "logs", "source_config": config},
+                format="json",
+            ).json()
+            set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+            stored = self.client.get(f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/").json()
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/",
+                {"name": "Renamed", "source_config": stored["source_config"]},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+
     @parameterized.expand(
         [
             ("not_an_object", []),

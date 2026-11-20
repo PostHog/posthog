@@ -778,7 +778,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
     ) -> PlatformAlertConfigurationEdit:
         edited = replace(stored, **fields)
         # Snoozing or renaming an enabled alert shows nothing new, so only new reads are checked.
-        if edited.enabled and ("source_config" in fields or not stored.enabled):
+        # An edit form can send the stored config back unchanged, so compare values, not keys.
+        if edited.enabled and (edited.source_config != stored.source_config or not stored.enabled):
             self._require_pipeline_log_access(source_kind, edited.source_config)
         return edited
 
