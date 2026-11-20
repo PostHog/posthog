@@ -65,6 +65,11 @@ class SyncFrequencyBoundSerializer(serializers.Serializer):
         help_text="Node that set this bound. Null when nothing identifiable set it, and also when it "
         "sits outside the caller's access grants: the bound still applies, it just goes unnamed.",
     )
+    pinned = serializers.BooleanField(
+        help_text="True when an upstream view held at its pinned cadence sets this bound, so unpinning "
+        "or speeding up that view lifts it. False when a source sync sets it. Always false for "
+        "`plan_floor` and `ceiling`."
+    )
 
 
 class SyncFrequencyBlockedBy(models.TextChoices):
@@ -119,8 +124,9 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
     )
     floor = SyncFrequencyBoundSerializer(
         allow_null=True,
-        help_text="The fastest bound: no cadence finer than this is allowed, because the source named "
-        "here does not sync more often. Null when no source withholds a cadence.",
+        help_text="The fastest bound: no cadence finer than this is allowed, because no upstream source "
+        "syncs more often, or because the upstream view named here is pinned to this cadence (see "
+        "`pinned`). Null when nothing upstream withholds a cadence.",
     )
     plan_floor = SyncFrequencyBoundSerializer(
         allow_null=True,
@@ -240,10 +246,10 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
             return None
         return {"id": node_id, "name": visible_names[node_id]}
 
-    def bound(value: Any) -> dict[str, Any] | None:
+    def bound(value: Any, *, pinned: bool = False) -> dict[str, Any] | None:
         if value is None:
             return None
-        return {"label": humanize_cadence(value.value), "blocker": blocker(value.blocker)}
+        return {"label": humanize_cadence(value.value), "blocker": blocker(value.blocker), "pinned": pinned}
 
     def sped_up(option: Any) -> list[str]:
         if not option.allowed:
@@ -268,8 +274,10 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
     return {
         "frequency_mode": "tiered",
         "options": options,
-        "floor": bound(resolved.bounds.floor),
-        "plan_floor": {"label": humanize_cadence(plan_floor), "blocker": None} if plan_floor is not None else None,
+        "floor": bound(resolved.bounds.floor, pinned=resolved.floor_pinned),
+        "plan_floor": {"label": humanize_cadence(plan_floor), "blocker": None, "pinned": False}
+        if plan_floor is not None
+        else None,
         "ceiling": bound(resolved.bounds.ceiling),
         "best_effort_sources": [blocker(node_id) for node_id in best_effort if node_id in visible_names],
         "best_effort_sources_withheld": any(node_id not in visible_names for node_id in best_effort),

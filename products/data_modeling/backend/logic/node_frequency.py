@@ -492,6 +492,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     best_effort: set[str] = set()
     speeds_up: dict[timedelta, set[str]] = {}
     data_ages: list[timedelta] = []
+    pinned_views: set[str] = set()
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
         # a saved query can hold two nodes in one DAG, and that DAG's graph is the same for both
@@ -502,6 +503,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         per_dag.append(graph.target_bounds(str(node.id)))
         names.update(graph.names)
         identities.update(graph.identities)
+        pinned_views |= graph.pinned
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
         ancestors = ancestors_of(str(node.id), graph.edges)
         best_effort |= graph.best_effort_source_ids & ancestors
@@ -510,14 +512,16 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
             speeds_up.setdefault(cadence, set()).update(sped_up)
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
+    bounds = intersect_target_bounds(per_dag)
     return SavedQueryFrequencyBounds(
-        bounds=intersect_target_bounds(per_dag),
+        bounds=bounds,
         names=names,
         identities=identities,
         best_effort_source_ids=best_effort,
         max_data_age=max(data_ages),
         speeds_up=speeds_up,
         pinned=any(get_declared_pin(node) for node in nodes),
+        floor_pinned=bounds.floor is not None and bounds.floor.blocker in pinned_views,
     )
 
 

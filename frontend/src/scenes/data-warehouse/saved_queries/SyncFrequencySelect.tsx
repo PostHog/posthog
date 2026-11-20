@@ -446,12 +446,15 @@ export function inheritedCadence(
     }
     if (saved.blocked_by === 'source') {
         const cadence = allowed[0].cadence as DataModelingSyncInterval
+        const floor = bounds.floor
         return {
             cadence,
             blockedBy: 'source',
-            note:
-                `Refreshes every ${CADENCE_LABELS[cadence]} because no upstream source syncs more often. ` +
-                `Your ${CADENCE_LABELS[value]} setting applies again if an upstream source syncs more often.`,
+            note: floor?.pinned
+                ? `Refreshes every ${CADENCE_LABELS[cadence]} because ${floorCause(floor)}. ` +
+                  `Your ${CADENCE_LABELS[value]} setting applies again if ${pinnedViewName(floor)} refreshes more often.`
+                : `Refreshes every ${CADENCE_LABELS[cadence]} because no upstream source syncs more often. ` +
+                  `Your ${CADENCE_LABELS[value]} setting applies again if an upstream source syncs more often.`,
         }
     }
     return null
@@ -587,6 +590,11 @@ function segment(cadence: DataModelingSyncInterval): LemonSegmentedButtonOption<
  */
 function blockedReason(option: SyncFrequencyBoundsApi['options'][number], bounds: SyncFrequencyBoundsApi): string {
     const name = option.blocker?.name
+    if (option.blocked_by === 'source' && bounds.floor?.pinned) {
+        return name
+            ? `More often than pinned upstream view ${name} refreshes`
+            : 'More often than a pinned upstream view refreshes'
+    }
     if (option.blocked_by === 'source' && bounds.floor) {
         return 'More often than any upstream source syncs'
     }
@@ -615,15 +623,15 @@ export function unsatisfiableReason(bounds?: SyncFrequencyBoundsApi | null): str
     const consumer = consumerName ? `downstream view ${consumerName}` : 'a downstream view or endpoint'
     if (bounds.floor && bounds.ceiling) {
         return (
-            `No cadence works here: ${noFasterSource(bounds.floor.label)}, ` +
+            `No cadence works here: ${floorCause(bounds.floor)}, ` +
             `but ${consumer} refreshes every ${bounds.ceiling.label}. ` +
-            `Slow down ${consumer} or speed up an upstream source.`
+            `Slow down ${consumer} or ${floorFix(bounds.floor)}.`
         )
     }
     if (bounds.floor) {
         return (
-            `No cadence works here: ${noFasterSource(bounds.floor.label)}, ` +
-            `less often than anything this can refresh at. Speed up an upstream source first.`
+            `No cadence works here: ${floorCause(bounds.floor)}, ` +
+            `less often than anything this can refresh at. ${capitalizeFirstLetter(floorFix(bounds.floor))} first.`
         )
     }
     if (bounds.ceiling) {
@@ -689,8 +697,23 @@ export function buildExplanation(
     return parts.length ? parts.join(' ') : null
 }
 
-function noFasterSource(floorLabel: string): string {
-    return `no upstream source syncs more often than every ${floorLabel}`
+type FloorBound = NonNullable<SyncFrequencyBoundsApi['floor']>
+
+function pinnedViewName(floor: FloorBound): string {
+    return floor.blocker?.name ? `upstream view ${floor.blocker.name}` : 'an upstream view'
+}
+
+function floorCause(floor: FloorBound): string {
+    return floor.pinned
+        ? `${pinnedViewName(floor)} is pinned to refresh every ${floor.label}`
+        : `no upstream source syncs more often than every ${floor.label}`
+}
+
+function floorFix(floor: FloorBound): string {
+    if (!floor.pinned) {
+        return 'speed up an upstream source'
+    }
+    return floor.blocker?.name ? `unpin upstream view ${floor.blocker.name}` : 'unpin the upstream view'
 }
 
 function boundsSentence(
@@ -706,7 +729,7 @@ function boundsSentence(
     const fastestReachable = floor && ceiling ? fastestAllowedSlowerThan(bounds, ceiling.label) : null
     if (floor && ceiling && fastestReachable) {
         return (
-            `${capitalizeFirstLetter(noFasterSource(floor.label))}, so this can't refresh more often. ` +
+            `${capitalizeFirstLetter(floorCause(floor))}, so this can't refresh more often. ` +
             `${ceilingLead} refreshes every ${ceiling.label}, ` +
             `but gets new data from this view only every ${CADENCE_LABELS[fastestReachable]}.`
         )
@@ -714,12 +737,12 @@ function boundsSentence(
     if (floor && ceiling) {
         return (
             `Pick between ${floor.label} and ${ceiling.label}. ` +
-            `${capitalizeFirstLetter(noFasterSource(floor.label))}, ` +
+            `${capitalizeFirstLetter(floorCause(floor))}, ` +
             `and ${ceilingMid} refreshes every ${ceiling.label}.`
         )
     }
     if (floor) {
-        return `${capitalizeFirstLetter(noFasterSource(floor.label))}, so this can't refresh more often.`
+        return `${capitalizeFirstLetter(floorCause(floor))}, so this can't refresh more often.`
     }
     if (ceiling) {
         return `${ceilingLead} refreshes every ${ceiling.label}, so this can't refresh less often.`

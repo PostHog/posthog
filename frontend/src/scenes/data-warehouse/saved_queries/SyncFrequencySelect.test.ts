@@ -31,8 +31,8 @@ describe('SyncFrequencySelect', () => {
                 { cadence: '6hour', allowed: true, blocked_by: null, blocker: null },
                 { cadence: '24hour', allowed: false, blocked_by: 'consumer', blocker: blocker('daily_revenue') },
             ],
-            floor: { label: '6 hours', blocker: blocker('stripe_invoices') },
-            ceiling: { label: '12 hours', blocker: blocker('daily_revenue') },
+            floor: { label: '6 hours', blocker: blocker('stripe_invoices'), pinned: false },
+            ceiling: { label: '12 hours', blocker: blocker('daily_revenue'), pinned: false },
             best_effort_sources: [],
             best_effort_sources_withheld: false,
             ...overrides,
@@ -174,10 +174,19 @@ describe('SyncFrequencySelect', () => {
 
     it('explains the range only where a per-view cadence is writable', () => {
         expect(buildExplanation(bounds())).toContain('Pick between 6 hours and 12 hours.')
-        expect(buildExplanation(bounds({ ceiling: { label: '15 minutes', blocker: blocker('daily_revenue') } }))).toBe(
+        expect(
+            buildExplanation(
+                bounds({ ceiling: { label: '15 minutes', blocker: blocker('daily_revenue'), pinned: false } })
+            )
+        ).toBe(
             "No upstream source syncs more often than every 6 hours, so this can't refresh more often. " +
                 'Downstream view daily_revenue refreshes every 15 minutes, but gets new data from this view only every 6 hours.'
         )
+        expect(
+            buildExplanation(
+                bounds({ floor: { label: '6 hours', blocker: blocker('org_universe'), pinned: true }, ceiling: null })
+            )
+        ).toBe("Upstream view org_universe is pinned to refresh every 6 hours, so this can't refresh more often.")
         expect(buildExplanation(bounds({ frequency_mode: 'managed_viewset' }))).toBeNull()
         expect(buildExplanation(bounds({ floor: null, ceiling: null }))).toBeNull()
     })
@@ -319,8 +328,8 @@ describe('SyncFrequencySelect', () => {
         it('still states the range under the bar', () => {
             const explanation = buildExplanation(
                 bounds({
-                    floor: { label: '6 hours', blocker: null },
-                    ceiling: { label: '12 hours', blocker: null },
+                    floor: { label: '6 hours', blocker: null, pinned: false },
+                    ceiling: { label: '12 hours', blocker: null, pinned: false },
                 })
             )
 
@@ -333,7 +342,7 @@ describe('SyncFrequencySelect', () => {
         it('still explains why no cadence works', () => {
             const nothingAllowed = bounds({
                 options: [{ cadence: '6hour', allowed: false, blocked_by: 'source', blocker: null }],
-                floor: { label: '6 hours', blocker: null },
+                floor: { label: '6 hours', blocker: null, pinned: false },
                 ceiling: null,
             } as Partial<SyncFrequencyBoundsApi>)
 
@@ -443,7 +452,7 @@ describe('SyncFrequencySelect', () => {
                         speeds_up_withheld: false,
                     },
                 ],
-                ceiling: { label: '6 hours', blocker: name ? blocker(name) : null },
+                ceiling: { label: '6 hours', blocker: name ? blocker(name) : null, pinned: false },
             } as Partial<SyncFrequencyBoundsApi>)
 
         it.each([
@@ -477,6 +486,16 @@ describe('SyncFrequencySelect', () => {
                     cadence: '6hour',
                     blockedBy: 'source',
                     note: 'Refreshes every 6 hours because no upstream source syncs more often. Your 15 minutes setting applies again if an upstream source syncs more often.',
+                },
+            ],
+            [
+                'a pinned upstream view refreshes less often than the saved setting',
+                bounds({ floor: { label: '6 hours', blocker: blocker('org_universe'), pinned: true } }),
+                '15min',
+                {
+                    cadence: '6hour',
+                    blockedBy: 'source',
+                    note: 'Refreshes every 6 hours because upstream view org_universe is pinned to refresh every 6 hours. Your 15 minutes setting applies again if upstream view org_universe refreshes more often.',
                 },
             ],
         ])('when %s', (_case, input, value, expected) => {

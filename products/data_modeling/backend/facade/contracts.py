@@ -400,6 +400,7 @@ class SavedQueryFrequencyBounds:
     max_data_age: timedelta
     speeds_up: dict[timedelta, set[str]]  # cadence -> upstream nodes that would run more often if this were set to it
     pinned: bool
+    floor_pinned: bool  # an upstream view held at its pinned cadence sets the floor, not a source sync
 
 
 def _nameless_refusal(view_name: str) -> str:
