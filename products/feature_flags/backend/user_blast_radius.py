@@ -30,6 +30,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
+from products.access_control.backend.facade import api as access_control_api
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.blast_radius_flag_deps import FlagDependencyEstimator
 from products.feature_flags.backend.person_sampling import (
@@ -381,7 +382,15 @@ def _get_group_blast_radius(
         query=select_query,
         team=team,
         workload=Workload.OFFLINE,
-        context=HogQLContext(team_id=team.pk, database=database, globals=_group_property_globals(group_type_index)),
+        context=HogQLContext(
+            team_id=team.pk,
+            database=database,
+            globals=_group_property_globals(group_type_index),
+            # The groups table spans every group type. The default load would apply another type's restriction.
+            restricted_properties=access_control_api.get_restricted_properties_for_group_type(
+                user=user, team_id=team.pk, group_type_index=group_type_index
+            ),
+        ),
         user=user,
     )
 

@@ -9755,6 +9755,29 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         assert (response.json()["affected"], response.json()["total"]) == (0, 2)
 
+    def test_user_blast_radius_ignores_another_group_types_property_restriction(self):
+        for index, name in enumerate(["organization", "company"]):
+            create_group_type_mapping(
+                team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
+            )
+            create_group(
+                team_id=self.team.pk, group_type_index=index, group_key="acme", properties={"industry": "tech"}
+            )
+        flush_persons_and_events()
+        self._restrict_for_member("industry", PropertyDefinition.Type.GROUP, group_type_index=1)
+        body = {
+            "condition": {
+                "properties": [
+                    {"key": "industry", "type": "group", "value": "tech", "operator": "exact", "group_type_index": 0}
+                ]
+            },
+            "group_type_index": 0,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/user_blast_radius", body)
+
+        assert (response.json()["affected"], response.json()["total"]) == (1, 1)
+
     def test_access_controls_action_keeps_its_api_key_scope(self):
         flag = FeatureFlag.objects.create(team=self.team, key="scoped", created_by=self.user)
         key = generate_random_token_personal()
