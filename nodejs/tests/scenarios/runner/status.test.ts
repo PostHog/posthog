@@ -325,6 +325,15 @@ describe('statusOf', () => {
             'cdp-ses-webhooks exited (code 1) without a valve causing it, while pg.failover on cyclotron was applied',
         ],
         [
+            'a role that writes to Cyclotron was killed during the failover, and tsx reported the kill as an exit code',
+            {
+                timeline: [failedOver],
+                exits: [{ ...exitedWithError('cdp-processed-events', 15), code: 137 }],
+            },
+            'failed',
+            'cdp-processed-events exited (code 137) without a valve causing it, while pg.failover on cyclotron was applied',
+        ],
+        [
             'a role that writes to Cyclotron exited with an error well after the fail-back',
             { timeline: [failedOver], exits: [exitedWithError('cdp-processed-events', 40)] },
             'failed',

@@ -122,6 +122,7 @@ const appliedWithin = (
 const exitedByValve = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
     exit.byValve ||
     (exit.code !== null &&
+        exit.code < 128 &&
         exit.signal === null &&
         timeline.some((entry) => {
             const valve = VALVES.find(({ name }) => name === entry.valve)
