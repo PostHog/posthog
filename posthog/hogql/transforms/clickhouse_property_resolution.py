@@ -514,7 +514,7 @@ def _json_property_presence_expr(
     field_type: ast.FieldType, key: str, *, source: MaterializedPropertySource, present: bool = True
 ) -> ast.Expr:
     """Whether the property is set (`present`) or missing, from the path alone, without building its text."""
-    path = _json_subcolumn_access(field_type, key, source=source, is_nullable=True)
+    path: ast.Expr = _json_subcolumn_access(field_type, key, source=source, is_nullable=True)
     if _declared_json_path_type(field_type, key, source) in _DECLARED_STRING_TYPES:
         path = _call("nullIf", [_call("toString", [path]), _sentinel("")])
     return _call("isNotNull" if present else "isNull", [path])
@@ -595,8 +595,7 @@ def _feature_flag_present(feature_flags: ast.JsonSubcolumnAccess, key: str) -> a
 def _stored_feature_flag(feature_flags: ast.JsonSubcolumnAccess, key: str) -> ast.Call:
     """The value the flags map stores for `key`, or '' when the map has no such flag."""
     value = _feature_flag_map_subcolumn(feature_flags, f"key_{key}", ast.StringType(nullable=False))
-    # The subcolumn is LowCardinality(String) where `map[key]` is String, and a comparison of it returns
-    # LowCardinality(UInt8). The cast keeps the type of every read built on it.
+    # The subcolumn is LowCardinality(String), so the cast keeps the String of `map[key]` and UInt8 comparisons.
     return ast.Call(name="accurateCast", args=[value, _sentinel("String")], type=ast.StringType(nullable=False))
 
 

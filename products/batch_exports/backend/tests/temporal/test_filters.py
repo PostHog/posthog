@@ -125,10 +125,9 @@ def test_compose_filters_clause_prints_for_the_new_schema(ateam):
         use_new_events_schema=True,
     )
 
-    # `$browser` is read from its typed path. `$feature/checkout` is not a stored key, so the filter compares the
-    # flag's own subcolumn of the `$feature_flags` map. A missing flag stores '', which matches no filter value, and
-    # 'true' also matches the `$true` sentinel that a variant named "true" is stored as, so the filter value matches
-    # as it does on the legacy schema.
+    # `$browser` is read from its typed path. `$feature/checkout` is read from its own subcolumn of the `$feature_flags`
+    # map, where a missing flag is '' and matches no filter value. 'true' also matches `$true`, the stored spelling of a
+    # variant named "true", so the filter matches as it does on the legacy schema.
     expected_clause = """
         and(
             equals(events.properties.`$browser`, %(hogql_val_0)s),

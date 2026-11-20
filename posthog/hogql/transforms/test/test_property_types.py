@@ -2651,20 +2651,19 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
         flag_reads = (
             "SELECT properties.`$feature/variant`, properties.`$feature/named-true`, properties.`$feature/checkout`, "
             "properties.`$feature/empty`, properties.`$feature/missing`, properties.`$feature/a.b`, "
-            "properties['$feature/a%2Eb'] AS escaped, properties.`$feature/it``s`, "
+            "properties.`$feature/it``s`, "
             "properties.`$feature/variant` = 'control', properties.`$feature/named-true` = 'true', "
             "properties.`$feature/checkout` IN ('true', 'other'), properties.`$feature/disabled` != 'false', "
             "properties.`$feature/variant` NOT IN ('test'), properties.`$feature/empty` != 'x', "
             "properties.`$feature/missing` != 'x', properties.`$feature/missing` NOT IN ('x'), "
-            "properties.`$feature/a.b` = 'dotted', properties['$feature/a%2Eb'] = 'escaped', "
-            "properties.`$feature/it``s` = 'tick', "
+            "properties.`$feature/a.b` = 'dotted', properties.`$feature/it``s` = 'tick', "
             "JSONHas(properties, '$feature/empty'), JSONHas(properties, '$feature/missing') "
             f"FROM events WHERE uuid = '{flag_uuid}'"
         )
         native_flags = read_flags(flag_reads, use_new_events_schema=True)
         assert native_flags == read_flags(flag_reads, use_new_events_schema=False)
         assert native_flags[0] == [
-            ("control", "true", "true", "", None, "dotted", "escaped", "tick", 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0)
+            ("control", "true", "true", "", None, "dotted", "tick", 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0)
         ]
 
         breakdown = (

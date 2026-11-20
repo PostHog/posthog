@@ -64,6 +64,7 @@ class TestPrintString(SimpleTestCase):
         self.assertEqual(escape_clickhouse_identifier("a.b.c"), "`a.b.c`")
         self.assertEqual(escape_clickhouse_identifier("a-b-c"), "`a-b-c`")
         self.assertEqual(escape_clickhouse_identifier("a#$#"), "`a#$#`")
+        self.assertEqual(escape_clickhouse_identifier("trailing\n"), "`trailing\\n`")
         self.assertEqual(escape_clickhouse_identifier("back`tick"), "`back``tick`")
         self.assertEqual(escape_clickhouse_identifier("single'quote"), "`single'quote`")
         self.assertEqual(escape_clickhouse_identifier('double"quote'), '`double"quote`')
