@@ -252,6 +252,23 @@ fn array_ordering_treats_signed_zeros_as_equal() {
 }
 
 #[test]
+fn array_ordering_continues_past_matching_nan_elements() {
+    let nan = || {
+        let mut bc = string("NaN");
+        bc.extend([json!(OP_CALL_GLOBAL), json!("toFloat"), json!(1)]);
+        bc
+    };
+    assert_both_paths(
+        call(
+            "greaterOrEquals",
+            &[array(&[nan(), int(0)]), array(&[nan(), int(1)])],
+        ),
+        json!(false),
+        "greaterOrEquals([NaN, 0], [NaN, 1])",
+    );
+}
+
+#[test]
 fn number_vs_numeric_string_coerces_the_string() {
     // The exact cohort case: `bc_num gt "10"` (threshold compiled as a string).
     assert_eq!(

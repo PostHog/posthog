@@ -628,10 +628,10 @@ fn compare_numeric_arrays(
     for (a_value, b_value) in a.iter().zip(b) {
         let a_num: &Num = a_value.deref(heap)?.try_as()?;
         let b_num: &Num = b_value.deref(heap)?.try_as()?;
-        if a_num == b_num {
-            continue;
+        let ordering = a_num.compare(b_num);
+        if ordering != Ordering::Equal && a_num != b_num {
+            return Ok(ordering);
         }
-        return Ok(a_num.compare(b_num));
     }
     Ok(a.len().cmp(&b.len()))
 }
