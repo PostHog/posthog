@@ -42,8 +42,14 @@ export type RedisV2 = {
 const NON_FATAL_CREATE_RETRY_DELAY_MS = 1000
 export const MAX_PENDING_ACQUIRES_WITH_DEADLINE = 8
 
-const isStalled = (client: RedisClient): boolean =>
-    (client as unknown as { commandQueue: { length: number } }).commandQueue.length > 0
+type ClientQueues = { commandQueue: { length: number }; offlineQueue: { length: number } }
+
+const isStalled = (client: RedisClient): boolean => (client as unknown as ClientQueues).commandQueue.length > 0
+
+// A command that timed out while the client reconnected stays in the offline queue, and ioredis sends it
+// once the connection is back, after its caller has already seen it fail.
+const holdsCommandsOfAFinishedCall = (client: RedisClient): boolean =>
+    isStalled(client) || (client as unknown as ClientQueues).offlineQueue.length > 0
 
 export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
     const nonFatal = config.connection.exitOnRepeatedErrors === false
@@ -133,7 +139,10 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
             }
             throw e
         } finally {
-            if (clientMayStillAnswer) {
+            if (
+                clientMayStillAnswer ||
+                (config.discardStalledClients === true && holdsCommandsOfAFinishedCall(client))
+            ) {
                 client.disconnect()
                 pool.destroy(client).catch(() => undefined)
             } else {

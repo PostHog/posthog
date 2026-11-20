@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { AddressInfo, Server, Socket, connect, createServer } from 'net'
 import path from 'path'
+import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
 import { RedisV2 } from '~/common/redis/redis-v2'
@@ -10,7 +11,6 @@ import { createCdpValkeyShadowPools } from './cdp-services'
 
 const LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS = 5_000
 const PORT_NOTHING_LISTENS_ON = 1
-const AN_OUTAGE_PAST_THE_ONE_SECOND_RECONNECT_BOUND_MS = 2_500
 const ONE_SHARED_CONNECTION = { REDIS_POOL_MIN_SIZE: 1, REDIS_POOL_MAX_SIZE: 1 }
 
 const NODEJS_ROOT = path.resolve(__dirname, '../..')
@@ -90,7 +90,12 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
         expect(await runInChildProcess(shadowCallsAgainstAnUnreachableValkey)).toEqual({ code: 0, signal: null })
     }, 60_000)
 
-    it('gives a caller that fails open no result instead of an error', async () => {
+    const callsFailedOpen = async (name: string): Promise<number> => {
+        const metric = await register.getSingleMetric('cdp_valkey_shadow_calls_failed_open_total')?.get()
+        return metric?.values.find((value) => value.labels.name === name)?.value ?? 0
+    }
+
+    it('gives a caller that fails open no result instead of an error, and counts it', async () => {
         const writer = unreachable()
 
         await expect(
@@ -99,6 +104,8 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
         await expect(
             writer.usePipeline({ name: 'fail-open-pipeline', failOpen: true }, (pipeline) => pipeline.ping())
         ).resolves.toBeNull()
+        expect(await callsFailedOpen('fail-open-probe')).toBe(1)
+        expect(await callsFailedOpen('fail-open-pipeline')).toBe(1)
     }, 30_000)
 
     describe('with Valkey behind a proxy that the test controls', () => {
@@ -183,17 +190,13 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             expect(await answer).toEqual('PONG')
         }, 30_000)
 
-        it('does not send a write queued through a long outage after the restore', async () => {
+        it('does not send a write that timed out during the outage after the restore', async () => {
             const key = `test-valkey-outage-replay/${new UUIDT().toString()}`
             await dropConnectionsAndWaitForTheClientToNotice()
-            const outageEnds = new Promise((resolve) =>
-                setTimeout(resolve, AN_OUTAGE_PAST_THE_ONE_SECOND_RECONNECT_BOUND_MS)
-            )
 
             await expect(
                 writer.useClient({ name: 'outage-write' }, (client) => client.set(key, 'queued during the outage'))
             ).rejects.toThrow()
-            await outageEnds
             await restoreValkey()
 
             expect(await readBack(key)).toBeNull()

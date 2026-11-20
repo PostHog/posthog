@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
@@ -331,7 +333,11 @@ export function createCdpReaderRedisPool(
     return writerPool
 }
 
-const SHADOW_RECONNECTS_BEFORE_QUEUED_COMMANDS_FAIL = 5
+const shadowCallsFailedOpenTotal = new Counter({
+    name: 'cdp_valkey_shadow_calls_failed_open_total',
+    help: 'Shadow Valkey calls that returned null because the pool could not serve them.',
+    labelNames: ['name'],
+})
 
 function failOpenOnAnyError(pool: RedisV2): RedisV2 {
     const failOpen = async <T>(options: RedisOptions, call: () => Promise<T | null>): Promise<T | null> => {
@@ -341,6 +347,7 @@ function failOpenOnAnyError(pool: RedisV2): RedisV2 {
             if (!options.failOpen) {
                 throw error
             }
+            shadowCallsFailedOpenTotal.inc({ name: options.name })
             logger.warn('🪞', `[${options.name}] shadow valkey call failed open`, { error: String(error) })
             return null
         }
@@ -404,7 +411,6 @@ export function createCdpValkeyShadowPools(
                         port,
                         password: config.CDP_VALKEY_PASSWORD,
                         commandTimeout: shadowCommandTimeoutMs,
-                        maxRetriesPerRequest: SHADOW_RECONNECTS_BEFORE_QUEUED_COMMANDS_FAIL,
                         tls,
                     },
                     name: poolName,
