@@ -691,6 +691,79 @@ const STEP_EXPECTATIONS: StepExpectation[] = [
         },
         runs,
     })),
+    ...(
+        [
+            {
+                name: 'passing shard',
+                tests: 'success',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: false,
+            },
+            {
+                name: 'masked failure the rerun clears',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: true,
+                verdictFails: false,
+            },
+            {
+                name: 'masked failure the rerun does not clear',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'true',
+                rerun: 'failure',
+                reruns: true,
+                verdictFails: true,
+            },
+            {
+                name: 'failure the gate does not clear',
+                tests: 'failure',
+                gate: 'failure',
+                quarantine: 'true',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: true,
+            },
+            {
+                name: 'failure with quarantine off',
+                tests: 'failure',
+                gate: 'success',
+                quarantine: 'false',
+                rerun: 'success',
+                reruns: false,
+                verdictFails: true,
+            },
+        ] as const
+    ).flatMap(({ name, tests, gate, quarantine, rerun, reruns, verdictFails }) =>
+        [
+            { step: 'quarantine_rerun', runs: reruns },
+            { step: 'test_verdict', runs: verdictFails },
+        ].map(({ step, runs }) => ({
+            file: DEPOT_BACKEND,
+            job: 'turbo-tests',
+            step,
+            scenario: {
+                name: `merge queue, ${name}`,
+                github: mergeQueue(),
+                vars: { TRUNK_UPLOAD_ENABLED: 'true', TRUNK_QUARANTINE_ENABLED: quarantine },
+                steps: {
+                    ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                    ...backendSelectors,
+                    'turbo-tests': {
+                        'run-product-tests': { outcome: tests },
+                        quarantine_gate: { outcome: gate },
+                        quarantine_rerun: { outcome: rerun },
+                    },
+                },
+            },
+            runs,
+        }))
+    ),
 ]
 
 const namedJobs = (file: string): Set<string> =>
