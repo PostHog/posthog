@@ -9,7 +9,6 @@ from django.http import HttpRequest, HttpResponse
 
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.models.organization import Organization
 from posthog.utils import pluralize
@@ -171,7 +170,7 @@ def bulk_deactivate(request: HttpRequest, form: forms.Form | None) -> HttpRespon
 class OrganizationBulkDeactivationTool(ConsoleTool):
     key = "bulk-deactivate-organizations"
     title = "Bulk deactivate organizations"
-    owner = DEV_EXPERIENCE
+    owner = None
     group = "Organizations"
     description = "Deactivates organizations from a list of pasted IDs, after a preview."
 
