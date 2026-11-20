@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 from collections.abc import Iterator
@@ -8,6 +9,9 @@ from typing import Any
 import pytest
 import time_machine
 from unittest.mock import patch
+
+from django.conf import settings
+from django.test import override_settings
 
 import dagster
 from clickhouse_driver import Client
@@ -20,8 +24,10 @@ from posthog.dags.endpoint_runs_hourly import (
     ROLLUP_START_DATE,
     endpoint_runs_hourly_job,
     insert_rollup_into_staging,
+    query_log_source as endpoint_query_log_source,
     refuse_a_day_past_query_log_retention,
 )
+from posthog.dags.warehouse_object_reads_daily import query_log_source as warehouse_reads_query_log_source
 from posthog.models import Team
 
 ROLLUP_MODULE = "posthog.dags.endpoint_runs_hourly"
@@ -358,3 +364,18 @@ def test_rollup_refuses_a_day_whose_query_cost_is_gone(_name: str, days_ago: int
             assert refused
         else:
             assert not refused
+
+
+@parameterized.expand(
+    [
+        ("endpoint_runs_skip_the_logs_cluster", endpoint_query_log_source, ["endpoints"]),
+        ("warehouse_reads_keep_their_clusters", warehouse_reads_query_log_source, ["logs", "endpoints"]),
+    ]
+)
+@override_settings(CLOUD_DEPLOYMENT="US")
+def test_query_log_is_read_from_the_clusters_each_job_needs(
+    _name: str, query_log_source: Any, satellites: list[str]
+) -> None:
+    clusters = re.findall(r"clusterAllReplicas\('([^']+)'", query_log_source())
+
+    assert clusters == [settings.CLICKHOUSE_CLUSTER, *satellites]

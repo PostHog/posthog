@@ -28,18 +28,21 @@ STUCK_RUN_AGE = timedelta(hours=3)
 PARTITION_ID_FORMAT = "%Y%m%d"
 
 
-def query_log_clusters() -> tuple[str, ...]:
-    # Tagged queries, warehouse reads and endpoint runs among them, run on the main, logs and endpoints clusters
-    # in the cloud. Local stacks have only the main one.
+DEFAULT_CLOUD_SATELLITE_CLUSTERS = ("logs", "endpoints")
+
+
+def query_log_clusters(cloud_satellites: Sequence[str] = DEFAULT_CLOUD_SATELLITE_CLUSTERS) -> tuple[str, ...]:
+    # In the cloud, tagged queries run on the main cluster and on satellites. Local stacks have only the main one.
     if settings.CLOUD_DEPLOYMENT in DEPLOYED_CLOUD_REGIONS:
-        return (settings.CLICKHOUSE_CLUSTER, "logs", "endpoints")
+        return (settings.CLICKHOUSE_CLUSTER, *cloud_satellites)
     return (settings.CLICKHOUSE_CLUSTER,)
 
 
-def query_log_source(columns: str) -> str:
+def query_log_source(columns: str, cloud_satellites: Sequence[str] = DEFAULT_CLOUD_SATELLITE_CLUSTERS) -> str:
     # system.query_log keeps 14 days on each replica.
     branches = " UNION ALL ".join(
-        f"SELECT {columns} FROM clusterAllReplicas('{cluster}', system.query_log)" for cluster in query_log_clusters()
+        f"SELECT {columns} FROM clusterAllReplicas('{cluster}', system.query_log)"
+        for cluster in query_log_clusters(cloud_satellites)
     )
     return f"({branches})"
 

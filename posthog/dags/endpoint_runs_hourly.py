@@ -46,6 +46,9 @@ MAX_RUNTIME_SECONDS = 60 * 60
 # publish its runs with no ClickHouse cost, and replace the cost that the first build published.
 MAX_REBUILD_AGE_DAYS = 12
 
+# Workload.ENDPOINTS sends endpoint queries to the endpoints cluster, so the read leaves out the logs cluster.
+QUERY_LOG_CLOUD_SATELLITES = ("endpoints",)
+
 # A run's queries finish before its log line is written, so a run just after midnight can have queries
 # from the previous day.
 QUERY_LOG_LOOKBACK = timedelta(hours=1)
@@ -140,7 +143,7 @@ daily_partitions = dagster.DailyPartitionsDefinition(start_date=ROLLUP_START_DAT
 
 
 def query_log_source() -> str:
-    return staged_rollup_query_log_source(QUERY_LOG_COLUMNS)
+    return staged_rollup_query_log_source(QUERY_LOG_COLUMNS, QUERY_LOG_CLOUD_SATELLITES)
 
 
 def insert_rollup_sql(source: str) -> str:
