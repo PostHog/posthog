@@ -494,6 +494,12 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
 
 def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
     template = _template_for_key(team_id, key)
+    if template is None:
+        hog_flow_id = _key_workflow_id(team_id, key)
+        if hog_flow_id is not None:
+            _require_active(team_id, hog_flow_id)
+            return hog_flow_id
+        template = _template_for_key(team_id, key)
     if template is not None:
         if sensitive is False and template.sensitive:
             raise SensitiveTemplate(
@@ -501,9 +507,7 @@ def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> U
                 "Leave `sensitive` out, or unmark the template."
             )
         return _transactional_workflow_id(team_id, template)
-    hog_flow_id = _key_workflow_id(team_id, key)
-    _require_active(team_id, hog_flow_id)
-    return hog_flow_id
+    raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
 
 
 def _template_for_key(team_id: int, key: str) -> MessageTemplate | None:
@@ -514,7 +518,9 @@ def known_key(team_id: int, key: str) -> TransactionalEmailKey | None:
     return TransactionalEmailKey.objects.for_team(team_id, canonical=True).filter(key=key).first()
 
 
-def _key_workflow_id(team_id: int, key: str) -> UUID:
+def _key_workflow_id(team_id: int, key: str) -> UUID | None:
+    """The code email workflow for `key`, made on its first send. None when a template took the key while this send
+    waited for the lock, such as one a template import created."""
     known = known_key(team_id, key)
     if known is not None and _workflow_exists(team_id, known.hog_flow_id):
         return known.hog_flow_id
@@ -525,6 +531,8 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
             if _workflow_exists(team_id, known.hog_flow_id):
                 return known.hog_flow_id
             known.delete()
+        if _template_for_key(team_id, key) is not None:
+            return None
         keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True)
         if keys.count() >= TRANSACTIONAL_EMAIL_KEY_LIMIT:
             raise TooManyKeys(
