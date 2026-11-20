@@ -30,19 +30,27 @@ jobs:
     detect:
         name: Check whether hog needs a release
         # The hog release pull request consumes changesets, and a merge queue branch is never commented on.
-        if: github.event.pull_request.head.ref != 'chore/release-hog' && !startsWith(github.event.pull_request.head.ref, 'trunk-merge/')
+        # Both live in this repository, so a fork's branch of the same name is checked like any other.
+        if: >-
+            github.event.pull_request.head.repo.full_name != github.repository
+            || (github.event.pull_request.head.ref != 'chore/release-hog'
+            && !startsWith(github.event.pull_request.head.ref, 'trunk-merge/'))
         runs-on: ubuntu-24.04
         timeout-minutes: 15
+        # Every step may fail without failing the pull request. The result step then reports that it couldn't
+        # tell, and the comment stays as it was.
         steps:
             # The merge commit, which carries this workflow and its tooling even when the branch predates
             # them. Its first parent is the base, so depth 2 is enough to diff against it.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              continue-on-error: true
               with:
                   fetch-depth: 2
                   persist-credentials: false
 
             - name: Find the changeset and the base
               id: changeset
+              continue-on-error: true
               run: |
                   set -euo pipefail
                   base=$(git rev-parse HEAD^1)
@@ -54,23 +62,25 @@ jobs:
                       echo "present=false" >> "$GITHUB_OUTPUT"
                   fi
 
-            # The steps that run pull request code may fail without failing the pull request. The result
-            # step then reports that it couldn't tell, and the comment stays as it was.
             - name: Install pnpm dependencies
               id: install
+              if: steps.changeset.outcome == 'success'
               continue-on-error: true
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter='hog...' install --frozen-lockfile
 
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              id: bun
+              if: steps.install.outcome == 'success'
+              continue-on-error: true
               with:
                   bun-version: 1.4.2
 
             # Both builds write a metafile listing every source file they compile in.
             - name: Build hog and the CLI library
               id: build
-              if: steps.install.outcome == 'success'
+              if: steps.bun.outcome == 'success'
               continue-on-error: true
               working-directory: hog
               run: |
