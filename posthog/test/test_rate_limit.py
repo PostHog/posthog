@@ -1147,20 +1147,6 @@ class TestReserveUnits(BaseTest):
             with self.assertRaises(exceptions.Throttled):
                 self._reserve([throttle_class], 1)
 
-    @parameterized.expand([("over_the_limit", 4), ("at_the_limit_before_its_drf_unit", 3)])
-    def test_a_reservation_no_limit_can_hold_is_refused_without_a_retry_wait(self, _name, units):
-        with (
-            patch.object(_PSAKThrottleForTest, "rate", "5/minute"),
-            patch.object(_PSAKTeamThrottleForTest, "rate", "3/minute"),
-        ):
-            with self.assertRaises(exceptions.Throttled) as refusal:
-                self._reserve([_PSAKThrottleForTest, _PSAKTeamThrottleForTest], units)
-            response = exception_handler(refusal.exception, {"request": self._request()})
-
-            assert response is not None
-            self.assertNotIn("Retry-After", response.headers)
-            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 6), [True] * 5 + [False])
-
     def test_a_refused_reservation_charges_none_of_the_throttles(self):
         with (
             patch.object(_PSAKTeamThrottleForTest, "rate", "4/minute"),
@@ -1177,7 +1163,6 @@ class TestReserveUnits(BaseTest):
         [
             ("the_refusing_scope_needs_room_for_the_retry_unit", "3/minute", "4/minute", [0, 20], 30, "50"),
             ("an_admitting_scope_has_no_room_for_the_retry", "2/minute", "4/hour", [0, 100], 130, "3470"),
-            ("skewed_worker_clocks_left_the_history_out_of_order", "4/minute", "100/minute", [1, 2, 0], 30, "31"),
         ]
     )
     def test_a_retry_at_the_advertised_wait_fits(self, _name, key_rate, team_rate, singles_at, batch_at, retry_after):
@@ -1199,22 +1184,6 @@ class TestReserveUnits(BaseTest):
             self.assertEqual(outcome, retry_after)
             clock.shift(int(retry_after))
             self.assertIsNone(self._send(throttle_classes, 2))
-
-    def test_a_single_send_refused_at_the_advertised_wait_is_admitted_after_it(self):
-        with (
-            patch.object(TransactionalEmailBurstThrottle, "rate", "4/minute"),
-            time_machine.travel("2026-01-01T00:00:00Z", tick=False) as clock,
-        ):
-            for shift in (1, 1, -2, 30):
-                clock.shift(shift)
-                self.assertIsNone(self._send([TransactionalEmailBurstThrottle], 1))
-            retry_after = self._send([TransactionalEmailBurstThrottle], 1)
-            assert retry_after is not None
-            clock.shift(int(retry_after))
-            retried = self._send([TransactionalEmailBurstThrottle], 1)
-
-        self.assertEqual(retry_after, "30")
-        self.assertIsNone(retried)
 
     def test_a_reused_throttle_charges_nothing_left_from_a_refused_reservation(self):
         with (

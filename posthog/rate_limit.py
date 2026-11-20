@@ -1,6 +1,5 @@
 import re
 import json
-import math
 import time
 import uuid
 import hashlib
@@ -254,23 +253,18 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         self.history = [hit for hit in history if hit > self.now - duration]
         cost = units + self.DRF_UNITS_PER_REQUEST if self.units_to_check is not None else units
         self.retry_wait = self._wait_for_room(cost, num_requests, duration)
-        if math.isinf(self.retry_wait) or len(self.history) + units > num_requests:
+        if len(self.history) + units > num_requests:
             return False
         self.units_to_charge = units
         return True
-
-    def wait(self) -> float | None:
-        if not self.reads_history_from_primary or getattr(self, "key", None) is None:
-            return super().wait()
-        return None if math.isinf(self.retry_wait) else self.retry_wait
 
     def _wait_for_room(self, units: int, num_requests: int, duration: int) -> float:
         expiries_needed = len(self.history) + units - num_requests
         if expiries_needed <= 0:
             return 0.0
         if expiries_needed > len(self.history):
-            return math.inf
-        return sorted(self.history)[expiries_needed - 1] + duration - self.now
+            return float(duration)
+        return self.history[-expiries_needed] + duration - self.now
 
     def _would_allow(self, request: "Request", view: "APIView") -> bool:
         if self.units_to_check is not None:
@@ -713,8 +707,7 @@ def reserve_units(
         return
     admitted = [throttle.allow_units(request, view, units) for throttle in throttles]
     if not all(admitted):
-        wait = max(throttle.retry_wait for throttle in throttles)
-        raise exceptions.Throttled(wait=None if math.isinf(wait) else wait)
+        raise exceptions.Throttled(wait=max(throttle.retry_wait for throttle in throttles))
     for throttle in throttles:
         throttle.charge_units()
 
