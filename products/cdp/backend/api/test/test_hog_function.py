@@ -481,12 +481,22 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         managed.refresh_from_db()
         self.assertEqual(managed.name == "Renamed alert destination", expected_status == status.HTTP_200_OK)
 
-    def test_editing_a_logs_alert_destination_needs_logs_editor_access(self):
-        managed = self._create_internal_destination(_alert_filters())
+    @parameterized.expand(
+        [
+            ("logs", "$logs_alert_firing", "logs"),
+            ("metrics", "$metrics_alert_firing", "metrics"),
+            ("metrics alert", "$metrics_alert_firing", "alert"),
+            ("traces alert", "$traces_alert_resolved", "alert"),
+        ]
+    )
+    def test_editing_an_alert_destination_needs_editor_access_on_each_of_its_resources(
+        self, _name, event_id, denied_resource
+    ):
+        managed = self._create_internal_destination(_alert_filters(event_id))
 
         with patch(
             "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
-            side_effect=lambda resource, required_level=None, **_: resource != "logs",
+            side_effect=lambda resource, required_level=None, **_: resource != denied_resource,
         ):
             patch_response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",

@@ -1264,11 +1264,11 @@ class HogFunctionViewSet(
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        for product_resource, *_ in self._editable_alert_scopes():
+        for resource in sorted({scope for scopes in self._editable_alert_scopes() for scope in scopes}):
             if not self.user_access_control.check_access_level_for_resource(
-                cast(APIScopeObject, product_resource), required_level="editor"
+                cast(APIScopeObject, resource), required_level="editor"
             ):
-                raise PermissionDenied(f"Editing this alert destination requires {product_resource} write access.")
+                raise PermissionDenied(f"Editing this alert destination requires {resource} write access.")
         for read_scope in self._internal_event_read_scopes(request):
             if not self.user_access_control.check_access_level_for_resource(
                 cast(APIScopeObject, read_scope), required_level="viewer"

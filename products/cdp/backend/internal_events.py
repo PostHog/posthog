@@ -60,11 +60,10 @@ def is_managed_alert_internal_event(event_name: object) -> bool:
 
 # Alert products whose destinations stay editable through the generic hog functions API, keyed by
 # the prefix of their alert events and valued by the API scope objects their own alert API checks.
-# An edit through the generic API requires each of those write scopes, and editor access on the
-# first one, which is the product's access control resource, on top of the hog function ones. So a
-# token or member that cannot touch the alert cannot touch its destination either. Metrics and
-# traces alerts are served by the platform alerts API, which also checks `alert`. The other alert
-# products stay read-only there.
+# An edit through the generic API requires each of those write scopes and editor access on each,
+# on top of the hog function ones, so a token or member that cannot touch the alert cannot touch its
+# destination either. Metrics and traces alerts are served by the platform alerts API, which also
+# checks `alert`. The other alert products stay read-only there.
 GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES: dict[str, tuple[str, ...]] = {
     "$logs_alert_": ("logs",),
     "$metrics_alert_": ("metrics", "alert"),
@@ -74,7 +73,7 @@ GENERIC_API_EDITABLE_ALERT_EVENT_SCOPES: dict[str, tuple[str, ...]] = {
 
 def generic_api_editable_alert_scopes(event_name: object) -> tuple[str, ...]:
     """Return the scope objects that guard generic-API edits of a managed alert event's destinations,
-    product resource first, or nothing when the generic API cannot edit them."""
+    or nothing when the generic API cannot edit them."""
     if not is_managed_alert_internal_event(event_name):
         return ()
     return next(
