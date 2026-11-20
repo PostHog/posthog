@@ -703,7 +703,7 @@ Note (2026-11-19): Read the Dashboard REST page as .md plus the Experiment Manag
 
 ## Anthropic — gaps
 
-Today (23): `analytics_artifact_activity`, `analytics_chat_project_usage`, `analytics_connector_usage`, `analytics_plugin_usage`, `analytics_skill_usage`, `analytics_summaries`, `analytics_user_activity`, `analytics_user_cost`, `analytics_user_usage`, `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `organization`, `rbac_group_members`, `rbac_groups`, `rbac_role_permissions`, `rbac_roles`, `usage_report`, `users`, `workspace_members`, `workspaces`
+Today (27): `analytics_artifact_activity`, `analytics_chat_project_usage`, `analytics_connector_usage`, `analytics_cost`, `analytics_plugin_usage`, `analytics_skill_usage`, `analytics_summaries`, `analytics_usage`, `analytics_user_activity`, `analytics_user_cost`, `analytics_user_usage`, `api_keys`, `claude_code_analytics`, `claude_code_model_breakdown`, `cost_report`, `invites`, `organization`, `rbac_group_members`, `rbac_groups`, `rbac_role_permissions`, `rbac_roles`, `spend_limits`, `spend_limits_effective`, `usage_report`, `users`, `workspace_members`, `workspaces`
 
 Diffed against: <https://platform.claude.com/llms.txt>
 
@@ -724,10 +724,10 @@ Note: Admin API coverage of the identity objects is good. The /v1/organizations/
 
 Re-audited 2026-11-19 against: <https://platform.claude.com/llms.txt>
 
-- [ ] `Effective spend limits (GET /v1/organizations/spend_limits/effective)` — one row per member and period with the effective limit and period-to-date spend, for budget tracking (high)
-- [ ] `Spend limits (GET /v1/organizations/spend_limits)` — organization and workspace spend limit definitions behind the effective rows (medium)
-- [ ] `Cost by dimension (GET /v1/organizations/analytics/cost)` — USD cost over a date range broken out by dimension, beyond the legacy cost_report (medium)
-- [ ] `Token usage by dimension (GET /v1/organizations/analytics/usage)` — token usage over a date range broken out by dimension (medium)
+- [x] `Effective spend limits (GET /v1/organizations/spend_limits/effective)` — one row per member and period with the effective limit and period-to-date spend, for budget tracking (high) → `spend_limits_effective` (full refresh, Claude Enterprise `read:spend_limits`, off by default)
+- [x] `Spend limits (GET /v1/organizations/spend_limits)` — organization and workspace spend limit definitions behind the effective rows (medium) → `spend_limits` (full refresh, beta header `spend-limit-reads-2026-09-26`, off by default)
+- [x] `Cost by dimension (GET /v1/organizations/analytics/cost)` — USD cost over a date range broken out by dimension, beyond the legacy cost_report (medium) → `analytics_cost` (incremental per day, beta header `analytics-usage-cost-2026-08-24`, off by default)
+- [x] `Token usage by dimension (GET /v1/organizations/analytics/usage)` — token usage over a date range broken out by dimension (medium) → `analytics_usage` (incremental per day, beta header `analytics-usage-cost-2026-08-24`, off by default)
 - [ ] `Rate limits (GET /v1/organizations/rate_limits)` — Messages API rate-limit groups per model family, to compare with usage_report (medium)
 - [ ] `Workspace rate limits (GET /v1/organizations/workspaces/{workspace_id}/rate_limits)` — per-workspace overrides, fan-out over the synced workspaces (low)
 - [ ] `Spend limit increase requests (GET /v1/organizations/spend_limit_increase_requests)` — requests members raised to lift a limit, with a live spend summary when pending (low)
