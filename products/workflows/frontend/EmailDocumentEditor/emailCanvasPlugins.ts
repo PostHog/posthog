@@ -91,9 +91,9 @@ export const EmailBlockKeymap = Extension.create({
         }
         // The first press selects the text of the block being edited, as most editors do, so a delete right after it
         // can't take the whole email. A second press selects everything.
-        let emptyBlockPress: { doc: unknown; pos: number } | null = null
+        let emptyBlockPress: Selection | null = null
         const selectBlockText = (): boolean => {
-            const { selection, tr, doc } = this.editor.state
+            const { selection, tr } = this.editor.state
             const { $from, $to } = selection
             if (!$from.parent.isTextblock || !$from.sameParent($to)) {
                 return false
@@ -102,8 +102,9 @@ export const EmailBlockKeymap = Extension.create({
             const end = $from.end()
             // An empty block has nothing to select, so the first press there keeps the cursor where it is.
             if (start === end) {
-                const secondPress = emptyBlockPress?.doc === doc && emptyBlockPress.pos === start
-                emptyBlockPress = secondPress ? null : { doc, pos: start }
+                // Any edit or cursor move replaces the selection, so only an immediate second press matches it.
+                const secondPress = emptyBlockPress === selection
+                emptyBlockPress = secondPress ? null : selection
                 return !secondPress
             }
             emptyBlockPress = null
