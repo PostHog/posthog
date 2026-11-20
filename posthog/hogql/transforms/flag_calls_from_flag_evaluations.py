@@ -18,7 +18,7 @@ from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from fractions import Fraction
 from functools import partial
 from math import isfinite
-from typing import TYPE_CHECKING, Generic, Protocol
+from typing import TYPE_CHECKING, Generic, Protocol, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
@@ -36,6 +36,7 @@ from posthog.hogql.database.schema.flag_evaluations import (
     flag_evaluations_coverage_start,
     utc_midnight,
 )
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     event_field_type,
     top_level_conjuncts,
@@ -231,6 +232,11 @@ def swap_flag_calls(
     swapped here. On mode 2 with the union enabled, `read_flag_calls_in_inline_cohort` points an inline cohort's scans
     at the union. Otherwise they read `events`.
 
+    The persons table moves a `persons.id IN (...)` join condition out of the query before resolution, as the trends
+    people list adds one. Each check, and the swap of the scans that the syntactic rules miss, also reads a resolved
+    copy of that condition. While `events` still gets flag calls, a query whose swap moves a scan in such a condition
+    keeps reading `events`.
+
     The resolver runs this on the body of each saved view that it inlines, with `scope` naming that view for the
     error. The check of resolved filters skips the joins of a view's body in the enclosing query, because the swap of
     that body already checked them. A top-level query raises when it reads a view whose resolved body still reads
@@ -302,9 +308,11 @@ def _resolve_with_swaps(
         logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=reason)
     sources = JoinSources() if only_in_flag_evaluations else None
     original = resolve(node, join_sources=sources)
+    original_lifted = _lifted_conditions(original, context, sources)
+    checked_original = _with_lifted(original, original_lifted)
     if sources is not None:
         with context.timings.measure("flag_calls_from_flag_evaluations_by_type"):
-            refusal = swapper.swap_scans_found_by_type(original, sources, clones)
+            refusal = swapper.swap_scans_found_by_type(checked_original, sources, clones)
         # swap_scans_found_by_type can move a scan that the union refused, such as a scan joined after another table,
         # to flag_evaluations. Each other refused scan still reads flag calls from events.
         refusal = refusal or next(
@@ -318,26 +326,35 @@ def _resolve_with_swaps(
         if refusal is not None:
             raise flag_calls_only_in_flag_evaluations_error(refusal, scope)
     if not swapper.swapped and not union.renamed:
-        return FlagCallSwap(
-            source=node,
-            resolved=_without_unreadable_inline_cohort_scans(original, context, scope),
-        )
+        _without_unreadable_inline_cohort_scans(checked_original, context, scope)
+        return FlagCallSwap(source=node, resolved=original)
     try:
         swapped = resolve(rewritten)
+        swapped_lifted = _lifted_conditions(swapped, context, None)
+        checked_swapped = _with_lifted(swapped, swapped_lifted)
     except BaseHogQLError as error:
         # Expected for a query that reads a field flag_evaluations lacks, such as goe_0.properties.
         reason = f"it reads something that table doesn't have: {error}"
     else:
         # An inline cohort renames its own scans during resolution, so the outer rename does not show them.
-        unreadable = union_unreadable_reason(swapped, context) if union.renamed or only_in_flag_evaluations else None
+        unreadable = (
+            union_unreadable_reason(checked_swapped, context) if union.renamed or only_in_flag_evaluations else None
+        )
         if unreadable is not None:
             reason = unreadable
-        elif not _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates):
+        elif not _swap_keeps_bindings(checked_original, checked_swapped, swapper.flag_key_predicates):
             reason = "a name in it would read a different column there"
-        elif not _posthog_events_qualifiers_read_scans(swapped):
+        elif not _posthog_events_qualifiers_read_scans(checked_swapped):
             reason = "a name in it that starts with posthog.events reads another table"
-        elif not only_in_flag_evaluations and not _swap_reads_properties_alike(original, swapped, context):
+        elif not only_in_flag_evaluations and not _swap_reads_properties_alike(
+            checked_original, checked_swapped, context
+        ):
             reason = "it reads a property from a different kind of column there"
+        elif not only_in_flag_evaluations and _events_scans(swapped_lifted) < _events_scans(original_lifted):
+            # The checks read a copy of the lifted condition. Lazy table resolution later resolves the condition
+            # itself, with the caller's resolver for saved views and without event property types. While events still
+            # gets flag calls, events answers the condition, so the query keeps reading it.
+            reason = "it reads flag calls in a condition that the persons table lifts out of a join"
         else:
             # A view body's offsets come from the view's own text, not from the query the editor shows.
             if scope is None:
@@ -360,6 +377,54 @@ def _without_unreadable_inline_cohort_scans(
 
     require_union_readable(resolved, context, scope)
     return resolved
+
+
+def _lifted_conditions(
+    resolved: ast.AST, context: HogQLContext, sources: JoinSources | None
+) -> list[ast.SelectQuery | ast.SelectSetQuery]:
+    """A resolved copy of each subquery that a persons join in `resolved` lifts out of its join condition.
+
+    The persons table moves a `persons.id IN (...)` join condition into a filter of its own before resolution. Lazy
+    table resolution resolves that filter after the swap, in the scope of the SELECT that joins persons. Each copy here
+    resolves in that scope, so the checks of the swap can read the subquery as they read the rest of the query. With
+    `sources`, each join of a copy records the join of the input that it came from.
+    """
+    # Deferred: the resolver imports this module.
+    from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+
+    lifted: list[ast.SelectQuery | ast.SelectSetQuery] = []
+    pending: list[ast.AST] = [resolved]
+    while pending:
+        for select, join in _joins(pending.pop()):
+            table_type = unwrap_table_alias_type(join.type)
+            if not isinstance(table_type, ast.LazyTableType) or not isinstance(table_type.table, PersonsTable):
+                continue
+            for query in _top_level_queries(table_type.table.filter):
+                copy = clone_expr(query)
+                if sources is not None:
+                    sources.record_copied_tree(copy, query)
+                scopes = [cast(ast.SelectQueryType, select.type)]
+                checked = resolve_types(copy, context, "clickhouse", scopes, join_sources=sources)
+                lifted.append(checked)
+                pending.append(checked)
+    return lifted
+
+
+def _with_lifted(resolved: ast.AST, lifted: list[ast.SelectQuery | ast.SelectSetQuery]) -> ast.AST:
+    """`resolved` and the copies in `lifted`, as one tree that the checks of the swap read."""
+    if not lifted:
+        return resolved
+    return ast.Tuple(exprs=[cast(ast.Expr, resolved), *lifted])
+
+
+def _events_scans(queries: list[ast.SelectQuery | ast.SelectSetQuery]) -> int:
+    return sum(1 for query in queries for _, join in _joins(query) if _reads_events_table(join))
+
+
+def _top_level_queries(node: ast.AST | None) -> list[ast.SelectQuery | ast.SelectSetQuery]:
+    collector = _TopLevelQueryCollector()
+    collector.visit(node)
+    return collector.queries
 
 
 def team_flag_key_compares_as_string(context: HogQLContext) -> bool:
@@ -1249,6 +1314,20 @@ class _JoinCollector(SyntaxVisitor):
             self.joins.append((node, join))
             join = join.next_join
         super().visit_select_query(node)
+
+
+class _TopLevelQueryCollector(SyntaxVisitor):
+    """Each SELECT or set of SELECTs in an expression that no other one contains."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.queries: list[ast.SelectQuery | ast.SelectSetQuery] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.queries.append(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.queries.append(node)
 
 
 def _reads_event_of(table_type: ast.Type | None, expr: ast.Expr) -> bool:

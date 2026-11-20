@@ -92,8 +92,12 @@ FLAG_CALL_CONJUNCTS = (
     "event = '$feature_flag_called' AND properties.$feature_flag = 'probe-flag' AND timestamp >= now() - INTERVAL 7 DAY"
 )
 FLAG_CALLS_ON_EVENTS = f"SELECT count() FROM events WHERE {FLAG_CALL_CONJUNCTS}"
+FLAG_CALLERS = f"SELECT person_id AS actor_id FROM events WHERE {FLAG_CALL_CONJUNCTS}"
 PAGEVIEW_CONJUNCTS = "event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY"
 PROBE_DISTINCT_IDS = "(SELECT 'probe-distinct-id' AS id) AS d"
+LIFTED_PERSONS_CONDITION = (
+    f"SELECT count() FROM {PROBE_DISTINCT_IDS} INNER JOIN persons ON d.id != '' AND persons.id IN"
+)
 FLAG_CALLS_AFTER_A_JOIN = (
     f"SELECT count() FROM {PROBE_DISTINCT_IDS} JOIN events AS e ON e.distinct_id = d.id "
     "WHERE e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'probe-flag' "
@@ -934,6 +938,26 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (
+                "source_repeated_in_the_condition",
+                f"SELECT count() FROM ({FLAG_CALLERS}) AS source INNER JOIN persons "
+                f"ON persons.id = source.actor_id AND persons.id IN (SELECT actor_id FROM ({FLAG_CALLERS}))",
+            ),
+            (
+                "scan_that_only_resolution_shows_reads_flag_calls",
+                f"{LIFTED_PERSONS_CONDITION} (SELECT e.person_id FROM ({FLAG_CALLERS}) AS c "
+                "CROSS JOIN events AS e WHERE e.event = '$feature_flag_called')",
+            ),
+        ]
+    )
+    def test_condition_that_the_persons_table_lifts_reads_flag_evaluations(self, _name: str, query: str):
+        create_person(team=self.team, uuid=str(self.person_id), distinct_ids=["probe-distinct-id"])
+        flush_persons_and_events()
+
+        assert self._query_events(query).results == [(1,)]
+
+    @parameterized.expand(
+        [
+            (
                 "query_built_without_source_positions",
                 clear_locations(parse_select(FLAG_CALLS_AFTER_A_JOIN)),
                 [(1,)],
@@ -1093,6 +1117,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 f"WITH 'all calls' AS flag_key SELECT flag_key FROM events WHERE {FLAG_CALL_CONJUNCTS}",
                 "a name in it would read a different column",
             ),
+            *[
+                (
+                    f"with_name_that_a_flag_evaluations_column_shadows_in_a_lifted_persons_condition_{label}",
+                    f"{LIFTED_PERSONS_CONDITION} (WITH 'all calls' AS flag_key SELECT person_id FROM events "
+                    f"WHERE {conjuncts} AND properties.probe != flag_key)",
+                    "a name in it would read a different column",
+                )
+                for label, conjuncts in (
+                    ("with_a_flag_key_filter", FLAG_CALL_CONJUNCTS),
+                    ("without_a_flag_key_filter", "event = '$feature_flag_called'"),
+                )
+            ],
             (
                 "columns_inside_an_expression",
                 f"SELECT tuple(*COLUMNS('^(created|inserted)_at$')) FROM events WHERE {FLAG_CALL_CONJUNCTS}",
