@@ -6,9 +6,11 @@ import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpValkeyShadowPools } from './cdp-services'
 
-// ioredis waits 50 ms more before each reconnect, so a fatal client passes its error limit of 10 after
-// about 2.75 s. Waiting longer shows whether any client of the pool stops the process.
-const FATAL_CLIENT_ERROR_WINDOW_MS = 5_000
+const LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS = 5_000
+const PORT_NOTHING_LISTENS_ON = 1
+const ONE_SHARED_CONNECTION = { REDIS_POOL_MIN_SIZE: 1, REDIS_POOL_MAX_SIZE: 1 }
+
+const yieldToIo = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 const shadowConfig = {
     CDP_VALKEY_HOST: '127.0.0.1',
@@ -34,15 +36,17 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
         jest.restoreAllMocks()
     })
 
-    // Nothing listens on port 1, so every connection attempt fails.
     const unreachable = (): RedisV2 =>
-        createCdpValkeyShadowPools({ ...shadowConfig, CDP_VALKEY_PORT: 1 }, 'test-unreachable-valkey').writer
+        createCdpValkeyShadowPools(
+            { ...shadowConfig, CDP_VALKEY_PORT: PORT_NOTHING_LISTENS_ON },
+            'test-unreachable-valkey'
+        ).writer
 
     it('keeps the process up while every shadow call fails', async () => {
         const writer = unreachable()
 
         const probes: Promise<unknown>[] = []
-        const outageEndsAt = Date.now() + FATAL_CLIENT_ERROR_WINDOW_MS
+        const outageEndsAt = Date.now() + LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS
         while (Date.now() < outageEndsAt && kill.mock.calls.length === 0) {
             probes.push(writer.useClient({ name: 'probe' }, (client) => client.ping()).catch((error) => error))
             await new Promise((resolve) => setTimeout(resolve, 100))
@@ -65,7 +69,6 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
     }, 30_000)
 
     describe('after a connection the pool holds drops', () => {
-        // A proxy stands in for Valkey, so a test can cut the connection the pool already holds.
         let sockets: Socket[]
         let proxy: Server
         let port: number
@@ -82,9 +85,8 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             })
             await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
             port = (proxy.address() as AddressInfo).port
-            // One client, so the calls during the outage and after it share a connection.
             writer = createCdpValkeyShadowPools(
-                { ...shadowConfig, CDP_VALKEY_PORT: port, REDIS_POOL_MAX_SIZE: 1 },
+                { ...shadowConfig, ...ONE_SHARED_CONNECTION, CDP_VALKEY_PORT: port },
                 'test-valkey-dropped-connection'
             ).writer
             expect(await writer.useClient({ name: 'warm' }, (client) => client.ping())).toEqual('PONG')
@@ -103,8 +105,7 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             await new Promise<void>((resolve) => proxy.listen(port, '127.0.0.1', resolve))
             let pong: unknown = null
             while (pong !== 'PONG') {
-                // Yield to I/O between tries, so the client can reconnect while the loop runs.
-                await new Promise((resolve) => setImmediate(resolve))
+                await yieldToIo()
                 pong = await writer.useClient({ name: 'recover' }, (client) => client.ping()).catch(() => null)
             }
         }

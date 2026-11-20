@@ -331,15 +331,21 @@ export function createCdpReaderRedisPool(
     return writerPool
 }
 
-// RedisV2 rethrows a pool error, such as an acquire timeout, even for a caller that passes failOpen.
-// The shadow pools fail to acquire for as long as Valkey is down, so they extend failOpen to those
-// errors. Otherwise a fire-and-forget failOpen call, such as the push service's key write, rejects
-// with no handler, and the process stops on the unhandled rejection.
-//
-// A pipeline on a dropped connection resolves with an error for each command instead of rejecting.
-// Callers such as the watcher read a missing reply as a default state, so the shadow pools fail the
-// whole pipeline instead. A dropped connection then fails the same way as a pool that never connected.
-function failOpenOnPoolErrors(pool: RedisV2): RedisV2 {
+function failPipelineOnCommandError(pool: RedisV2): RedisV2 {
+    return {
+        useClient: pool.useClient,
+        usePipeline: async (options, callback) => {
+            const results = await pool.usePipeline(options, callback)
+            const commandError = results?.find(([error]) => error !== null)?.[0]
+            if (commandError) {
+                throw commandError
+            }
+            return results
+        },
+    }
+}
+
+function failOpenOnAnyError(pool: RedisV2): RedisV2 {
     const failOpen = async <T>(options: RedisOptions, call: () => Promise<T | null>): Promise<T | null> => {
         try {
             return await call()
@@ -353,15 +359,7 @@ function failOpenOnPoolErrors(pool: RedisV2): RedisV2 {
     }
     return {
         useClient: (options, callback) => failOpen(options, () => pool.useClient(options, callback)),
-        usePipeline: (options, callback) =>
-            failOpen(options, async () => {
-                const results = await pool.usePipeline(options, callback)
-                const commandError = results?.find(([error]) => error !== null)?.[0]
-                if (commandError) {
-                    throw commandError
-                }
-                return results
-            }),
+        usePipeline: (options, callback) => failOpen(options, () => pool.usePipeline(options, callback)),
     }
 }
 
@@ -401,40 +399,37 @@ export function createCdpValkeyShadowPools(
     // commandTimeout aborts in-flight commands at the ioredis protocol level, so a slow Valkey
     // doesn't tie up a pool client until the kernel TCP timeout. Pair this with the race-timeout
     // in dual-store's secondary path (which only stops awaiting); together they prevent leaks
-    // on bad Valkey health. The acquire timeout is the same value, below that race timeout, so
-    // a caller that dual-store stopped waiting for does not stay queued on the pool.
+    // on bad Valkey health.
     const shadowCommandTimeoutMs = 1000
 
     const tls = config.CDP_VALKEY_TLS ? {} : undefined
 
     // The config is required, but reachability is not fatal: features not named in
     // CDP_VALKEY_READ_FEATURES still read from Redis, so an unreachable Valkey must not take
-    // CDP down, at boot or later. Features that have moved over surface it as failing reads.
-    // A command issued while the connection is down fails at once instead of waiting in the
-    // offline queue, and a command in flight when it drops is not sent again on reconnect.
-    // Either one would replay a write that the caller already counted as failed, for example
-    // a watcher state or a masker counter, over the newer value written to Redis since.
+    // CDP down at boot. Features that have moved over surface it as failing reads instead.
     const createShadowPool = (host: string, port: number, poolName: string, role: string): RedisV2 => {
-        const pool = failOpenOnPoolErrors(
-            createRedisV2PoolFromConfig({
-                connection: {
-                    url: host,
-                    options: {
-                        port,
-                        password: config.CDP_VALKEY_PASSWORD,
-                        commandTimeout: shadowCommandTimeoutMs,
-                        enableOfflineQueue: false,
-                        autoResendUnfulfilledCommands: false,
-                        tls,
+        const pool = failOpenOnAnyError(
+            failPipelineOnCommandError(
+                createRedisV2PoolFromConfig({
+                    connection: {
+                        url: host,
+                        options: {
+                            port,
+                            password: config.CDP_VALKEY_PASSWORD,
+                            commandTimeout: shadowCommandTimeoutMs,
+                            enableOfflineQueue: false,
+                            autoResendUnfulfilledCommands: false,
+                            tls,
+                        },
+                        name: poolName,
+                        exitOnRepeatedErrors: false,
                     },
-                    name: poolName,
-                    exitOnRepeatedErrors: false,
-                },
-                poolMinSize: config.REDIS_POOL_MIN_SIZE,
-                poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-                acquireTimeoutMillis: shadowCommandTimeoutMs,
-                discardStalledClients: true,
-            })
+                    poolMinSize: config.REDIS_POOL_MIN_SIZE,
+                    poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+                    acquireTimeoutMillis: shadowCommandTimeoutMs,
+                    discardStalledClients: true,
+                })
+            )
         )
 
         void pool
