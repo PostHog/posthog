@@ -161,29 +161,6 @@ impl ParsedDelivery {
     }
 }
 
-/// The token from the URL path first, then the `Authorization` header (`Bearer`, `bearer` or a bare
-/// token), then `?token=`. A drain can only set its URL and custom headers.
-pub fn token_from_request(
-    path_token: Option<&str>,
-    headers: &HeaderMap,
-    query_token: Option<&str>,
-) -> Option<String> {
-    let header_token = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .map(|auth| {
-            auth.strip_prefix("Bearer ")
-                .or_else(|| auth.strip_prefix("bearer "))
-                .unwrap_or(auth)
-                .trim()
-        });
-    [path_token, header_token, query_token]
-        .into_iter()
-        .flatten()
-        .find(|token| !token.is_empty())
-        .map(str::to_string)
-}
-
 fn hex_to_base64(hex_str: &str) -> String {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     match hex::decode(hex_str) {
@@ -504,19 +481,15 @@ pub async fn export_vercel_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let Some(token) = token_from_request(
-        path_token.as_ref().map(|Path(token)| token.as_str()),
-        &headers,
-        query_params.token.as_deref(),
-    ) else {
-        error!("No token provided");
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "No token provided"})),
-        ));
-    };
-
-    service.authorizer.authorize_token(&token, Signal::Logs)?;
+    let token = service
+        .authorizer
+        .authorize_from_path_header_or_query(
+            path_token.as_ref().map(|Path(token)| token.as_str()),
+            &headers,
+            query_params.token.as_deref(),
+            Signal::Logs,
+        )?
+        .to_string();
     tracing::Span::current().record("token", &token);
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;

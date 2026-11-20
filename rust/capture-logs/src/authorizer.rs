@@ -99,9 +99,36 @@ impl Authorizer {
         }
     }
 
-    /// Authorize a token that the caller resolved itself. The Datadog endpoint accepts the token
-    /// in a path segment and in a bare `Authorization` value, so it cannot use `authorize`.
-    pub fn authorize_token(&self, token: &str, signal: Signal) -> Result<(), Rejection> {
+    /// Resolve the token from the URL path, then the `Authorization` header, then the `token` query
+    /// parameter, and authorize it for `signal`. For vendor intakes, whose senders can often set
+    /// only a URL, and write the header as `Bearer`, as `bearer` or with no scheme.
+    pub fn authorize_from_path_header_or_query<'a>(
+        &self,
+        path_token: Option<&'a str>,
+        headers: &'a HeaderMap,
+        query_token: Option<&'a str>,
+        signal: Signal,
+    ) -> Result<&'a str, Rejection> {
+        let header_token = headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .map(|value| {
+                value
+                    .strip_prefix("Bearer ")
+                    .or_else(|| value.strip_prefix("bearer "))
+                    .unwrap_or(value)
+                    .trim()
+            });
+        let token = [path_token, header_token, query_token]
+            .into_iter()
+            .flatten()
+            .find(|token| !token.is_empty())
+            .ok_or_else(|| self.reject(signal, "missing_token", missing_token()))?;
+        self.authorize_token(token, signal)?;
+        Ok(token)
+    }
+
+    fn authorize_token(&self, token: &str, signal: Signal) -> Result<(), Rejection> {
         if self.token_dropper.should_drop(token, "") {
             return Err(self.reject(signal, "dropped_token", unauthorized("Invalid token")));
         }
@@ -159,6 +186,11 @@ fn unauthorized(message: impl Into<String>) -> Rejection {
     )
 }
 
+fn missing_token() -> Rejection {
+    error!("No token provided");
+    unauthorized("No token provided")
+}
+
 /// Splits before it trims, so a value of exactly `Bearer ` still yields the empty token callers reject.
 fn strip_bearer(value: &str) -> &str {
     value.split("Bearer ").last().unwrap_or("").trim()
@@ -169,20 +201,15 @@ fn resolve_token<'a>(
     headers: &'a HeaderMap,
     query_token: Option<&'a str>,
 ) -> Result<&'a str, Rejection> {
-    let missing = || {
-        error!("No token provided");
-        unauthorized("No token provided")
-    };
-
     if let Some(value) = headers.get("Authorization") {
         return Some(strip_bearer(value.to_str().unwrap_or("")))
             .filter(|token| !token.is_empty())
-            .ok_or_else(missing);
+            .ok_or_else(missing_token);
     }
 
     query_token
         .filter(|token| !token.is_empty())
-        .ok_or_else(missing)
+        .ok_or_else(missing_token)
 }
 
 #[cfg(test)]
@@ -202,6 +229,54 @@ mod tests {
             );
         }
         headers
+    }
+
+    #[test]
+    fn a_vendor_token_comes_from_the_path_then_the_header_then_the_query() {
+        for (path, auth, query, expected) in [
+            (
+                Some("phc_path"),
+                Some("Bearer phc_header"),
+                Some("phc_query"),
+                Some("phc_path"),
+            ),
+            (
+                Some(""),
+                Some("Bearer phc_header"),
+                None,
+                Some("phc_header"),
+            ),
+            (None, Some("bearer phc_header "), None, Some("phc_header")),
+            (None, Some("phc_bare"), None, Some("phc_bare")),
+            (None, Some("Bearer "), Some("phc_query"), Some("phc_query")),
+            (None, None, Some(""), None),
+            (None, None, None, None),
+        ] {
+            let headers = match auth {
+                Some(value) => headers(&[("authorization", value)]),
+                None => HeaderMap::new(),
+            };
+            assert_eq!(
+                authorizer()
+                    .authorize_from_path_header_or_query(path, &headers, query, Signal::Logs)
+                    .ok(),
+                expected,
+                "{path:?} / {auth:?} / {query:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_vendor_token_goes_through_the_same_checks() {
+        let (status, _) = authorizer()
+            .authorize_from_path_header_or_query(
+                Some("phx_personal_api_key"),
+                &HeaderMap::new(),
+                None,
+                Signal::Logs,
+            )
+            .expect_err("a personal API key should not be accepted");
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     #[test]
