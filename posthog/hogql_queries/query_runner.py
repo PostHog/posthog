@@ -2796,6 +2796,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                     if not query_run.is_warming:
                         cache_manager.record_read()
+                        self._record_runner_read()
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
                         # The forced dispatch skips the result cache, but not the breaker: the
@@ -3646,6 +3647,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _runner_event_properties(self) -> dict[str, Any]:
         return {}
+
+    def _record_runner_read(self) -> None:
+        return None
 
     def _prepare_blocking_calculation(
         self, *, dashboard_id: Optional[int], previous_entry: Callable[[], Optional[dict[str, Any]]]

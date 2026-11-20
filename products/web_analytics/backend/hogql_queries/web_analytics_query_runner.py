@@ -57,6 +57,7 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import User
+from posthog.models.instance_setting import get_instance_setting
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -77,9 +78,11 @@ from products.web_analytics.backend.hogql_queries.traffic_type import get_traffi
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     compute_filters_eligibility_hash,
     compute_shape_key,
+    is_background_warming_request,
     is_precompute_enabled_for_team,
     is_team_above_volume_floor,
 )
+from products.web_analytics.backend.warming.read_history import record_shape_read
 
 logger = structlog.get_logger(__name__)
 
@@ -787,8 +790,25 @@ WHERE and(
         else:
             return []
 
+    @cached_property
+    def shape_key(self) -> str:
+        return compute_shape_key(self.query, self.team.timezone, self._test_account_filters)
+
     def _runner_event_properties(self) -> dict[str, Any]:
-        return {"shape_key": compute_shape_key(self.query, self.team.timezone, self._test_account_filters)}
+        return {"shape_key": self.shape_key}
+
+    def _record_runner_read(self) -> None:
+        try:
+            if (
+                is_background_warming_request()
+                or get_query_tag_value("feature") == Feature.DIGEST
+                or get_query_tag_value("kind") == "temporal"
+                or not get_instance_setting("WEB_ANALYTICS_SHAPE_READ_HISTORY_ENABLED")
+            ):
+                return
+            record_shape_read(team_id=self.team.pk, shape_key=self.shape_key, at=datetime.now(UTC))
+        except Exception:
+            logger.exception("web_analytics_shape_read_record_failed", team_id=self.team.pk)
 
     @cached_property
     def _reads_only_posthog_tables(self) -> bool:
