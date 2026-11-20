@@ -10,9 +10,13 @@ description and a unit. About 100 distractor metrics sit next to the 25 that cas
 beat close neighbors to land in the returned results.
 
 A RELATED_WORD case shares no word stem with the name, display name or description of its expected
-metric, so only meaning can find it. ``test_metric_search.py`` checks this mechanically.
+metric, so only meaning can find it. A SHARED_WORD case is the same, except that one common query word
+is also in metrics that mean something else. Its expected metrics must rank above every one of those.
+``test_metric_search.py`` checks mechanically that the expected metrics of both types share no word with
+the query.
 """
 
+import re
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
@@ -30,6 +34,7 @@ class CaseType(StrEnum):
     NEAR_SIBLING = "near_sibling"
     REAL_GAP = "real_gap"
     SEVERAL_PHRASINGS = "several_phrasings"
+    SHARED_WORD = "shared_word"
 
 
 # The lexical lane must find these types on its own. The backend test holds it to that.
@@ -66,6 +71,8 @@ class SearchCase:
     expected: tuple[str, ...] = ()
     # For a near sibling: the metric the expected one must rank above.
     ranked_above: str | None = None
+    # For a shared word: the metrics that hold the shared word but do not answer the query.
+    shared_word_metrics: tuple[str, ...] = ()
 
 
 APPROVED = "approved"
@@ -198,6 +205,20 @@ TARGET_METRICS: tuple[FixtureMetric, ...] = (
         description="Net promoter score from the in-app survey: percent promoters minus percent detractors.",
         unit="score",
         status=APPROVED,
+    ),
+    FixtureMetric(
+        name="csat_score",
+        display_name="CSAT",
+        description="Share of support conversations rated good or great in the follow-up survey.",
+        unit="percent",
+        status=APPROVED,
+    ),
+    FixtureMetric(
+        name="feedback_sentiment",
+        display_name="Feedback sentiment",
+        description="Share of in-app feedback comments that read as positive, per week.",
+        unit="percent",
+        status=PROPOSED,
     ),
     FixtureMetric(
         name="api_error_rate",
@@ -536,18 +557,12 @@ DISTRACTOR_METRICS: tuple[FixtureMetric, ...] = (
         APPROVED,
     ),
     _distractor(
-        "csat_score",
-        "CSAT",
-        "Share of support conversations rated good or great in the follow-up survey.",
-        "percent",
-        APPROVED,
-    ),
-    _distractor(
         "ticket_backlog", "Ticket backlog", "Open support tickets older than 2 days at the end of the day.", "count"
     ),
     _distractor("escalation_rate", "Escalation rate", "Share of support tickets passed to engineering.", "percent"),
     _distractor("chat_volume", "Chat volume", "Live chat conversations started per day.", "count"),
     _distractor("help_article_views", "Help article views", "Views of help center articles, per day.", "count"),
+    _distractor("customer_count", "Customer count", "Paying customer organizations at the end of the month.", "count"),
     _distractor(
         "onboarding_calls_booked",
         "Onboarding calls booked",
@@ -664,8 +679,32 @@ def _case(
     *queries: str,
     expected: tuple[str, ...] = (),
     ranked_above: str | None = None,
+    shared_word_metrics: tuple[str, ...] = (),
 ) -> SearchCase:
-    return SearchCase(name=name, case_type=case_type, queries=queries, expected=expected, ranked_above=ranked_above)
+    return SearchCase(
+        name=name,
+        case_type=case_type,
+        queries=queries,
+        expected=expected,
+        ranked_above=ranked_above,
+        shared_word_metrics=shared_word_metrics,
+    )
+
+
+def _metrics_holding_word(word: str, *, excluding: tuple[str, ...]) -> tuple[str, ...]:
+    """Fixture metrics whose name, display name or description holds ``word`` or its plural."""
+    pattern = re.compile(rf"\b{re.escape(word)}s?\b", re.IGNORECASE)
+    return tuple(
+        metric.name
+        for metric in FIXTURE_METRICS
+        if metric.name not in excluding
+        and any(
+            pattern.search(text) for text in (metric.name.replace("_", " "), metric.display_name, metric.description)
+        )
+    )
+
+
+_SATISFACTION_METRICS = ("nps_score", "csat_score", "feedback_sentiment")
 
 
 SEARCH_CASES: tuple[SearchCase, ...] = (
@@ -840,6 +879,14 @@ SEARCH_CASES: tuple[SearchCase, ...] = (
         expected=("median_first_response_time",),
     ),
     _case("phrasings_nps", CaseType.SEVERAL_PHRASINGS, "nps", "survey score", expected=("nps_score",)),
+    # Shared word: "customer" is in many metrics that do not measure satisfaction.
+    _case(
+        "shared_customer_satisfaction",
+        CaseType.SHARED_WORD,
+        "customer satisfaction",
+        expected=_SATISFACTION_METRICS,
+        shared_word_metrics=_metrics_holding_word("customer", excluding=_SATISFACTION_METRICS),
+    ),
 )
 
 FIXTURE_METRICS_BY_NAME = {metric.name: metric for metric in FIXTURE_METRICS}
