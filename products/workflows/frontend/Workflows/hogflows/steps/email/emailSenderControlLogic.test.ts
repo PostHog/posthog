@@ -1,18 +1,13 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-
 import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { EditorRef, emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
-import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import { sandboxSenderLogic } from '../../../../Channels/sandboxSenderLogic'
 import { workflowLogic } from '../../../workflowLogic'
@@ -34,17 +29,6 @@ const STOPPED_SENDER = {
     kind: 'email',
     config: { verified: true, ses_sending_status: 'failed' },
 } as unknown as IntegrationType
-
-function teamWithDefaultSender(defaultSenderId: number | null): typeof MOCK_DEFAULT_TEAM {
-    return {
-        ...MOCK_DEFAULT_TEAM,
-        workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, default_email_integration_id: defaultSenderId },
-    }
-}
-
-function fromSender(integrationId: number): Record<string, any> {
-    return { inputs: { email: { value: { from: { integrationId } } } } }
-}
 
 function ownStep(value: Record<string, any> = {}): HogFlowAction {
     return {
@@ -93,38 +77,26 @@ describe('emailSenderControlLogic', () => {
         step: HogFlowAction,
         status: Record<string, any> = STATUS,
         workflowInfo: Partial<HogFlow> = {},
-        senders: IntegrationType[] = [VERIFYING_SENDER],
-        defaultSenderId: number | null = null,
-        { sendersLoadedFirst = false }: { sendersLoadedFirst?: boolean } = {}
+        senders: IntegrationType[] = [VERIFYING_SENDER]
     ): Promise<void> {
-        const team = teamWithDefaultSender(defaultSenderId)
-        initKeaTests(true, team)
+        initKeaTests()
         wfLogic = workflowLogic({ id: 'new' })
         wfLogic.mount()
         await expectLogic(wfLogic).toFinishAllListeners()
         wfLogic.actions.setWorkflowInfo({ ...workflowInfo, actions: [...wfLogic.values.workflow.actions, step] })
-        if (workflowInfo.user_access_level) {
-            wfLogic.actions.loadWorkflowSuccess({ ...wfLogic.values.workflow })
-        }
         useMocks({
             get: {
                 '/api/projects/:team_id/integrations/': { results: senders, next: null },
                 '/api/projects/:team_id/workflow_email_sandbox/status/': status,
-                '/api/projects/:team_id': team,
             },
         })
         integrationsLogic.mount()
         sandboxSenderLogic.mount()
         await expectLogic(integrationsLogic).toFinishAllListeners()
         sandboxSenderLogic.actions.loadSandboxStatusSuccess(status as any)
-        if (sendersLoadedFirst) {
-            integrationsLogic.actions.loadIntegrationsSuccess(senders)
-        }
+        integrationsLogic.actions.loadIntegrationsSuccess(senders)
         logic = emailSenderControlLogic({ workflowLogicProps: wfLogic.props, actionId: step.id })
         logic.mount()
-        if (!sendersLoadedFirst) {
-            integrationsLogic.actions.loadIntegrationsSuccess(senders)
-        }
         await expectLogic(logic).toFinishAllListeners()
     }
 
@@ -195,184 +167,23 @@ describe('emailSenderControlLogic', () => {
         )
     })
 
-    it('stops offering the sandbox sender on an own step once a sender is verified', async () => {
-        await setUp(ownStep({ from: { integrationId: 7 } }), STATUS, {}, [OWN_SENDER])
+    it.each<[string, IntegrationType[], boolean]>([
+        ['stops offering the sandbox sender on an own step once a sender is verified', [OWN_SENDER], false],
+        ['keeps offering the sandbox sender when the only verified sender stopped sending', [STOPPED_SENDER], true],
+    ])('%s', async (_, senders, expected) => {
+        await setUp(ownStep({ from: { integrationId: 7 } }), STATUS, {}, senders)
 
-        expect(logic.values.showSandboxOption).toEqual(false)
+        expect(logic.values.showSandboxOption).toEqual(expected)
     })
 
-    it.each<[string, IntegrationType[], number | null, Record<string, any>, Record<string, any>]>([
-        [
-            'the only verified sender',
-            [OWN_SENDER, VERIFYING_SENDER],
-            null,
-            STATUS,
-            {
-                type: 'function_email',
-                config: { inputs: { email: { value: { subject: 'Hi', from: { integrationId: 7 } } } } },
-            },
-        ],
-        [
-            "the project's default sender",
-            [OWN_SENDER, SECOND_SENDER],
-            8,
-            STATUS,
-            { type: 'function_email', config: { inputs: { email: { value: { from: { integrationId: 8 } } } } } },
-        ],
-        [
-            'no sender when several are verified and none is the default',
-            [OWN_SENDER, SECOND_SENDER],
-            null,
-            STATUS,
-            { type: 'email_sandbox' },
-        ],
-        ['no sender when none is verified', [VERIFYING_SENDER], null, STATUS, { type: 'email_sandbox' }],
-        [
-            'no sender when adoption is off',
-            [OWN_SENDER],
-            null,
-            { ...STATUS, adoption_enabled: false },
-            { type: 'email_sandbox' },
-        ],
-        [
-            'no sender when the only verified sender stopped sending',
-            [STOPPED_SENDER],
-            null,
-            STATUS,
-            { type: 'email_sandbox' },
-        ],
-        [
-            'no sender when the project default is hidden from the editor',
-            [OWN_SENDER],
-            8,
-            STATUS,
-            { type: 'email_sandbox' },
-        ],
-    ])('moves a sandbox step to %s', async (_, senders, defaultSenderId, status, expected) => {
-        await setUp(SANDBOX_STEP, status, {}, senders, defaultSenderId)
-
-        expect(storedStep()).toMatchObject(expected)
-    })
-
-    it('moves a sandbox step whose senders loaded before its editor opened', async () => {
-        await setUp(SANDBOX_STEP, STATUS, {}, [OWN_SENDER], null, { sendersLoadedFirst: true })
-
-        expect(storedStep()).toMatchObject({ type: 'function_email' })
-    })
-
-    it('leaves a sandbox step and records no switch when the editor can only view the workflow', async () => {
-        const capture = jest.spyOn(posthog, 'capture')
-
-        await setUp(SANDBOX_STEP, STATUS, { user_access_level: AccessControlLevel.Viewer }, [OWN_SENDER])
-
-        expect(storedStep()).toMatchObject({ type: 'email_sandbox' })
-        expect(capture.mock.calls.filter(([event]) => event === 'workflows email sender changed')).toEqual([])
-    })
-
-    it.each([
-        [
-            'one sender is verified in another tab',
-            [OWN_SENDER],
-            null,
-            { type: 'function_email', config: fromSender(7) },
-        ],
-        [
-            'several senders and their project default are set in another tab',
-            [OWN_SENDER, SECOND_SENDER],
-            8,
-            { type: 'function_email', config: fromSender(8) },
-        ],
-        [
-            'a sender is verified in another tab and the project default is hidden',
-            [OWN_SENDER],
-            8,
-            { type: 'email_sandbox' },
-        ],
-    ])(
-        'updates a sandbox step when the editor returns after %s',
-        async (_, verifiedSenders, defaultSenderId, expected) => {
-            await setUp(SANDBOX_STEP, STATUS, {}, [VERIFYING_SENDER])
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/integrations/': { results: verifiedSenders, next: null },
-                    '/api/projects/:team_id': teamWithDefaultSender(defaultSenderId),
-                },
-            })
-
-            await expectLogic(teamLogic, () => {
-                window.dispatchEvent(new Event('focus'))
-            }).toDispatchActions(['refreshCurrentTeamSuccess'])
-            await expectLogic(logic).toFinishListeners()
-            expect(storedStep()).toMatchObject(expected)
-        }
-    )
-
-    async function openCanvasWithPendingEdit(exportEdit: (callback: (data: any) => void) => void): Promise<() => void> {
+    it('ends the read-only test sender row once a sender is verified in another tab and the editor returns', async () => {
         await setUp(SANDBOX_STEP, STATUS, {}, [VERIFYING_SENDER])
-        const editorListeners: Record<string, () => void> = {}
-        let edited = false
-        const templater = emailTemplaterLogic({
-            value: (SANDBOX_STEP.config as any).inputs.email.value,
-            onChange: (email: EmailTemplate) => {
-                const step = storedStep() as any
-                wfLogic.actions.setWorkflowAction('email_step', {
-                    ...step,
-                    config: {
-                        ...step.config,
-                        inputs: { ...step.config.inputs, email: { templating: 'liquid', value: email } },
-                    },
-                })
-            },
-            type: 'native_email_sandbox',
-            liveChanges: true,
-        })
-        templater.mount()
-        templater.actions.setIsModalOpen(true)
-        templater.actions.setEmailEditorRef({
-            editor: {
-                loadDesign: jest.fn(),
-                registerProvider: jest.fn(),
-                registerCallback: jest.fn(),
-                addEventListener: (event: string, callback: () => void) => {
-                    editorListeners[event] = callback
-                },
-                exportHtml: (callback: (data: any) => void) =>
-                    edited
-                        ? exportEdit(callback)
-                        : callback({ html: '', design: { body: { id: 'stored', rows: [] } } }),
-                exportPlainText: (callback: (data: any) => void) => callback({ text: 'edited' }),
-            },
-        } as unknown as EditorRef)
-        templater.actions.onEmailEditorReady()
-        editorListeners['design:loaded']?.()
-        await expectLogic(templater).toFinishAllListeners()
+        expect(logic.values.testSenderOnly).toEqual(true)
+        useMocks({ get: { '/api/projects/:team_id/integrations/': { results: [OWN_SENDER], next: null } } })
 
-        jest.useFakeTimers()
-        edited = true
-        editorListeners['design:updated']()
-        integrationsLogic.actions.loadIntegrationsSuccess([OWN_SENDER])
-        return () => templater.unmount()
-    }
+        window.dispatchEvent(new Event('focus'))
 
-    it('saves a pending canvas edit before moving a sandbox step', async () => {
-        const closeCanvas = await openCanvasWithPendingEdit((callback) =>
-            callback({ html: '<p>edited</p>', design: { body: { id: 'edited', rows: [] } } })
-        )
-
-        await waitFor(() => expect(storedStep()).toMatchObject({ type: 'function_email' }))
-        closeCanvas()
-        expect(storedStep()).toMatchObject({ config: { inputs: { email: { value: { html: '<p>edited</p>' } } } } })
-    })
-
-    it('leaves a sandbox step when its pending canvas edit cannot be saved', async () => {
-        const failingExport = jest.fn(() => {
-            throw new Error('export failed')
-        })
-        await openCanvasWithPendingEdit(failingExport)
-
-        await expectLogic(teamLogic).toDispatchActions(['refreshCurrentTeamSuccess'])
-        await expectLogic(logic).toFinishListeners()
-        expect(failingExport).toHaveBeenCalled()
+        await waitFor(() => expect(logic.values.testSenderOnly).toEqual(false))
         expect(storedStep()).toMatchObject({ type: 'email_sandbox' })
     })
 })

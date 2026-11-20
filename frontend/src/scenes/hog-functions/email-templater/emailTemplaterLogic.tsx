@@ -1405,16 +1405,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     }),
 ])
 
-export async function saveOpenCanvasEdit(): Promise<boolean> {
-    const templater = emailTemplaterLogic.findMounted()
-    if (!templater) {
-        return true
-    }
-    templater.cache.flushFailed = false
-    await templater.asyncActions.flushPendingDesignEdit()
-    return !templater.cache.flushFailed
-}
-
 function escapeHTMLStringCurlies(htmlString: string): string {
     const parser = new DOMParser()
     const doc = parser.parseFromString(htmlString, 'text/html')
