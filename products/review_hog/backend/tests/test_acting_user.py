@@ -164,6 +164,8 @@ class TestResolveActingUser(BaseTest):
             and github_state in (None, "ready")
         )
         assert result.acting_user_id == (self.user.id if eligible else None)
+        # The dispatch passes the author as an override, but the status comment must not name a requester.
+        assert result.resolved_from == "author"
         # The workflow gates the automatic run on this flag after the resolve.
         assert result.review_authored_prs is eligible
         report.refresh_from_db()
@@ -405,7 +407,7 @@ class TestResolveActingUser(BaseTest):
         )
         assert (result.acting_user_id, result.review_authored_prs) == (self.user.id, True)
         # The connector only lends the credentials: their own threshold must not shape a bot's PR.
-        assert result.urgency_threshold == "consider"
+        assert (result.urgency_threshold, result.resolved_from) == ("consider", "default")
 
     def test_resolve_stamps_the_acting_user_onto_the_report(self) -> None:
         # "Your recent reviews" filters on this stamp — if resolve stops writing it, the list goes empty.

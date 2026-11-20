@@ -1095,7 +1095,7 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
 
 
 def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int | None) -> bool:
-    """Whether the rules still give this PR its automatic Flash review when the turn starts."""
+    """Whether the rules still give this PR its automatic review when the turn starts, Standard or Deep."""
     if acting_user_id is None or input.repository is None:
         return False
     if input.report_id is not None:
@@ -1189,6 +1189,10 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     borrowed = resolved_from == "default" or (
         input.trigger_source == TRIGGER_AUTOMATIC and acting_user_id != owner.user_id
     )
+    # The dispatch passes the run user as an override, but nobody requested an automatic review. The status comment
+    # names whose threshold held findings back, which is the owner's, or the default one for a borrowed user.
+    if input.trigger_source == TRIGGER_AUTOMATIC:
+        resolved_from = "default" if borrowed else "author"
     # celebrate_clean_reviews follows the owner, who can differ from the acting user on an override
     # run, so load both users in one query instead of a second round trip below.
     extra_settings_ids = [owner.user_id] if owner.user_id is not None and owner.user_id != acting_user_id else []
@@ -2621,7 +2625,32 @@ def _head_already_finalized(input: GatePushInput) -> bool:
     return completed_head_sha == input.head_sha
 
 
+def _gate_automatic_deep_push(input: GatePushInput) -> PushGateDecision:
+    """The push gate of an automatic Deep turn: only the draft rule applies, with the re-read on GitHub of a Standard turn.
+
+    An automatic Deep turn is the PR's first Deep review: the dispatch starts one at most, and a published Deep review
+    stops every later automatic turn. The other rules weigh a push against the last automatic review, which was a
+    Standard one, so they do not apply. The dispatch keeps a draft on Standard, but a PR can turn back into a draft
+    while its Deep turn waits in the queue.
+    """
+    review = PushGateDecision(skip=False, would_skip=False, reason="no_rule_matched")
+    current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    if current is None or not current.pr_metadata.draft:
+        return review
+    token, installation_id = _installation_auth(input.team_id, input.repository)
+    if not _pr_draft_on_github(
+        input.repository, current.pr_metadata.number, token=token, installation_id=installation_id
+    ):
+        return review
+    ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(status=ReviewReport.Status.IDLE)
+    return apply_draft_rule(review, draft=True)
+
+
 def _gate_push(input: GatePushInput) -> PushGateDecision:
+    # The decision for an automatic Deep turn lives here because the workflow calls this activity for every
+    # automatic follow-up, and a new condition there would change its command sequence.
+    if input.review_mode == REVIEW_MODE_FULL:
+        return _gate_automatic_deep_push(input)
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
     snapshot: PRSnapshotArtefact | None = None
