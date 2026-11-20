@@ -2042,6 +2042,18 @@ describe('EmailService', () => {
             sesAccepts()
             invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
         }
+        const sesRejectsTrackingOff = (): void => {
+            sesRejects()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
+        }
+        const codeSendTracked = (): void => {
+            sesAcceptsTracked()
+            invocation.state.send = { tracking: { captureEngagement: true } }
+        }
+        const codeSendOpensOff = (): void => {
+            sesAcceptsTracked()
+            invocation.state.send = { tracking: { captureEngagement: true, opens: false } }
+        }
         describe('attachments', () => {
             let bucket: BucketProxy
             let pdf: StoredFile
@@ -2802,6 +2814,30 @@ describe('EmailService', () => {
                 sesRejects,
                 'failed',
                 'provider_error',
+            ],
+            [
+                'a transactional email that SES rejects with tracking off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                sesRejectsTrackingOff,
+                'failed',
+                'provider_error',
+            ],
+            [
+                'a code send that SES accepts with opens on and clicks off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                codeSendTracked,
+                'sent',
+                '',
+            ],
+            [
+                'a code send that SES accepts with opens off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                codeSendOpensOff,
+                'sent',
+                'untracked',
             ],
             [
                 'a transactional email skipped for a suspended team',
