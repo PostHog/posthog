@@ -123,10 +123,13 @@ describe('applyOperations', () => {
         )
     })
 
-    it('throws on an invalid regex before anything is saved', () => {
-        expect(() => applyOperations(base, [{ action: 'append', alias: '/bad', regex: '/users/(' }])).toThrow(
-            /Invalid regex/
-        )
+    it.each([
+        ['an invalid regex', '/users/(', /Invalid regex/],
+        ['a repeat count over the cap', '/users/[0-9]{101}', /repeat count \{101\} is over 100/],
+        ['a repeat upper bound over the cap', '/users/[0-9]{1,500}', /repeat count \{1,500\} is over 100/],
+        ['a pattern whose program is too large', '(?:/[a-z]+/[0-9]+){100}(?:/[a-z]+/[0-9]+){100}', /too complex/],
+    ])('throws on %s before anything is saved', (_name, regex, error) => {
+        expect(() => applyOperations(base, [{ action: 'append', alias: '/bad', regex }])).toThrow(error)
     })
 
     it('accepts a valid re2 inline-flag regex that JS RegExp alone would reject', () => {
@@ -289,13 +292,12 @@ describe('path-cleaning-rules-update handler', () => {
             sample_paths: ['/price/500'],
             confirm: false,
         })
-        // Not "/price/$&" or "/price/" — the alias $ must survive JS String.replace semantics.
+        // Not "/price/$&" or "/price/": re2 replacement syntax treats $ as a literal.
         expect(result.sample_preview).toEqual([{ path: '/price/500', before: '/price/500', after: '/price/$amount' }])
     })
 
     it('reflects a (?i) inline-flag rule in the preview instead of dropping it', async () => {
-        // (?i) throws under a naive JS RegExp; the preview must translate it to the JS `i`
-        // flag so an accepted rule doesn't silently vanish from before/after.
+        // (?i) is re2 syntax that a JS RegExp rejects, so an accepted rule must not vanish from before/after.
         const context = createMockContext({ currentFilters: [] })
         const result = await updatePathCleaningHandler(context, {
             operations: [{ action: 'append', alias: '/user/<id>', regex: '(?i)/USER/[0-9]+' }],
@@ -303,6 +305,30 @@ describe('path-cleaning-rules-update handler', () => {
             confirm: false,
         })
         expect(result.sample_preview).toEqual([{ path: '/user/42', before: '/user/42', after: '/user/<id>' }])
+    })
+
+    it('previews a pattern that backtracks catastrophically under a JS RegExp', async () => {
+        const context = createMockContext({ currentFilters: [] })
+        const path = '/' + 'x'.repeat(2047)
+        const result = await updatePathCleaningHandler(context, {
+            operations: [{ action: 'append', alias: '/z', regex: '^(.*)+Z' }],
+            sample_paths: [path],
+            confirm: false,
+        })
+        expect(result.sample_preview).toEqual([{ path, before: path, after: path }])
+    })
+
+    it('substitutes capture groups and empty matches like replaceRegexpAll', async () => {
+        const context = createMockContext({ currentFilters: [] })
+        const result = await updatePathCleaningHandler(context, {
+            operations: [
+                { action: 'append', alias: '/\\2/\\1', regex: '/([a-z]+)/([0-9]+)' },
+                { action: 'append', alias: '-', regex: 'x*' },
+            ],
+            sample_paths: ['/ab/12'],
+            confirm: false,
+        })
+        expect(result.sample_preview![0]!.after).toBe('-/-1-2-/-a-b-')
     })
 
     it('chains preview rules in order, each feeding the next', async () => {
