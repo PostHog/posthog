@@ -10,6 +10,7 @@ import { HogWatcherConfig, HogWatcherService } from './services/monitoring/hog-w
 
 const LONGER_THAN_A_FATAL_CLIENT_TAKES_TO_QUIT_MS = 5_000
 const PORT_NOTHING_LISTENS_ON = 1
+const HALF_THE_SHADOW_COMMAND_TIMEOUT_MS = 500
 const ONE_SHARED_CONNECTION = { REDIS_POOL_MIN_SIZE: 1, REDIS_POOL_MAX_SIZE: 1 }
 
 const WATCHER_CONFIG: HogWatcherConfig = {
@@ -159,6 +160,15 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             await restoreValkey()
 
             expect(await readBack(key)).toBeNull()
+        }, 30_000)
+
+        it('fails a command on a dropped connection without waiting for the command timeout', async () => {
+            await dropConnections()
+
+            const startedAt = Date.now()
+            await expect(writer.useClient({ name: 'outage-ping' }, (client) => client.ping())).rejects.toThrow()
+
+            expect(Date.now() - startedAt).toBeLessThan(HALF_THE_SHADOW_COMMAND_TIMEOUT_MS)
         }, 30_000)
 
         it('does not resend a write that was in flight when the connection dropped', async () => {
