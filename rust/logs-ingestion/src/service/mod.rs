@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod consumer_loop;
+pub mod hog_functions;
 pub mod kafka_outputs;
 pub mod kafka_source;
 pub mod lazy_loader;
