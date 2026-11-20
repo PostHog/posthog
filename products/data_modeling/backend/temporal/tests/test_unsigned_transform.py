@@ -149,6 +149,15 @@ def test_columns_become_a_type_delta_stores(
     assert _stored(tmp_path, transformed) == column.to_pylist()
 
 
+def test_a_nested_decimal_too_wide_for_delta_fails_without_a_retry() -> None:
+    batch = pa.RecordBatch.from_arrays([pa.array([[Decimal("1" * 40)]], pa.list_(WIDE_DECIMAL))], names=["c"])
+
+    with pytest.raises(UnstorableDecimalError) as raised:
+        _transform_unsupported_decimals(batch)
+
+    assert raised.value.non_retryable is True
+
+
 @pytest.mark.parametrize(
     "transform,column,error",
     [
