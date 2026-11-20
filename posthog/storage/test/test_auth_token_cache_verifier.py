@@ -44,7 +44,6 @@ class TestAuthTokenCacheVerifier(TestCase):
             organization=self.org,
             name="Test Team",
             api_token="phc_test_verifier_token",
-            secret_api_token="phs_test_secret_token",
         )
         self.user = User.objects.create_and_join(
             organization=self.org,
@@ -73,56 +72,6 @@ class TestAuthTokenCacheVerifier(TestCase):
         assert result.stale_found == 0
         assert result.parse_errors == 0
         assert result.db_errors == 0
-
-    # --- Secret token verification ---
-
-    def test_valid_secret_token_is_kept(self):
-        token_hash = hash_key_value(self.team.secret_api_token, mode="sha256")
-        key = self._set_cache(token_hash, {"type": "secret", "team_id": self.team.id})
-
-        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
-
-        assert self.redis.exists(key)
-        assert result.valid >= 1
-
-    def test_secret_token_for_deleted_team_is_removed(self):
-        deleted_team = Team.objects.create(
-            organization=self.org,
-            name="Deleted Team",
-            api_token="phc_deleted_team",
-            secret_api_token="phs_deleted_secret",
-        )
-        token_hash = hash_key_value("phs_deleted_secret", mode="sha256")
-        key = self._set_cache(token_hash, {"type": "secret", "team_id": deleted_team.id})
-
-        # Delete the team (but keep the cache entry)
-        deleted_team.delete()
-
-        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
-
-        assert not self.redis.exists(key)
-        assert result.stale_found > 0
-
-    def test_secret_token_with_rotated_hash_is_removed(self):
-        # Cache entry has the right team_id but the hash no longer matches any token
-        fake_hash = hash_key_value("phs_old_rotated_token", mode="sha256")
-        key = self._set_cache(fake_hash, {"type": "secret", "team_id": self.team.id})
-
-        verify_and_fix_auth_token_cache(self.redis, batch_size=10)
-
-        assert not self.redis.exists(key)
-
-    def test_secret_token_backup_is_valid(self):
-        self.team.secret_api_token_backup = "phs_backup_token"
-        self.team.save(update_fields=["secret_api_token_backup"])
-
-        token_hash = hash_key_value("phs_backup_token", mode="sha256")
-        key = self._set_cache(token_hash, {"type": "secret", "team_id": self.team.id})
-
-        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
-
-        assert self.redis.exists(key)
-        assert result.valid >= 1
 
     # --- Personal token verification ---
 
@@ -567,20 +516,6 @@ class TestAuthTokenCacheVerifier(TestCase):
         assert not self.redis.exists(key)
         assert result.parse_errors > 0
 
-    # --- Secret token missing team_id ---
-
-    def test_secret_token_missing_team_id_is_removed(self):
-        key = self._set_cache(
-            "sha256$secret_no_team_id",
-            {"type": "secret"},  # no "team_id" field
-        )
-
-        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
-
-        assert not self.redis.exists(key)
-        assert result.stale_found > 0
-        assert result.stale_by_type["secret"] > 0
-
     # --- Non-list org_ids for personal token ---
 
     def test_personal_token_with_string_org_ids_is_removed(self):
@@ -610,17 +545,6 @@ class TestAuthTokenCacheVerifier(TestCase):
         assert result.parse_errors > 0
 
     # --- DB error paths ---
-
-    def test_secret_entry_db_error_is_counted(self):
-        token_hash = hash_key_value(self.team.secret_api_token, mode="sha256")
-        key = self._set_cache(token_hash, {"type": "secret", "team_id": self.team.id})
-
-        with patch.object(Team.objects, "filter", side_effect=Exception("DB down")):
-            result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
-
-        assert result.db_errors >= 1
-        # Must NOT delete the entry on a DB error
-        assert self.redis.exists(key)
 
     def test_personal_entry_db_error_is_counted(self):
         pak = PersonalAPIKey.objects.create(
@@ -680,7 +604,7 @@ class TestAuthTokenCacheVerifier(TestCase):
         # Insert a stale entry (team_id that doesn't exist)
         self._set_cache(
             "sha256$stale_for_delete_error",
-            {"type": "secret", "team_id": 999999999},
+            {"type": "project_secret", "team_id": 999999999, "key_id": "none", "scopes": []},
         )
 
         with patch.object(self.redis, "delete", side_effect=Exception("Redis write timeout")):
@@ -696,12 +620,26 @@ class TestAuthTokenCacheVerifier(TestCase):
         for i in range(11):
             key = self._set_cache(
                 f"sha256$multi_batch_stale_{i:02d}",
-                {"type": "secret", "team_id": 9999900 + i},
+                {"type": "project_secret", "team_id": 9999900 + i, "key_id": "none", "scopes": []},
             )
             stale_keys.append(key)
 
-        valid_token_hash = hash_key_value(self.team.secret_api_token, mode="sha256")
-        valid_key = self._set_cache(valid_token_hash, {"type": "secret", "team_id": self.team.id})
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="test-psak-multi-batch",
+            secure_value=hash_key_value("phx_psak_multi_batch", mode="sha256"),
+            scopes=["feature_flag:read"],
+            mask_value="phx_...atch",
+        )
+        valid_key = self._set_cache(
+            psak.secure_value,
+            {
+                "type": "project_secret",
+                "team_id": self.team.id,
+                "key_id": str(psak.id),
+                "scopes": ["feature_flag:read"],
+            },
+        )
 
         result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
 
@@ -743,7 +681,7 @@ class TestAuthTokenCacheVerifier(TestCase):
     def test_key_expired_between_scan_and_mget_is_skipped_gracefully(self):
         self._set_cache(
             "sha256$expires_mid_flight",
-            {"type": "secret", "team_id": self.team.id},
+            {"type": "project_secret", "team_id": self.team.id, "key_id": "none", "scopes": []},
         )
 
         def mget_all_expired(keys):
@@ -829,19 +767,7 @@ class TestAuthTokenCacheVerifier(TestCase):
         assert result.parse_errors >= 1
         assert result.stale_found >= 1
 
-    # --- Non-integer team_id in secret entries ---
-
-    def test_secret_token_with_non_integer_team_id_is_removed(self):
-        key = self._set_cache(
-            "sha256$secret_non_int_team_id",
-            {"type": "secret", "team_id": "not_a_number"},
-        )
-
-        result = verify_and_fix_auth_token_cache(self.redis, batch_size=10)
-
-        assert not self.redis.exists(key)
-        assert result.parse_errors > 0
-        assert result.stale_by_type["secret"] > 0
+    # --- Non-integer team_id entries ---
 
     def test_project_secret_token_with_non_integer_team_id_is_removed(self):
         psak = ProjectSecretAPIKey.objects.create(
@@ -902,7 +828,7 @@ class TestAuthTokenCacheVerifier(TestCase):
         for i in range(20):
             self._set_cache(
                 f"sha256$time_limit_{i:02d}",
-                {"type": "secret", "team_id": 9999900 + i},
+                {"type": "project_secret", "team_id": 9999900 + i, "key_id": "none", "scopes": []},
             )
 
         result = verify_and_fix_auth_token_cache(
@@ -923,9 +849,20 @@ class TestAuthTokenCacheVerifier(TestCase):
         ]
     )
     def test_serialized_cache_entry_is_deserialized(self, _name, serialize):
-        token_hash = hash_key_value(self.team.secret_api_token, mode="sha256")
-        key = f"{TOKEN_CACHE_PREFIX}{token_hash}"
-        data = {"type": "secret", "team_id": self.team.id}
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="test-psak-serialized",
+            secure_value=hash_key_value("phx_psak_serialized", mode="sha256"),
+            scopes=["feature_flag:read"],
+            mask_value="phx_...ized",
+        )
+        key = f"{TOKEN_CACHE_PREFIX}{psak.secure_value}"
+        data = {
+            "type": "project_secret",
+            "team_id": self.team.id,
+            "key_id": str(psak.id),
+            "scopes": ["feature_flag:read"],
+        }
         self.redis.setex(key, 3600, serialize(data))
         self._cleanup_keys.append(key)
 
