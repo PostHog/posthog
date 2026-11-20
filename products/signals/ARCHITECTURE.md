@@ -1702,6 +1702,38 @@ No `enforced` property: every event is a real block.
 Unlike the billing gates, the ingestion and scout stages do emit (with `report_id=null`) — the limit is user-set and the volume is bounded by the team's own signal flow, and the events answer "why did nothing arrive today".
 Promotion-stage events keep the billing discipline of firing only when the signal would have promoted; both events fire independently when both limits bind.
 
+### Per-user report run limit
+
+Starting a run from a report (the inbox Implement button, a suggested prompt, `inbox-report-actions-run`, or a tasks create for a signal report) spends a per-user budget, because the run uses inference the customer does not pay for until a pull request lands.
+Two throttle pairs enforce it with one shared cache scope per window: `ReportTaskActionRunBurstThrottle` / `ReportTaskActionRunSustainedThrottle` in `backend/throttles.py` and `SignalReportTaskCreateBurstThrottle` / `SignalReportTaskCreateSustainedThrottle` in the tasks product.
+Both read the allowed number from `resolve_report_task_run_limits` in `backend/report_task_limits.py`, the tasks product through `facade/report_task_limits.py`, so the two paths cannot drift.
+
+The defaults are 20 runs an hour and 50 runs in a rolling 24 hours.
+The `signal-report-task-limits` flag raises them with no deploy. The flag stays on for everyone and its JSON payload is read for a fixed distinct id, like `signals-scout`. The payload is keyed by region, because internal flags are shared across US and EU and ids differ between them:
+
+```json
+{
+  "US": {
+    "default": { "per_hour": 20, "per_day": 50 },
+    "organizations": { "<organization id>": { "per_day": 150 } },
+    "teams": { "2": { "per_hour": 60, "per_day": 200 } },
+    "users": { "<user uuid>": { "per_day": 300 } }
+  },
+  "EU": {}
+}
+```
+
+- **Precedence:** each field resolves on its own, most specific first: user, team, organization, `default`, then the code constants. The request's team id and its parent project id are separate team layers, so a field the team entry does not set comes from the parent project's entry.
+- **The counter stays per user.** Only the allowed number changes, and it is the number for the user in the project the request is made in, so a raised project limit does not raise the same person's limit in other projects. A raised limit applies on the next request with no cache reset.
+- **Bounds:** a value is clamped to `MAX_RUNS_PER_HOUR` / `MAX_RUNS_PER_DAY`. A value that is not a positive integer is ignored and the next layer applies.
+- **Fail safe:** a missing flag, an unreadable payload, a missing region or a malformed entry falls back to the code constants, and the exception is captured.
+- **Local evaluation only.** The payload is read from the locally evaluated flag definitions on every run attempt, with no request to the flags service.
+- **Scout runs keep the defaults.** A sandbox token has its own bucket per task, and its scout's daily cap still bounds it.
+
+The 429 detail names the limit that was reached (hourly or daily) and its current value.
+When both limits are reached, the detail names the one with the longest wait, and `Retry-After` carries that wait.
+The Prometheus counter `signals_report_task_runs_throttled` (label `window`) counts refused runs.
+
 ### Self-driving free trial
 
 A third pause with the same shape, on the implementation side only: while the `self-driving-free-trial` flag is on for an org (org-keyed, toggled by sales per trial), Self-driving still researches and writes reports but opens no pull requests.

@@ -10698,10 +10698,10 @@ Today (8): `administrators`, `hubs`, `organization`, `route_plans`, `tasks`, `te
 Diffed against: <https://docs.onfleet.com/reference/administrators>
 
 - [x] `routePlans` — route plans group tasks into driver routes - core delivery-efficiency object (high)
-- [ ] `taskOrders (orders)` — order-level records that tasks are created from, with pricing/quote state (medium)
-- [ ] `destinations` — lookup resolving the destination IDs referenced by synced tasks (address/geo dimension) (medium)
-- [ ] `recipients` — lookup resolving recipient IDs on synced tasks (customer dimension) (medium)
-- [ ] `cfGroups/task (task templates)` — lookup for task custom-field template IDs on synced tasks (medium)
+- [ ] `taskOrders (orders)` — order-level records that tasks are created from, with pricing/quote state (medium) Skipped: no list endpoint, only get by order shortId.
+- [ ] `destinations` — lookup resolving the destination IDs referenced by synced tasks (address/geo dimension) (medium) Skipped: no list endpoint, only get by id; tasks already embed the full destination.
+- [ ] `recipients` — lookup resolving recipient IDs on synced tasks (customer dimension) (medium) Skipped: no list endpoint, only get by id or exact name/phone; tasks already embed the full recipients.
+- [x] `cfGroups/task (task templates)` — lookup for task custom-field template IDs on synced tasks (medium)
 - [ ] `workers/{id} schedule` — worker shift schedules, needed to compute utilization against completed tasks (medium)
 - [ ] `containers/{entity}/{id}` — ordered task queues per worker/team/org - gives task sequencing state (low)
 
