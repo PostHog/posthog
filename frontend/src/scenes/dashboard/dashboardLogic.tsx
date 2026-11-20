@@ -6769,11 +6769,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                       placement: values.placement,
                       report: reportDashboardTileRefreshed,
                       breakpoint,
-                      settle: (tile, outcome) =>
-                          refreshedAt.set(tile.id, outcome === 'errored' ? null : refreshStartedAt),
+                      settle: (tile, outcome) => {
+                          refreshedAt.set(tile.id, outcome === 'errored' ? null : refreshStartedAt)
+                          deferredLoading.delete(tile.id)
+                      },
                   })
                 : null
-            scrolledIn?.settledTileIds.forEach((tileId) => deferredLoading.delete(tileId))
             const perTileRefresh = scrolledIn ? { ...tileRefresh, ...scrolledIn.fallback } : tileRefresh
             await Promise.all(
                 (scrolledIn?.leftTiles ?? tiles).map(async (tile) => {
