@@ -12,6 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { dayjsLocalToTimezone, dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { fullName } from 'lib/utils/strings'
@@ -35,6 +36,7 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
         draftAccount,
         draftAssignedTo,
         draftDueAt,
+        draftTags,
         mutationKeys,
         timezone,
     } = useValues(logic)
@@ -46,6 +48,7 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
         setDraftAccount,
         setDraftAssignedTo,
         setDraftDueAt,
+        setDraftTags,
         submitModal,
     } = useActions(logic)
     const saving = Boolean(mutationKeys[modalTask?.id ?? 'create'])
@@ -223,6 +226,14 @@ export function CustomerTaskModal({ logic, context }: CustomerTaskModalProps): J
                                 : undefined,
                         }}
                     />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <LemonLabel>Tags (optional)</LemonLabel>
+                    {editable && !saving ? (
+                        <ObjectTags tags={draftTags} onChange={setDraftTags} data-attr="customer-task-modal-tags" />
+                    ) : (
+                        <ObjectTags tags={draftTags} staticOnly />
+                    )}
                 </div>
             </div>
         </LemonModal>

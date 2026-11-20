@@ -75,6 +75,7 @@ function task(canEdit = true): CustomerTaskApi {
         updated_at: '2026-09-02T10:00:00Z',
         can_edit: canEdit,
         can_restore: false,
+        tags: [],
     }
 }
 

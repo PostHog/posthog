@@ -851,7 +851,7 @@ tools:
         title: Create customer task
         description: >
             Create a Customer analytics task with a name and optional description, account UUID, project member assignee
-            ID, ISO 8601 deadline, and initial status. This is a customer follow-up task, not an AI coding task.
+            ID, ISO 8601 deadline, initial status, and tags. This is a customer follow-up task, not an AI coding task.
         feature_flag: customer-analytics-customer-tasks
     customer-tasks-list:
         operation: customer_tasks_list
@@ -867,7 +867,8 @@ tools:
         description: >
             List accessible Customer analytics tasks. Filter by search, account UUID, assignee (me, unassigned, a user
             ID, or role:<role UUID> for tasks assigned to any current member of that role), comma-separated statuses,
-            deadline, or archive state. Active tasks are returned by default. Use roles-list to find role UUIDs.
+            deadline, archive state, or `tags` (JSON-encoded array such as `["renewal","urgent"]`, matching tasks with
+            any of the tags). Active tasks are returned by default. Use roles-list to find role UUIDs.
         feature_flag: customer-analytics-customer-tasks
     customer-tasks-partial-update:
         operation: customer_tasks_partial_update
@@ -882,7 +883,8 @@ tools:
         description: >
             Update a Customer analytics task by ID. Supply only fields to change. Use null to clear the account,
             assignee, description, or deadline. Statuses are open, in_progress, completed, and canceled. Reopen a
-            completed or canceled task before moving it to another status. Restore archived tasks before editing.
+            completed or canceled task before moving it to another status. `tags` replaces every tag on the task, and
+            an empty list removes them all. Restore archived tasks before editing.
         feature_flag: customer-analytics-customer-tasks
     customer-tasks-restore-create:
         operation: customer_tasks_restore_create
@@ -909,7 +911,7 @@ tools:
         title: Get customer task
         description: >
             Retrieve one accessible Customer analytics task by ID, including its linked account, assignee, deadline,
-            status, and archive state.
+            status, tags, and archive state.
         feature_flag: customer-analytics-customer-tasks
     event-streams-add-account:
         operation: event_streams_add_account_create

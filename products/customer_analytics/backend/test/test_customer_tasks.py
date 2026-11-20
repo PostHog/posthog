@@ -1,3 +1,4 @@
+import json
 from collections import Counter
 from datetime import UTC, datetime
 from uuid import UUID
@@ -16,6 +17,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.tag import Tag
 from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -53,6 +55,9 @@ class CustomerTaskSerializerTest(SimpleTestCase):
             ("empty update", [str(UUID(int=1))], {}),
             ("unknown field", [str(UUID(int=1))], {"properties": {}}),
             ("mixed archive update", [str(UUID(int=1))], {"archived": True, "status": "completed"}),
+            ("tag mode without tags", [str(UUID(int=1))], {"tags_mode": "add"}),
+            ("no tags to add", [str(UUID(int=1))], {"tags": []}),
+            ("no tags to remove", [str(UUID(int=1))], {"tags": [], "tags_mode": "remove"}),
         ]
     )
     def test_bulk_update_rejects_invalid_batches(
@@ -86,6 +91,26 @@ class CustomerTaskSerializerTest(SimpleTestCase):
             return
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["assigned_to"] == expected
+
+    @parameterized.expand(
+        [
+            ("not json", "renewal", None),
+            ("not a list", '"renewal"', None),
+            ("not strings", "[1]", None),
+            ("a list of names", '["renewal", "urgent"]', ("renewal", "urgent")),
+        ]
+    )
+    def test_tags_filter_only_accepts_a_json_list_of_names(
+        self, _name: str, value: str, expected: tuple[str, ...] | None
+    ) -> None:
+        serializer = CustomerTaskListQuerySerializer(data={"tags": value})
+
+        if expected is None:
+            assert not serializer.is_valid()
+            assert "tags" in serializer.errors
+            return
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["tags"] == expected
 
     @parameterized.expand(
         [
@@ -457,6 +482,96 @@ class CustomerTaskAPI(APIBaseTest):
         assert name_change == {"field": "name", "before": None, "after": "Follow up"}
         activity = CustomerTaskActivity.objects.unscoped().get(task=task)
         assert activity.activity_type == "created"
+
+    def test_tags_are_set_on_create_replaced_on_patch_and_recorded_as_activity(self) -> None:
+        created = self.client.post(
+            self.url, {"name": "Renewal call", "tags": ["Urgent", "renewal", "urgent"]}, format="json"
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        assert created.json()["tags"] == ["renewal", "urgent"]
+        task_url = f"{self.url}{created.json()['id']}/"
+
+        replaced = self.client.patch(task_url, {"tags": ["renewal", "expansion"]}, format="json")
+        assert replaced.status_code == status.HTTP_200_OK, replaced.json()
+        assert replaced.json()["tags"] == ["expansion", "renewal"]
+        assert not Tag.objects.filter(team=self.team, name="urgent").exists()
+
+        cleared = self.client.patch(task_url, {"tags": []}, format="json")
+        assert cleared.json()["tags"] == []
+        assert self.client.get(task_url).json()["tags"] == []
+
+        activities = self.client.get(f"{task_url}activities/").json()["results"]
+        tag_changes = [
+            {"before": change["before"], "after": change["after"]}
+            for activity in reversed(activities)
+            for change in activity["changes"]
+            if change["field"] == "tags"
+        ]
+        assert tag_changes == [
+            {"before": None, "after": ["renewal", "urgent"]},
+            {"before": ["renewal", "urgent"], "after": ["expansion", "renewal"]},
+            {"before": ["expansion", "renewal"], "after": None},
+        ]
+
+    def test_create_with_an_invalid_tag_saves_no_task(self) -> None:
+        response = self.client.post(self.url, {"name": "Renewal call", "tags": ["x" * 256]}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not CustomerTask.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("add", {"tags": ["urgent"]}, ["renewal", "urgent"]),
+            ("remove", {"tags": ["renewal"], "tags_mode": "remove"}, []),
+            ("set", {"tags": ["expansion"], "tags_mode": "set"}, ["expansion"]),
+        ]
+    )
+    def test_bulk_update_applies_tags_by_mode(
+        self, _name: str, updates: dict[str, object], expected: list[str]
+    ) -> None:
+        task_ids = [
+            self.client.post(self.url, {"name": f"Task {i}", "tags": ["renewal"]}, format="json").json()["id"]
+            for i in range(2)
+        ]
+
+        response = self.client.post(
+            f"{self.url}bulk_update/", {"task_ids": task_ids, "updates": updates}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"updated_count": 2}
+        assert [self.client.get(f"{self.url}{task_id}/").json()["tags"] for task_id in task_ids] == [expected] * 2
+
+    @parameterized.expand(
+        [
+            ("any of the tags", ["renewal", "urgent"], None, ["Alpha", "Bravo", "Charlie"]),
+            ("one tag", ["urgent"], None, ["Bravo", "Charlie"]),
+            ("tags with an aliased ordering", ["renewal", "urgent"], "-status", ["Charlie", "Bravo", "Alpha"]),
+            ("a tag only another project uses", ["elsewhere"], None, []),
+        ]
+    )
+    def test_list_filters_by_any_tag(
+        self, _name: str, tags: list[str], ordering: str | None, expected_names: list[str]
+    ) -> None:
+        for name, task_status, task_tags in (
+            ("Alpha", "open", ["renewal"]),
+            ("Bravo", "in_progress", ["urgent"]),
+            ("Charlie", "completed", ["renewal", "urgent"]),
+            ("Delta", "open", []),
+        ):
+            self.client.post(self.url, {"name": name, "status": task_status, "tags": task_tags}, format="json")
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_task = CustomerTask.objects.unscoped().create(team=other_team, name="Other team task")
+        tagged_item_tag = Tag.objects.create(team=other_team, name="elsewhere")
+        other_task.tagged_items.create(tag=tagged_item_tag)
+
+        params = {"tags": json.dumps(tags), **({"ordering": ordering} if ordering else {})}
+        response = self.client.get(self.url, params)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        names = [task["name"] for task in response.json()["results"]]
+        assert response.json()["count"] == len(expected_names)
+        assert (names if ordering else sorted(names)) == expected_names
 
     def test_put_requires_name_while_patch_accepts_partial_fields(self) -> None:
         created = self.client.post(self.url, {"name": "Original task"}, format="json")

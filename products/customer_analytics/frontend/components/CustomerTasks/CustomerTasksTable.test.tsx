@@ -44,6 +44,7 @@ const accountlessTask: CustomerTaskApi = {
     updated_at: '2026-09-02T10:00:00Z',
     can_edit: false,
     can_restore: false,
+    tags: [],
 }
 
 function tableHeaders(table: HTMLElement): HTMLTableCellElement[] {

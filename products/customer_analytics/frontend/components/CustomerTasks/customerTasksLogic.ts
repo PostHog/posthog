@@ -51,6 +51,7 @@ import type {
 
 import { getTileRecord, getTileString, type AccountViewTileLogicProps } from '../Accounts/accountViewTileConfig'
 import {
+    areTagListsEqual,
     CUSTOMER_TASK_FILTER_URL_KEYS,
     CUSTOMER_TASK_ORDERINGS,
     CUSTOMER_TASK_URL_KEYS,
@@ -110,6 +111,7 @@ export interface customerTasksLogicValues {
     draftAccount: CustomerTaskAccountFilter | null
     draftAssignedTo: CustomerTaskUserApi | null
     draftDueAt: string | null
+    draftTags: string[]
     user: UserType | null
 }
 export interface customerTasksLogicActions {
@@ -147,6 +149,7 @@ export interface customerTasksLogicActions {
     setDraftDescription: (description: string) => { description: string }
     setDraftDueAt: (dueAt: string | null) => { dueAt: string | null }
     setDraftName: (name: string) => { name: string }
+    setDraftTags: (tags: string[]) => { tags: string[] }
     submitModal: () => void
     updateTask: (
         taskId: string,
@@ -229,6 +232,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         setDraftAccount: (account: CustomerTaskAccountFilter | null) => ({ account }),
         setDraftAssignedTo: (assignedTo: CustomerTaskUserApi | null) => ({ assignedTo }),
         setDraftDueAt: (dueAt: string | null) => ({ dueAt }),
+        setDraftTags: (tags: string[]) => ({ tags }),
         submitModal: () => ({}),
         createTask: (task: CustomerTaskCreateApi) => ({ task }),
         updateTask: (taskId: string, patch: PatchedCustomerTaskUpdateApi) => ({ taskId, patch }),
@@ -417,6 +421,15 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     closeModal: () => null,
                 },
             ],
+            draftTags: [
+                [] as string[],
+                {
+                    openCreateModal: () => [],
+                    openEditModal: (_: string[], a: { task: CustomerTaskApi }) => [...a.task.tags],
+                    setDraftTags: (_: string[], a: { tags: string[] }) => a.tags,
+                    closeModal: () => [],
+                },
+            ],
         }
     }),
     selectors(({ actions, props }) => ({
@@ -576,6 +589,9 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 if (values.draftDueAt !== values.modalTask.due_at) {
                     patch.due_at = values.draftDueAt
                 }
+                if (!areTagListsEqual(values.draftTags, values.modalTask.tags)) {
+                    patch.tags = values.draftTags
+                }
                 if (Object.keys(patch).length === 0) {
                     actions.closeModal()
                     return
@@ -588,6 +604,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     description,
                     assigned_to_id: assignedToId,
                     due_at: values.draftDueAt,
+                    tags: values.draftTags,
                 })
             }
         },
@@ -612,13 +629,14 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 return
             }
             const changed = current
-                ? Object.entries(patch).some(
-                      ([key, value]) =>
-                          (key === 'assigned_to_id'
-                              ? (current.assigned_to?.id ?? null)
-                              : key === 'account_id'
-                                ? (current.account?.id ?? null)
-                                : current[key as keyof CustomerTaskApi]) !== value
+                ? Object.entries(patch).some(([key, value]) =>
+                      key === 'tags'
+                          ? !areTagListsEqual(value as string[], current.tags)
+                          : (key === 'assigned_to_id'
+                                ? (current.assigned_to?.id ?? null)
+                                : key === 'account_id'
+                                  ? (current.account?.id ?? null)
+                                  : current[key as keyof CustomerTaskApi]) !== value
                   )
                 : true
             if (!changed || values.mutationKeys[taskId] || values.currentTeamId === null) {

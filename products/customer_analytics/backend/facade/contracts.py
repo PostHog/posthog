@@ -1554,6 +1554,7 @@ class CustomerTaskView:
     updated_at: datetime
     can_edit: bool
     can_restore: bool
+    tags: list[str]
 
 
 @stdlib_dataclass(frozen=True)
@@ -1584,6 +1585,7 @@ class CustomerTaskListFilters:
     due_before: datetime | None = None
     has_due_at: bool | None = None
     ordering: str | None = None
+    tags: tuple[str, ...] = ()
 
 
 @stdlib_dataclass(frozen=True)
@@ -1594,6 +1596,7 @@ class CreateCustomerTaskInput:
     assigned_to_id: int | None = None
     due_at: datetime | None = None
     status: str = "open"
+    tags: tuple[str, ...] = ()
 
 
 @stdlib_dataclass(frozen=True)
@@ -1610,6 +1613,9 @@ class UpdateCustomerTaskInput:
     assigned_to_id_provided: bool = False
     due_at_provided: bool = False
     status_provided: bool = False
+    tags: tuple[str, ...] = ()
+    tags_provided: bool = False
+    tags_mode: str = "set"
 
 
 @dataclass(frozen=True)
