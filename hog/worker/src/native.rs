@@ -8,11 +8,9 @@ use std::{
     io::{Cursor, Read, Write},
     ops::Range,
     path::Path,
+    sync::Arc,
 };
-use symbolic::{
-    common::ByteView,
-    debuginfo::{Archive, FileFormat, Object, ObjectKind},
-};
+use symbolic::debuginfo::{Archive, FileFormat, Object, ObjectKind};
 
 use crate::{
     node,
@@ -54,14 +52,9 @@ pub fn magic_format(path: &Path) -> Option<Format> {
     }
 }
 
-// A file that can't be mapped, such as a folder, is read, so it fails with a read's message.
-pub fn map(path: &Path) -> Result<ByteView<'static>, String> {
-    ByteView::open(path).or_else(|_| node::read(path).map(ByteView::from_vec))
-}
-
 // The file is shared, so the slices of a fat file hold it once.
 pub struct Binary {
-    file: ByteView<'static>,
+    file: Arc<Vec<u8>>,
     range: Range<usize>,
     format: Format,
     // A slice of a dSYM bundle reads its sources from the whole file, so every architecture of a
@@ -70,12 +63,7 @@ pub struct Binary {
 }
 
 impl Binary {
-    pub fn new(
-        file: ByteView<'static>,
-        range: Range<usize>,
-        format: Format,
-        from_dsym: bool,
-    ) -> Self {
+    pub fn new(file: Arc<Vec<u8>>, range: Range<usize>, format: Format, from_dsym: bool) -> Self {
         Binary {
             file,
             range,
@@ -128,7 +116,7 @@ pub fn range_within(whole: &[u8], part: &[u8]) -> Range<usize> {
 }
 
 pub fn candidates(path: &Path) -> Result<Vec<Candidate>, String> {
-    let file = map(path)?;
+    let file = Arc::new(node::read(path)?);
     let archive = Archive::parse(&file).map_err(|error| error.to_string())?;
 
     let mut candidates = Vec::new();
