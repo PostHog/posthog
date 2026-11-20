@@ -555,11 +555,10 @@ def _template_url_inputs(content: HogFunctionContent) -> frozenset[str] | None:
     try:
         keys = _url_inputs_of(_parse_code(content.hog))
     except Exception:
-        # A parse error, a tree too deep to walk, or code the tracer cannot follow.
         return None
-    # The runtime renders the inputs in order, and a template in one input can read the inputs before it, so a URL
-    # input that names `inputs` could carry the host of any other input.
-    if any("inputs" in text for text in _strings(list(_all_inputs(content, keys)))):
+    # A templated input can read the inputs rendered before it, and Hog and Liquid can both reach `inputs` without
+    # spelling the name, so any template in a URL input could carry the host of any other input.
+    if any("{" in text for text in _strings(list(_all_inputs(content, keys)))):
         return None
     return keys
 

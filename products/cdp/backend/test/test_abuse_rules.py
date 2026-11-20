@@ -173,7 +173,13 @@ class TestAbuseRules(SimpleTestCase):
                 "stock_template_url_input_that_renders_another_input",
                 unedited_template(
                     "fetch(inputs.url, {'body': inputs.body})",
-                    {"url": {"value": "{inputs.body}"}, "body": {"value": "http://169.254.169.254/latest/"}},
+                    {
+                        "url": {
+                            "value": "{% assign k = 'in' | append: 'puts' %}{{ [k].body }}",
+                            "templating": "liquid",
+                        },
+                        "body": {"value": "http://169.254.169.254/latest/"},
+                    },
                 ),
                 (Rule.INTERNAL_HOST,),
             ),
