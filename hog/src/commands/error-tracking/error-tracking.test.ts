@@ -15,7 +15,6 @@ import { basename, join } from 'node:path'
 import { z } from 'zod'
 
 import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
-import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
 import { nativeCandidates } from '@/error-tracking/native/package'
 import { ZipWriter } from '@/error-tracking/native/zip'
@@ -295,8 +294,13 @@ describe('hog error-tracking upload', () => {
         })
     })
 
-    test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
+    test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', async () => {
         const folder = project({
+            'posthog.json': JSON.stringify({
+                errorTracking: { sources: [{ path: 'dist', ignore: ['ignored.css.map'] }] },
+            }),
+            'dist/app.js': 'a();\n//# sourceMappingURL=app.js.map\n//# chunkId=chunk-1\n',
+            'dist/app.js.map': JSON.stringify({ chunk_id: 'chunk-1', version: 3, sources: ['a.ts'], mappings: 'AAAA' }),
             'dist/broken.css': 'a{}\n/*# sourceMappingURL=%FF.css.map */\n',
             'dist/outside.css': 'a{}\n/*# sourceMappingURL=../maps/outside.css.map */\n',
             'maps/outside.css.map': MAP,
@@ -307,21 +311,25 @@ describe('hog error-tracking upload', () => {
             'dist/kept.css': 'a{}\n/*# sourceMappingURL=kept.css.map */\n',
             'dist/kept.css.map': MAP,
         })
-        const warnings: string[] = []
-        const css = cssTargets(
-            ['broken', 'outside', 'settings', 'ignored', 'kept'].map((name) => join(folder, `dist/${name}.css`)),
-            [join(folder, 'dist')],
-            undefined,
-            warnings,
-            (mapPath) => mapPath.endsWith('ignored.css.map')
-        )
-        const result = cleanUp(css)
 
-        expect(result.deletedMaps).toEqual([expect.stringMatching(/dist\/kept\.css\.map$/)])
-        expect(warnings).toEqual([
-            expect.stringContaining("broken.css: its sourcemap reference can't be read"),
-            expect.stringContaining('resolves outside the selected paths'),
-        ])
+        const result = await runHog(['et', 'upload', '--delete-after'], {
+            env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+            respond: (url) =>
+                url.endsWith('/bulk_check_upload')
+                    ? { status: 200, body: { chunk_ids_to_upload: [] } }
+                    : { status: 404, body: { detail: 'Not found.' } },
+        })
+
+        expect(result.json()).toMatchObject({
+            deletedMaps: ['dist/app.js.map', 'dist/kept.css.map'],
+            warnings: [
+                expect.stringContaining("broken.css: its sourcemap reference can't be read"),
+                expect.stringContaining('resolves outside the selected paths'),
+            ],
+        })
+        expect(readFileSync(join(folder, 'dist/kept.css'), 'utf8')).toBe('a{}\n')
         for (const path of ['maps/outside.css.map', 'dist/settings.json', 'dist/ignored.css.map']) {
             expect(existsSync(join(folder, path))).toBe(true)
         }

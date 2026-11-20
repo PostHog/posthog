@@ -1,36 +1,17 @@
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { dirname, relative, resolve } from 'node:path'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 
-import { cleanUp, cssTargets, jsTarget, type CleanupTarget } from './cleanup'
-import { contentHash } from './container'
 import { discover, isDsymBundle, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
-import {
-    injectEventMode,
-    injectSymbolSetMode,
-    preparePairs,
-    randomChunkId,
-    releaseRequested,
-    resolveJsRelease,
-    savePairs,
-    type InjectAction,
-} from './js-flow'
+import { releaseRequested, resolveJsRelease, type InjectAction } from './js-flow'
 import { decodeUtf8 } from './json'
 import { cloneMetadata, hermesSkipReason, hermesUpload, isHermesBundlePath } from './kinds/hermes'
-import {
-    loadMapContent,
-    readPair,
-    serializeMapContent,
-    type MapContent,
-    type ReleaseMode,
-    type Skip,
-    type SourcePair,
-} from './kinds/js'
-import { proguardContainer } from './kinds/proguard'
+import { loadMapContent, serializeMapContent, type MapContent, type ReleaseMode, type Skip } from './kinds/js'
 import {
     dedupeNativeFiles,
     dsymSlices,
@@ -42,9 +23,17 @@ import {
     type NativeProblem,
 } from './native/package'
 import { sourceStep } from './native/sources'
+import { injectPairs, isBundle, preparePairs, readPairs, type InjectedPairs, type OwnedPair } from './pairs'
 import { plistRelease } from './plist'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
-import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
+import {
+    containerHash,
+    containerSize,
+    SymbolSetClient,
+    type SymbolSetContainer,
+    type SymbolSetUpload,
+    type UploadStatus,
+} from './upload'
 import type { Worker } from './worker'
 
 export interface ErrorTrackingOptions {
@@ -170,132 +159,6 @@ export class Session {
     }
 }
 
-const isBundle = (artifact: Artifact): boolean =>
-    artifact.kind === 'js' || (artifact.kind === 'hermes' && isHermesBundlePath(artifact.path))
-
-function readPairs(
-    selection: Selection,
-    options: ErrorTrackingOptions,
-    skipped: Skip[]
-): { pairs: SourcePair[]; artifacts: Map<SourcePair, Artifact> } {
-    const seen = new Set<string>()
-    const pairs: SourcePair[] = []
-    const owners = new Map<SourcePair, Artifact>()
-    for (const artifact of selection.artifacts.filter(isBundle)) {
-        const pair = readPair(artifact.path, options.publicPathPrefix, skipped)
-        if (
-            pair &&
-            isIgnored(
-                artifact.root,
-                realpathSync(resolve(selection.cwd, artifact.root.path)),
-                realpathSync(pair.mapPath)
-            )
-        ) {
-            skipped.push({
-                path: artifact.display,
-                reason: `its sourcemap matches an ignore pattern in posthog.json`,
-                intended: true,
-            })
-            continue
-        }
-        if (pair && !seen.has(pair.sourcePath)) {
-            seen.add(pair.sourcePath)
-            pairs.push(pair)
-            owners.set(pair, artifact)
-        }
-    }
-    return { pairs, artifacts: owners }
-}
-
-export interface InjectReport {
-    release: ReleaseReport | null
-    injected: InjectedReport[]
-    skipped: Skip[]
-    warnings: string[]
-    pairs: SourcePair[]
-    owners: Map<SourcePair, Artifact>
-}
-
-export async function inject(
-    ctx: Context,
-    selection: Selection,
-    options: ErrorTrackingOptions,
-    session: Session = new Session(ctx),
-    preset?: Release,
-    warnMissingRelease = true
-): Promise<InjectReport> {
-    const skipped: Skip[] = []
-    const warnings: string[] = []
-    const { pairs, artifacts: owners } = readPairs(selection, options, skipped)
-    if (pairs.length === 0) {
-        throw new HogError(
-            'no_bundles',
-            'hog found no JavaScript or Hermes bundles with sourcemaps to inject in those paths.',
-            'Check the paths, or pass --public-path-prefix if your sourceMappingURL comments are absolute URLs.'
-        )
-    }
-    // Hermes bundles never carry a release in event mode: the app's own metadata names it.
-    const hermes = new Set(pairs.filter((pair) => owners.get(pair)?.kind === 'hermes'))
-    const js = pairs.filter((pair) => !hermes.has(pair))
-    const fields = await releaseFields(ctx, options)
-    let release = preset
-    let reported: ReleaseReport | null = release
-        ? { name: release.project, version: release.version, id: release.id }
-        : null
-    if (!release) {
-        const needed =
-            options.releaseMode === 'event'
-                ? js.length > 0
-                : releaseRequested(fields) || pairs.some((pair) => pair.map.releaseId === null)
-        const resolved = needed ? resolveJsRelease(fields, ctx.runtime.env, selection.cwd, warnings) : undefined
-        if (resolved) {
-            reported = { name: resolved.name, version: resolved.version, id: null }
-            if (options.dryRun) {
-                warnings.push(DRY_RUN_RELEASE_WARNING)
-            } else {
-                release = await session.releases.get(resolved.name, resolved.version, resolved.git)
-                reported.id = release.id
-            }
-        } else if (options.releaseMode === 'event' && js.length > 0) {
-            warnings.push(
-                'No release could be resolved, so hog injected chunk IDs only and events will carry no release.'
-            )
-        }
-    }
-    const releaseId = release?.id ?? null
-    const byPair = new Map(
-        (options.releaseMode === 'event'
-            ? [...injectEventMode(js, releaseId, warnings), ...injectEventMode([...hermes], null, warnings)]
-            : injectSymbolSetMode(pairs, releaseId, randomChunkId(ctx.runtime.now))
-        ).map((outcome) => [outcome.pair, outcome])
-    )
-    const outcomes = pairs.map((pair) => byPair.get(pair)!)
-    if (
-        warnMissingRelease &&
-        options.releaseMode === 'symbol-set' &&
-        reported === null &&
-        pairs.some((pair) => pair.map.releaseId === null)
-    ) {
-        warnings.push(MISSING_RELEASE_WARNING)
-    }
-    if (!options.dryRun) {
-        savePairs(pairs, (pair) => serializeMapContent(pair.map))
-    }
-    return {
-        release: reported,
-        injected: outcomes.map((outcome) => ({
-            path: owners.get(outcome.pair)?.display ?? outcome.pair.sourcePath,
-            map: relative(realpathSync(selection.cwd), outcome.pair.mapPath),
-            chunkId: outcome.chunkId,
-            action: outcome.action,
-        })),
-        skipped,
-        warnings,
-        pairs,
-        owners,
-    }
-}
-
 export const DRY_RUN_RELEASE_WARNING =
     'PostHog assigns the release ID, so a dry run leaves it out. JavaScript content hashes from a dry run can differ from a real run.'
 export const MISSING_RELEASE_WARNING =
@@ -312,7 +175,7 @@ export interface UploadReport {
 
 interface Planned {
     artifact: Artifact
-    upload: SymbolSetUpload
+    upload: SymbolSetContainer
     policy: { force: boolean; skipOnConflict: boolean; batchSize: number }
 }
 
@@ -332,12 +195,66 @@ function proguardGit(ctx: Context, artifact: Artifact): GitInfo | undefined {
     }
 }
 
+const CONTAINER_FOLDER_PREFIX = 'hog-upload-'
+const CONTAINER_EXTENSION = 'symbolset'
+const CSS_EXTENSION = '.css'
+
+const hasUploadId = ({ pair }: OwnedPair): boolean =>
+    pair.chunkId !== null || pair.sourceDebugId !== null || pair.mapDebugId !== null
+const pairIds = (pairs: OwnedPair[]): number[] => pairs.map(({ pair }) => pair.id)
+const withoutRelease = ({ pair }: OwnedPair): boolean => pair.mapReleaseId === null
+
+async function proguardUpload(
+    worker: Worker,
+    artifact: Artifact,
+    file: string | null
+): Promise<{ file: string | null; size: number; contentHash: string }> {
+    const built = await worker.proguard(artifact.path, file)
+    if (!('invalid' in built)) {
+        return { file, ...built }
+    }
+
+    if (built.invalid === 'not_utf8') {
+        throw new HogError(
+            'invalid_proguard_mapping',
+            `${artifact.display} isn't valid UTF-8, so it can't be a ProGuard mapping.`
+        )
+    }
+    throw new HogError(
+        'invalid_proguard_mapping',
+        `${artifact.display} is not a valid ProGuard mapping file.`,
+        'Pass the mapping.txt that the Android build writes, usually under app/build/outputs/mapping/.'
+    )
+}
+
+// hog-worker writes each symbol set to a file in a temporary folder, and hog reads a file when it
+// sends it. A dry run writes nothing, so it has no folder.
 export async function upload(
     ctx: Context,
+    worker: Worker,
     selection: Selection,
     options: ErrorTrackingOptions,
     session: Session = new Session(ctx),
-    injected?: InjectReport
+    injected?: InjectedPairs
+): Promise<UploadReport> {
+    const folder = options.dryRun ? null : mkdtempSync(join(tmpdir(), CONTAINER_FOLDER_PREFIX))
+    try {
+        return await uploadFrom(ctx, worker, selection, options, session, injected, folder)
+    } finally {
+        if (folder !== null) {
+            rmSync(folder, { recursive: true, force: true })
+        }
+    }
+}
+
+async function uploadFrom(
+    ctx: Context,
+    worker: Worker,
+    selection: Selection,
+    options: ErrorTrackingOptions,
+    session: Session,
+    injected: InjectedPairs | undefined,
+    folder: string | null
 ): Promise<UploadReport> {
     const skipped: Skip[] = [...(injected?.skipped ?? [])]
     const warnings: string[] = [...(injected?.warnings ?? [])]
@@ -358,7 +275,7 @@ export async function upload(
                 reported.id = release.id
             }
         }
-        for (const artifact of mappings) {
+        for (const [index, artifact] of mappings.entries()) {
             const chunkId = options.mapId ?? artifact.root.mapId
             if (!chunkId) {
                 throw new HogError(
@@ -373,7 +290,11 @@ export async function upload(
                 upload: {
                     chunkId,
                     releaseId: release?.id ?? null,
-                    data: proguardContainer(artifact.path, artifact.display),
+                    ...(await proguardUpload(
+                        worker,
+                        artifact,
+                        folder === null ? null : join(folder, `mapping-${index}.${CONTAINER_EXTENSION}`)
+                    )),
                 },
                 policy: {
                     force: options.force,
@@ -386,21 +307,22 @@ export async function upload(
 
     // Metro bundles upload through their composed maps, so upload never reads their own pairs.
     const jsOnly = { ...selection, artifacts: selection.artifacts.filter((artifact) => artifact.kind === 'js') }
-    const read = injected ? { pairs: injected.pairs, artifacts: injected.owners } : readPairs(jsOnly, options, skipped)
-    read.pairs = read.pairs.filter((pair) => read.artifacts.get(pair)?.kind === 'js')
-    let targets: { pair: SourcePair; target: CleanupTarget }[] = []
+    const held = injected ? injected.pairs : await readPairs(worker, jsOnly, options, skipped)
+    const pairs = held.filter(({ artifact }) => artifact.kind === 'js')
+    await worker.drop(pairIds(held.filter(({ artifact }) => artifact.kind !== 'js')))
+    let targets: number[] = []
     // posthog-cli stops before any cleanup when no bundle has an id to upload under.
     let jsUploadable = false
     const composed = selection.artifacts.filter(
         (artifact) => artifact.kind === 'hermes' && !isHermesBundlePath(artifact.path)
     )
-    if (options.releaseMode === 'event' && options.skipOnConflict && (read.pairs.length > 0 || composed.length > 0)) {
+    if (options.releaseMode === 'event' && options.skipOnConflict && (pairs.length > 0 || composed.length > 0)) {
         warnings.push(
             '--skip-on-conflict is ignored in event mode: every chunk is overwritten, so events never keep an old release.'
         )
     }
-    if (read.pairs.length > 0) {
-        const uploadable = read.pairs.filter((pair) => pair.chunkId() !== null || pair.debugId() !== null)
+    if (pairs.length > 0) {
+        const uploadable = pairs.filter(hasUploadId)
         jsUploadable = uploadable.length > 0
         if (!jsUploadable) {
             warnings.push(
@@ -408,12 +330,12 @@ export async function upload(
             )
         }
         if (options.deleteAfter) {
-            targets = uploadable.map((pair) => ({ pair, target: jsTarget(pair) }))
+            targets = await worker.fingerprint(pairIds(uploadable))
         }
         if (
             options.releaseMode === 'symbol-set' &&
             !injected?.release &&
-            (releaseRequested(fields) || uploadable.some((pair) => pair.map.releaseId === null))
+            (releaseRequested(fields) || uploadable.some(withoutRelease))
         ) {
             const resolved = resolveJsRelease(fields, ctx.runtime.env, selection.cwd, warnings)
             if (resolved) {
@@ -423,8 +345,9 @@ export async function upload(
                 } else {
                     const release = await releases.get(resolved.name, resolved.version, resolved.git)
                     reported.id = release.id
-                    for (const pair of uploadable) {
-                        pair.map.releaseId = release.id
+                    await worker.setRelease(pairIds(uploadable), release.id)
+                    for (const { pair } of uploadable) {
+                        pair.mapReleaseId = release.id
                     }
                 }
             }
@@ -432,11 +355,11 @@ export async function upload(
         if (
             options.releaseMode === 'symbol-set' &&
             (!options.dryRun || reported === null) &&
-            uploadable.some((pair) => pair.map.releaseId === null)
+            uploadable.some(withoutRelease)
         ) {
             warnings.push(MISSING_RELEASE_WARNING)
         }
-        const prepared = preparePairs(read.pairs, options.releaseMode)
+        const prepared = await preparePairs(worker, pairs, options.releaseMode, folder)
         skipped.push(...prepared.skipped)
         for (const chunkId of prepared.duplicates) {
             warnings.push(`Duplicate chunk ID ${chunkId} across symbol sets: hog uploads the first one.`)
@@ -448,8 +371,8 @@ export async function upload(
                 : { force: options.force, skipOnConflict: options.skipOnConflict }),
             batchSize: options.batchSize ?? 50,
         }
-        for (const { pair, upload: item } of prepared.uploads) {
-            planned.push({ artifact: read.artifacts.get(pair)!, upload: item, policy })
+        for (const { owned, upload: item } of prepared.uploads) {
+            planned.push({ artifact: owned.artifact, upload: item, policy })
         }
     }
 
@@ -581,8 +504,8 @@ export async function upload(
         path: item.artifact.display,
         kind: item.artifact.kind,
         chunkId: item.upload.chunkId,
-        contentHash: item.upload.contentHash ?? contentHash(item.upload.data),
-        size: item.upload.data.length,
+        contentHash: containerHash(item.upload),
+        size: containerSize(item.upload),
         status,
     })
     if (options.dryRun) {
@@ -617,7 +540,7 @@ export async function upload(
         type: kindNames.length === 1 ? (kindNames[0] === 'js' ? 'plain' : kindNames[0]) : 'mixed',
         kinds,
         file_count: planned.length,
-        total_bytes: planned.reduce((sum, item) => sum + item.upload.data.length, 0),
+        total_bytes: planned.reduce((sum, item) => sum + containerSize(item.upload), 0),
     }
     ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_started', uploadProperties)
     const uploadStarted = ctx.runtime.now()
@@ -650,21 +573,21 @@ export async function upload(
     let deletedMaps: string[] = []
     if (options.deleteAfter && jsUploadable) {
         const rootPaths = selection.roots.map((root) => resolve(selection.cwd, root.path))
-        const ignored = (mapPath: string): boolean =>
-            selection.roots.some((root, index) =>
-                isIgnored(root, realpathSync(rootPaths[index]!), realpathSync(mapPath))
-            )
-        const cleanup = cleanUp([
-            // Maps skipped as too large go too, as in posthog-cli, so they never ship with the build.
-            ...targets.map(({ target }) => target),
-            ...cssTargets(
-                listFiles(selection.roots, selection.cwd),
-                rootPaths,
-                options.publicPathPrefix,
-                warnings,
-                ignored
-            ),
-        ])
+        const ignored = (mapRealPath: string): boolean =>
+            selection.roots.some((root, index) => isIgnored(root, realpathSync(rootPaths[index]!), mapRealPath))
+        const stylesheets = await worker.cssCandidates(
+            listFiles(selection.roots, selection.cwd).filter((path) => path.endsWith(CSS_EXTENSION)),
+            options.publicPathPrefix
+        )
+        // A stylesheet whose reference can't be read has no map path, and the worker warns about it.
+        const kept = stylesheets.filter(({ mapRealPath }) => mapRealPath === null || !ignored(mapRealPath))
+
+        // Maps skipped as too large go too, as in posthog-cli, so they never ship with the build.
+        const cleanup = await worker.cleanUp(
+            targets,
+            kept.map(({ id }) => id),
+            rootPaths
+        )
         deletedMaps = cleanup.deletedMaps.map((path) => relative(realpathSync(selection.cwd), path))
         warnings.push(...cleanup.warnings)
     }
@@ -682,6 +605,7 @@ export async function upload(
 // stops the run before any file changes. Otherwise inject resolves it from git as usual.
 export async function processArtifacts(
     ctx: Context,
+    worker: Worker,
     selection: Selection,
     options: ErrorTrackingOptions
 ): Promise<UploadReport & { injected: InjectedReport[] }> {
@@ -695,9 +619,9 @@ export async function processArtifacts(
         }
     }
     const injected = selection.artifacts.some(isBundle)
-        ? await inject(ctx, selection, options, session, preset, false)
+        ? await injectPairs(ctx, worker, selection, options, session, preset, false)
         : undefined
-    const report = await upload(ctx, selection, options, session, injected)
+    const report = await upload(ctx, worker, selection, options, session, injected)
     return { ...report, injected: injected?.injected ?? [] }
 }
 

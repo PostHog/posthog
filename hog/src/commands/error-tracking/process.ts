@@ -28,18 +28,20 @@ export default defineCommand({
 
     async run({ args, options, ctx }) {
         const settings = await readOptions(options, ctx)
-        const selection = await withWorker((worker) => select(ctx, worker, args.paths ?? [], settings))
-        if (selection.artifacts.length === 0) {
-            throw new HogError(
-                'nothing_to_upload',
-                'hog found no artifacts to process in those paths.',
-                'Check the paths, or pass --kind.'
-            )
-        }
-        if (!settings.dryRun) {
-            await ctx.ensureScopes(UPLOAD_SCOPES)
-        }
-        return processArtifacts(ctx, selection, settings)
+        return withWorker(async (worker) => {
+            const selection = await select(ctx, worker, args.paths ?? [], settings)
+            if (selection.artifacts.length === 0) {
+                throw new HogError(
+                    'nothing_to_upload',
+                    'hog found no artifacts to process in those paths.',
+                    'Check the paths, or pass --kind.'
+                )
+            }
+            if (!settings.dryRun) {
+                await ctx.ensureScopes(UPLOAD_SCOPES)
+            }
+            return processArtifacts(ctx, worker, selection, settings)
+        })
     },
 
     human({ result, out }) {

@@ -48,11 +48,20 @@ pub fn message(error: &io::Error, syscall: &str, path: &Path) -> String {
     format!("{error}, {syscall} '{}'", path.display())
 }
 
+// `EACCES: permission denied, rename '/build/a.map' -> '/build/a.map.bak'`.
+pub fn rename_message(error: &io::Error, from: &Path, to: &Path) -> String {
+    format!("{} -> '{}'", message(error, "rename", from), to.display())
+}
+
+pub fn utf8(bytes: Vec<u8>) -> Result<String, String> {
+    String::from_utf8(bytes).map_err(|_| INVALID_UTF8.to_string())
+}
+
 pub fn read(path: &Path) -> Result<Vec<u8>, String> {
     fs::read(path).map_err(|error| message(&error, "open", path))
 }
 
 // A byte order mark stays in the text, as it does for hog's sourcemap reader.
 pub fn read_text(path: &Path) -> Result<String, String> {
-    String::from_utf8(read(path)?).map_err(|_| INVALID_UTF8.to_string())
+    utf8(read(path)?)
 }

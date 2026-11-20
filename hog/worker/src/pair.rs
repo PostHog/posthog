@@ -23,9 +23,10 @@ use crate::{
 
 // A release id longer than this between the snippet halves is not one hog or posthog-cli wrote.
 const MAX_RELEASE_ID_LITERAL_BYTES: usize = 256;
-const SOURCEMAP_REFERENCE_PREFIXES: [&str; 2] = ["//# sourceMappingURL=", "//@ sourceMappingURL="];
-const CHUNK_ID_COMMENT: &str = "//# chunkId=";
-const DEBUG_ID_COMMENT: &str = "//# debugId=";
+pub const SOURCEMAP_REFERENCE_PREFIXES: [&str; 2] =
+    ["//# sourceMappingURL=", "//@ sourceMappingURL="];
+pub const CHUNK_ID_COMMENT: &str = "//# chunkId=";
+pub const DEBUG_ID_COMMENT: &str = "//# debugId=";
 
 fn build_code_snippet(chunk_id: &str, release_id: Option<&str>) -> Result<String> {
     let Some(release_id) = release_id else {
@@ -153,6 +154,36 @@ impl SourceMapContent {
     pub fn serialize(&self) -> Result<Vec<u8>> {
         Ok(serde_json::to_vec(self)?)
     }
+
+    // A map without mappings, sources and names symbolicates nothing. An index map is empty only
+    // when every section is, because its own top-level fields are always empty.
+    pub fn is_empty(&self) -> bool {
+        is_map_empty(|key| self.fields.get(key))
+    }
+}
+
+fn is_map_empty<'a>(get: impl Fn(&str) -> Option<&'a Value>) -> bool {
+    let mappings_empty = get("mappings")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty);
+    let sources_empty = get("sources")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    let names_empty = get("names")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    let sections_empty = get("sections")
+        .and_then(Value::as_array)
+        .is_none_or(|sections| sections.iter().all(is_section_empty));
+
+    mappings_empty && sources_empty && names_empty && sections_empty
+}
+
+fn is_section_empty(section: &Value) -> bool {
+    let Some(map) = section.get("map").and_then(Value::as_object) else {
+        return true;
+    };
+    is_map_empty(|key| map.get(key))
 }
 
 pub fn read_pair(path: &Path, public_path_prefix: Option<&str>) -> Result<SourcePair, Unreadable> {
@@ -179,8 +210,8 @@ pub fn read_pair(path: &Path, public_path_prefix: Option<&str>) -> Result<Source
         .map_err(|message| skipped(format!("failed to read sourcemap: {message}")))?;
 
     // posthog-cli would rewrite any JSON object the reference names, such as a settings file next
-    // to the build. A sourcemap always has `mappings`, or `sections` when it is an index map.
-    if !map.fields.contains_key("mappings") && !map.fields.contains_key("sections") {
+    // to the build.
+    if !is_sourcemap(&map) {
         return Err(skipped(
             "the file its sourceMappingURL names isn't a sourcemap: it has no mappings".to_string(),
         ));
@@ -192,6 +223,11 @@ pub fn read_pair(path: &Path, public_path_prefix: Option<&str>) -> Result<Source
         source,
         map,
     })
+}
+
+// A sourcemap always has `mappings`, or `sections` when it is an index map.
+pub fn is_sourcemap(map: &SourceMapContent) -> bool {
+    map.fields.contains_key("mappings") || map.fields.contains_key("sections")
 }
 
 // Whether discovery counts the file as a bundle: it is readable text and its sourcemap exists.
@@ -232,6 +268,17 @@ impl SourcePair {
 
     pub fn source_debug_id(&self) -> Option<String> {
         self.comment_value(DEBUG_ID_COMMENT)
+    }
+
+    // The chunk's own comment wins, because several chunks can share one sourcemap.
+    pub fn debug_id(&self) -> Option<String> {
+        self.source_debug_id().or_else(|| self.map.debug_id.clone())
+    }
+
+    // The two snippets differ in length, so which one a bundle carries decides every generated
+    // column its sourcemap records.
+    pub fn has_release_snippet(&self, chunk_id: &str) -> bool {
+        find_release_snippet(&self.source, chunk_id).is_some()
     }
 
     pub fn injected_release_id(&self) -> Option<String> {

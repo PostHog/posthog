@@ -7,7 +7,7 @@ import { HogError } from '@/core/errors'
 import { isIgnored, type Artifact } from './discover'
 import { randomChunkId, releaseRequested, resolveJsRelease } from './js-flow'
 import { isHermesBundlePath } from './kinds/hermes'
-import type { Skip } from './kinds/js'
+import type { ReleaseMode, Skip } from './kinds/js'
 import type { Release } from './release'
 import {
     DRY_RUN_RELEASE_WARNING,
@@ -19,6 +19,7 @@ import {
     type ReleaseReport,
     type Selection,
 } from './run'
+import type { SymbolSetFile } from './upload'
 import type { InjectOutcome, PairState, Worker } from './worker'
 
 // The inject step on pairs hog-worker holds. hog decides which pairs take part and which release
@@ -188,4 +189,59 @@ export async function injectPairs(
         warnings,
         pairs: injected,
     }
+}
+
+export interface PreparedPairs {
+    uploads: { owned: OwnedPair; upload: SymbolSetFile }[]
+    skipped: Skip[]
+    duplicates: string[]
+}
+
+// A bundle with a native debug id and no chunk id carries the id its map is known by, so it goes
+// first and wins when a second pair has the same id.
+const nativeFirst = ({ pair }: OwnedPair): number => (pair.chunkId === null && pair.sourceDebugId !== null ? 0 : 1)
+
+// One symbol set per chunk id, written by the worker into `folder`. A dry run passes no folder
+// and gets the sizes and content hashes only.
+export async function preparePairs(
+    worker: Worker,
+    pairs: OwnedPair[],
+    mode: ReleaseMode,
+    folder: string | null
+): Promise<PreparedPairs> {
+    const prepared = await worker.prepare(
+        pairs.map(({ pair }) => pair.id),
+        mode,
+        folder
+    )
+
+    const skipped: Skip[] = []
+    const uploads: PreparedPairs['uploads'] = []
+    for (const [index, owned] of pairs.entries()) {
+        const answer = prepared[index]!
+        if ('skipped' in answer) {
+            skipped.push({ path: owned.pair.sourcePath, reason: answer.skipped })
+            continue
+        }
+        const { path, ...container } = answer
+        uploads.push({ owned, upload: { ...container, file: path } })
+    }
+
+    const sorted = uploads
+        .map((entry, index) => ({ entry, index }))
+        .sort((a, b) => nativeFirst(a.entry.owned) - nativeFirst(b.entry.owned) || a.index - b.index)
+    const seen = new Set<string>()
+    const duplicates: string[] = []
+    const kept = sorted
+        .map(({ entry }) => entry)
+        .filter((entry) => {
+            if (seen.has(entry.upload.chunkId)) {
+                duplicates.push(entry.upload.chunkId)
+                return false
+            }
+            seen.add(entry.upload.chunkId)
+            return true
+        })
+
+    return { uploads: kept, skipped, duplicates }
 }

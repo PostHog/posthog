@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 
 import { EXIT_FAILURE, HogError, wrapFailure } from '@/core/errors'
@@ -14,12 +15,45 @@ import { contentHash } from './container'
 // counts and the release-mismatch fallback match it, so PostHog sees the same requests from either
 // CLI. Only the user agent differs.
 
-export interface SymbolSetUpload {
+interface SymbolSet {
     chunkId: string
     releaseId: string | null
+}
+
+// A container hog built in memory.
+export interface SymbolSetUpload extends SymbolSet {
     data: Uint8Array
-    // Set when the hash covers something other than the whole container, like event-mode sourcemaps.
+    // Set when the hash covers something other than the whole container.
     contentHash?: string
+}
+
+// A container hog-worker wrote to a file. It is read when it is sent, so a large build never
+// sits in memory as a whole.
+export interface SymbolSetFile extends SymbolSet {
+    // Null in a dry run, which writes and sends nothing.
+    file: string | null
+    size: number
+    contentHash: string
+}
+
+export type SymbolSetContainer = SymbolSetUpload | SymbolSetFile
+
+export const containerSize = (upload: SymbolSetContainer): number =>
+    'file' in upload ? upload.size : upload.data.length
+
+export const containerHash = (upload: SymbolSetContainer): string =>
+    'file' in upload ? upload.contentHash : (upload.contentHash ?? contentHash(upload.data))
+
+type Hashed = SymbolSetContainer & { hash: string }
+
+async function containerBytes(upload: SymbolSetContainer): Promise<Uint8Array> {
+    if ('data' in upload) {
+        return upload.data
+    }
+    if (upload.file === null) {
+        throw new Error(`The symbol set for chunk ${upload.chunkId} was never written to a file.`)
+    }
+    return readFile(upload.file)
 }
 
 export type UploadStatus = 'uploaded' | 'already_present' | 'too_large'
@@ -196,7 +230,7 @@ export class SymbolSetClient {
         return parseOrThrow(schema, response.json, failure)
     }
 
-    async upload(uploads: SymbolSetUpload[], options: UploadOptions): Promise<UploadOutcome> {
+    async upload(uploads: SymbolSetContainer[], options: UploadOptions): Promise<UploadOutcome> {
         const runId = uuidv7(this.runtime.now())
         try {
             return await this.uploadOnce(uploads, options, runId)
@@ -215,19 +249,19 @@ export class SymbolSetClient {
     }
 
     private async uploadOnce(
-        uploads: SymbolSetUpload[],
+        uploads: SymbolSetContainer[],
         options: UploadOptions,
         runId: string
     ): Promise<UploadOutcome> {
         const status = options.progress ?? new Map<string, UploadStatus>()
         const contentHashes = new Map<string, string>()
-        const kept: (SymbolSetUpload & { hash: string })[] = []
+        const kept: Hashed[] = []
         for (const upload of uploads) {
-            if (upload.data.length > MAX_FILE_SIZE) {
+            if (containerSize(upload) > MAX_FILE_SIZE) {
                 status.set(upload.chunkId, 'too_large')
                 continue
             }
-            const hash = upload.contentHash ?? contentHash(upload.data)
+            const hash = containerHash(upload)
             contentHashes.set(upload.chunkId, hash)
             kept.push({ ...upload, hash })
         }
@@ -248,7 +282,7 @@ export class SymbolSetClient {
         return { status, contentHashes }
     }
 
-    private entry(upload: SymbolSetUpload & { hash: string }): {
+    private entry(upload: Hashed): {
         chunk_id: string
         release_id: string | null
         content_hash: string
@@ -258,13 +292,13 @@ export class SymbolSetClient {
             chunk_id: upload.chunkId,
             release_id: upload.releaseId,
             content_hash: upload.hash,
-            content_length: upload.data.length,
+            content_length: containerSize(upload),
         }
     }
 
     // Asks which chunks the server still needs. A failed check is not fatal: every chunk from the
     // failed slice onward is sent, and the start call decides.
-    private async check(uploads: (SymbolSetUpload & { hash: string })[], options: UploadOptions): Promise<Set<string>> {
+    private async check(uploads: Hashed[], options: UploadOptions): Promise<Set<string>> {
         const needed = new Set<string>()
         for (let start = 0; start < uploads.length; start += CHECK_BATCH_SIZE) {
             const slice = uploads.slice(start, start + CHECK_BATCH_SIZE)
@@ -300,7 +334,7 @@ export class SymbolSetClient {
     }
 
     private async uploadBatch(
-        batch: (SymbolSetUpload & { hash: string })[],
+        batch: Hashed[],
         options: UploadOptions,
         runId: string
     ): Promise<Map<string, UploadStatus>> {
@@ -345,7 +379,7 @@ export class SymbolSetClient {
             }
         }
         await runWithConcurrency(entries, options.concurrency ?? 10, async ([chunkId, entry]) => {
-            await this.store(byChunk.get(chunkId)!.data, entry)
+            await this.store(byChunk.get(chunkId)!, entry)
         })
         const finishHashes: Record<string, string> = {}
         for (const [chunkId, entry] of entries) {
@@ -373,7 +407,7 @@ export class SymbolSetClient {
 
     // Sends one container to object storage. A target falls back to its alternate endpoint after two
     // transport errors in a row on the primary, like posthog-cli's endpoint router.
-    private async store(data: Uint8Array, entry: StartEntry): Promise<void> {
+    private async store(upload: SymbolSetContainer, entry: StartEntry): Promise<void> {
         const primary: Target | undefined = entry.presigned_put_url
             ? { kind: 'put', url: entry.presigned_put_url }
             : entry.presigned_url
@@ -397,6 +431,8 @@ export class SymbolSetClient {
         await withRetries(this.runtime, fallback ? 4 : 3, async () => {
             const useFallback = fallback !== undefined && (this.preferFallback || primaryTransportErrors >= 2)
             const target = useFallback ? fallback! : primary
+            // Read for each attempt and dropped after it, so only the containers in flight are in memory.
+            const data = await containerBytes(upload)
             let response: Response
             try {
                 response = await this.send(data, target)

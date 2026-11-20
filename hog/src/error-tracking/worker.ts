@@ -58,7 +58,11 @@ const PairState = z.object({
 // A bundle and its sourcemap, held by the worker. hog keeps only what its decisions read.
 export type PairState = z.output<typeof PairState>
 
-const Detected = z.object({ sourcemap: z.array(z.number()), composed: z.array(z.number()) })
+const Detected = z.object({
+    sourcemap: z.array(z.number()),
+    composed: z.array(z.number()),
+    mapping: z.array(z.number()),
+})
 const Pairs = z.object({
     pairs: z.array(z.union([PairState, z.object({ skipped: z.string() }), z.null()])),
 })
@@ -69,14 +73,49 @@ const Outcomes = z.object({
     ),
 })
 const Done = z.object({})
+const Targets = z.object({ targets: z.array(z.number()) })
+const Prepared = z.object({
+    prepared: z.array(
+        z.union([
+            z.object({ skipped: z.string() }),
+            z.object({
+                chunkId: z.string(),
+                releaseId: z.string().nullable(),
+                contentHash: z.string(),
+                size: z.number(),
+                // Null in a dry run, which writes nothing.
+                path: z.string().nullable(),
+            }),
+        ])
+    ),
+})
+const CssCandidates = z.object({
+    candidates: z.array(z.object({ id: z.number(), mapRealPath: z.string().nullable() }).nullable()),
+})
+const Cleaned = z.object({ deletedMaps: z.array(z.string()), warnings: z.array(z.string()) })
+const ProguardContainer = z.union([
+    z.object({ invalid: z.enum(['not_utf8', 'not_a_mapping']) }),
+    z.object({ contentHash: z.string(), size: z.number() }),
+])
 
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
 export type PairAnswer = z.output<typeof Pairs>['pairs'][number]
+export type PreparedPair = z.output<typeof Prepared>['prepared'][number]
+export type CssCandidate = NonNullable<z.output<typeof CssCandidates>['candidates'][number]>
+export type CleanupReport = z.output<typeof Cleaned>
+export type ProguardContainer = z.output<typeof ProguardContainer>
 
 export interface DetectCandidate {
     path: string
     bundle: boolean
     map: boolean
+    mapping: boolean
+}
+
+export interface Detected {
+    sourcemap: Set<string>
+    composed: Set<string>
+    mapping: Set<string>
 }
 
 async function* readLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -166,22 +205,19 @@ export class Worker {
         return parseOrThrow(result, message.result, failure)
     }
 
-    // Which files discovery counts: bundles whose sourcemap exists, and maps the Hermes compiler
-    // composed. Both answers need the file's contents.
-    async detect(
-        files: DetectCandidate[],
-        publicPathPrefix: string | undefined
-    ): Promise<{ sourcemap: Set<string>; composed: Set<string> }> {
-        const asked = files.filter((file) => file.bundle || file.map)
+    // Which files discovery counts: bundles whose sourcemap exists, maps the Hermes compiler
+    // composed, and ProGuard mappings. Every answer needs the file's contents.
+    async detect(files: DetectCandidate[], publicPathPrefix: string | undefined): Promise<Detected> {
+        const asked = files.filter((file) => file.bundle || file.map || file.mapping)
         if (asked.length === 0) {
-            return { sourcemap: new Set(), composed: new Set() }
+            return { sourcemap: new Set(), composed: new Set(), mapping: new Set() }
         }
         const found = await this.call(
             { op: 'detect', files: asked, publicPathPrefix: publicPathPrefix ?? null },
             Detected
         )
         const paths = (indices: number[]): Set<string> => new Set(indices.map((index) => asked[index]!.path))
-        return { sourcemap: paths(found.sourcemap), composed: paths(found.composed) }
+        return { sourcemap: paths(found.sourcemap), composed: paths(found.composed), mapping: paths(found.mapping) }
     }
 
     async readPairs(paths: string[], publicPathPrefix: string | undefined): Promise<PairAnswer[]> {
@@ -213,6 +249,50 @@ export class Worker {
         if (ids.length > 0) {
             await this.call({ op: 'save', ids }, Done)
         }
+    }
+
+    // Records what the files of each pair hold, and answers one cleanup target for each pair.
+    async fingerprint(ids: number[]): Promise<number[]> {
+        if (ids.length === 0) {
+            return []
+        }
+        return (await this.call({ op: 'fingerprint', ids }, Targets)).targets
+    }
+
+    async setRelease(ids: number[], releaseId: string): Promise<void> {
+        if (ids.length > 0) {
+            await this.call({ op: 'set_release', ids, releaseId }, Done)
+        }
+    }
+
+    // Builds the symbol set of each pair and writes it into `folder`. The worker lets the pairs
+    // go, so this is the last request that names them. Without a folder nothing is written.
+    async prepare(ids: number[], mode: 'event' | 'symbol-set', folder: string | null): Promise<PreparedPair[]> {
+        if (ids.length === 0) {
+            return []
+        }
+        return (await this.call({ op: 'prepare', ids, mode, folder }, Prepared)).prepared
+    }
+
+    // The stylesheets that have a sourcemap, or a reference to one that can't be read.
+    async cssCandidates(files: string[], publicPathPrefix: string | undefined): Promise<CssCandidate[]> {
+        if (files.length === 0) {
+            return []
+        }
+        const found = await this.call(
+            { op: 'css_candidates', files, publicPathPrefix: publicPathPrefix ?? null },
+            CssCandidates
+        )
+        return found.candidates.filter((candidate) => candidate !== null)
+    }
+
+    async cleanUp(targets: number[], css: number[], roots: string[]): Promise<CleanupReport> {
+        return this.call({ op: 'clean_up', targets, css, roots }, Cleaned)
+    }
+
+    // Checks a ProGuard mapping and writes its symbol set to `out`. Without `out` nothing is written.
+    async proguard(path: string, out: string | null): Promise<ProguardContainer> {
+        return this.call({ op: 'proguard', path, out }, ProguardContainer)
     }
 
     // Closing stdin ends the worker. A worker that never started has nothing to close.

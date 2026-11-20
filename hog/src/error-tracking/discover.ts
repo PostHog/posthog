@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { readdirSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
@@ -6,9 +6,8 @@ import { HogError } from '@/core/errors'
 
 import { HERMES_BUNDLE_EXTENSIONS } from './kinds/hermes'
 import { hasBundleName, JS_EXTENSIONS } from './kinds/js'
-import { isValidProguardMapping } from './kinds/proguard'
 import { nativeFormat } from './native/package'
-import type { Worker } from './worker'
+import type { Detected, Worker } from './worker'
 
 export interface Root {
     path: string
@@ -31,27 +30,20 @@ export interface Artifact {
     root: Root
 }
 
-// What hog-worker found by reading the files: the bundles whose sourcemap exists, and the maps the
-// Hermes compiler composed.
-interface Answers {
-    sourcemap: Set<string>
-    composed: Set<string>
-}
-
 // Each artifact type answers whether a file belongs to it. Detection is deterministic: the same
 // files always give the same result, and a file only two types could claim is an error.
 interface Detector {
     kind: ArtifactKind
     // While scanning a folder, only files with these extensions are opened. Null opens every file.
     extensions: readonly string[] | null
-    matches(path: string, answers: Answers): boolean
+    matches(path: string, answers: Detected): boolean
 }
 
 const DETECTORS: readonly Detector[] = [
     {
         kind: 'proguard',
         extensions: ['.txt'],
-        matches: (path) => isValidProguardMapping(readFileSync(path)),
+        matches: (path, answers) => answers.mapping.has(path),
     },
     {
         // A bundle counts only when its sourcemap exists, as in posthog-cli. Bundles without one are
@@ -90,7 +82,7 @@ function detect(
     path: string,
     fromFolder: boolean,
     kind: ArtifactKind | undefined,
-    answers: Answers
+    answers: Detected
 ): ArtifactKind | undefined {
     const candidates = DETECTORS.filter(
         (detector) =>
@@ -179,6 +171,7 @@ export function listFiles(roots: readonly Root[], cwd: string): string[] {
 
 const BUNDLE_EXTENSIONS = [...JS_EXTENSIONS, ...HERMES_BUNDLE_EXTENSIONS]
 const MAP_EXTENSION = '.map'
+const MAPPING_EXTENSION = '.txt'
 
 export async function discover(
     worker: Worker,
@@ -190,11 +183,14 @@ export async function discover(
     // One request for every file, so the worker reads them in parallel. A path given on its own is
     // checked against every type, whatever its extension.
     const answers = await worker.detect(
-        listed.flatMap(({ isFile, files }) =>
+        listed.flatMap(({ isFile, files }, index) =>
             files.map((path) => ({
                 path,
                 bundle: hasBundleName(path, BUNDLE_EXTENSIONS),
                 map: isFile || path.endsWith(MAP_EXTENSION),
+                mapping:
+                    (isFile || path.endsWith(MAPPING_EXTENSION)) &&
+                    (roots[index]!.kind === undefined || roots[index]!.kind === 'proguard'),
             }))
         ),
         options.publicPathPrefix
