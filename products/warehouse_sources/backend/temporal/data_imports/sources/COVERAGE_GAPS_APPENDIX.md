@@ -2096,7 +2096,7 @@ Diffed against: <https://www.billomat.com/en/api/>
 - [x] `Articles (GET /api/articles)` — analyze the product and service catalog, prices, and supplier relationships (medium)
 - [x] `Delivery notes (GET /api/delivery-notes)` — connect deliveries to the sales process and analyze fulfillment status (medium)
 - [x] `Activity feed (GET /api/activity-feed)` — track document actions and user activity over time (medium)
-- [ ] `Invoice comments (GET /api/invoice-comments?invoice_id={invoice_id})` — analyze invoice discussions and system actions during billing and collection (medium)
+- [x] `Invoice comments (GET /api/invoice-comments?invoice_id={invoice_id})` — analyze invoice discussions and system actions during billing and collection (medium)
 
 Note: The official API index and individual reference pages supplied explicit GET examples for all listed resources. No usable specification was found at the index. Contacts and comments require calls for each client or invoice. Estimates correctly map to /offers; settings, webhooks, PDF downloads, and write operations are excluded.
 
@@ -15556,8 +15556,8 @@ Diffed against: <https://docs.unstructured.io/llms.txt>
 - [x] `job failed files (GET /jobs/{id}/failed-files)` — per-file failure reasons — the only place processing errors are enumerated; jobs alone give just a status (high)
 - [x] `job details (GET /jobs/{id}/details)` — per-node processing counts and timings inside a job, the grain needed for throughput and cost analysis (high)
 - [x] `notifications (GET /notifications)` — workspace event stream (job started/failed/completed) with timestamps, an analytical log the jobs table does not reproduce (medium)
-- [ ] `templates (GET /templates)` — lookup resolving the template a workflow was created from, plus its DAG metadata (medium)
-- [ ] `source/destination connection checks (GET /sources/{id}/connection-check, /destinations/{id}/connection-check)` — connector health history to correlate with failed jobs (low)
+- [x] `templates (GET /templates)` — lookup resolving the template a workflow was created from, plus its DAG metadata (medium)
+- [x] `source/destination connection checks (GET /sources/{id}/connection-check, /destinations/{id}/connection-check)` — connector health history to correlate with failed jobs (low)
 
 Note: docs.unstructured.io serves no OpenAPI JSON (api.unstructuredapp.io/openapi.json 404s); the llms.txt index enumerates every api-reference operation and was used for the diff. The four synced tables cover the main workflow objects, so remaining gaps are the per-job detail and notification event surfaces.
 
@@ -16461,7 +16461,7 @@ Diffed against: <https://docs.zapsign.com.br/english/sitemap-pages.xml>
 - [x] `docs/signer-log/{doc_token} (document audit trail)` — per-document signature event history (viewed, signed, refused, timestamps) - the state-transition table behind document status (high)
 - [x] `users (GET /api/v1/users/, account users)` — lookup table resolving the created_by / account user IDs already carried on documents (medium)
 - [x] `signer-verification-details/{signer_token}` — authentication and identity-verification outcome per signer, needed to analyze signing friction and failures (medium)
-- [ ] `checks/{check_id} and checks/{check_id}/details (background checks)` — background-check status and results tied to signers; no list endpoint, so it must fan out from signers (low)
+- [ ] `checks/{check_id} and checks/{check_id}/details (background checks)` — background-check status and results tied to signers; no list endpoint, so it must fan out from signers (low) Skipped: no list endpoint, and no document or signer response carries a check_id, so check IDs cannot be discovered.
 
 Note: Docs are a GitBook site with no OpenAPI spec; the English sitemap enumerates every endpoint page and each page embeds the literal api.zapsign.com.br path, which is what I diffed against. Webhook create/delete/logs endpoints exist but were excluded as plumbing.
 
