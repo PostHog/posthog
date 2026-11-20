@@ -42,41 +42,90 @@ function optimization(overrides: {
 
 describe('suggestionReadiness', () => {
     test.each([
-        ['off, before any data', optimization({ enabled: false, trackedSends: 4 }), 'Turn on suggestions to start'],
+        [
+            'off, before any data',
+            optimization({ enabled: false, trackedSends: 4 }),
+            'Turn on suggestions to start',
+            'You can turn them on now. PostHog starts suggesting once the steps below are done.',
+        ],
         [
             'short on sends and too new',
             optimization({ trackedSends: 12, liveHoursAgo: 30 }),
-            'Needs 8 more tracked sends',
+            'Needs 8 more emails with open tracking',
+            'Suggestions can start after that, and no earlier than tomorrow around 9:00 AM.',
         ],
-        ['one send short', optimization({ trackedSends: 19 }), 'Needs 1 more tracked send'],
+        [
+            'one send short',
+            optimization({ trackedSends: 19 }),
+            'Needs 1 more email with open tracking',
+            'Suggestions can start at the first check after that.',
+        ],
         [
             'enough sends on a version under two days old',
             optimization({ liveHoursAgo: 30 }),
             'Can be judged from tomorrow at 9:00 AM',
+            'Suggestions can start at the first check after that.',
         ],
-        ['ready, checked before', optimization({}), 'Next check around tomorrow at 9:00 AM'],
-        ['ready, check overdue', optimization({ nextCheckInHours: -2 }), 'Next check soon'],
+        ['ready, checked before', optimization({}), 'Next check tomorrow around 9:00 AM', 'Last checked 6 hours ago.'],
+        [
+            'ready, check just overdue',
+            optimization({ nextCheckInHours: -2 }),
+            'Next check soon',
+            'Last checked 6 hours ago.',
+        ],
+        [
+            'ready, check long overdue',
+            optimization({ lastCheckedHoursAgo: 40, nextCheckInHours: -16 }),
+            'Waiting for the next check',
+            'Last checked 2 days ago.',
+        ],
+        [
+            'ready, on a cron schedule after a check',
+            optimization({ nextCheckInHours: null }),
+            'Waiting for the next check',
+            'Last checked 6 hours ago.',
+        ],
         [
             'ready, scout never ran',
             optimization({ lastCheckedHoursAgo: null, nextCheckInHours: null }),
             'First check within a day',
+            null,
         ],
         [
-            'on without an email step to measure',
+            'on, sample unknown',
             optimization({ noSample: true }),
-            'Next check around tomorrow at 9:00 AM',
+            'Next check tomorrow around 9:00 AM',
+            'Last checked 6 hours ago.',
         ],
-    ])('%s', (_name, input, headline) => {
-        expect(suggestionReadiness(input, NOW)?.headline).toEqual(headline)
+    ])('%s', (_name, input, headline, detail) => {
+        const readiness = suggestionReadiness(input, NOW)
+        expect([readiness?.headline, readiness?.detail]).toEqual([headline, detail])
     })
 
-    it('marks only the unfinished steps as waiting', () => {
-        const readiness = suggestionReadiness(optimization({ trackedSends: 12 }), NOW)
-        expect(readiness?.steps.map((step) => [step.key, step.state, step.percent])).toEqual([
-            ['enabled', 'done', null],
-            ['age', 'done', null],
-            ['sends', 'waiting', 60],
-            ['check', 'waiting', null],
-        ])
+    test.each([
+        [
+            'on, short on sends',
+            optimization({ trackedSends: 12 }),
+            [
+                ['age', 'done', null],
+                ['sends', 'waiting', 60],
+                ['check', 'waiting', null],
+            ],
+        ],
+        [
+            'off, short on sends',
+            optimization({ enabled: false, trackedSends: 12, liveHoursAgo: 24 }),
+            [
+                ['enabled', 'blocked', null],
+                ['age', 'blocked', 50],
+                ['sends', 'blocked', 60],
+                ['check', 'blocked', null],
+            ],
+        ],
+        ['on, sample unknown', optimization({ noSample: true }), [['check', 'waiting', null]]],
+    ])('steps when %s', (_name, input, steps) => {
+        expect(suggestionReadiness(input, NOW)?.steps.map((step) => [step.key, step.state, step.percent])).toEqual(
+            steps
+        )
     })
 })

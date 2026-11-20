@@ -60249,12 +60249,12 @@ export namespace Schemas {
 
     export interface SuggestionsSchedule {
       /**
-         * When the project's suggestions scout last checked its workflows. Null before its first check.
+         * Roughly when the project's suggestions scout last checked its workflows. Null before its first check.
          * @nullable
          */
       readonly last_checked_at: string | null;
       /**
-         * Roughly when the scout checks next. Null before its first check or when a custom schedule decides it.
+         * Roughly when the scout checks next. Null before its first check, or when a custom schedule or a backoff decides it.
          * @nullable
          */
       readonly next_check_at: string | null;
@@ -60273,7 +60273,7 @@ export namespace Schemas {
       readonly scout_status: SuggestionsScoutStatusEnum;
       /** How close the live version is to the sample PostHog needs before it suggests anything. Null while suggestions are on but the scout is not running, or when the workflow has no email step. */
       readonly sample: SuggestionsSample | null;
-      /** When the project's suggestions scout last checked and checks next. Null while the project has no suggestions scout. */
+      /** When the project's suggestions scout last checked and checks next. Null unless the scout is running. */
       readonly schedule: SuggestionsSchedule | null;
     }
 

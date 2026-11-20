@@ -8,14 +8,39 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { ReadinessStep, suggestionReadiness } from './suggestionReadiness'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
+const STEP_STATE_LABELS: Record<ReadinessStep['state'], string> = {
+    done: 'Done',
+    waiting: 'In progress',
+    blocked: 'Not started',
+}
+
 function StepIcon({ state }: { state: ReadinessStep['state'] }): JSX.Element {
-    if (state === 'done') {
-        return <IconCheckCircle className="size-5 shrink-0 text-success" />
+    const Icon = state === 'done' ? IconCheckCircle : state === 'waiting' ? IconClock : IconCircleDashed
+    return (
+        <Icon
+            className={clsx(
+                'size-5 shrink-0',
+                state === 'done' ? 'text-success' : state === 'waiting' ? 'text-secondary' : 'text-muted'
+            )}
+        />
+    )
+}
+
+function StepProgress({ step }: { step: ReadinessStep }): JSX.Element | null {
+    if (step.percent == null) {
+        return null
     }
-    if (state === 'waiting') {
-        return <IconClock className="size-5 shrink-0 text-warning" />
-    }
-    return <IconCircleDashed className="size-5 shrink-0 text-muted" />
+    return (
+        <LemonProgress
+            percent={step.percent}
+            className="max-w-80"
+            role="progressbar"
+            aria-label={step.title}
+            aria-valuenow={step.percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+        />
+    )
 }
 
 export function WorkflowSuggestionsReadiness({
@@ -25,7 +50,13 @@ export function WorkflowSuggestionsReadiness({
     id: string
     compact?: boolean
 }): JSX.Element | null {
-    const { optimization } = useValues(workflowProposalsLogic({ id }))
+    const { optimization, turnOnDisabledReason } = useValues(workflowProposalsLogic({ id }))
+    // A paused scout or one in dry run has its own notice, and a workflow that cannot turn suggestions on gets
+    // no timeline it can never reach.
+    const scoutCanFile = optimization?.scout_status === 'running' || optimization?.scout_status === 'not_running'
+    if (!optimization || !scoutCanFile || (!optimization.enabled && turnOnDisabledReason)) {
+        return null
+    }
     const readiness = suggestionReadiness(optimization)
     if (!readiness) {
         return null
@@ -36,10 +67,8 @@ export function WorkflowSuggestionsReadiness({
         return (
             <div className="flex flex-col gap-1 text-sm" data-attr="workflow-suggestions-readiness-compact">
                 <span className="font-medium">{readiness.headline}</span>
-                {sends?.percent != null ? (
-                    <LemonProgress percent={sends.percent} strokeColor="var(--warning)" className="max-w-60" />
-                ) : null}
-                {readiness.detail ? <span className="text-xs text-muted">{readiness.detail}</span> : null}
+                {sends ? <StepProgress step={sends} /> : null}
+                {readiness.detail ? <span className="text-xs text-secondary">{readiness.detail}</span> : null}
             </div>
         )
     }
@@ -50,27 +79,22 @@ export function WorkflowSuggestionsReadiness({
             data-attr="workflow-suggestions-readiness"
         >
             <div className="flex flex-col gap-0.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+                <span className="text-xs font-semibold uppercase tracking-wide text-secondary">
                     When to expect suggestions
                 </span>
                 <h3 className="mb-0 text-base font-semibold">{readiness.headline}</h3>
                 {readiness.detail ? <p className="mb-0 text-sm text-secondary">{readiness.detail}</p> : null}
             </div>
-            <ol className="m-0 flex list-none flex-col gap-3 p-0">
+            <ol className="m-0 flex list-none flex-col gap-3 p-0" role="list">
                 {readiness.steps.map((step) => (
                     <li key={step.key} className="flex gap-2">
                         <StepIcon state={step.state} />
                         <div className="flex min-w-0 flex-1 flex-col gap-1">
-                            <span className={clsx('text-sm font-medium', step.state === 'blocked' && 'text-muted')}>
+                            <span className="text-sm font-medium">
+                                <span className="sr-only">{STEP_STATE_LABELS[step.state]}: </span>
                                 {step.title}
                             </span>
-                            {step.percent != null ? (
-                                <LemonProgress
-                                    percent={step.percent}
-                                    strokeColor="var(--warning)"
-                                    className="max-w-80"
-                                />
-                            ) : null}
+                            <StepProgress step={step} />
                             <span className="text-xs text-secondary">{step.detail}</span>
                         </div>
                     </li>

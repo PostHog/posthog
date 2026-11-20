@@ -819,10 +819,11 @@ class TestWorkflowProposals(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a scout that never ran", None, None, None, None, None),
-            ("a scout on its daily interval", 6, None, None, 6, -18),
-            ("a pre-check that skipped after the last run", 30, 2, None, 2, 6),
-            ("a scout on a cron schedule", 6, None, "0 9 * * *", 6, None),
+            ("a scout that never ran", None, None, None, 0, None, None),
+            ("a scout on its daily interval", 6, None, None, 0, 6, 18),
+            ("a pre-check that skipped after the last run", 30, 2, None, 0, 2, -6),
+            ("a scout on a cron schedule", 6, None, "0 9 * * *", 0, 6, None),
+            ("a scout backing off", 6, None, None, 2, 6, None),
         ]
     )
     def test_optimization_reports_when_the_scout_checks(
@@ -831,11 +832,15 @@ class TestWorkflowProposals(APIBaseTest):
         run_hours_ago: int | None,
         precheck_hours_ago: int | None,
         cron: str | None,
+        backoff_level: int,
         last_checked_hours_ago: int | None,
-        next_check_hours_ago: int | None,
+        next_check_in_hours: int | None,
     ):
         flow_id = self._create_active_flow()
         now = timezone.now().replace(microsecond=0)
+
+        def iso(moment: datetime | None) -> str | None:
+            return moment.isoformat().replace("+00:00", "Z") if moment else None
 
         def hours_ago(hours: int | None) -> datetime | None:
             return None if hours is None else now - timedelta(hours=hours)
@@ -845,6 +850,7 @@ class TestWorkflowProposals(APIBaseTest):
             last_precheck_at=hours_ago(precheck_hours_ago),
             run_cron_schedule=cron,
             run_interval_minutes=1440,
+            background_backoff_level=backoff_level,
         )
 
         with patch("products.workflows.backend.services.suggestions_scout.sync_execute", return_value=[]):
@@ -852,9 +858,10 @@ class TestWorkflowProposals(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         schedule = response.json()["schedule"]
-        expected = [hours_ago(last_checked_hours_ago), hours_ago(next_check_hours_ago)]
+        next_check = None if next_check_in_hours is None else now + timedelta(hours=next_check_in_hours)
         assert [schedule["last_checked_at"], schedule["next_check_at"]] == [
-            moment.isoformat().replace("+00:00", "Z") if moment else None for moment in expected
+            iso(hours_ago(last_checked_hours_ago)),
+            iso(next_check),
         ]
 
     @parameterized.expand(
@@ -870,7 +877,7 @@ class TestWorkflowProposals(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization")
 
         assert response.status_code == 200, response.json()
-        assert response.json()["sample"] is None
+        assert (response.json()["sample"], response.json()["schedule"]) == (None, None)
         mock_execute.assert_not_called()
 
     @parameterized.expand(

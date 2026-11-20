@@ -169,7 +169,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
                 <div className="flex flex-col gap-4">
                     {pausedNotice}
                     <WorkflowSuggestionsIntroduction id={id} enabled scoutStatus={scoutStatus} />
-                    {scoutStatus === 'running' ? <WorkflowSuggestionsReadiness id={id} /> : null}
+                    <WorkflowSuggestionsReadiness id={id} />
                 </div>
             )
         }
@@ -189,9 +189,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
                         <p className="mb-0 text-secondary">
                             Nothing to review. Nothing reaches anyone until you approve a suggestion and publish it.
                         </p>
-                        {optimizationEnabled && scoutStatus === 'running' ? (
-                            <WorkflowSuggestionsReadiness id={id} />
-                        ) : null}
+                        {optimizationEnabled ? <WorkflowSuggestionsReadiness id={id} /> : null}
                     </div>
                 ) : (
                     <>

@@ -3,6 +3,8 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import type { HogFlowOptimizationApi } from '../../generated/api.schemas'
 
 export const MIN_VERSION_AGE_HOURS = 48
+// Past this, an overdue check is likely stuck, so the page stops promising one.
+const OVERDUE_GRACE_HOURS = 6
 
 export type ReadinessStepState = 'done' | 'waiting' | 'blocked'
 
@@ -21,18 +23,19 @@ export interface SuggestionReadiness {
     steps: ReadinessStep[]
 }
 
-function formatMoment(moment: Dayjs, now: Dayjs): string {
+function formatMoment(moment: Dayjs, now: Dayjs, preposition: 'at' | 'around'): string {
+    const time = moment.format('h:mm A')
     if (moment.isSame(now, 'day')) {
-        return `today at ${moment.format('h:mm A')}`
+        return `today ${preposition} ${time}`
     }
     if (moment.isSame(now.add(1, 'day'), 'day')) {
-        return `tomorrow at ${moment.format('h:mm A')}`
+        return `tomorrow ${preposition} ${time}`
     }
-    return moment.format('ddd, MMM D [at] h:mm A')
+    return `${moment.format('ddd, MMM D')} ${preposition} ${time}`
 }
 
-function plural(count: number, one: string, many: string): string {
-    return `${count} ${count === 1 ? one : many}`
+function trackedEmails(count: number): string {
+    return `${count === 1 ? 'email' : 'emails'} with open tracking`
 }
 
 export function suggestionReadiness(
@@ -43,73 +46,72 @@ export function suggestionReadiness(
         return null
     }
     const { enabled, sample, schedule } = optimization
-    const steps: ReadinessStep[] = [
-        {
+    const steps: ReadinessStep[] = []
+    if (!enabled) {
+        steps.push({
             key: 'enabled',
             title: 'Suggestions are on',
-            state: enabled ? 'done' : 'blocked',
-            detail: enabled ? 'PostHog may suggest changes to this workflow.' : 'Turn on "Suggest improvements".',
+            state: 'blocked',
+            detail: 'Turn on "Suggest improvements".',
             percent: null,
-        },
-    ]
+        })
+    }
 
     let readyAt: Dayjs | null = null
     let sendsShort = 0
     if (sample) {
         const liveSince = dayjs(sample.version_live_since)
-        readyAt = liveSince.add(MIN_VERSION_AGE_HOURS, 'hour')
-        const ageDone = !readyAt.isAfter(now)
-        const hoursLive = Math.max(0, now.diff(liveSince, 'hour'))
+        const judgeableFrom = liveSince.add(MIN_VERSION_AGE_HOURS, 'hour')
+        const ageDone = !judgeableFrom.isAfter(now)
+        readyAt = ageDone ? null : judgeableFrom
         steps.push({
             key: 'age',
             title: 'Live for 2 days',
-            state: ageDone ? 'done' : 'waiting',
+            state: ageDone ? 'done' : enabled ? 'waiting' : 'blocked',
             detail: ageDone
-                ? `This version went live ${liveSince.fromNow()}.`
-                : `This version went live ${liveSince.fromNow()}. It can be judged from ${formatMoment(readyAt, now)}.`,
-            percent: ageDone ? null : Math.round((hoursLive / MIN_VERSION_AGE_HOURS) * 100),
+                ? `This version went live ${liveSince.from(now)}.`
+                : `This version went live ${liveSince.from(now)}. It can be judged from ${formatMoment(judgeableFrom, now, 'at')}.`,
+            percent: ageDone
+                ? null
+                : Math.round((Math.max(0, now.diff(liveSince, 'hour')) / MIN_VERSION_AGE_HOURS) * 100),
         })
-        if (ageDone) {
-            readyAt = null
-        }
 
         sendsShort = Math.max(0, sample.required_sends - sample.tracked_sends)
         steps.push({
             key: 'sends',
-            title: `${sample.required_sends} tracked sends in 7 days`,
-            state: sendsShort === 0 ? 'done' : 'waiting',
+            title: `${sample.required_sends} ${trackedEmails(sample.required_sends)} in 7 days`,
+            state: sendsShort === 0 ? 'done' : enabled ? 'waiting' : 'blocked',
             detail:
                 sendsShort === 0
-                    ? `The busiest email step had ${sample.tracked_sends} tracked sends in the last 7 days.`
-                    : `${sample.tracked_sends} of ${sample.required_sends} on the busiest email step in the last 7 days. Only emails with open tracking count.`,
+                    ? `The busiest email step sent ${sample.tracked_sends} ${trackedEmails(sample.tracked_sends)} in the last 7 days.`
+                    : `${sample.tracked_sends} of ${sample.required_sends} sent from the busiest email step in the last 7 days.`,
             percent: sendsShort === 0 ? null : Math.round((sample.tracked_sends / sample.required_sends) * 100),
         })
     }
 
     const lastChecked = schedule?.last_checked_at ? dayjs(schedule.last_checked_at) : null
     const nextCheck = schedule?.next_check_at ? dayjs(schedule.next_check_at) : null
-    // A due time in the past means the scout is queued, so the check is imminent rather than missed.
-    const nextCheckText = nextCheck
-        ? nextCheck.isAfter(now)
-            ? `around ${formatMoment(nextCheck, now)}`
-            : 'soon'
-        : null
-    const ready = enabled && (!sample || sample.reached)
-    const scheduleParts = [
-        lastChecked ? `Last checked ${lastChecked.fromNow()}.` : null,
-        nextCheckText ? `Next check ${nextCheckText}.` : 'First check within a day.',
-    ].filter(Boolean)
+    // A due time in the past means the scout is queued, so a check is imminent unless it is long overdue.
+    const nextCheckText = !nextCheck
+        ? null
+        : nextCheck.isAfter(now)
+          ? formatMoment(nextCheck, now, 'around')
+          : now.diff(nextCheck, 'hour') < OVERDUE_GRACE_HOURS
+            ? 'soon'
+            : null
+    // Without a sample, the metrics read failed or there is no email step, so readiness is unknown.
+    const ready = enabled && !!sample && readyAt === null && sendsShort === 0
     steps.push({
         key: 'check',
-        title: 'Daily check',
+        title: 'Scheduled check',
         state: !enabled ? 'blocked' : ready ? 'done' : 'waiting',
         detail: !enabled
-            ? 'PostHog reads this workflow once a day after you turn suggestions on.'
+            ? 'PostHog starts checking this workflow after you turn suggestions on.'
             : ready
-              ? scheduleParts.join(' ')
+              ? 'PostHog checks this workflow on a schedule and files a suggestion when it finds a change worth making.'
               : [
-                    'PostHog reads this workflow once a day and starts suggesting once the steps above are done.',
-                    lastChecked ? `Last checked ${lastChecked.fromNow()}.` : null,
+                    sample ? 'Suggestions can start once the steps above are done.' : null,
+                    lastChecked ? `Last checked ${lastChecked.from(now)}, not enough data yet.` : null,
                 ]
                     .filter(Boolean)
                     .join(' '),
@@ -120,25 +122,27 @@ export function suggestionReadiness(
     let detail: string | null = null
     if (!enabled) {
         headline = 'Turn on suggestions to start'
-        detail = !sample
-            ? null
-            : sample.reached
-              ? 'This workflow has enough data, so the first check runs within a day of turning them on.'
-              : 'You can turn them on now. PostHog starts suggesting once the steps below are done.'
-    } else if (ready) {
-        headline = nextCheckText ? `Next check ${nextCheckText}` : 'First check within a day'
-        detail = lastChecked
-            ? `Last checked ${lastChecked.fromNow()}. No change worth suggesting yet.`
-            : 'This workflow has enough data to judge.'
-    } else {
+        detail = sample?.reached
+            ? 'This workflow has enough data, so the first check runs within a day of turning them on.'
+            : sample
+              ? 'You can turn them on now. PostHog starts suggesting once the steps below are done.'
+              : null
+    } else if (sample && !ready) {
         headline =
             sendsShort > 0
-                ? `Needs ${plural(sendsShort, 'more tracked send', 'more tracked sends')}`
-                : `Can be judged from ${formatMoment(readyAt ?? now, now)}`
+                ? `Needs ${sendsShort} more ${trackedEmails(sendsShort)}`
+                : `Can be judged from ${formatMoment(readyAt ?? now, now, 'at')}`
         detail =
             sendsShort > 0 && readyAt
-                ? `The first daily check after that, and no earlier than ${formatMoment(readyAt, now)}, can suggest a change.`
-                : 'The first daily check after that can suggest a change.'
+                ? `Suggestions can start after that, and no earlier than ${formatMoment(readyAt, now, 'around')}.`
+                : 'Suggestions can start at the first check after that.'
+    } else {
+        headline = nextCheckText
+            ? `Next check ${nextCheckText}`
+            : lastChecked
+              ? 'Waiting for the next check'
+              : 'First check within a day'
+        detail = lastChecked ? `Last checked ${lastChecked.from(now)}.` : null
     }
 
     return { headline, detail, steps }

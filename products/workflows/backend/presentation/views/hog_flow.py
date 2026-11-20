@@ -5063,13 +5063,13 @@ class SuggestionsScheduleSerializer(serializers.Serializer):
     last_checked_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
-        help_text="When the project's suggestions scout last checked its workflows. Null before its first check.",
+        help_text="Roughly when the project's suggestions scout last checked its workflows. Null before its first check.",
     )
     next_check_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
-        help_text="Roughly when the scout checks next. Null before its first check or when a custom schedule "
-        "decides it.",
+        help_text="Roughly when the scout checks next. Null before its first check, or when a custom schedule or a "
+        "backoff decides it.",
     )
 
 
@@ -5091,8 +5091,8 @@ class HogFlowOptimizationSerializer(serializers.Serializer):
     schedule = SuggestionsScheduleSerializer(
         read_only=True,
         allow_null=True,
-        help_text="When the project's suggestions scout last checked and checks next. Null while the project has "
-        "no suggestions scout.",
+        help_text="When the project's suggestions scout last checked and checks next. Null unless the scout is "
+        "running.",
     )
 
 
@@ -7240,7 +7240,7 @@ class HogFlowViewSet(
             except Exception as error:
                 # The sample only adds a line of copy, so a failed metrics read must not fail the setting.
                 capture_exception(error)
-        schedule = suggestions_scout_schedule(self.team) if scout_status != SuggestionsScoutStatus.NOT_RUNNING else None
+        schedule = suggestions_scout_schedule(self.team) if scout_status == SuggestionsScoutStatus.RUNNING else None
         return Response(
             HogFlowOptimizationSerializer(
                 {"enabled": enabled, "scout_status": scout_status, "sample": sample, "schedule": schedule}
