@@ -10,10 +10,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AiObservabilityInstrumentationChecklistRetrieveParams,
+    AiObservabilityOfflineExperimentsItemsDestroyParams,
     AiObservabilityOfflineExperimentsItemsListParams,
+    AiObservabilityOfflineExperimentsItemsPayloadDestroyParams,
     AiObservabilityOfflineExperimentsItemsResultsListParams,
     AiObservabilityOfflineExperimentsListParams,
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
+    AiObservabilityOfflineExperimentsResultsDestroyParams,
+    AiObservabilityOfflineExperimentsResultsPayloadDestroyParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
     AiObservabilityTracesClustersRetrieveParams,
@@ -121,6 +125,7 @@ import type {
     OfflineResultCellsApi,
     OfflineResultPageApi,
     OfflineResultPayloadReadApi,
+    OfflineRevisionApi,
     OfflineSummaryPageApi,
     PaginatedClusteringJobListApi,
     PaginatedDatasetItemReadListApi,
@@ -147,6 +152,10 @@ import type {
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
     PatchedOfflineExperimentMetadataApi,
+    PatchedOfflineItemPayloadUpdateApi,
+    PatchedOfflineItemUpdateApi,
+    PatchedOfflineResultPayloadUpdateApi,
+    PatchedOfflineResultUpdateApi,
     PatchedParserRecipeApi,
     PatchedReviewQueueItemUpdateApi,
     PatchedReviewQueueUpdateApi,
@@ -494,6 +503,66 @@ export const aiObservabilityOfflineExperimentsItemsRetrieve = async (
     })
 }
 
+export const getAiObservabilityOfflineExperimentsItemsPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    itemId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    patchedOfflineItemUpdateApi: PatchedOfflineItemUpdateApi,
+    options?: RequestInit
+): Promise<OfflineRevisionApi> => {
+    return apiMutator<OfflineRevisionApi>(
+        getAiObservabilityOfflineExperimentsItemsPartialUpdateUrl(projectId, id, itemId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedOfflineItemUpdateApi),
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsItemsDestroyUrl = (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params: AiObservabilityOfflineExperimentsItemsDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsDestroy = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params: AiObservabilityOfflineExperimentsItemsDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAiObservabilityOfflineExperimentsItemsDestroyUrl(projectId, id, itemId, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAiObservabilityOfflineExperimentsItemsPayloadRetrieveUrl = (
     projectId: string,
     id: string,
@@ -515,6 +584,66 @@ export const aiObservabilityOfflineExperimentsItemsPayloadRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getAiObservabilityOfflineExperimentsItemsPayloadPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    itemId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsPayloadPartialUpdate = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    patchedOfflineItemPayloadUpdateApi: PatchedOfflineItemPayloadUpdateApi,
+    options?: RequestInit
+): Promise<OfflineRevisionApi> => {
+    return apiMutator<OfflineRevisionApi>(
+        getAiObservabilityOfflineExperimentsItemsPayloadPartialUpdateUrl(projectId, id, itemId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedOfflineItemPayloadUpdateApi),
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsItemsPayloadDestroyUrl = (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params: AiObservabilityOfflineExperimentsItemsPayloadDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/payload/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsPayloadDestroy = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params: AiObservabilityOfflineExperimentsItemsPayloadDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAiObservabilityOfflineExperimentsItemsPayloadDestroyUrl(projectId, id, itemId, params), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 export const getAiObservabilityOfflineExperimentsItemsResultsListUrl = (
@@ -589,6 +718,66 @@ export const aiObservabilityOfflineExperimentsResultCellsRetrieve = async (
     )
 }
 
+export const getAiObservabilityOfflineExperimentsResultsPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    resultId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/`
+}
+
+export const aiObservabilityOfflineExperimentsResultsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    resultId: string,
+    patchedOfflineResultUpdateApi: PatchedOfflineResultUpdateApi,
+    options?: RequestInit
+): Promise<OfflineRevisionApi> => {
+    return apiMutator<OfflineRevisionApi>(
+        getAiObservabilityOfflineExperimentsResultsPartialUpdateUrl(projectId, id, resultId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedOfflineResultUpdateApi),
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsResultsDestroyUrl = (
+    projectId: string,
+    id: string,
+    resultId: string,
+    params: AiObservabilityOfflineExperimentsResultsDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/`
+}
+
+export const aiObservabilityOfflineExperimentsResultsDestroy = async (
+    projectId: string,
+    id: string,
+    resultId: string,
+    params: AiObservabilityOfflineExperimentsResultsDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAiObservabilityOfflineExperimentsResultsDestroyUrl(projectId, id, resultId, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAiObservabilityOfflineExperimentsResultsPayloadRetrieveUrl = (
     projectId: string,
     id: string,
@@ -608,6 +797,69 @@ export const aiObservabilityOfflineExperimentsResultsPayloadRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsResultsPayloadPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    resultId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsResultsPayloadPartialUpdate = async (
+    projectId: string,
+    id: string,
+    resultId: string,
+    patchedOfflineResultPayloadUpdateApi: PatchedOfflineResultPayloadUpdateApi,
+    options?: RequestInit
+): Promise<OfflineRevisionApi> => {
+    return apiMutator<OfflineRevisionApi>(
+        getAiObservabilityOfflineExperimentsResultsPayloadPartialUpdateUrl(projectId, id, resultId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedOfflineResultPayloadUpdateApi),
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsResultsPayloadDestroyUrl = (
+    projectId: string,
+    id: string,
+    resultId: string,
+    params: AiObservabilityOfflineExperimentsResultsPayloadDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/payload/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsResultsPayloadDestroy = async (
+    projectId: string,
+    id: string,
+    resultId: string,
+    params: AiObservabilityOfflineExperimentsResultsPayloadDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(
+        getAiObservabilityOfflineExperimentsResultsPayloadDestroyUrl(projectId, id, resultId, params),
+        {
+            ...options,
+            method: 'DELETE',
         }
     )
 }

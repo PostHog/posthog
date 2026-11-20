@@ -10818,6 +10818,23 @@
             "readOnlyHint": true
         }
     },
+    "llma-offline-experiment-item-payload-update": {
+        "description": "Update fields in an item's payload within 30 days of its original acceptance.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment item payload",
+        "title": "Update offline experiment item payload",
+        "required_scopes": ["evaluation:write"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/payload/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-offline-experiment-item-result-list": {
         "description": "List a single item's results with their exact immutable scorer configurations. Optionally filter by scorer definition or version UUIDs. Execution status ok can still be a failing score under the pinned passing rule. Reasoning is available separately through result-payload-get. Preserve count and next_cursor and keep filters unchanged when paging.",
         "category": "AI observability",
@@ -10833,6 +10850,23 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "llma-offline-experiment-item-update": {
+        "description": "Edit an offline item's case, trial, model, or trace reference.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment item",
+        "title": "Update offline experiment item",
+        "required_scopes": ["evaluation:write"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/items/{item_id}/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "llma-offline-experiment-list": {
@@ -10880,6 +10914,40 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "llma-offline-experiment-result-payload-update": {
+        "description": "Update fields in a result's payload within 30 days of its original acceptance.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment result payload",
+        "title": "Update offline experiment result payload",
+        "required_scopes": ["evaluation:write", "llm_analytics:read"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/payload/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-offline-experiment-result-update": {
+        "description": "Update a reported score. The server recalculates its existing composite results.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment result",
+        "title": "Update offline experiment result",
+        "required_scopes": ["evaluation:write", "llm_analytics:read"],
+        "api_operations": [
+            "PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/results/{result_id}/"
+        ],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "llma-offline-experiment-scorer-summary-list": {
