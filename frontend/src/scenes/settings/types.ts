@@ -211,7 +211,6 @@ export type SettingId =
     | 'feature-flag-require-tags'
     | 'feature-flag-request-blocklist'
     | 'feature-flag-require-evaluation-contexts'
-    | 'feature-flag-secure-api-key'
     | 'feature-flags-interface'
     | 'feature-previews'
     | 'feature-previews-coming-soon'

@@ -199,6 +199,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'transactional_push:write',
     'llm_prompt:read',
     'logs:read',
+    'logs:write',
     'business_knowledge:read',
 ] as const
 

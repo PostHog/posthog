@@ -11,6 +11,7 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import type { DataWarehouseSavedQueryUpdate } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -171,12 +172,10 @@ export interface nodeDetailSceneLogicActions {
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
-        payload?:
-            | import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
-            | undefined
+        payload?: DataWarehouseSavedQueryUpdate | undefined
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
-        payload?: import('scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+        payload?: DataWarehouseSavedQueryUpdate
     } // dataWarehouseViewsLogic
     canonicalizeTab: () => {
         value: true

@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, prop
 import posthog from 'posthog-js'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import type { ErrorTrackingQueryIssueSeverity } from '~/queries/schema/schema-general'
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
 import type {
@@ -126,10 +127,10 @@ export interface issuesDataNodeLogicActions {
     } // issueActionsLogic
     updateIssueSeverity: (
         id: string,
-        severity: null | import('~/queries/schema').ErrorTrackingQueryIssueSeverity
+        severity: ErrorTrackingQueryIssueSeverity | null
     ) => {
         id: string
-        severity: null | import('~/queries/schema').ErrorTrackingQueryIssueSeverity
+        severity: ErrorTrackingQueryIssueSeverity | null
     } // issueActionsLogic
     updateIssueStatus: (
         id: string,
