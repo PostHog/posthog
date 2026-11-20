@@ -19,8 +19,8 @@ pre-existing, and the caller treats any other result as a failed job.
 2. The shard's settings file lists every setting the re-run needs.
 3. The shard's JUnit report names at least one failing test, and every failure resolves to a test id.
    A setup or teardown error does not count as a failure that a base run can reproduce.
-4. The PR changes no migration, lockfile, or pyproject. The reused database and installed packages
-   are then not the base's, so a base failure would prove nothing.
+4. The PR changes no migration, lockfile, pyproject, or source that the shard compiles and installs.
+   The reused database and installed packages are then not the base's, so a base failure would prove nothing.
 5. The base commit fetches and checks out.
 6. Pytest exits 0 or 1. Exit 2, 3, 4, and 5 mean an interrupted run, an internal error, a usage error
    (such as a test id that does not exist on the base), and no tests collected.
@@ -39,8 +39,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-SETTINGS_KEYS = ("PERSON_ON_EVENTS_V2_ENABLED", "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", "PYTEST_ARGS")
+ENV_SETTINGS = ("PERSON_ON_EVENTS_V2_ENABLED", "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
+SETTINGS_KEYS = (*ENV_SETTINGS, "PYTEST_ARGS")
 ENVIRONMENT_FILES = ("uv.lock", "pyproject.toml", ".python-version")
+# The shard installs these from the PR's tree. Checking out the base does not reinstall them.
+INSTALLED_FROM_TREE = ("common/hogql_parser/", "rust/hogql/parser/", "products/canvas/packages/canvas_builder/")
 RETRY_MARKER = '"posthog.runner_name"'
 RETRY_FLAGS = ("--force-reruns", "1", "--reruns-delay", "1")
 # The flags `Run Core tests` passes to every pytest invocation, minus sharding, coverage and timing.
@@ -164,7 +167,7 @@ def environment_changes(run: Runner, base: str) -> list[str]:
     return [
         path
         for path in paths
-        if "/migrations/" in path or path.startswith("migrations/") or path.endswith(ENVIRONMENT_FILES)
+        if "migrations/" in path or path.startswith(INSTALLED_FROM_TREE) or path.endswith(ENVIRONMENT_FILES)
     ]
 
 
@@ -225,10 +228,11 @@ def check(
     out_dir.mkdir(parents=True, exist_ok=True)
     junit_out = out_dir / "junit-base.xml"
     junit_out.unlink(missing_ok=True)
-    env = {**os.environ, **{key: settings[key] for key in SETTINGS_KEYS if key != "PYTEST_ARGS"}}
+    env = {**os.environ, **{key: settings[key] for key in ENV_SETTINGS}}
     retries = RETRY_MARKER in (root / "posthog" / "conftest.py").read_text(errors="replace")
     result = run(pytest_command(ids, junit_out, settings, retries), env)
     print(result.stdout[-4000:])
+    print(result.stderr[-4000:])
     if result.returncode not in (0, 1):
         raise CannotVerify(f"pytest exited {result.returncode} on the base, so it did not run the tests to a verdict")
 
@@ -259,8 +263,8 @@ def main(argv: Sequence[str] | None = None, run: Runner = default_runner) -> int
         return 1
     if regressions:
         print(
-            "::error::A quarantined test that passes on the base fails on this PR, so the PR broke it. "
-            "The quarantine does not apply."
+            "::error::A quarantined test that fails on this PR does not fail on the base, "
+            "so the quarantine does not apply."
         )
         return 1
     return 0

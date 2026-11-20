@@ -85,6 +85,14 @@ def test_failure_that_also_fails_on_base_stays_masked(scenario):
     assert scenario.check() == []
 
 
+def test_shard_settings_reach_the_base_run(scenario):
+    fails_only_with_shard_setting = (
+        "import os\n\n\ndef test_a():\n    assert os.environ.get('PERSON_ON_EVENTS_V2_ENABLED') != 'true'\n"
+    )
+    scenario.build({"tests/test_x.py": fails_only_with_shard_setting}, {"tests/test_x.py": FAILING})
+    assert scenario.check() == []
+
+
 def test_failure_that_passes_on_base_is_a_regression(scenario):
     scenario.build({"tests/test_x.py": PASSING}, {"tests/test_x.py": FAILING})
     assert scenario.check() == ["tests/test_x.py::test_a"]
@@ -124,9 +132,16 @@ def test_test_that_is_new_in_the_pr_is_not_masked(scenario):
         scenario.check()
 
 
-def test_test_that_is_skipped_on_base_is_not_masked(scenario):
-    skipped = "import pytest\n\n\ndef test_a():\n    pytest.skip('no')\n"
-    scenario.build({"tests/test_x.py": skipped}, {"tests/test_x.py": FAILING})
+SKIPPED = "import pytest\n\n\ndef test_a():\n    pytest.skip('no')\n"
+TEARDOWN_ERROR = (
+    "import pytest\n\n\n@pytest.fixture\ndef td():\n    yield\n    raise RuntimeError\n\n\n"
+    "def test_a(td):\n    assert False\n"
+)
+
+
+@pytest.mark.parametrize("base_code", [SKIPPED, TEARDOWN_ERROR], ids=["skipped", "errors-in-teardown"])
+def test_test_that_does_not_plainly_fail_on_base_is_not_masked(scenario, base_code):
+    scenario.build({"tests/test_x.py": base_code}, {"tests/test_x.py": FAILING})
     assert scenario.check() == ["tests/test_x.py::test_a"]
 
 
@@ -145,7 +160,17 @@ def test_base_that_cannot_be_fetched_is_not_masked(scenario):
 
 @pytest.mark.parametrize(
     "path",
-    ["posthog/migrations/0001_x.py", "products/a/backend/migrations/0002_y.py", "uv.lock", "products/a/pyproject.toml"],
+    [
+        "posthog/migrations/0001_x.py",
+        "products/a/backend/migrations/0002_y.py",
+        "migrations/0003_z.py",
+        "rust/persons_migrations/0001_x.sql",
+        "uv.lock",
+        "products/a/pyproject.toml",
+        ".python-version",
+        "common/hogql_parser/HogQLParser.cpp",
+        "rust/hogql/parser/src/lib.rs",
+    ],
 )
 def test_pr_that_changes_the_database_or_packages_is_not_masked(scenario, path):
     scenario.build({"tests/test_x.py": FAILING}, {path: "x\n"})
@@ -200,11 +225,16 @@ def test_event_without_a_base_keeps_the_gate_result(scenario, event):
     ids=["pre-existing", "regression", "cannot-verify"],
 )
 def test_main_exit_code_follows_the_check_result(monkeypatch, outcome, expected_exit):
+    seen = {}
+
     def fake_check(*args):
+        seen["event"] = args[4]
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
 
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
     monkeypatch.setattr(qbc, "check", fake_check)
     argv = ["--junit", "j.xml", "--settings", "s.env", "--out-dir", "out"]
     assert qbc.main(argv) == expected_exit
+    assert seen["event"] == "pull_request"
