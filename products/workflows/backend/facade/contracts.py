@@ -448,7 +448,7 @@ class EmailSendingNextTier:
     days_required: int
     days_reached: int
     # The tier check does not promote a project before this, however much it sends.
-    not_before: datetime | None
+    not_before: datetime
 
 
 @frozen
