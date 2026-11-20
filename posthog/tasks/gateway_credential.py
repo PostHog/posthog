@@ -99,18 +99,24 @@ def reproject_team_gateway_credentials_task(team_id: int) -> None:
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
 def reproject_organization_gateway_credentials_task(organization_id: str) -> None:
-    for secret_key in ProjectSecretAPIKey.objects.select_related("team").filter(
-        team__organization_id=organization_id,
-        scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
-    ):
-        project_gateway_credential(secret_key)
-
-    for token in (
+    querysets = (
+        ProjectSecretAPIKey.objects.using("default")
+        .select_related("team")
+        .filter(team__organization_id=organization_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]),
         OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
+        .using("default")
         .select_related("user", "application")
-        .filter(application__organization_id=organization_id)
-    ):
-        project_gateway_credential(token)
+        .filter(application__organization_id=organization_id),
+    )
+    first_error: Exception | None = None
+    for queryset in querysets:
+        for credential in queryset:
+            try:
+                project_gateway_credential(credential)
+            except Exception as e:
+                first_error = first_error or e
+    if first_error is not None:
+        raise first_error
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

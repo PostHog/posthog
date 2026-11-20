@@ -46,6 +46,7 @@ from posthog.storage.test.cluster_cache import reject_multi_key_commands
 from posthog.tasks.gateway_credential import (
     drain_gateway_credential_last_used_task,
     refresh_gateway_credentials,
+    reproject_organization_gateway_credentials_task,
     reproject_team_gateway_credentials_task,
     reproject_user_gateway_credentials_task,
     update_gateway_credential_cache_task,
@@ -729,6 +730,31 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
         reproject_team_gateway_credentials_task(self.team.pk)
 
         self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
+
+    @parameterized.expand([("two_keys", 2, 0), ("key_and_token", 1, 1), ("two_tokens", 0, 2)])
+    def test_reproject_organization_task_revokes_the_rest_when_one_credential_fails(self, _name, keys, tokens):
+        credentials = [self._make_secret_key([GATEWAY_SCOPE])[0] for _ in range(keys)] + [
+            self._make_oauth(GATEWAY_SCOPE) for _ in range(tokens)
+        ]
+        for credential in credentials:
+            project_gateway_credential(credential)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+
+        delete_cache_entry = hypercache.delete_cache_entry
+        attempted: list[str] = []
+
+        def fail_first_delete(cache_hash: str, kinds: list[str]) -> None:
+            attempted.append(cache_hash)
+            if len(attempted) == 1:
+                raise ConnectionError("redis down")
+            delete_cache_entry(cache_hash, kinds=kinds)
+
+        with patch.object(hypercache, "delete_cache_entry", side_effect=fail_first_delete):
+            with self.assertRaises(ConnectionError):
+                reproject_organization_gateway_credentials_task(str(self.organization.pk))
+
+        still_cached = [c for c in credentials if self._read_blob(credential_hash(c)) is not None]
+        self.assertEqual(len(still_cached), 1)
 
     @patch("posthog.tasks.gateway_credential.settings")
     def test_refresh_task_noop_without_redis_url(self, mock_settings):
