@@ -101,7 +101,7 @@ class TestMintWizardGatewayToken:
         ],
     )
     def test_posts_pinned_attribution_and_bearer(self, mint_url: str, expected_url: str) -> None:
-        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "25"}
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "25", "decision_cap_usd": "0.3"}
         with (
             override_settings(WIZARD_GATEWAY_MINT_URL=mint_url),
             patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
@@ -160,6 +160,30 @@ class TestWizardMintRequest:
         ):
             mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY, cap_usd=cap)
         assert post.call_args.kwargs["json"].get("decision_cap_usd") == expected
+
+    @pytest.mark.parametrize(
+        "configured,echoed,warns",
+        [
+            # A gateway that predates the field mints without it and echoes nothing.
+            ("0.3", None, True),
+            ("0.3", "0.3", False),
+            # Nothing was sent, so there is nothing to miss.
+            ("0", None, False),
+        ],
+    )
+    def test_a_decision_cap_the_gateway_did_not_store_is_logged(self, configured, echoed, warns):
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        if echoed is not None:
+            minted["decision_cap_usd"] = echoed
+        with (
+            override_settings(WIZARD_GATEWAY_DECISION_CAP_USD=configured),
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)),
+            patch("posthog.llm.wizard_gateway_token.logger") as log,
+        ):
+            result = mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
+        assert result["decision_cap_usd"] == echoed
+        logged = [call.args[0] for call in log.warning.call_args_list]
+        assert ("wizard_gateway_token: the gateway did not store the decision cap" in logged) is warns
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=172800)
     def test_ttl_clamped_to_gateway_ceiling(self):

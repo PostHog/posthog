@@ -578,7 +578,7 @@ def mint_wizard_gateway_token(
     program: object = None,
     posture: WizardPosture | None = None,
 ) -> dict[str, Any]:
-    """Mint one run's token; returns {token, expires_at, cap_usd}. Raises
+    """Mint one run's token; returns {token, expires_at, cap_usd, decision_cap_usd}. Raises
     WizardGatewayMintError on any refusal or transport failure; the bearer never
     appears in logs or exception text. `cap_usd`, when set, outranks every
     configured cap and must already be validated; otherwise the program's cap
@@ -649,10 +649,17 @@ def mint_wizard_gateway_token(
         WIZARD_GATEWAY_MINTS.labels(outcome="malformed").inc()
         raise WizardGatewayMintError("mint response missing token or expires_at")
     WIZARD_GATEWAY_MINTS.labels(outcome="ok").inc()
+    if decision_cap is not None and not minted.get("decision_cap_usd"):
+        # The gateway echoes a decision cap it stored, so no echo means it predates the field.
+        logger.warning(
+            "wizard_gateway_token: the gateway did not store the decision cap", decision_cap_usd=decision_cap
+        )
     return {
         "token": minted["token"],
         "expires_at": minted["expires_at"],
         "cap_usd": minted.get("cap_usd"),
+        # None when the gateway stored no decision cap; not sent on to the wizard.
+        "decision_cap_usd": minted.get("decision_cap_usd"),
     }
 
 
