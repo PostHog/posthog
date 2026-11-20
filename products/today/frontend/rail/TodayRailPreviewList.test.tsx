@@ -50,6 +50,12 @@ describe('TodayRailPreviewList usage events', () => {
     test.each([
         ['a plain click on a recent', 'b', {}, { section: 'recents', position: 1, new_tab: false }],
         ['a Cmd click on a pin', 'pin', { metaKey: true }, { section: 'pinned', position: 0, new_tab: true }],
+        [
+            'a Shift click, which stays in this tab',
+            'a',
+            { shiftKey: true },
+            { section: 'recents', position: 0, new_tab: false },
+        ],
     ])('reports %s with its section and position', (_, name, modifiers, expected) => {
         const { getByTitle } = render(
             <TodayRailPreviewList

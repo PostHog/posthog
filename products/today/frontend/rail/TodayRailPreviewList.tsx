@@ -83,12 +83,7 @@ export function TodayRailPreviewList({
                                             render={<LinkPrimitive to={item.href} />}
                                             className={sidebarRowClassName('default')}
                                             onClickCapture={(event) => {
-                                                itemOpened(
-                                                    pane,
-                                                    section.key,
-                                                    position,
-                                                    event.metaKey || event.ctrlKey || event.shiftKey
-                                                )
+                                                itemOpened(pane, section.key, position, event.metaKey || event.ctrlKey)
                                                 onAction()
                                             }}
                                             onClick={() => setPickedPane(pane)}
