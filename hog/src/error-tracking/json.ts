@@ -408,7 +408,63 @@ export function writeString(value: string): string {
     return JSON.stringify(value)
 }
 
-export function writeJson(value: JsonValue, parts: string[] = []): string[] {
+export interface JsonSink {
+    push(...pieces: string[]): unknown
+}
+
+const UTF8_CHUNK_SIZE = 1024 * 1024
+const SHORT_STRING_LENGTH = 64
+const MAX_UTF8_BYTES_PER_CODE_UNIT = 3
+const utf8Encoder = new TextEncoder()
+
+// Collects output as UTF-8 bytes. A joined string of a large map costs two bytes per character
+// when one character is outside Latin-1, on top of the pieces it is joined from.
+export class Utf8Writer implements JsonSink {
+    private readonly full: Buffer[] = []
+    private current = Buffer.allocUnsafe(UTF8_CHUNK_SIZE)
+    private used = 0
+
+    push(...pieces: string[]): void {
+        for (const piece of pieces) {
+            this.write(piece)
+        }
+    }
+
+    private write(text: string): void {
+        if (
+            text.length <= SHORT_STRING_LENGTH &&
+            text.length * MAX_UTF8_BYTES_PER_CODE_UNIT <= this.current.length - this.used
+        ) {
+            this.used += this.current.write(text, this.used, 'utf8')
+            return
+        }
+
+        // `encodeInto` stops at the last whole character that fits, so a chunk never ends inside one.
+        let rest = text
+        for (;;) {
+            const { read, written } = utf8Encoder.encodeInto(rest, this.current.subarray(this.used))
+            this.used += written
+            if (read === rest.length) {
+                return
+            }
+            rest = rest.slice(read)
+            this.full.push(this.current.subarray(0, this.used))
+            this.current = Buffer.allocUnsafe(UTF8_CHUNK_SIZE)
+            this.used = 0
+        }
+    }
+
+    finish(): Buffer[] {
+        // A small last chunk is copied, so a short value doesn't keep a whole chunk alive.
+        const last = this.current.subarray(0, this.used)
+        return [...this.full, this.used < UTF8_CHUNK_SIZE / 2 ? Buffer.from(last) : last]
+    }
+}
+
+export function writeJson<Sink extends JsonSink = string[]>(
+    value: JsonValue,
+    parts: Sink = [] as unknown as Sink
+): Sink {
     if (value === null) {
         parts.push('null')
     } else if (value === true) {
@@ -434,7 +490,7 @@ export function writeJson(value: JsonValue, parts: string[] = []): string[] {
     return parts
 }
 
-export function writeEntries(entries: [string, JsonValue][], parts: string[]): void {
+export function writeEntries(entries: [string, JsonValue][], parts: JsonSink): void {
     parts.push('{')
     entries
         .sort((a, b) => compareUtf8(a[0], b[0]))

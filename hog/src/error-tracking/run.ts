@@ -22,13 +22,22 @@ import {
     type PreparedPair,
 } from './js-flow'
 import { decodeUtf8 } from './json'
-import { cloneMetadata, hermesSkipReason, hermesUpload, isHermesBundlePath } from './kinds/hermes'
+import {
+    cloneMetadata,
+    hermesMapBytes,
+    hermesSkipReason,
+    hermesUpload,
+    isHermesBundlePath,
+    readHermesMap,
+    type HermesMap,
+    type HermesMapSkip,
+} from './kinds/hermes'
 import {
     loadMapContent,
     readPair,
     serializeMapContent,
     SourcePair,
-    type MapContent,
+    type MapIds,
     type ReleaseMode,
     type Skip,
 } from './kinds/js'
@@ -735,10 +744,16 @@ async function uploadArtifacts(
                 'In event mode, exceptions take their release from the app. Pass --release-name, --release-version and --build matching the app identifier, version and build number, or exceptions will report no release.'
             )
         }
-        const maps = composed.map((artifact) => ({
-            artifact,
-            map: loadMapContent(decodeUtf8(readFileSync(artifact.path))),
-        }))
+        // Every map is read before the release is settled, because one that already carries a
+        // release decides whether a release is created. Only its ids stay in memory: the rest waits
+        // in the scratch file, so memory follows the largest map and not the build.
+        const maps = composed.map((artifact) => {
+            const map = storeHermesMap(artifact.path, scratch)
+            // What reading the map left behind is several times its size, and it must be gone
+            // before the next map is read.
+            collect()
+            return { artifact, ...map }
+        })
         // posthog-cli creates the release even in event mode, so PostHog has a row to match the
         // app metadata of an event to.
         let releaseId: string | null = null
@@ -760,9 +775,8 @@ async function uploadArtifacts(
             batchSize: options.batchSize ?? 50,
         }
         let uploadable = 0
-        for (const { artifact, map } of maps) {
-            const reason = hermesSkipReason(map)
-            if (reason) {
+        for (const { artifact, map, reason, body } of maps) {
+            if (reason || body === undefined) {
                 skipped.push({
                     path: artifact.display,
                     reason:
@@ -773,7 +787,12 @@ async function uploadArtifacts(
                 continue
             }
             map.releaseId = options.releaseMode === 'event' ? null : (releaseId ?? map.releaseId)
-            planned.push({ artifact, upload: hermesUpload(map), policy })
+            planned.push({
+                artifact,
+                upload: hermesUpload(map, body, options.dryRun ? sizeOnly : scratch.write),
+                policy,
+            })
+            collect()
             uploadable++
         }
         if (uploadable === 0) {
@@ -961,6 +980,15 @@ async function uploadArtifacts(
     }
 }
 
+function storeHermesMap(
+    path: string,
+    scratch: Scratch
+): { map: MapIds; reason: HermesMapSkip | undefined; body: StoredData | undefined } {
+    const { body, ...map } = readHermesMap(readFileSync(path), 'all')
+    const reason = hermesSkipReason(map)
+    return { map, reason, body: reason === undefined ? scratch.write(...body) : undefined }
+}
+
 // `process`: posthog-cli creates the release first when the flags name one, so a failure there
 // stops the run before any file changes. Otherwise inject resolves it from git as usual.
 export async function processArtifacts(
@@ -1007,10 +1035,10 @@ export interface CloneReport {
     releaseId: string | null
 }
 
-function readMap(cwd: string, path: string, role: string): { path: string; map: MapContent } {
+function readMap(cwd: string, path: string, role: string, parts: 'ids' | 'all'): { path: string; map: HermesMap } {
     const full = resolve(cwd, path)
     try {
-        return { path: full, map: loadMapContent(decodeUtf8(readFileSync(full))) }
+        return { path: full, map: readHermesMap(readFileSync(full), parts) }
     } catch (error) {
         throw new HogError('map_unreadable', `hog couldn't read the ${role} map ${path}: ${(error as Error).message}`)
     }
@@ -1023,8 +1051,12 @@ export async function cloneMaps(
     options: ErrorTrackingOptions
 ): Promise<CloneReport> {
     const cwd = ctx.runtime.cwd()
-    const from = readMap(cwd, fromPath, 'packager')
-    const to = readMap(cwd, toPath, 'composed')
+    // The packager map is only rewritten when its release changes, so the first read keeps its ids
+    // alone, and what it parsed is collected before the composed map is read. Both maps are read
+    // before the release is settled, so a broken map stops the command before it creates one.
+    const from = readMap(cwd, fromPath, 'packager', 'ids')
+    collect()
+    const to = readMap(cwd, toPath, 'composed', options.dryRun ? 'ids' : 'all')
     const warnings: string[] = []
     let reported: ReleaseReport | null = null
     let releaseId: string | null = null
@@ -1051,9 +1083,10 @@ export async function cloneMaps(
     cloneMetadata(from.map, to.map)
     if (!options.dryRun) {
         if (fromChanged) {
-            writeFileSync(from.path, serializeMapContent(from.map))
+            const { body } = readMap(cwd, fromPath, 'packager', 'all').map
+            writeFileSync(from.path, hermesMapBytes(from.map, body))
         }
-        writeFileSync(to.path, serializeMapContent(to.map))
+        writeFileSync(to.path, hermesMapBytes(to.map, to.map.body))
     }
     return {
         dryRun: options.dryRun,

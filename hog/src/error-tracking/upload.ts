@@ -19,6 +19,7 @@ import { contentHash } from './container'
 export interface StoredData {
     readonly length: number
     read(): Uint8Array
+    copyTo(target: Uint8Array, offset: number): void
 }
 
 export type KeepData = (...parts: Uint8Array[]) => StoredData

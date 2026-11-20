@@ -82,9 +82,52 @@ export interface MapContent {
     fields: Map<string, JsonValue>
 }
 
+export type MapIds = Pick<MapContent, 'releaseId' | 'chunkId' | 'debugId'>
+
 // Parses a map like serde's derive: `chunkId` is an alias of `chunk_id`, a repeated known field is an
 // error, nulls read as absent, and any other type for those fields is an error.
 export function loadMapContent(text: string): MapContent {
+    const fields = new Map<string, JsonValue>()
+    return { ...readMapFields(text, (key, value) => fields.set(key, value)), fields }
+}
+
+export class KnownMapFields {
+    readonly ids: MapIds = { releaseId: null, chunkId: null, debugId: null }
+    private readonly seen = new Set<string>()
+
+    constructor(private readonly fail: (message: string) => never) {}
+
+    take(key: string, value: JsonValue): boolean {
+        if (key === 'release_id') {
+            this.ids.releaseId = this.read('release_id', value)
+        } else if (key === 'chunk_id' || key === 'chunkId') {
+            this.ids.chunkId = this.read('chunk_id', value)
+        } else if (key === 'debugId') {
+            this.ids.debugId = this.read('debugId', value)
+        } else {
+            return false
+        }
+        return true
+    }
+
+    private read(name: string, value: JsonValue): string | null {
+        if (this.seen.has(name)) {
+            this.fail(`duplicate field \`${name}\``)
+        }
+        this.seen.add(name)
+        if (value === null) {
+            return null
+        }
+        if (typeof value !== 'string') {
+            this.fail(`invalid type for ${name}: expected a string`)
+        }
+        return value as string
+    }
+}
+
+// Reads the three known fields and hands every other field to `onField` as soon as it is parsed.
+// A caller that keeps none of the values never holds the tree of the whole map.
+export function readMapFields(text: string, onField: (key: string, value: JsonValue) => void): MapIds {
     const parser = new JsonParser(text)
     parser.skipWhitespace()
     if (text[parser.index] !== '{') {
@@ -93,21 +136,7 @@ export function loadMapContent(text: string): MapContent {
     parser.enter()
     parser.index++
     parser.skipWhitespace()
-    const content: MapContent = { releaseId: null, chunkId: null, debugId: null, fields: new Map() }
-    const seen = new Set<string>()
-    const known = (name: string, value: JsonValue): string | null => {
-        if (seen.has(name)) {
-            parser.fail(`duplicate field \`${name}\``)
-        }
-        seen.add(name)
-        if (value === null) {
-            return null
-        }
-        if (typeof value !== 'string') {
-            parser.fail(`invalid type for ${name}: expected a string`)
-        }
-        return value as string
-    }
+    const known = new KnownMapFields((message) => parser.fail(message))
     if (text[parser.index] === '}') {
         parser.index++
     } else {
@@ -123,14 +152,8 @@ export function loadMapContent(text: string): MapContent {
             }
             parser.index++
             const value = parser.value()
-            if (key === 'release_id') {
-                content.releaseId = known('release_id', value)
-            } else if (key === 'chunk_id' || key === 'chunkId') {
-                content.chunkId = known('chunk_id', value)
-            } else if (key === 'debugId') {
-                content.debugId = known('debugId', value)
-            } else {
-                content.fields.set(key, value)
+            if (!known.take(key, value)) {
+                onField(key, value)
             }
             parser.skipWhitespace()
             const next = text[parser.index++]
@@ -144,10 +167,10 @@ export function loadMapContent(text: string): MapContent {
     }
     parser.leave()
     parser.end()
-    return content
+    return known.ids
 }
 
-export function serializeMapContent(content: MapContent): string {
+export function serializeMapIds(content: MapIds): string[] {
     const head: string[] = []
     if (content.releaseId !== null) {
         head.push(`"release_id":${writeString(content.releaseId)}`)
@@ -158,13 +181,18 @@ export function serializeMapContent(content: MapContent): string {
     if (content.debugId !== null) {
         head.push(`"debugId":${writeString(content.debugId)}`)
     }
+    return head
+}
+
+export function serializeMapContent(content: MapContent): string {
+    const head = serializeMapIds(content)
     const body: string[] = []
     writeEntries([...content.fields.entries()], body)
     const inner = body.join('').slice(1, -1)
     return `{${[...head, ...(inner ? [inner] : [])].join(',')}}`
 }
 
-function isEmptyMap(get: (key: string) => JsonValue | undefined): boolean {
+export function isEmptyMap(get: (key: string) => JsonValue | undefined): boolean {
     const mappings = get('mappings')
     const sources = get('sources')
     const names = get('names')

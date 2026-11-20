@@ -23,17 +23,21 @@ export class Scratch {
         }
 
         const length = this.size - start
+        const copyTo = (target: Uint8Array, offset: number): void => {
+            for (let read = 0; read < length; ) {
+                const count = readSync(descriptor, target, offset + read, length - read, start + read)
+                if (count === 0) {
+                    throw new Error('The temporary upload file is shorter than what hog wrote to it.')
+                }
+                read += count
+            }
+        }
         return {
             length,
+            copyTo,
             read: () => {
                 const out = Buffer.allocUnsafe(length)
-                for (let read = 0; read < length; ) {
-                    const count = readSync(descriptor, out, read, length - read, start + read)
-                    if (count === 0) {
-                        throw new Error('The temporary upload file is shorter than what hog wrote to it.')
-                    }
-                    read += count
-                }
+                copyTo(out, 0)
                 return out
             },
         }
@@ -70,9 +74,12 @@ export class Scratch {
     }
 }
 
+const noDryRunData = (): never => {
+    throw new Error('A dry run keeps no upload data.')
+}
+
 export const sizeOnly = (...parts: Uint8Array[]): StoredData => ({
     length: parts.reduce((sum, bytes) => sum + bytes.length, 0),
-    read: () => {
-        throw new Error('A dry run keeps no upload data.')
-    },
+    read: noDryRunData,
+    copyTo: noDryRunData,
 })
