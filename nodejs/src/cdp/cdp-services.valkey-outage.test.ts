@@ -5,7 +5,7 @@ import path from 'path'
 import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpValkeyShadowPools } from './cdp-services'
@@ -75,8 +75,6 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
     const openedClients = new Set<Redis.Redis>()
 
     beforeEach(() => {
-        jest.spyOn(process, 'kill').mockImplementation(() => true)
-        jest.spyOn(process, 'exit').mockImplementation(() => undefined as never)
         const connectClient = Redis.prototype.connect
         jest.spyOn(Redis.prototype, 'connect').mockImplementation(function (this: Redis.Redis) {
             openedClients.add(this)
@@ -135,7 +133,7 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
                 const upstream = connect(defaultConfig.CDP_VALKEY_PORT, '127.0.0.1')
                 const connection: ProxiedConnection = { client, upstream, forwarding: answerNewConnections, held: [] }
                 connections.push(connection)
-                client.on('data', (data) => {
+                client.on('data', (data: Buffer) => {
                     if (connection.forwarding) {
                         upstream.write(data)
                         return
@@ -212,6 +210,31 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             return value
         }
 
+        const connectionOf = (client: RedisClient): ProxiedConnection | undefined => {
+            const localPort = (client as unknown as { stream: Socket }).stream.localPort
+            return connections.find((connection) => connection.client.remotePort === localPort)
+        }
+
+        const reconnectHoldingTheReadinessCheck = async (pool: RedisV2): Promise<ProxiedConnection> => {
+            let lend: (client: RedisClient) => void = () => {}
+            const borrowed = new Promise<RedisClient>((resolve) => (lend = resolve))
+            const clientSawTheDrop = pool.useClient({ name: 'watch-drop' }, (client) => {
+                lend(client)
+                return new Promise((resolve) => client.once('close', resolve))
+            })
+            const client = await borrowed
+            await dropConnections()
+            await clientSawTheDrop
+            holdNewConnections()
+            await reopenProxy()
+            let connection = connectionOf(client)
+            while (!connection?.held.length) {
+                await aConnectionHoldsData()
+                connection = connectionOf(client)
+            }
+            return connection
+        }
+
         const dropConnectionsAndWaitForTheClientToNotice = async (): Promise<void> => {
             const clientSawTheDrop = writer.useClient(
                 { name: 'watch-drop' },
@@ -259,13 +282,7 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
         }, 30_000)
 
         it('keeps a reconnecting client that a call borrows during its readiness check', async () => {
-            await dropConnectionsAndWaitForTheClientToNotice()
-            holdNewConnections()
-            const readinessCheckHeld = aConnectionHoldsData()
-            await reopenProxy()
-            await readinessCheckHeld
-
-            const reconnectedConnection = connections[connections.length - 1]
+            const reconnectedConnection = await reconnectHoldingTheReadinessCheck(writer)
 
             const answer = writer.useClient({ name: 'during-readiness-check' }, (client) => client.ping())
             answerOnly(reconnectedConnection)
@@ -289,16 +306,7 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             expect(await poolWithoutAnOfflineQueue.useClient({ name: 'warm' }, (client) => client.ping())).toEqual(
                 'PONG'
             )
-            const clientSawTheDrop = poolWithoutAnOfflineQueue.useClient(
-                { name: 'watch-drop' },
-                (client) => new Promise((resolve) => client.once('close', resolve))
-            )
-            await dropConnections()
-            await clientSawTheDrop
-            holdNewConnections()
-            const readinessCheckHeld = aConnectionHoldsData()
-            await reopenProxy()
-            await readinessCheckHeld
+            await reconnectHoldingTheReadinessCheck(poolWithoutAnOfflineQueue)
 
             const answer = poolWithoutAnOfflineQueue.useClient({ name: 'during-readiness-check' }, (client) =>
                 client.ping()
@@ -308,12 +316,19 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
             expect(await answer).toEqual('PONG')
         }, 30_000)
 
-        it('counts a fail-open call whose command times out', async () => {
+        it('counts fail-open calls whose command times out', async () => {
             stopAnsweringOpenConnections()
+            holdNewConnections()
 
+            const pipelineResults = await writer.usePipeline(
+                { name: 'fail-open-pipeline-command-timeout', failOpen: true },
+                (pipeline) => pipeline.ping()
+            )
+            expect(pipelineResults?.[0]?.[0]).toBeInstanceOf(Error)
             expect(
                 await writer.useClient({ name: 'fail-open-command-timeout', failOpen: true }, (client) => client.ping())
             ).toBeNull()
+            expect(await callsFailedOpen('fail-open-pipeline-command-timeout')).toBe(1)
             expect(await callsFailedOpen('fail-open-command-timeout')).toBe(1)
         }, 30_000)
 

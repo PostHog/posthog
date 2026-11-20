@@ -335,11 +335,15 @@ export function createCdpReaderRedisPool(
 
 const shadowCallsFailedOpenTotal = new Counter({
     name: 'cdp_valkey_shadow_calls_failed_open_total',
-    help: 'Shadow Valkey calls that failed and returned null because the caller asked to fail open.',
+    help: 'Shadow Valkey calls with failOpen that failed: a pool or command error that returned null, or a pipeline with a failed command.',
     labelNames: ['name'],
 })
 
 function failOpenOnAnyError(pool: RedisV2): RedisV2 {
+    const countFailedOpen = (options: RedisOptions, error: unknown): void => {
+        shadowCallsFailedOpenTotal.inc({ name: options.name })
+        logger.warn('🪞', `[${options.name}] shadow valkey call failed open`, { error: String(error) })
+    }
     const failOpen = async <T>(options: RedisOptions, call: () => Promise<T | null>): Promise<T | null> => {
         try {
             return await call()
@@ -347,16 +351,23 @@ function failOpenOnAnyError(pool: RedisV2): RedisV2 {
             if (!options.failOpen) {
                 throw error
             }
-            shadowCallsFailedOpenTotal.inc({ name: options.name })
-            logger.warn('🪞', `[${options.name}] shadow valkey call failed open`, { error: String(error) })
+            countFailedOpen(options, error)
             return null
         }
     }
     return {
         useClient: (options, callback) =>
             failOpen(options, () => pool.useClient({ ...options, failOpen: false }, callback)),
-        usePipeline: (options, callback) =>
-            failOpen(options, () => pool.usePipeline({ ...options, failOpen: false }, callback)),
+        usePipeline: async (options, callback) => {
+            const results = await failOpen(options, () => pool.usePipeline({ ...options, failOpen: false }, callback))
+            // ioredis resolves a pipeline whose commands failed, with the errors in the results, so the catch above
+            // never sees a command that timed out inside a pipeline.
+            const commandError = results?.find(([error]) => error)?.[0]
+            if (options.failOpen && commandError) {
+                countFailedOpen(options, commandError)
+            }
+            return results
+        },
     }
 }
 
