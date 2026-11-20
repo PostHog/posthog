@@ -52,7 +52,7 @@ export function ToolRow({ tool, teamScope = false, onPolicyChange, disabledReaso
                 onPolicyChange={onPolicyChange}
                 policyDisabledReason={policyDisabledReason}
                 disabledStates={disabledStates}
-                inputSchema={formatInputSchema(tool.input_schema)}
+                inputSchema={expanded ? formatInputSchema(tool.input_schema) : ''}
             />
         )
     }

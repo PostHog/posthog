@@ -82,7 +82,9 @@ export function QuillDeleteKeyDialog({
                                     <Text
                                         size="xs"
                                         variant="muted"
-                                        render={<ul className="m-0 flex list-disc flex-col gap-1 pl-4" />}
+                                        render={
+                                            <ul className="m-0 flex max-h-48 list-disc flex-col gap-1 overflow-y-auto pl-4" />
+                                        }
                                     >
                                         {evaluations.map((evaluation) => (
                                             <li key={evaluation.id}>{evaluation.name}</li>
