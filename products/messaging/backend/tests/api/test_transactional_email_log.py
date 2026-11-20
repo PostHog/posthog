@@ -284,6 +284,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_shows_a_send_with_tracking_off_as_sent_without_a_reason(self, _flag):
         message_id = self._send(10, "jane@example.com", [("sent", 1, "untracked"), ("delivered", 2, "")])
         sent_id = self._send(5, "bob@example.com", [("sent", 1, "untracked")])
+        self._send(3, "ann@example.com", [("sent", 1, "relayed")])
 
         body = self.client.get(self._url(f"{sent_id}/")).json()
         delivered_body = self.client.get(self._url(f"{message_id}/")).json()
@@ -297,6 +298,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ]
         listed = self.client.get(self._url()).json()["results"]
         assert [(row["recipient"], row["status"], row["reason"]) for row in listed] == [
+            ("ann@example.com", "sent", "relayed"),
             ("bob@example.com", "sent", None),
             ("jane@example.com", "delivered", None),
         ]
@@ -705,12 +707,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._send(3 * 24 * 60, "queued-before@example.com", [("sent", 2 * 86400, "untracked")])
         self._send(24 * 60, "queued-inside@example.com", [("sent", 1, "untracked")])
         self._send(13 * 60, "sent-after-the-period@example.com", [("sent", 2 * 3600, "untracked")])
+        self._send(14 * 60, "also-sent-after-the-period@example.com", [("sent", 3 * 3600, "untracked")])
 
         impact = self._impact(
             date_from=(NOW - timedelta(days=2)).isoformat(), date_to=(NOW - timedelta(hours=12)).isoformat()
         )
 
-        assert (impact["sent"], impact["untracked"]) == (2, 2)
+        assert (impact["sent"], impact["untracked"]) == (3, 3)
 
     def test_hides_the_sends_of_a_workflow_the_user_cannot_view(self, _flag):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
