@@ -785,6 +785,18 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
                             .describe(
                                 "Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.\n\n\* `all_at_creation` - Every variant the experiment had when the scanner was made\n\* `user` - A subset someone picked"
                             ),
+                        balance: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                "Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true."
+                            ),
+                        start_on_launch: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false.'
+                            ),
                     })
                     .describe(
                         'An experiment scope: the sessions of people exposed to an experiment, labeled by variant.'
@@ -995,6 +1007,18 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
                             .optional()
                             .describe(
                                 "Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.\n\n\* `all_at_creation` - Every variant the experiment had when the scanner was made\n\* `user` - A subset someone picked"
+                            ),
+                        balance: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                "Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true."
+                            ),
+                        start_on_launch: zod
+                            .boolean()
+                            .optional()
+                            .describe(
+                                'Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false.'
                             ),
                     })
                     .describe(

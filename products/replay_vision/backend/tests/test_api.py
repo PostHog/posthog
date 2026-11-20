@@ -1919,6 +1919,41 @@ class TestScannerScope(_VisionAPITestCase):
         scanner.refresh_from_db()
         self.assertEqual(scanner.name, "new-name")
 
+    def test_a_rename_keeps_the_scope_settings_it_resends(self) -> None:
+        # The settings the scope carries are not scan config the editor shows; it echoes back
+        # whatever it read. A field left off the scope serializer is dropped from that resend, and
+        # every changed-scope guard compares the stripped dict against the stored blob, so an
+        # unchanged resend reads as a new scope write and overwrites the setting with its default:
+        # the scanner would start sampling evenly, or stop waiting for its launch.
+        scanner = self._create_scanner(
+            name="settings-bearing",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={
+                "prompt": "p",
+                "experiment_id": self.experiment.id,
+                "variants": ["control"],
+                "balance_variants": False,
+                "start_on_launch": True,
+            },
+            enabled=False,
+        )
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scope.get("balance"), False)
+        self.assertEqual(scanner.scope.get("start_on_launch"), True)
+
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=False):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/",
+                data={"name": "renamed", "scope": scanner.scope},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.name, "renamed")
+        self.assertEqual(scanner.scope.get("balance"), False)
+        self.assertEqual(scanner.scope.get("start_on_launch"), True)
+
     def test_a_save_that_resends_targeting_and_its_mirrored_scope_passes(self) -> None:
         # A read of a targeted scanner returns both stores, so the editor sends both back.
         scanner = self._create_scanner(name="targeted", experiment_targeting={"experiment_id": self.experiment.id})

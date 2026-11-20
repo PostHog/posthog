@@ -82775,6 +82775,10 @@ export namespace Schemas {
        * * `all_at_creation` - Every variant the experiment had when the scanner was made
        * * `user` - A subset someone picked */
       variants_source?: VariantsSourceEnum;
+      /** Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true. */
+      balance?: boolean;
+      /** Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false. */
+      start_on_launch?: boolean;
     }
 
     /**

@@ -507,6 +507,27 @@ class ScannerExperimentScopeSerializer(serializers.Serializer):
             "or a subset someone picked. The launch receiver adds new variants only to the first."
         ),
     )
+    # Declared so a caller that sends back the scope it read keeps them. `to_internal_value` returns
+    # only the declared fields, so an undeclared setting is dropped from the resend, and every
+    # changed-scope guard compares that stripped dict against the full stored blob: an unchanged
+    # resend reads as a new scope write, which overwrites the setting with its default. A scanner
+    # sampling proportionally would start sampling evenly on its next sweep, and one waiting for a
+    # launch would stop waiting. `required=False` and the stored blob's `exclude_defaults` keep a
+    # defaulted value out of what is persisted, so the shape the mirror compares against is unchanged.
+    balance = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the budget is spent about evenly across the watched variants. False samples "
+            "them proportionally to the experiment's rollout. Defaults to true."
+        ),
+    )
+    start_on_launch = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether a scanner saved off against a draft experiment turns itself on when that "
+            "experiment launches. Cleared once it starts. Defaults to false."
+        ),
+    )
 
     def validate_variants(self, value: list[str]) -> list[str]:
         """Refuse repeats rather than dropping them, because a caller that sent the same variant
