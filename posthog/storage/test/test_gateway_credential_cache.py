@@ -351,6 +351,19 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         project_gateway_credential(credential)
         self.assertIsNone(self._read_blob(cache_hash))
 
+    def test_a_projection_that_races_a_deactivation_leaves_no_blob(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        real_write = hypercache.set_cache_value_redis_only
+
+        def deactivate_then_write(*args, **kwargs):
+            Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+            real_write(*args, **kwargs)
+
+        with patch.object(hypercache, "set_cache_value_redis_only", side_effect=deactivate_then_write):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
     def test_expired_oauth_token_clears(self):
         credential = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=-1)
         project_gateway_credential(credential)
@@ -527,7 +540,7 @@ class TestGatewayCredentialRefresh(GatewayCredentialTestMixin):
             refresh_all_gateway_credentials()
 
         written = [key for key in keys if self._read_blob(credential_hash(key)) is not None]
-        self.assertEqual(len(written), 1)
+        self.assertEqual(written, [])
 
     @contextmanager
     def _failing_blob_writes(
