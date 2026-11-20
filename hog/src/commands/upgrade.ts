@@ -7,7 +7,8 @@ import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
-import { extractFile, findFile } from '@/updates/archive'
+import { checkWorker } from '@/error-tracking/worker'
+import { brokenArchive, extractAll } from '@/updates/archive'
 import { rememberRelease } from '@/updates/check'
 import {
     detectInstallMethod,
@@ -18,7 +19,7 @@ import {
 } from '@/updates/install-method'
 import { type Artifact, fetchManifest, type Manifest } from '@/updates/manifest'
 import { GITHUB_REPOSITORY, releasesUrl } from '@/updates/release-urls'
-import { binaryName, targetFor, workerName } from '@/updates/targets'
+import { binaryName, targetFor } from '@/updates/targets'
 import { isNewer, parseVersion } from '@/updates/version'
 
 const VersionOption = z
@@ -105,18 +106,7 @@ function sha256(bytes: Uint8Array): string {
     return createHash('sha256').update(bytes).digest('hex')
 }
 
-// The path follows the platform hog runs on, not the one of this code.
-function workerPathFor(runtime: Runtime, hogPath: string): string {
-    const path = runtime.platform === 'win32' ? win32 : posix
-    return path.join(path.dirname(hogPath), workerName(runtime.platform))
-}
-
-async function replaceSelf(
-    runtime: Runtime,
-    method: InstallMethod,
-    manifest: Manifest,
-    options: { onlyWithWorker?: boolean } = {}
-): Promise<boolean> {
+async function replaceSelf(runtime: Runtime, method: InstallMethod, manifest: Manifest): Promise<void> {
     const target = targetFor(runtime.platform, runtime.arch, await runtime.isMusl())
     const artifact: Artifact | undefined = target && manifest.artifacts[target.id]
     if (!target || !artifact) {
@@ -144,15 +134,18 @@ async function replaceSelf(
         )
     }
 
-    const binary = extractFile(archive, artifact.file, binaryName(target))
-    // A release from before hog-worker has no worker, and that hog runs without one.
-    const worker = findFile(archive, artifact.file, workerName(target.os))
-    if (!worker && options.onlyWithWorker) {
-        return false
+    const files = extractAll(archive, artifact.file)
+    const binary = files.get(binaryName(target))
+    if (!binary) {
+        throw brokenArchive(`it has no ${binaryName(target)}`)
     }
+    files.delete(binaryName(target))
+    // The paths follow the platform hog runs on, not the one of this code. hog goes last, so a
+    // failure before it leaves the old hog with the old files.
+    const path = runtime.platform === 'win32' ? win32 : posix
     try {
         await runtime.replaceExecutables([
-            ...(worker ? [{ path: workerPathFor(runtime, method.path), contents: worker }] : []),
+            ...[...files].map(([name, contents]) => ({ path: path.join(path.dirname(method.path), name), contents })),
             { path: method.path, contents: binary },
         ])
     } catch (error) {
@@ -166,7 +159,6 @@ async function replaceSelf(
         }
         throw error
     }
-    return true
 }
 
 export default defineCommand({
@@ -225,13 +217,17 @@ export default defineCommand({
         })
 
         if (!updateAvailable) {
-            // A hog that an older hog installed, which knew of no worker, has none next to it.
-            const lacksWorker =
-                !options.check &&
-                selfUpdates(method) &&
-                manifest.version === current &&
-                !(await runtime.exists(workerPathFor(runtime, method.path)))
-            if (lacksWorker && (await replaceSelf(runtime, method, manifest, { onlyWithWorker: true }))) {
+            // An older hog replaces only itself, so the files next to this one can be missing or from that release.
+            const intact =
+                options.check ||
+                !selfUpdates(method) ||
+                manifest.version !== current ||
+                (await checkWorker({ ...runtime, execPath: method.path }).then(
+                    () => true,
+                    () => false
+                ))
+            if (!intact) {
+                await replaceSelf(runtime, method, manifest)
                 return result('repaired', null)
             }
             return result('up_to_date', null)
@@ -283,7 +279,7 @@ export default defineCommand({
                 return
             case 'repaired':
                 out.report({
-                    result: `Installed hog-worker ${result.current}, which was missing`,
+                    result: `Installed hog ${result.current} again, because the files next to it didn't match it`,
                     effects: [`Replaced ${path}`],
                 })
                 return

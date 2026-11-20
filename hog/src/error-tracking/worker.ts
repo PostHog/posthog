@@ -7,8 +7,9 @@ import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import { canonical } from '@/core/paths'
 import { FROM_SOURCE, type Runtime } from '@/core/runtime'
 import { parseOrThrow, type Schema } from '@/core/schema'
-import { classifyPath } from '@/updates/install-method'
+import { classifyPath, type InstallMethod, upgradeAdvice, upgradeCommand } from '@/updates/install-method'
 import { workerName } from '@/updates/targets'
+import { BUILD_DATE, VERSION } from '@/version'
 
 import type { ReleaseMode } from './session'
 
@@ -33,16 +34,10 @@ export function workerPath(runtime: Pick<Runtime, 'isDevelopment' | 'execPath' |
     return path.join(path.dirname(canonical(runtime.execPath)), name)
 }
 
-// `hog upgrade` fetches a missing worker, but it can't tell a worker from another release.
-export function reinstallHint(path: string, problem: 'missing' | 'mismatch'): string {
-    const install = classifyPath(path)
-    if (install?.kind === 'homebrew') {
-        return 'Run `brew reinstall hog` to get both.'
-    }
-    if (install) {
-        return 'Install the hog package again with your package manager to get both.'
-    }
-    return problem === 'missing' ? 'Run `hog upgrade` to get it.' : 'Install hog again to replace both.'
+function upgradeHint(path: string): string {
+    const method: InstallMethod = { kind: 'standalone', ...classifyPath(path), path }
+    const command = upgradeCommand(method)
+    return command ? `Run \`${command}\`.` : upgradeAdvice(method, '<command>')
 }
 
 const Hello = z.object({ type: z.literal('hello'), protocol: z.number(), version: z.string() })
@@ -243,7 +238,8 @@ export class Worker {
             isDevelopment: FROM_SOURCE,
             execPath: process.execPath,
             platform: process.platform,
-        })
+        }),
+        private readonly build: Runtime['build'] = { version: VERSION, date: BUILD_DATE }
     ) {}
 
     // Started by the first request, so a command that fails on its arguments never starts one.
@@ -258,21 +254,26 @@ export class Worker {
                     `hog couldn't start hog-worker at ${this.path}: ${(error as Error).message}`,
                     FROM_SOURCE
                         ? 'Run `pnpm --filter hog build:worker` to build it.'
-                        : `hog-worker ships next to hog. ${reinstallHint(this.path, 'missing')}`
+                        : `hog-worker ships next to hog. ${upgradeHint(this.path)}`
                 )
             }
             const lines = readLines(child.stdout)
 
             const first = await lines.next()
             const hello = first.done ? undefined : parseJsonOrUndefined(first.value, Hello)
-            if (hello?.protocol !== WORKER_PROTOCOL) {
+            // A released hog and its worker carry one version. A dev build has only the protocol to compare.
+            const released = this.build.date !== undefined
+            const matches = released ? hello?.version === this.build.version : hello?.protocol === WORKER_PROTOCOL
+            if (!hello || !matches) {
                 child.kill()
                 throw new HogError(
                     'worker_mismatch',
-                    hello
-                        ? `hog-worker ${hello.version} at ${this.path} speaks protocol ${hello.protocol}, and this hog needs protocol ${WORKER_PROTOCOL}.`
-                        : `The program at ${this.path} didn't answer like hog-worker.`,
-                    `hog and hog-worker must come from the same release. ${reinstallHint(this.path, 'mismatch')}`
+                    !hello
+                        ? `The program at ${this.path} didn't answer like hog-worker.`
+                        : released
+                          ? `hog-worker ${hello.version} at ${this.path} isn't from this release of hog, ${this.build.version}.`
+                          : `hog-worker ${hello.version} at ${this.path} speaks protocol ${hello.protocol}, and this hog needs protocol ${WORKER_PROTOCOL}.`,
+                    `hog and hog-worker must come from the same release. ${upgradeHint(this.path)}`
                 )
             }
             return { child, lines }
@@ -427,6 +428,14 @@ export class Worker {
         return this.call({ op: 'wrap', path, kind, out }, Wrapped)
     }
 
+    async check(): Promise<void> {
+        try {
+            await this.start()
+        } finally {
+            await this.close()
+        }
+    }
+
     async close(): Promise<void> {
         const running = await this.running?.catch(() => undefined)
         if (running) {
@@ -434,6 +443,12 @@ export class Worker {
             await running.child.exited
         }
     }
+}
+
+export function checkWorker(
+    runtime: Pick<Runtime, 'isDevelopment' | 'execPath' | 'platform' | 'build'>
+): Promise<void> {
+    return new Worker(workerPath(runtime), runtime.build).check()
 }
 
 const workers = new WeakMap<Context, Worker>()

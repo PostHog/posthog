@@ -126,11 +126,13 @@ ${block('linux-x64')}
   end
 
   def install
-    bin.install "hog", "hog-worker"
+    bin.install Dir["*"]
   end
 
   test do
-    assert_match version.to_s, shell_output("#{bin}/hog --version")
+    with_env(HOG_CHECK_INSTALL: "1") do
+      assert_match version.to_s, shell_output("#{bin}/hog --version")
+    end
   end
 end
 `

@@ -132,39 +132,34 @@ function Install-Hog {
         $binary = Join-Path $tmp 'unpacked\hog.exe'
         if (-not (Test-Path $binary)) { throw "$archive has no hog.exe." }
 
-        # A release from before hog-worker has no worker, and that hog runs without one.
-        $worker = Join-Path $tmp 'unpacked\hog-worker.exe'
-        $hasWorker = Test-Path $worker
-
         # Run before the swap, so a build that can't run here never replaces a working hog. A build Windows
-        # can't start throws instead of setting an exit code. hog-worker says hello and stops when its
-        # input ends.
+        # can't start throws instead of setting an exit code. HOG_CHECK_INSTALL makes hog check the files
+        # that ship next to it. A release from before that check ignores it.
         $runs = $false
         try {
+            $env:HOG_CHECK_INSTALL = '1'
             $installed = & $binary --version
             $runs = ($LASTEXITCODE -eq 0) -and $installed
-            if ($runs -and $hasWorker) {
-                $null | & $worker | Out-Null
-                $runs = $LASTEXITCODE -eq 0
-            }
         } catch {
             $runs = $false
+        } finally {
+            Remove-Item Env:HOG_CHECK_INSTALL -ErrorAction SilentlyContinue
         }
         if (-not $runs) { throw "hog $Version doesn't run on this machine, so the install changed nothing." }
 
         # Windows can't overwrite a running exe, but it can rename one. Each old copy goes aside, and all
-        # of them come back if a new one can't take its place. hog starts only the hog-worker in its own
-        # folder, and the two must come from one release, so a failed install keeps the old pair.
+        # of them come back if a new one can't take its place, because the files of a release work only
+        # together.
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
         $exe = Join-Path $InstallDir 'hog.exe'
-        $names = if ($hasWorker) { @('hog-worker', 'hog') } else { @('hog') }
+        $files = Get-ChildItem -File (Join-Path $tmp 'unpacked') | Where-Object { -not $_.Name.StartsWith('.') }
         $swapped = @()
         try {
-            foreach ($name in $names) {
+            foreach ($file in $files) {
                 $swap = @{
-                    New = Join-Path $tmp "unpacked\$name.exe"
-                    Exe = Join-Path $InstallDir "$name.exe"
-                    Old = Join-Path $InstallDir "$name.old.exe"
+                    New = $file.FullName
+                    Exe = Join-Path $InstallDir $file.Name
+                    Old = Join-Path $InstallDir "$($file.BaseName).old$($file.Extension)"
                     HadOld = $false
                 }
                 if (Test-Path $swap.Old) { Remove-Item -Force $swap.Old -ErrorAction SilentlyContinue }

@@ -32,13 +32,15 @@ import {
 import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
 import { parseJsonOrUndefined } from '@/core/json'
 import { Output } from '@/core/output'
-import type { Runtime } from '@/core/runtime'
+import { keptPath, type Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
 import { joinList, kebabCase } from '@/core/text'
+import { checkWorker } from '@/error-tracking/worker'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
 import { UpdateCheck, updateChecksOff } from '@/updates/check'
+import { shippedBinaries, targetFor } from '@/updates/targets'
 import { VERSION } from '@/version'
 
 const CODE_WIDTH = Math.max(...EXIT_CODES.map(({ code }) => String(code).length))
@@ -553,15 +555,13 @@ function tlsOff(tokens: Token[], runtime: Runtime): boolean {
     )
 }
 
-const REPLACED_BINARIES = ['hog.old.exe', 'hog-worker.old.exe']
-
-// Windows can't replace a running exe, so `hog upgrade` renamed hog.exe and hog-worker.exe. They
-// aren't running any more.
+// Windows can't replace a running exe, so `hog upgrade` renamed the ones it replaced. They aren't
+// running any more.
 async function removeReplacedBinary(runtime: Runtime): Promise<void> {
-    if (runtime.platform === 'win32' && !runtime.isDevelopment) {
-        for (const name of REPLACED_BINARIES) {
-            await runtime.removeFile(win32.join(win32.dirname(runtime.execPath), name)).catch(() => {})
-        }
+    const target = runtime.platform === 'win32' && !runtime.isDevelopment && targetFor('win32', runtime.arch, false)
+    for (const name of target ? shippedBinaries(target) : []) {
+        const replaced = keptPath(win32.join(win32.dirname(runtime.execPath), name), '', 'win32')
+        await runtime.removeFile(replaced).catch(() => {})
     }
 }
 
@@ -648,6 +648,14 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         commandIndex === undefined &&
         tokens.some((token) => token.kind === 'option' && ['version', 'V'].includes(token.name))
     ) {
+        // The installers and the release workflow set this, to check what ships next to hog before they keep it.
+        if (runtime.env.HOG_CHECK_INSTALL) {
+            const failure = await checkWorker(runtime).catch((error: unknown) => error)
+            if (failure) {
+                runtime.writeStderr(`${failure instanceof HogError ? `${failure.message} ${failure.hint}` : failure}\n`)
+                return EXIT_FAILURE
+            }
+        }
         runtime.writeStdout(`${VERSION}\n`)
         return EXIT_SUCCESS
     }

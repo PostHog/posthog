@@ -357,7 +357,7 @@ hog starts only the `hog-worker` in its own folder, and the two must come from t
 A hog that can't use its worker stops before it changes a file:
 
 - `worker_missing`: no `hog-worker` sits next to `hog`, for example in an image that copied only the `hog` binary. Copy both files, or follow the hint, which names the command for your install, such as `hog upgrade`.
-- `worker_mismatch`: the `hog-worker` next to `hog` comes from another release, or is another program. Install hog again to replace both.
+- `worker_mismatch`: the `hog-worker` next to `hog` comes from another release, or is another program. Follow the hint, which names the command for your install. For a copy the install script put there, `hog upgrade` installs the same version again when the two don't match.
 
 hog uploads the same bytes and content hashes as posthog-cli, so either CLI can re-upload what the other uploaded. A few things differ on purpose:
 

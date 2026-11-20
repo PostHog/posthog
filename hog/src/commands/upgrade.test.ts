@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { replaceExecutables } from '@/core/runtime'
 import { readJson, runHog, type FakeRuntimeOptions } from '@/testing'
-import { extractFile } from '@/updates/archive'
+import { extractAll } from '@/updates/archive'
 import type { Manifest } from '@/updates/manifest'
 
 const LATEST = 'https://releases.posthog.com/hog/latest/manifest.json'
@@ -367,24 +367,50 @@ describe('hog upgrade', () => {
         expect(result.executables).toEqual({ [HOG]: BINARY })
     })
 
-    test.each([
-        [
-            'installs the hog-worker a hog of the latest version lacks',
-            {},
-            'repaired',
-            { [HOG_WORKER]: WORKER, [HOG]: BINARY },
-        ],
-        ['changes nothing when hog-worker is there', { [HOG_WORKER]: '' }, 'up_to_date', {}],
-    ])('%s', async (_name, files, action, executables) => {
+    // A hog in a real folder, next to a program that says hello as the hog-worker of `version` does.
+    function installed(version: string | undefined): string {
+        const folder = mkdtempSync(join(tmpdir(), 'hog-installed-'))
+        if (version !== undefined) {
+            const hello = JSON.stringify({ type: 'hello', protocol: 1, version })
+            writeFileSync(join(folder, 'hog-worker'), `#!/bin/sh\necho '${hello}'\ncat > /dev/null\n`)
+            chmodSync(join(folder, 'hog-worker'), 0o755)
+        }
+        return join(folder, 'hog')
+    }
+
+    test.skipIf(process.platform === 'win32').each([
+        ['installs hog again when it has no hog-worker', undefined, 'repaired'],
+        ['installs hog again when its hog-worker is from another release', '0.1.0-alpha.4', 'repaired'],
+        ['changes nothing when its hog-worker is from this release', RUNNING.version, 'up_to_date'],
+    ])('%s', async (_name, worker, action) => {
+        const execPath = installed(worker)
+
         const result = await runHog(['upgrade'], {
             env: AGENT,
             build: RUNNING,
-            files,
+            execPath,
             respond: release(manifest(RUNNING.version, BUILT)),
         })
 
         expect(result.json()).toMatchObject({ action })
-        expect(result.executables).toEqual(executables)
+        expect(result.executables).toEqual(
+            action === 'repaired' ? { [join(execPath, '..', 'hog-worker')]: WORKER, [execPath]: BINARY } : {}
+        )
+    })
+
+    test.skipIf(process.platform === 'win32').each([
+        ['fails without a hog-worker', undefined, EXIT_FAILURE],
+        ['fails with the hog-worker of another release', '0.1.0-alpha.4', EXIT_FAILURE],
+        ['passes with its own hog-worker', RUNNING.version, EXIT_SUCCESS],
+    ])('the install check of `hog --version` %s', async (_name, worker, exitCode) => {
+        const result = await runHog(['--version'], {
+            env: { HOG_CHECK_INSTALL: '1' },
+            build: RUNNING,
+            execPath: installed(worker),
+        })
+
+        expect(result.exitCode).toBe(exitCode)
+        expect(result.stdout !== '').toBe(exitCode === EXIT_SUCCESS)
     })
 
     test.skipIf(process.platform === 'win32')(
@@ -479,9 +505,7 @@ describe('hog upgrade', () => {
     })
 
     test('refuses an archive that unpacks to more than the limit', () => {
-        expect(() => extractFile(ARCHIVE, 'hog-linux-x64.tar.gz', 'hog', 512)).toThrow(
-            'it unpacks to more than 512 bytes'
-        )
+        expect(() => extractAll(ARCHIVE, 'hog-linux-x64.tar.gz', 512)).toThrow('it unpacks to more than 512 bytes')
     })
 
     test('installs the version --version names', async () => {
@@ -551,10 +575,10 @@ describe('hog upgrade', () => {
         expect(result.executables).toEqual({})
     })
 
-    test('says so when hog is the latest version', async () => {
+    test.skipIf(process.platform === 'win32')('says so when hog is the latest version', async () => {
         const result = await runHog(['upgrade'], {
             ...PERSON,
-            files: { [HOG_WORKER]: '' },
+            execPath: installed(RUNNING.version),
             respond: release(manifest('0.1.0-alpha.5', BUILT)),
         })
 

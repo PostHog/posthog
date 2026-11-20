@@ -8,7 +8,7 @@ import { HogError } from '@/core/errors'
 // Far above any hog binary, so a small archive that unpacks to gigabytes fails instead of filling memory.
 export const MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
 
-function brokenArchive(reason: string): HogError {
+export function brokenArchive(reason: string): HogError {
     return new HogError(
         'invalid_release_archive',
         `The downloaded archive is broken: ${reason}.`,
@@ -21,7 +21,11 @@ function text(bytes: Uint8Array): string {
     return new TextDecoder().decode(end === -1 ? bytes : bytes.subarray(0, end))
 }
 
-function fromTarGz(archive: Uint8Array, name: string, maxBytes: number): Uint8Array | undefined {
+// macOS tar stores a file's extended attributes as a second entry named `._<file>`.
+const isShipped = (entry: string): boolean => !basename(entry).startsWith('.')
+
+function fromTarGz(archive: Uint8Array, maxBytes: number): Map<string, Uint8Array> {
+    const files = new Map<string, Uint8Array>()
     const tar = gunzipSync(archive, { maxOutputLength: maxBytes })
     let offset = 0
     while (offset + 512 <= tar.length) {
@@ -33,15 +37,16 @@ function fromTarGz(archive: Uint8Array, name: string, maxBytes: number): Uint8Ar
         const size = Number.parseInt(text(header.subarray(124, 136)).trim() || '0', 8)
         const type = String.fromCharCode(header[156] ?? 0)
         const start = offset + 512
-        if ((type === '0' || type === '\0') && basename(entry) === name) {
-            return tar.subarray(start, start + size)
+        if ((type === '0' || type === '\0') && isShipped(entry)) {
+            files.set(basename(entry), tar.subarray(start, start + size))
         }
         offset = start + Math.ceil(size / 512) * 512
     }
-    return undefined
+    return files
 }
 
-function fromZip(archive: Uint8Array, name: string, maxBytes: number): Uint8Array | undefined {
+function fromZip(archive: Uint8Array, maxBytes: number): Map<string, Uint8Array> {
+    const files = new Map<string, Uint8Array>()
     const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
     let end = archive.length - 22
     while (end >= 0 && view.getUint32(end, true) !== 0x06054b50) {
@@ -65,48 +70,31 @@ function fromZip(archive: Uint8Array, name: string, maxBytes: number): Uint8Arra
         const localHeader = view.getUint32(entry + 42, true)
         const entryName = new TextDecoder().decode(archive.subarray(entry + 46, entry + 46 + nameLength))
 
-        if (basename(entryName) === name) {
+        if (!entryName.endsWith('/') && isShipped(entryName)) {
             const dataStart =
                 localHeader + 30 + view.getUint16(localHeader + 26, true) + view.getUint16(localHeader + 28, true)
             const data = archive.subarray(dataStart, dataStart + compressedSize)
-            if (method === 0) {
-                return data
+            if (method !== 0 && method !== 8) {
+                throw brokenArchive(`it uses compression method ${method}`)
             }
-            if (method === 8) {
-                return inflateRawSync(data, { maxOutputLength: maxBytes })
-            }
-            throw brokenArchive(`it uses compression method ${method}`)
+            files.set(basename(entryName), method === 0 ? data : inflateRawSync(data, { maxOutputLength: maxBytes }))
         }
         entry += 46 + nameLength + extraLength + commentLength
     }
-    return undefined
+    return files
 }
 
-export function findFile(
+export function extractAll(
     archive: Uint8Array,
     archiveName: string,
-    name: string,
     maxBytes: number = MAX_EXTRACTED_BYTES
-): Uint8Array | undefined {
+): Map<string, Uint8Array> {
     try {
-        return archiveName.endsWith('.zip') ? fromZip(archive, name, maxBytes) : fromTarGz(archive, name, maxBytes)
+        return archiveName.endsWith('.zip') ? fromZip(archive, maxBytes) : fromTarGz(archive, maxBytes)
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
             throw brokenArchive(`it unpacks to more than ${maxBytes} bytes`)
         }
         throw error instanceof HogError ? error : brokenArchive(error instanceof Error ? error.message : String(error))
     }
-}
-
-export function extractFile(
-    archive: Uint8Array,
-    archiveName: string,
-    name: string,
-    maxBytes: number = MAX_EXTRACTED_BYTES
-): Uint8Array {
-    const file = findFile(archive, archiveName, name, maxBytes)
-    if (!file) {
-        throw brokenArchive(`it has no ${name}`)
-    }
-    return file
 }

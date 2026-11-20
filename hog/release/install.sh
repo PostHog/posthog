@@ -264,28 +264,19 @@ main() {
     mkdir -p "$tmp/unpacked"
     tar -xzf "$tmp/$archive" -C "$tmp/unpacked"
     [ -f "$tmp/unpacked/hog" ] || err "$archive has no hog binary."
-    # A release from before hog-worker has no worker, and that hog runs without one.
-    has_worker=''
-    if [ -f "$tmp/unpacked/hog-worker" ]; then
-        has_worker=1
-    fi
 
-    # Staged next to the destination and run there first, so a build that can't run on this machine
-    # never replaces a working hog, and the rename never leaves a half-written one.
+    # Staged in a folder next to the destination and run there first, so a build that can't run on this
+    # machine never replaces a working hog, and each rename puts a whole file in place.
+    # HOG_CHECK_INSTALL makes hog check the files that ship next to it. A release from before that
+    # check ignores it.
     mkdir -p "$install_dir"
     staged="$install_dir/.hog.$$.tmp"
-    staged_worker="$install_dir/.hog-worker.$$.tmp"
-    kept_worker="$install_dir/.hog-worker.$$.old"
-    cp "$tmp/unpacked/hog" "$staged"
-    chmod 755 "$staged"
-    if [ -n "$has_worker" ]; then
-        cp "$tmp/unpacked/hog-worker" "$staged_worker"
-        chmod 755 "$staged_worker"
-    fi
-    # hog-worker says hello and stops when its input ends.
-    if ! installed=$("$staged" --version 2>"$tmp/run-error.txt") ||
-        { [ -n "$has_worker" ] && ! "$staged_worker" </dev/null >/dev/null 2>&1; }; then
-        rm -f "$staged" "$staged_worker"
+    kept="$install_dir/.hog.$$.old"
+    mkdir "$staged" || err "couldn't write to $install_dir, so the install left it as it was."
+    cp "$tmp/unpacked"/* "$staged/"
+    chmod 755 "$staged"/*
+    if ! installed=$(HOG_CHECK_INSTALL=1 "$staged/hog" --version 2>"$tmp/run-error.txt"); then
+        rm -rf "$staged"
         # The musl build of hog links the C++ runtime, which a bare Alpine image lacks. musl's loader
         # names the library it can't find, and no glibc loader words it this way.
         if grep -q -e 'Error loading shared library libstdc++\.so' \
@@ -296,28 +287,27 @@ main() {
         err "hog $version doesn't run on this machine, so the install left $install_dir as it was."
     fi
 
-    # hog starts only the hog-worker in its own folder, and the two must come from one release. The
-    # worker moves first and goes back when hog can't follow, so a failed install keeps the old pair.
-    if [ -n "$has_worker" ]; then
-        if [ -f "$install_dir/hog-worker" ] && ! cp -p "$install_dir/hog-worker" "$kept_worker"; then
-            rm -f "$staged" "$staged_worker" "$kept_worker"
-            err "couldn't write to $install_dir, so the install left it as it was."
+    # The files of a release work only together, so each old one stays aside until every new one is
+    # in place, and all of them go back when one can't be replaced.
+    mkdir "$kept"
+    replaced=''
+    for file in "$staged"/*; do
+        name=$(basename "$file")
+        if { [ -f "$install_dir/$name" ] && ! cp -p "$install_dir/$name" "$kept/$name"; } ||
+            ! mv -f "$file" "$install_dir/$name"; then
+            for old in $replaced; do
+                if [ -f "$kept/$old" ]; then
+                    mv -f "$kept/$old" "$install_dir/$old"
+                else
+                    rm -f "$install_dir/$old"
+                fi
+            done
+            rm -rf "$staged" "$kept"
+            err "couldn't replace $install_dir/$name, so the install left $install_dir as it was."
         fi
-        if ! mv -f "$staged_worker" "$install_dir/hog-worker"; then
-            rm -f "$staged" "$staged_worker" "$kept_worker"
-            err "couldn't replace $install_dir/hog-worker, so the install left $install_dir as it was."
-        fi
-    fi
-    if ! mv -f "$staged" "$install_dir/hog"; then
-        rm -f "$staged"
-        if [ -f "$kept_worker" ]; then
-            mv -f "$kept_worker" "$install_dir/hog-worker"
-        elif [ -n "$has_worker" ]; then
-            rm -f "$install_dir/hog-worker"
-        fi
-        err "couldn't replace $install_dir/hog, so the install left $install_dir as it was."
-    fi
-    rm -f "$kept_worker"
+        replaced="$replaced $name"
+    done
+    rm -rf "$staged" "$kept"
     write_receipt
 
     say "${green}Installed hog $installed$reset to $install_dir/hog."

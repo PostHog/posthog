@@ -15,7 +15,7 @@ import {
     writeFile,
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve, win32 } from 'node:path'
 
 import type {
     ApiToolLibrary,
@@ -257,9 +257,9 @@ function exists(path: string): Promise<boolean> {
     )
 }
 
-function keptPath(path: string, id: string): string {
-    return process.platform === 'win32'
-        ? join(dirname(path), `${basename(path).replace(/\.exe$/i, '')}.old.exe`)
+export function keptPath(path: string, id: string, platform: NodeJS.Platform = process.platform): string {
+    return platform === 'win32'
+        ? win32.join(win32.dirname(path), `${win32.basename(path).replace(/\.exe$/i, '')}.old.exe`)
         : join(dirname(path), `.${basename(path)}.${id}.old`)
 }
 

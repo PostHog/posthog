@@ -142,7 +142,10 @@ async function fakeRelease(
     await mkdir(build, { recursive: true })
     const files = options.worker === false ? ['hog'] : ['hog', 'hog-worker']
     for (const name of files) {
-        let script = name === 'hog' ? `echo ${version}` : `echo worker ${version}`
+        // Like hog, the stand-in starts the worker next to it when the installer asks for the check.
+        const check =
+            files.length > 1 ? '[ -z "$HOG_CHECK_INSTALL" ] || "$(dirname "$0")/hog-worker" >/dev/null || exit 1\n' : ''
+        let script = name === 'hog' ? `${check}echo ${version}` : `echo worker ${version}`
         if (options.broken === name) {
             script = 'exit 1'
         } else if (name === 'hog' && options.broken === 'hog without libstdc++') {
@@ -384,6 +387,6 @@ test.skipIf(!Bun.which('zip') || !Bun.which('unzip'))(
             )
             expect(packageJson.files.sort()).toEqual(names.map((name) => `bin/${name}`))
         }
-        expect(await readFile(join(out, 'hog.rb'), 'utf8')).toContain('bin.install "hog", "hog-worker"')
+        expect(await readFile(join(out, 'hog.rb'), 'utf8')).toContain('bin.install Dir["*"]')
     }
 )
