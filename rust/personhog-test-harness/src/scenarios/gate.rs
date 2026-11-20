@@ -547,12 +547,7 @@ async fn run_gate(
         let collector = collector.clone();
         let state = state.clone();
         let (team_id, duration, prober_count) = (args.team_id, args.duration, args.probers);
-        // Above the staleness threshold the stack gives a follower, and above the writer's
-        // flush interval, which is how far behind Postgres answers for a follower. A
-        // migration rebuilds every follower, so with the writer held through it Postgres
-        // answers from as far back as the pause, and only the end-of-run check applies.
-        let followed_within =
-            (args.followers > 0 && !args.migrate_pause_writer).then_some(Duration::from_secs(2));
+        let followed_within = followed_read_bound(args);
         tokio::spawn(async move {
             consistency::run_probers(
                 &client,
@@ -1295,6 +1290,20 @@ async fn create_wide_persons_via_identity(
     Ok(persons)
 }
 
+/// How long after an acked write a followed read must show it, or `None` for a run that
+/// can hold no bound. A follower or Postgres answers a followed read, so a bound holds
+/// only while one of the two is undisturbed: a follower that is rebuilding leaves the read
+/// to Postgres, which is as far behind as the writer is held up. A migration does both.
+/// The bound is above the staleness threshold the stack gives a follower and above the
+/// writer's flush interval.
+fn followed_read_bound(args: &GateArgs) -> Option<Duration> {
+    let followers_rebuild = args.follower_crash_after.is_some() || args.migrate_after.is_some();
+    let writer_held_up = args.writer_pause_after.is_some()
+        || args.writer_crash_after.is_some()
+        || args.migrate_after.is_some();
+    (args.followers > 0 && !(followers_rebuild && writer_held_up)).then_some(Duration::from_secs(2))
+}
+
 #[cfg(test)]
 mod tests {
     use clap::Parser;
@@ -1311,6 +1320,37 @@ mod tests {
         {
             Command::Gate(args) => *args,
             _ => unreachable!("gate subcommand parses to Gate"),
+        }
+    }
+
+    #[test]
+    fn a_followed_read_is_held_to_a_bound_only_while_a_follower_or_postgres_keeps_up() {
+        let migration = ["--migrate-after", "8s", "--migrate-to-partitions", "8"];
+        let cases: [(&[&str], bool); 8] = [
+            (&[], true),
+            (&["--follower-crash-after", "6s"], true),
+            (&["--writer-pause-after", "1s"], true),
+            (&["--writer-crash-after", "3s"], true),
+            (&migration, false),
+            (
+                &["--follower-crash-after", "6s", "--writer-pause-after", "1s"],
+                false,
+            ),
+            (
+                &["--follower-crash-after", "6s", "--writer-crash-after", "3s"],
+                false,
+            ),
+            (&["--kill-after", "5s"], true),
+        ];
+        for (flags, bounded) in cases {
+            let mut with_followers = vec!["--followers", "2"];
+            with_followers.extend_from_slice(flags);
+            assert_eq!(
+                followed_read_bound(&gate_args(&with_followers)).is_some(),
+                bounded,
+                "{flags:?}"
+            );
+            assert_eq!(followed_read_bound(&gate_args(flags)), None, "{flags:?}");
         }
     }
 
