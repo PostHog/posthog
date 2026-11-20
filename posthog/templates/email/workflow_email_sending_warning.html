@@ -14,7 +14,7 @@
             This workflow sends transactional email, so we don't pause it automatically. At <b>{{ pause_rate }}</b> or more, our team may pause it by hand to protect delivery for your project and every other PostHog customer sharing our sending reputation.
         </p>
         <p>
-            What to do: check that this workflow only emails the person who triggered it, such as someone signing in or placing an order, and that it skips unverified or mistyped addresses. If any of its email is promotional, set those steps to a marketing category.
+            What to do: check that this workflow only emails the person who triggered it, such as someone signing in or placing an order, and that it rejects mistyped addresses before sending. If any of its email is promotional, set those steps to a marketing category.
         </p>
     {% else %}
         <p>

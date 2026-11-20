@@ -72,6 +72,7 @@ Use it for a workflow whose email must not stop, such as sign-in verification co
 
 A workflow whose every email step is transactional (`message_category_type` is `transactional`) is never paused automatically.
 Where it would be paused, the sweep sends its admins the warning email instead, at most once per warning cooldown, and logs the breach at warning level with `mode="transactional"`.
+While enforcement is off, these breaches log as `mode="dry_run"` with `transactional=true`.
 Its warning email says it is not paused automatically and that staff can pause it by hand.
 Like an exempt workflow, it is judged on its own sends only, and its sends and feedback stay out of the project totals.
 A workflow with one email step that is not transactional, such as a marketing step, is judged like any other.
