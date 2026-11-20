@@ -3,7 +3,14 @@ import { EmailTemplate, EmailTemplateFrom } from './types'
 export type EmailSender = {
     id: number
     display_name?: string
-    config?: { domain?: string; email?: string; name?: string; reply_to?: string; ses_sending_status?: string }
+    config?: {
+        domain?: string
+        email?: string
+        name?: string
+        reply_to?: string
+        ses_sending_status?: string
+        verified?: boolean
+    }
 }
 
 export function senderFrom(email: Partial<EmailTemplate>): EmailTemplateFrom {

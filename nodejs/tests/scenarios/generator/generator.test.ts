@@ -7,7 +7,7 @@ import { LoadedCard, load, stepsOf } from '../cards'
 import type { JournalEntry } from '../judge/judge'
 import { type LiveRamp, rampOf, watchRamp } from '../judge/ramp'
 import { SeedState, StepGate, drive } from './generator'
-import type { OfferContext } from './traffic'
+import { OfferContext, kafkaEmit } from './traffic'
 
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
 const NEVER_ABORTED = new AbortController().signal
@@ -24,7 +24,7 @@ const seededFor = (teamIds: number[], traffic: string): SeedState => ({
     ),
 })
 
-type Produce = OfferContext['producer']['produce']
+type Produce = Parameters<typeof kafkaEmit>[0]['produce']
 type Summary = Awaited<ReturnType<typeof drive>>
 
 function cardWith({
@@ -81,8 +81,7 @@ function startDrive(
     const journal: JournalEntry[] = []
     const seeded = seededFor(teamIds, loaded.card.drive.traffic[0].name)
     const driving = drive(loaded, seeded, { record: (entry) => journal.push(entry) }, signal, {
-        producer: { produce },
-        eventsTopic: 'scenario_events_test',
+        emit: kafkaEmit({ produce }, 'scenario_events_test'),
         cdpApi,
         sesFeedback,
         runId: 'run-a',
@@ -136,6 +135,26 @@ describe('drive', () => {
             answer(kafka)
 
             expect(await driving).toMatchObject(expected)
+        }
+    )
+
+    it.each(['transactional_email', 'bounce_followup'])(
+        'refuses %s before its first offer on a run target without the local CDP API and SES feedback',
+        async (traffic) => {
+            const loaded = cardWith({ ratePerSecond: 50, driveFor: '100ms', traffic })
+            const emitted: string[] = []
+            const journal: JournalEntry[] = []
+
+            await expect(
+                drive(loaded, seededFor([7], traffic), { record: (entry) => journal.push(entry) }, NEVER_ABORTED, {
+                    emit: (unit) => {
+                        emitted.push(unit.unitId)
+                        return Promise.resolve({ accepted: true })
+                    },
+                    runId: 'run-a',
+                })
+            ).rejects.toThrow(`${traffic} needs the local CDP API and SES feedback`)
+            expect({ emitted, journal }).toEqual({ emitted: [], journal: [] })
         }
     )
 
@@ -848,7 +867,8 @@ describe('drive', () => {
             }
             const journal = { record: () => { throw new Error('journal full') } }
             const interrupt = new AbortController()
-            const context = { producer: { produce: () => ${produce} }, eventsTopic: 'scenario_events_test', runId: 'run-a' }
+            const { kafkaEmit } = require(${JSON.stringify(path.join(__dirname, 'traffic'))})
+            const context = { emit: kafkaEmit({ produce: () => ${produce} }, 'scenario_events_test'), runId: 'run-a' }
             drive(card, { teamIds: [7], flowIds: { event_email: { 7: 'flow-7' } } }, journal, interrupt.signal, context).then(
                 () => process.stdout.write('ended'),
                 (error) => process.stdout.write(error.message)
@@ -946,8 +966,7 @@ describe('drive', () => {
         }
         const startedAt = Date.now()
         const driving = drive(card, seeded, { record: (entry) => journal.push(entry) }, NEVER_ABORTED, {
-            producer: { produce: ACKNOWLEDGED },
-            eventsTopic: 'scenario_events_test',
+            emit: kafkaEmit({ produce: ACKNOWLEDGED }, 'scenario_events_test'),
             cdpApi: CDP_API,
             sesFeedback: NO_FEEDBACK,
             runId: 'run-a',

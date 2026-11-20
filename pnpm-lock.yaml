@@ -2521,6 +2521,9 @@ importers:
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@4.4.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31
@@ -2654,6 +2657,9 @@ importers:
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@4.4.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
@@ -3867,6 +3873,9 @@ importers:
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
+      '@posthog/quill-components':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/components
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31
@@ -4520,6 +4529,9 @@ importers:
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.40.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
@@ -4538,6 +4550,9 @@ importers:
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-subscriptions:
         specifier: 'catalog:'
         version: 3.0.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -4626,6 +4641,9 @@ importers:
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.40.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31
@@ -5268,6 +5286,9 @@ importers:
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.40.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts

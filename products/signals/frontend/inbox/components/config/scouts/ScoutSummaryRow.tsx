@@ -80,7 +80,7 @@ export function ScoutSummaryRow({
                         size="small"
                         icon={<IconArrowUpRight />}
                         to={urls.inboxScout(config.skill_name)}
-                        aria-label={`Open the ${config.skill_name} scout`}
+                        aria-label={`Open the ${scoutDisplayName(config)} scout`}
                     />
                 </Tooltip>
             </div>

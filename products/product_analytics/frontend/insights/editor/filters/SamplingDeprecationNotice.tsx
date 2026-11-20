@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner } from '@posthog/lemon-ui'
 import { Button, Item, ItemContent, Text } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { InsightLogicProps } from '~/types'

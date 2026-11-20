@@ -36,37 +36,16 @@ import { membersLogic } from '~/models/membersLogic'
 import { ApprovalPolicy, AvailableFeature } from '~/types'
 
 import { approvalPoliciesLogic } from './approvalPoliciesLogic'
-
-// Available fields that can be gated
-const GATEABLE_FIELDS: Record<string, { label: string; type: 'number' | 'boolean' | 'string' }> = {
-    rollout_percentage: { label: 'Rollout percentage', type: 'number' },
-}
-
-const CONDITION_TYPES = [
-    { value: 'any_change', label: 'changes' },
-    { value: 'before_after', label: 'new value is' },
-    { value: 'change_amount', label: 'changes by' },
-]
-
-const CONDITION_TYPES_TOOLTIP = `• changes – require approval whenever this field is modified
-• new value is – require approval when the new value meets a threshold (e.g., rollout > 50%)
-• changes by – require approval when the change amount meets a threshold (e.g., increased by more than 10%)`
-
-const OPERATORS = [
-    { value: '>', label: '>' },
-    { value: '>=', label: '>=' },
-    { value: '<', label: '<' },
-    { value: '<=', label: '<=' },
-    { value: '==', label: '=' },
-    { value: '!=', label: '≠' },
-]
-
-interface ConditionRule {
-    field: string
-    type: string
-    operator?: string
-    value?: number
-}
+import {
+    CONDITION_TYPES,
+    CONDITION_TYPES_TOOLTIP,
+    ConditionRule,
+    GATEABLE_FIELDS,
+    OPERATORS,
+} from './approvalPolicyConditions'
+import { describeApprovers } from './describeApprovers'
+import { QuillApprovalPoliciesTable } from './QuillApprovalPoliciesTable'
+import { QuillApprovalPolicyDialog } from './QuillApprovalPolicyDialog'
 
 export function ApprovalPolicies(): JSX.Element {
     const { policies, policiesLoading } = useValues(approvalPoliciesLogic)
@@ -75,10 +54,48 @@ export function ApprovalPolicies(): JSX.Element {
     const [isCreating, setIsCreating] = useState(false)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
     const scopedByFlagOwner = useFeatureFlag('APPROVALS_SCOPE_BY_FLAG_OWNER')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         loadPolicies()
     }, [loadPolicies])
+
+    const confirmDeletePolicy = (policy: ApprovalPolicy): void => {
+        LemonDialog.open({
+            title: 'Delete approval policy?',
+            content: 'This will immediately remove the approval requirement for this action.',
+            primaryButton: {
+                children: 'Delete',
+                type: 'primary',
+                status: 'danger',
+                onClick: () => deletePolicy(policy.id),
+                size: 'small',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <PayGateMini feature={AvailableFeature.APPROVALS} featureDetail="approval-policies">
+                <QuillApprovalPoliciesTable
+                    policies={policies}
+                    loading={policiesLoading}
+                    restrictionReason={restrictionReason}
+                    showExperimentPoliciesNotice={scopedByFlagOwner}
+                    onAdd={() => setIsCreating(true)}
+                    onEdit={setEditingPolicy}
+                    onDelete={confirmDeletePolicy}
+                />
+                {isCreating && <ApprovalPolicyModal onClose={() => setIsCreating(false)} />}
+                {editingPolicy && <ApprovalPolicyModal policy={editingPolicy} onClose={() => setEditingPolicy(null)} />}
+            </PayGateMini>
+        )
+    }
 
     const columns: LemonTableColumn<ApprovalPolicy, keyof ApprovalPolicy | undefined>[] = [
         {
@@ -88,18 +105,7 @@ export function ApprovalPolicies(): JSX.Element {
         },
         {
             title: 'Approvers',
-            render: (_, policy) => {
-                const users = policy.approver_config?.users || []
-                const roles = policy.approver_config?.roles || []
-                const parts = []
-                if (users.length > 0) {
-                    parts.push(`${users.length} user${users.length > 1 ? 's' : ''}`)
-                }
-                if (roles.length > 0) {
-                    parts.push(`${roles.length} role${roles.length > 1 ? 's' : ''}`)
-                }
-                return parts.join(', ') || 'None'
-            },
+            render: (_, policy) => describeApprovers(policy),
         },
         {
             title: 'Approvals required',
@@ -133,25 +139,7 @@ export function ApprovalPolicies(): JSX.Element {
                             <LemonButton
                                 fullWidth
                                 status="danger"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Delete approval policy?',
-                                        content:
-                                            'This will immediately remove the approval requirement for this action.',
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            type: 'primary',
-                                            status: 'danger',
-                                            onClick: () => deletePolicy(policy.id),
-                                            size: 'small',
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                            type: 'tertiary',
-                                            size: 'small',
-                                        },
-                                    })
-                                }}
+                                onClick={() => confirmDeletePolicy(policy)}
                                 disabledReason={restrictionReason}
                             >
                                 Delete
@@ -215,6 +203,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
     const { loadRoles } = useActions(rolesLogic)
 
     const scopedByFlagOwner = useFeatureFlag('APPROVALS_SCOPE_BY_FLAG_OWNER')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const [actionKey, setActionKey] = useState(policy?.action_key || 'feature_flag.enable')
     const supportsConditions = CONDITIONAL_APPROVAL_ACTIONS.has(actionKey)
     const [quorum, setQuorum] = useState(policy?.approver_config?.quorum || 1)
@@ -328,6 +317,55 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
             label: role.name,
         })) || []
 
+    const handleActionKeyChange = (value: string): void => {
+        setActionKey(value)
+        if (!CONDITIONAL_APPROVAL_ACTIONS.has(value)) {
+            setRules([])
+        }
+    }
+
+    const actionOptions = Object.entries(APPROVAL_ACTIONS)
+        .filter(
+            ([value]) => scopedByFlagOwner || value === policy?.action_key || !EXPERIMENT_APPROVAL_ACTIONS.has(value)
+        )
+        .map(([value, action]) => ({
+            label: action.label,
+            value,
+        }))
+
+    if (todayRailNav) {
+        return (
+            <QuillApprovalPolicyDialog
+                isEditing={!!policy}
+                actionKey={actionKey}
+                actionOptions={actionOptions}
+                supportsConditions={supportsConditions}
+                rules={rules}
+                availableFields={availableFields}
+                quorum={quorum}
+                allowSelfApprove={allowSelfApprove}
+                approverUserIds={approverUserIds}
+                approverRoleIds={approverRoleIds}
+                bypassAdminsOwners={bypassAdminsOwners}
+                bypassRoleIds={bypassRoleIds}
+                userOptions={userOptions}
+                roleOptions={roleOptions}
+                onActionKeyChange={handleActionKeyChange}
+                onAddRule={addRule}
+                onUpdateRule={updateRule}
+                onRemoveRule={removeRule}
+                onQuorumChange={setQuorum}
+                onAllowSelfApproveChange={setAllowSelfApprove}
+                onApproverUserIdsChange={setApproverUserIds}
+                onApproverRoleIdsChange={setApproverRoleIds}
+                onBypassAdminsOwnersChange={setBypassAdminsOwners}
+                onBypassRoleIdsChange={setBypassRoleIds}
+                onSave={handleSave}
+                onClose={onClose}
+            />
+        )
+    }
+
     return (
         <LemonModal
             isOpen
@@ -348,27 +386,7 @@ function ApprovalPolicyModal({ policy, onClose }: { policy?: ApprovalPolicy; onC
             <div className="space-y-4">
                 <div>
                     <label className="block text-sm font-medium mb-1">Action type</label>
-                    <LemonSelect
-                        fullWidth
-                        value={actionKey}
-                        onChange={(value) => {
-                            setActionKey(value)
-                            if (!CONDITIONAL_APPROVAL_ACTIONS.has(value)) {
-                                setRules([])
-                            }
-                        }}
-                        options={Object.entries(APPROVAL_ACTIONS)
-                            .filter(
-                                ([value]) =>
-                                    scopedByFlagOwner ||
-                                    value === policy?.action_key ||
-                                    !EXPERIMENT_APPROVAL_ACTIONS.has(value)
-                            )
-                            .map(([value, action]) => ({
-                                label: action.label,
-                                value,
-                            }))}
-                    />
+                    <LemonSelect fullWidth value={actionKey} onChange={handleActionKeyChange} options={actionOptions} />
                 </div>
 
                 {supportsConditions && (

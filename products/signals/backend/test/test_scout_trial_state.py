@@ -48,7 +48,7 @@ from products.signals.backend.scout_harness.tools.report import (
     emit_report_sync,
 )
 from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
-from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
+from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry, ScratchpadRevivedExpiry
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_harness.trial_state import (
     ScoutTrialStateError,
@@ -247,6 +247,16 @@ class TestScoutTrialState(APIBaseTest):
         assert len(store.search_memory(include_expired=True)) == 3
         assert store.search_memory(key="new", keys_only=True)[0].content == ""
         assert store.search_memory(key="new", content_max_chars=8)[0].content == "Checkout"
+        [marker] = store.search_memory(key="expired")
+        assert (marker.content, marker.expired, marker.expires_at, marker.last_changed_by_skill) == (
+            "",
+            True,
+            (now - timedelta(seconds=1)).isoformat(),
+            None,
+        )
+        revived = store.remember(key="expired", content="Checkout revived detail")
+        assert revived.revived_expiry == ScratchpadRevivedExpiry(expires_at=(now - timedelta(seconds=1)).isoformat())
+        assert store.search_memory(key="expired")[0].revived_expiry is None
 
 
 @override_settings(

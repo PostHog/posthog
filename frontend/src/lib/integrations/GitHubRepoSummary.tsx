@@ -2,6 +2,9 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { IconBranch } from 'lib/lemon-ui/icons'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+
+import { QuillGitHubRepoSummary } from './QuillGitHubRepoSummary'
 
 function manageInstallationUrl(installationId: string, accountType?: string, accountName?: string): string {
     return accountType === 'Organization' && accountName
@@ -33,21 +36,54 @@ export function GitHubRepoSummary({
      * Setup URL callback can be dispatched to the right team/personal handler. */
     onBeforeManage?: (installationId: string) => Promise<void> | void
 }): JSX.Element {
-    const manageButton = installationId ? (
+    const quillSurface = useQuillSurface()
+
+    const openManagePage = installationId
+        ? async (): Promise<void> => {
+              try {
+                  await onBeforeManage?.(installationId)
+              } catch {
+                  // Failing to seed state is non-fatal — the server falls back to UserIntegration
+                  // membership detection. We surface the GitHub page either way.
+              }
+              window.open(manageInstallationUrl(installationId, accountType, accountName), '_blank')
+          }
+        : null
+    const manageTooltip = repoNames.length > 0 ? 'Manage repository access on GitHub' : 'Configure repository access'
+
+    const noun = repoNames.length === 1 ? 'repository' : 'repositories'
+    const countLabel =
+        repositorySelection === 'selected'
+            ? `${repoNames.length} selected ${noun}`
+            : `${repoNames.length} ${noun} accessible`
+    const repoList =
+        repoNames.length <= 3
+            ? repoNames.join(', ')
+            : `${repoNames.slice(0, 3).join(', ')} and ${repoNames.length - 3} more`
+
+    if (quillSurface) {
+        return (
+            <QuillGitHubRepoSummary
+                loading={loading}
+                hasRepos={repoNames.length > 0}
+                accountName={accountName}
+                repositorySelection={repositorySelection}
+                total={total}
+                countLabel={countLabel}
+                repoList={repoList}
+                onManage={openManagePage}
+                manageTooltip={manageTooltip}
+            />
+        )
+    }
+
+    const manageButton = openManagePage ? (
         <LemonButton
             size="xsmall"
             type="secondary"
             icon={<IconGear />}
-            onClick={async () => {
-                try {
-                    await onBeforeManage?.(installationId)
-                } catch {
-                    // Failing to seed state is non-fatal — the server falls back to UserIntegration
-                    // membership detection. We surface the GitHub page either way.
-                }
-                window.open(manageInstallationUrl(installationId, accountType, accountName), '_blank')
-            }}
-            tooltip={repoNames.length > 0 ? 'Manage repository access on GitHub' : 'Configure repository access'}
+            onClick={openManagePage}
+            tooltip={manageTooltip}
         />
     ) : null
 
@@ -74,19 +110,11 @@ export function GitHubRepoSummary({
     }
 
     if (repoNames.length > 0) {
-        const noun = repoNames.length === 1 ? 'repository' : 'repositories'
-        const countLabel =
-            repositorySelection === 'selected'
-                ? `${repoNames.length} selected ${noun}`
-                : `${repoNames.length} ${noun} accessible`
         return (
             <div className="flex items-center gap-2 min-h-5">
                 <div className="text-xs text-muted">
                     <IconBranch className="inline mr-1 text-sm" />
-                    {countLabel}:{' '}
-                    {repoNames.length <= 3
-                        ? repoNames.join(', ')
-                        : `${repoNames.slice(0, 3).join(', ')} and ${repoNames.length - 3} more`}
+                    {countLabel}: {repoList}
                 </div>
                 {manageButton}
             </div>
