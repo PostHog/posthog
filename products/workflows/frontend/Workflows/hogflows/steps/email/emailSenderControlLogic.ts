@@ -3,11 +3,9 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
 
 import { IntegrationType } from '~/types'
 
-import { isVerifiedEmailSender } from '../../../../Channels/defaultEmailSender'
 import type { SandboxSenderSurface } from '../../../../Channels/sandboxSender'
 import { sandboxSenderLogic } from '../../../../Channels/sandboxSenderLogic'
 import type { WorkflowEmailSandboxStatusApi } from '../../../../generated/api.schemas'
@@ -17,6 +15,7 @@ import type { HogFlowAction } from '../../types'
 import {
     EmailStepAction,
     OwnOnlySetting,
+    hasDeliverableSender,
     isEmailStep,
     ownOnlySettings,
     sandboxSenderAllowed,
@@ -168,10 +167,7 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
         ],
         hasVerifiedSender: [
             (s) => [s.integrations],
-            (integrations: IntegrationType[] | null): boolean | null =>
-                integrations
-                    ? integrations.some((sender) => isVerifiedEmailSender(sender) && !isSendingStopped(sender))
-                    : null,
+            (integrations: IntegrationType[] | null): boolean | null => hasDeliverableSender(integrations),
         ],
         testSenderOnly: [
             (s) => [s.canAdoptSandbox, s.hasVerifiedSender],
