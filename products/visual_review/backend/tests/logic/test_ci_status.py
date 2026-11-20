@@ -985,13 +985,18 @@ def _retry_task(run: Run) -> None:
 
 
 def _serve_heads(
-    mocker, pull_requests: dict[int, str], merge_queue: dict[int, str], committed_ago: timedelta | None = timedelta(0)
+    mocker,
+    pull_requests: dict[int, str],
+    merge_queue: dict[int, str],
+    committed_ago: timedelta | None = timedelta(0),
+    setup_check_conclusions: list[str] | None = None,
 ) -> None:
     mocker.patch.object(
         github_api,
         "commit_committed_at",
         return_value=None if committed_ago is None else timezone.now() - committed_ago,
     )
+    mocker.patch.object(github_api, "check_run_conclusions", return_value=setup_check_conclusions)
     mocker.patch.object(
         github_api,
         "open_pull_request_heads",
@@ -1019,6 +1024,11 @@ def _recheck_command(repo: Repo, *flags: str) -> str:
         stdout=output,
     )
     return output.getvalue()
+
+
+YOUNG_COMMIT = timedelta(hours=1)
+OLD_COMMIT = timedelta(days=retention.LATEST_RUN_MIN_RETENTION_DAYS, hours=1)
+RUN_GONE = commit_status.RUN_GONE_DESCRIPTION
 
 
 def _push_again(repo: Repo, run: Run) -> None:
@@ -1447,23 +1457,34 @@ class TestLedgerRecheck:
             _recheck_command(repo, "--apply")
 
     @pytest.mark.parametrize(
-        ("committed_ago", "without_run"),
+        ("setup_check", "committed_ago", "conclusions", "without_run"),
         [
-            pytest.param(timedelta(hours=1), ("success", commit_status.NO_RUN_DESCRIPTION), id="young_commit"),
             pytest.param(
-                timedelta(days=retention.LATEST_RUN_MIN_RETENTION_DAYS, hours=1),
-                ("pending", commit_status.RUN_GONE_DESCRIPTION),
-                id="commit_older_than_retention",
+                True,
+                OLD_COMMIT,
+                ["skipped"],
+                ("success", commit_status.NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION),
+                id="setup_job_skipped",
             ),
-            pytest.param(None, ("pending", commit_status.RUN_GONE_DESCRIPTION), id="commit_date_unknown"),
+            pytest.param(
+                True, YOUNG_COMMIT, ["success"], ("pending", RUN_GONE), id="setup_job_ran_and_the_run_is_gone"
+            ),
+            pytest.param(True, YOUNG_COMMIT, [], ("pending", RUN_GONE), id="no_setup_job"),
+            pytest.param(True, YOUNG_COMMIT, None, ("pending", RUN_GONE), id="setup_job_unknown"),
+            pytest.param(False, YOUNG_COMMIT, None, ("success", commit_status.NO_RUN_DESCRIPTION), id="young_commit"),
+            pytest.param(False, OLD_COMMIT, None, ("pending", RUN_GONE), id="commit_older_than_retention"),
+            pytest.param(False, None, None, ("pending", RUN_GONE), id="commit_date_unknown"),
         ],
     )
-    def test_the_recheck_posts_on_every_head(self, repo, sender, mocker, committed_ago, without_run) -> None:
+    def test_the_recheck_posts_on_every_head(
+        self, repo, sender, mocker, setup_check, committed_ago, conclusions, without_run
+    ) -> None:
         _shadow_run(repo, "y0", commit_sha="head-1", branch="pr-1")
         _shadow_run(repo, "b0", commit_sha="head-2", branch="pr-2", pr_number=2)
-        _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {}, committed_ago)
+        _serve_heads(mocker, {1: "head-1", 2: "head-2", 4: "head-4"}, {}, committed_ago, conclusions)
+        flags = ("--setup-check", "Create Visual Review run") if setup_check else ()
 
-        _recheck_command(repo, "--apply")
+        _recheck_command(repo, "--apply", *flags)
 
         posted = {call.args[1]: _posted_one(call) for call in sender.call_args_list}
         assert posted == {

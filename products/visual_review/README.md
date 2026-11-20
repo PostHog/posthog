@@ -405,7 +405,7 @@ A revert pull request needs an approval for the pictures it restores.
 - `status-gate` prints whether the commit status gate is on. `status-gate --set on|off` switches it. `mode --set ledger` needs it on, and it cannot be turned off in `ledger` mode.
 - `export --run-type <type>` prints the signed baseline file for the ledger's current state. `--output <file>` writes it to a file.
 - `status` shows the mode, the commit status gate, the newest commit, entry and approval counts, commits that still wait for GitHub to show their pull request as merged, and pull requests whose current run is not approved and is still gated by the commit status.
-- `recheck` shows the `ledger`-mode status of every open pull request head and merge-queue head, and posts nothing. `--apply` posts it and needs the commit status gate. `--run-type` limits it to some run types.
+- `recheck` shows the `ledger`-mode status of every open pull request head and merge-queue head, and posts nothing. `--apply` posts it and needs the commit status gate. `--run-type` limits it to some run types. `--setup-check <job>` names the CI job that creates the run of one run type (see step 8).
 
 To move a repo to the ledger:
 
@@ -413,10 +413,10 @@ To move a repo to the ledger:
 2. Watch `metadata["baseline"]["comparison"]` on `shadow` runs. It counts the snapshots where the ledger verdict differs from the file verdict, and `gate_differs` says whether the gate would differ. A `shadow` run does not wait for the ledger: when its merge-base is newer than the ledger's newest commit, the run has no comparison and `metadata["baseline"]["unavailable_reason"]` says why. An approval finalized on such a run is not recorded, so the ledger misses that entry until the next `seed --replace`. Count these runs apart from real differences.
 3. Approvals made before the seed are not in the ledger. Once the pull requests that carried them have merged, run `seed --replace` once more and start counting from there.
 4. `repair`: it adds ledger entries where the ledger differs from the baseline file, so that both agree at the default branch head.
-5. `recheck`. It posts nothing and shows, per run type, the status that every open pull request head and merge-queue head would get in `ledger` mode, with the pull requests per reason. It works in `shadow` mode.
+5. `recheck`. It posts nothing and shows, per run type, the status that every open pull request head and merge-queue head would get in `ledger` mode, with the pull requests per reason. It works in `shadow` mode. Pass the same options as in step 8.
 6. Require `Visual Review gate / <run type>` in the branch ruleset, from the GitHub App that posts it. Keep the CI jobs required: they prove that the render happened. Merges wait from here until step 8.
 7. `status-gate --set on`, set the repository variable `VISUAL_REVIEW_REPORT_NO_RUN` to `true` (PostHog/posthog sends the "no run needed" report only then), and `mode --set ledger`. From the first of these on, the gate's context carries only ledger verdicts, so the order inside this step does not open a gap.
-8. `recheck --apply`. It posts the status on every open pull request head and merge-queue head, `success` "No visual run for this commit" where no run exists. A commit older than the shortest retention window of a branch's latest run gets `pending` instead, because retention may have deleted its run. `--pause` sets the seconds between posts. Run it again for what it reports as not settled.
+8. `recheck --apply --run-type storybook --setup-check "Create Visual Review run"`, and the same for each other run type with its own job name. It posts the status on every open pull request head and merge-queue head. A head without a run gets `success` only when CI skipped the named job on that commit, because retention may have deleted a run. Without `--setup-check`, such a head gets `success` only while it is younger than the shortest retention window of a branch's latest run. Otherwise it gets `pending`. `--pause` sets the seconds between posts. Run it again for what it reports as not settled.
 
 Do not skip a step or change the order. A required status that is not posted everywhere blocks every pull request without a visual run. `ledger` mode without the required status leaves a pull request with unreviewed changes blocked only by the merge queue.
 

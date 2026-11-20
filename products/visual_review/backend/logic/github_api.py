@@ -408,6 +408,31 @@ def commit_committed_at(repo: Repo, sha: str, priority: Priority = Priority.CRIT
     return parse_datetime(committed_at) if committed_at else None
 
 
+def check_run_conclusions(
+    repo: Repo, sha: str, check_name: str, priority: Priority = Priority.CRITICAL
+) -> list[str] | None:
+    """The conclusion of each check run named `check_name` on the commit, or None when GitHub cannot say.
+
+    A check run that has not finished has an empty conclusion.
+    """
+    data = _read_json(
+        "visual_review.check_runs_fetch_failed",
+        partial(
+            _github_api_request,
+            "GET",
+            repo,
+            f"commits/{sha}/check-runs",
+            params={"check_name": check_name, "per_page": 100},
+            priority=priority,
+        ),
+        repo_id=str(repo.id),
+        sha=sha,
+    )
+    if data is None:
+        return None
+    return [check_run.get("conclusion") or "" for check_run in data.get("check_runs") or []]
+
+
 def merged_pull_requests_for_commit(
     repo: Repo, sha: str, priority: Priority = Priority.CRITICAL
 ) -> list[MergedPullRequest] | None:

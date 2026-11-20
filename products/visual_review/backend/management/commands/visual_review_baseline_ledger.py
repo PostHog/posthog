@@ -90,6 +90,12 @@ class Command(BaseCommand):
         )
         recheck.add_argument("--apply", action="store_true", help="Post the statuses. Needs the commit status gate.")
         recheck.add_argument(
+            "--setup-check",
+            default="",
+            help="Name of the CI job that creates the run. A head without a run passes only when CI skipped it. "
+            "Needs exactly one --run-type.",
+        )
+        recheck.add_argument(
             "--pause",
             type=float,
             default=1.0,
@@ -321,11 +327,13 @@ class Command(BaseCommand):
         self.stdout.write(f"{len(pull_requests)} open pull requests, {len(merge_queue)} merge-queue branches.")
         return pull_requests + merge_queue
 
-    def _show_verdicts(self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str]) -> None:
+    def _show_verdicts(
+        self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str], setup_check: str
+    ) -> None:
         pull_requests_by_reason: dict[tuple[str, str, str], set[int]] = {}
         for head in heads:
             for run_type in run_types:
-                verdict = commit_status.ledger_verdict(repo, head.commit_sha, run_type)
+                verdict = commit_status.ledger_verdict(repo, head.commit_sha, run_type, setup_check)
                 # Counts and the partial-run note would give almost every head a line of its own.
                 reason = _COUNT_RE.sub("N", verdict.description.removesuffix(" (partial run)"))
                 pull_requests_by_reason.setdefault((run_type, verdict.state, reason), set()).add(head.pr_number)
@@ -339,7 +347,7 @@ class Command(BaseCommand):
             self.stdout.write(f"{run_type} {state} ({len(listed)}) {reason}: {shown}{more}")
 
     def _post_verdicts(
-        self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str], pause: float
+        self, repo: Repo, heads: list[github_api.BranchHead], run_types: list[str], setup_check: str, pause: float
     ) -> None:
         commits = sorted({head.commit_sha for head in heads})
         statuses = [(commit_sha, run_type) for commit_sha in commits for run_type in run_types]
@@ -347,7 +355,7 @@ class Command(BaseCommand):
             if index > 0:
                 time.sleep(pause)
             # A refusal is usually GitHub's rate limit, and every further post would be refused too.
-            if not commit_status.publish_after_switch(repo, commit_sha, run_type):
+            if not commit_status.publish_after_switch(repo, commit_sha, run_type, setup_check):
                 raise CommandError(
                     f"The {run_type} status of {commit_sha} did not settle, so the command stopped. "
                     f"{index} of {len(statuses)} statuses posted, {len(statuses) - index} remain. "
@@ -363,8 +371,12 @@ class Command(BaseCommand):
                 "Without --apply the command only shows the statuses."
             )
         run_types = self._run_types(repo, options.get("run_types"))
+        setup_check = options["setup_check"]
+        # Each run type has its own CI job that creates its run.
+        if setup_check and len(run_types) != 1:
+            raise CommandError("--setup-check names the job of one run type. Pass exactly one --run-type with it.")
         heads = self._heads(repo)
         if apply:
-            self._post_verdicts(repo, heads, run_types, options["pause"])
+            self._post_verdicts(repo, heads, run_types, setup_check, options["pause"])
         else:
-            self._show_verdicts(repo, heads, run_types)
+            self._show_verdicts(repo, heads, run_types, setup_check)

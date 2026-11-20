@@ -32,6 +32,7 @@ MAX_ROUNDS = 3
 
 NO_RUN_NEEDED_DESCRIPTION = "No visual run needed"
 NO_RUN_DESCRIPTION = "No visual run for this commit"
+NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION = "No visual run needed for this commit"
 RUN_GONE_DESCRIPTION = "Re-run Visual Review: the run for this commit is gone"
 
 
@@ -428,43 +429,63 @@ def report_no_run_needed(repo: Repo, report: NoRunNeededInput) -> NoRunNeededOut
     return NoRunNeededOutcome.POSTED
 
 
-def _verdict_without_run(repo: Repo, commit_sha: str) -> StatusVerdict:
-    """The status of a commit that has no run: a pass only while retention cannot have deleted one.
+def _setup_check_skipped(repo: Repo, commit_sha: str, setup_check: str) -> bool:
+    """Whether CI skipped the job that creates the run on this commit, so no run was needed."""
+    conclusions = github_api.check_run_conclusions(repo, commit_sha, setup_check, Priority.BATCH)
+    if not conclusions:
+        return False
+    return all(conclusion == "skipped" for conclusion in conclusions)
 
-    Retention deletes the latest run of a quiet branch, also one that failed. So a commit older than
-    that window may have had a run, and only a new run can tell.
+
+def _younger_than_retention(repo: Repo, commit_sha: str) -> bool:
+    """Whether the commit is too young for retention to have deleted a run of it."""
+    committed_at = github_api.commit_committed_at(repo, commit_sha, Priority.BATCH)
+    cutoff = timezone.now() - timedelta(days=retention.LATEST_RUN_MIN_RETENTION_DAYS)
+    return committed_at is not None and committed_at >= cutoff
+
+
+def _verdict_without_run(repo: Repo, commit_sha: str, setup_check: str) -> StatusVerdict:
+    """The status of a commit that has no run. It passes only on evidence that no run is missing.
+
+    Retention deletes the latest run of a quiet branch, also one that failed, so a missing run
+    proves nothing. With `setup_check`, the evidence is CI skipping the job that creates the run.
+    Without it, the commit must be too young for retention to have deleted a run.
     """
     try:
-        committed_at = github_api.commit_committed_at(repo, commit_sha, Priority.BATCH)
+        if setup_check:
+            no_run_missing = _setup_check_skipped(repo, commit_sha, setup_check)
+        else:
+            no_run_missing = _younger_than_retention(repo, commit_sha)
     except github_api.GITHUB_READ_REFUSED:
-        committed_at = None
-    cutoff = timezone.now() - timedelta(days=retention.LATEST_RUN_MIN_RETENTION_DAYS)
-    if committed_at is None or committed_at < cutoff:
+        no_run_missing = False
+    if not no_run_missing:
         return StatusVerdict(state="pending", description=RUN_GONE_DESCRIPTION)
-    return StatusVerdict(state="success", description=NO_RUN_DESCRIPTION)
+    description = NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION if setup_check else NO_RUN_DESCRIPTION
+    return StatusVerdict(state="success", description=description)
 
 
-def ledger_verdict(repo: Repo, commit_sha: str, run_type: str) -> StatusVerdict:
+def ledger_verdict(repo: Repo, commit_sha: str, run_type: str, setup_check: str = "") -> StatusVerdict:
     """The status a commit gets under `ledger` rules, in any mode. Posts nothing.
 
     The recheck command shows it before the switch, to count what the switch turns red or pending.
+    `setup_check` names the CI job that creates the run of this run type.
     """
     run = _newest_run(repo, commit_sha, run_type)
     if run is None:
-        return _verdict_without_run(repo, commit_sha)
+        return _verdict_without_run(repo, commit_sha, setup_check)
     status = _status_of(run, repo, ledger_mode=True)
     return StatusVerdict(state=status.state, description=status.description)
 
 
-def publish_after_switch(repo: Repo, commit_sha: str, run_type: str) -> bool:
+def publish_after_switch(repo: Repo, commit_sha: str, run_type: str, setup_check: str = "") -> bool:
     """Post the status of a commit that may carry none yet. Returns False when it may not be settled.
 
-    A young commit without a run passes, because the CI jobs stay required and block a commit
-    whose workflow failed. A run created during the post owns the status, as in `report_no_run_needed`.
+    A commit without a run passes only on the evidence `ledger_verdict` reads, and the CI jobs stay
+    required and block a commit whose workflow failed. A run created during the post owns the status, as in `report_no_run_needed`.
     It decides as `ledger_verdict` does, so the recheck command posts what its dry run showed.
     """
     if _newest_run(repo, commit_sha, run_type) is None:
-        verdict = _verdict_without_run(repo, commit_sha)
+        verdict = _verdict_without_run(repo, commit_sha, setup_check)
         posted = ci_status._send_commit_status(
             repo,
             commit_sha,
