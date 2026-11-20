@@ -38,7 +38,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.scoping import team_scope
+from posthog.models.scoping import team_scope, unscoped
 from posthog.models.utils import uuid7
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.sync import database_sync_to_async
@@ -52,6 +52,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutPendingTrigger,
     SignalScoutRun,
+    SignalScratchpad,
     SignalSpend,
 )
 from products.signals.backend.quota import SelfDrivingQuotaGate
@@ -581,6 +582,18 @@ class TestMemoryUpkeepCheck(SimpleTestCase):
         ):
             assert _memory_upkeep_has_written(MagicMock()) is False
         capture.assert_called_once()
+
+
+class TestMemoryUpkeepCheckQuery(BaseTest):
+    def test_the_check_reads_the_scratchpad_without_an_ambient_team_scope(self) -> None:
+        run = SignalScoutRun.objects.create(
+            team=self.team, task_run=_make_task_run(self.team), skill_name=MEMORY_UPKEEP_SCOUT, skill_version=1
+        )
+        SignalScratchpad.objects.create(team=self.team, key="learned:area:checkout", content="c", created_by_run=run)
+
+        # The runner calls the check from a Temporal activity, which sets no team scope.
+        with unscoped():
+            assert _memory_upkeep_has_written(self.team) is True
 
 
 class TestActivitySummarySearchAvailability(SimpleTestCase):

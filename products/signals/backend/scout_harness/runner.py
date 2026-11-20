@@ -23,6 +23,7 @@ from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -957,7 +958,9 @@ def _memory_upkeep_has_written(team: Team) -> bool:
     no per-user access to check. A failed read is False: the section is optional steering.
     """
     try:
-        return has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
+        # Scratchpad entries are a fail-closed model, and the runner has no ambient team scope.
+        with team_scope(team.id, canonical=True):
+            return has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
     except Exception as error:
         capture_exception(error)
         return False
