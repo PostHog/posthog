@@ -3789,7 +3789,16 @@ class TestPrinter(BaseTest):
             ),
             is_nullable=True,
         )
-        mock_matcols_by_table.return_value = {"events": {("$ai_trace_id", "properties"): mat_col}}
+        lookalike_col = MaterializedColumn(
+            name="mat_$ai_trace_id_v2",
+            details=MaterializedColumnDetails(
+                table_column="properties", property_name="$ai_trace_id_v2", is_disabled=False
+            ),
+            is_nullable=True,
+        )
+        mock_matcols_by_table.return_value = {
+            "events": {("$ai_trace_id", "properties"): mat_col, ("$ai_trace_id_v2", "properties"): lookalike_col}
+        }
 
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             expected_expr = "CAST(events.properties.`$ai_trace_id`, 'Nullable(String)')"
@@ -3855,6 +3864,18 @@ class TestPrinter(BaseTest):
         self.assertIn(f"countIf(isNotNull({read_expr}))", sql)
         self.assertIn(f"countIf(isNull({read_expr}))", sql)
         self.assertIn(f"isNotNull({read_expr})) LIMIT", sql)
+
+        # A property whose name only contains `$ai_trace_id` keeps the NULL handling, so `!=` keeps rows without it.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id_v2 != ''", context)
+        lookalike_expr = (
+            "CAST(events.properties.`$ai_trace_id_v2`, 'Nullable(String)')"
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            else "events.`mat_$ai_trace_id_v2`"
+        )
+        empty_param_key = next((k for k, v in context.values.items() if v == ""), None)
+        assert empty_param_key is not None, "Expected '' to be recorded as a parameter value"
+        self.assertIn(f"ifNull(notEquals({lookalike_expr}, %({empty_param_key})s), 1)", sql)
 
         # Dynamic properties use JSON subcolumns under the new schema and JSON extraction under legacy.
         # `other_prop` is not in the materialized-column registry, so it stays on the JSON path.

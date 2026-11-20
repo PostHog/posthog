@@ -902,6 +902,18 @@ class ClickHousePrinter(BasePrinter):
 
         return False
 
+    def _is_ai_bloom_filter_read(self, node: ast.Expr) -> bool:
+        # Match the read and not the printed SQL: any other column or JSON path whose name contains one of these
+        # names, such as a `$ai_trace_id_v2` property, must keep the NULL handling of its comparisons.
+        read = node.expr if isinstance(node, ast.TypeCast) else node
+        if isinstance(read, ast.JsonSubcolumnAccess):
+            return len(read.keys) == 1 and read.keys[0] in AI_BLOOM_FILTER_PROPERTIES
+        return (
+            isinstance(node, ast.Field)
+            and isinstance(node.type, ast.FieldType)
+            and node.type.name in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
+        )
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # $session_id comparisons optimize a real column (not a property), so they stay on the printer. Every
         # property-based skip-index rewrite (materialized column, property group) now runs in ClickHouse property
@@ -934,7 +946,7 @@ class ClickHousePrinter(BasePrinter):
 
         # :HACK: Prevent ifNull() wrapping for $ai_trace_id, $ai_session_id, and $ai_is_error to allow index usage
         # The materialized columns mat_$ai_trace_id, mat_$ai_session_id, and mat_$ai_is_error have bloom filter indexes for performance
-        if any(col in left or col in right for col in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING):
+        if self._is_ai_bloom_filter_read(node.left) or self._is_ai_bloom_filter_read(node.right):
             not_nullable = True
 
         # ClickHouse can't parse datetime strings ending in 'Z' or an offset, so print those as datetime literals.
