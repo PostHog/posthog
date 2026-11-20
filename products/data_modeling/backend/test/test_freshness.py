@@ -259,6 +259,15 @@ class TestValidateFrequencyTarget(TestCase):
                 "Can't refresh every 15 minutes: org_universe is pinned to refresh every 1 hour. Pick 1 hour instead.",
             ),
             (
+                "a_pinned_parent_the_caller_cannot_see_is_not_revealed",
+                {"crm": STREAMING},
+                {"contacts": H1},
+                {"contacts"},
+                "Can't refresh every 15 minutes: no upstream source syncs more often than every 1 hour. "
+                "Pick 1 hour instead.",
+                {},
+            ),
+            (
                 "slow_sources_are_not_blamed_on_one_of_them",
                 {"crm": H6},
                 {},
@@ -268,7 +277,7 @@ class TestValidateFrequencyTarget(TestCase):
             ),
         ]
     )
-    def test_floor_refusal_message(self, _name, source_intervals, declared_targets, pinned, message):
+    def test_floor_refusal_message(self, _name, source_intervals, declared_targets, pinned, message, names=None):
         with self.assertRaises(UnsatisfiableFrequencyError) as raised:
             validate_declared_target(
                 node_id="signups",
@@ -276,7 +285,7 @@ class TestValidateFrequencyTarget(TestCase):
                 edges=[("crm", "contacts"), ("contacts", "signups")],
                 declared_targets=declared_targets,
                 source_intervals=source_intervals,
-                names={"contacts": "org_universe", "crm": "aws_customers"},
+                names={"contacts": "org_universe", "crm": "aws_customers"} if names is None else names,
                 pinned=pinned,
             )
         self.assertEqual(str(raised.exception), message)
