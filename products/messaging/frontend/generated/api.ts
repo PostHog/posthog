@@ -69,6 +69,10 @@ import type {
     TransactionalEmailResultsApi,
     TransactionalEmailStatsApi,
     TransactionalEmailStatsOverTimeApi,
+    TransactionalPushLogListApi,
+    TransactionalPushLogListParams,
+    TransactionalPushLogStatsRetrieveParams,
+    TransactionalPushStatsApi,
     WebhookUrlApi,
     WorkflowEmailDetailApi,
     WorkflowEmailListApi,
@@ -1422,6 +1426,71 @@ export const transactionalEmailLogStatsOverTimeRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getTransactionalPushLogListUrl = (projectId: string, params?: TransactionalPushLogListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_push_log/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_push_log/`
+}
+
+/**
+ * List the project's transactional push notification sends, newest first. The log keeps sends for 30 days.
+ * @summary List transactional push notification sends
+ */
+export const transactionalPushLogList = async (
+    projectId: string,
+    params?: TransactionalPushLogListParams,
+    options?: RequestInit
+): Promise<TransactionalPushLogListApi> => {
+    return apiMutator<TransactionalPushLogListApi>(getTransactionalPushLogListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalPushLogStatsRetrieveUrl = (
+    projectId: string,
+    params?: TransactionalPushLogStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_push_log/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_push_log/stats/`
+}
+
+/**
+ * Count sends per push notification by outcome: sent, not sent and failed.
+ * @summary Get transactional push notification stats
+ */
+export const transactionalPushLogStatsRetrieve = async (
+    projectId: string,
+    params?: TransactionalPushLogStatsRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalPushStatsApi> => {
+    return apiMutator<TransactionalPushStatsApi>(getTransactionalPushLogStatsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getWorkflowEmailLogListUrl = (projectId: string, params: WorkflowEmailLogListParams) => {
