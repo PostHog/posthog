@@ -1142,7 +1142,7 @@ jobs:
                   docker logs posthog-capture-ai-1 > playwright/test-results/docker-capture-ai.log 2>&1 || echo "No capture-ai container" > playwright/test-results/docker-capture-ai.log
                   docker logs posthog-valkey-cluster-1 > playwright/test-results/docker-valkey-cluster.log 2>&1 || echo "No valkey-cluster log" >> playwright/test-results/docker-valkey-cluster.log
                   docker inspect --format '{{.Name}} restarts={{.RestartCount}} state={{json .State}}' posthog-valkey-cluster-1 posthog-plugins-1 > playwright/test-results/docker-container-state.log 2>&1 || echo "No valkey-cluster or plugins container" >> playwright/test-results/docker-container-state.log
-                  docker run --rm --name e2e-events-flush --entrypoint true valkey/valkey:8.1-alpine > /dev/null 2>&1 || true
+                  timeout 20 docker run --rm --pull=never --name e2e-events-flush --entrypoint true valkey/valkey:8.1-alpine > /dev/null 2>&1 || true
                   for _ in $(seq 50); do grep -q ' e2e-events-flush die' "$RUNNER_TEMP/docker-container-events.log" && break; sleep 0.2; done
                   grep -q ' e2e-events-flush die' "$RUNNER_TEMP/docker-container-events.log" || echo "The event listener did not record the capture's test exit, so events may be missing" >> "$RUNNER_TEMP/docker-container-events.log"
                   cp "$RUNNER_TEMP/docker-container-events.log" playwright/test-results/docker-container-events.log || echo "No container events recorded" > playwright/test-results/docker-container-events.log
