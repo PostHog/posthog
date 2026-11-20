@@ -129,6 +129,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutRun,
+    SignalScratchpad,
     SignalSpend,
 )
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -1133,6 +1134,10 @@ def _create_scout_run_emission(team: Team, label: str) -> SignalScoutEmission:
     )
 
 
+def _create_scout_scratchpad(team: Team, label: str) -> SignalScratchpad:
+    return SignalScratchpad.objects.for_team(team.pk).create(team=team, key=f"memory:{label}", content=label)
+
+
 def _create_signal_spend(team: Team, label: str) -> SignalSpend:
     return SignalSpend.objects.for_team(team.pk).create(
         team=team, kind=SignalSpend.Kind.AD_HOC, signal_id=uuid.uuid4(), spend="1.2345", finalized_at=timezone.now()
@@ -1295,6 +1300,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("scout_configs", _create_scout_config),
     ("scout_run_emissions", _create_scout_run_emission),
     ("scout_runs", _create_scout_run),
+    ("scout_scratchpad", _create_scout_scratchpad),
     ("signal_spend", _create_signal_spend),
     ("_signal_spend_scout_runs", _create_scout_run),
     ("session_recording_playlists", _create_session_recording_playlist),
@@ -1956,6 +1962,15 @@ class TestSystemTablesInboxAccess(BaseTest):
         assert ("signal_spend" not in denied) is expected_visible
         assert ("_signal_spend_scout_runs" not in denied) is expected_visible
 
+    @parameterized.expand([("signal_scout:read", False), ("insight:read", True)])
+    def test_scout_scratchpad_needs_the_scout_runs_scope(self, scope: str, expected_denied: bool) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="scout-tables", secure_value="sha256$" + "e" * 64, scopes=[scope]
+        )
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+        assert ("scout_runs" in denied) is expected_denied
+        assert ("scout_scratchpad" in denied) is expected_denied
+
     @parameterized.expand(
         [
             ("inbox_read", ["inbox:read"], True),
@@ -2075,6 +2090,41 @@ class TestSystemTablesScoutTrialExclusionIsolation(NonAtomicBaseTest):
         }
         assert [(str(row[0]), str(row[1])) for row in spend.results] == [(str(visible.scout_run_id), "12.3456")]
         assert [(str(row[0]), str(row[1])) for row in run_spend.results] == [(str(visible.scout_run_id), "12.3456")]
+
+
+class TestSystemTablesScoutScratchpad(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_scratchpad_joins_runs_by_creator_and_keeps_expired_entries(self):
+        run = _create_scout_run(self.team, "creator")
+        SignalScratchpad.objects.for_team(self.team.pk).create(
+            team=self.team, key="memory:live", content="live", created_by_run=run
+        )
+        SignalScratchpad.objects.for_team(self.team.pk).create(
+            team=self.team,
+            key="memory:expired",
+            content="expired",
+            created_by_run=run,
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        SignalScratchpad.objects.for_team(self.team.pk).create(
+            team=self.team, key="memory:pipeline", content="pipeline", created_by_identity="pipeline:report-research"
+        )
+
+        by_scout = execute_hogql_query(
+            "SELECT r.skill_name, count() FROM system.scout_scratchpad s "
+            "JOIN system.scout_runs r ON s.created_by_run_id = r.id GROUP BY r.skill_name",
+            team=self.team,
+            user=self.user,
+        )
+        live = execute_hogql_query(
+            "SELECT key FROM system.scout_scratchpad WHERE expires_at IS NULL OR expires_at > now() ORDER BY key",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert by_scout.results == [("scout-creator", 2)]
+        assert live.results == [("memory:live",), ("memory:pipeline",)]
 
 
 class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):

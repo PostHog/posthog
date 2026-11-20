@@ -676,7 +676,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         )
 
         if (pageTruncated) {
-            this.emitTruncationLog(newState)
+            this.recordTruncatedRunAfterCommit(newState)
         }
 
         counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'success' }).inc()
@@ -684,6 +684,22 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         logger.info(
             '📝',
             `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} enqueued, ${masked.length} masked (${newState.totalEnqueued} total resolved, ${newState.pagesProcessed} pages)`
+        )
+    }
+
+    private recordTruncatedRunAfterCommit(state: BatchResolverState): void {
+        this.emitTruncationLog(state)
+        this.hogFunctionMonitoringService.queueAppMetrics(
+            [
+                {
+                    team_id: state.teamId,
+                    app_source_id: state.batchJobId,
+                    metric_kind: 'other',
+                    metric_name: 'audience_truncated',
+                    count: 1,
+                },
+            ],
+            'hog_flow'
         )
     }
 
@@ -710,13 +726,13 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     }
 
     private async transitionToTruncatedTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
-        this.emitTruncationLog(state)
         const newState: BatchResolverState = {
             ...state,
             pendingTerminal: 'completed',
             attempts: 0, // give the terminal write a fresh retry budget
         }
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
+        this.recordTruncatedRunAfterCommit(state)
     }
 
     private async transitionToFailedTerminal(

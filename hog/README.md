@@ -47,6 +47,9 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 
 ## Commands
 
+`hog` alone shows a person the commands most people start with, and `hog help` lists every command and option.
+Agents and pipes get the full help, with the exit codes.
+
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
 
@@ -55,7 +58,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog setup`, `hog setup next`             | Takes this folder from nothing to PostHog installed and events arriving, one step at a time. See [Setup](#setup).                 |
 | `hog auth login`                          | Logs in through the browser to one project, and names it in `posthog.json`. Agents finish with `hog auth login --wait`.           |
 | `hog auth add <scope...>`                 | Adds scopes to your login, approved in the browser. Agents finish with `hog auth add --wait`.                                     |
-| `hog auth status`                         | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key.          |
+| `hog auth status`, `hog whoami`           | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key.          |
 | `hog auth logout`                         | Removes the login commands in this folder use. `--all` removes every login.                                                       |
 | `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                                      |
 | `hog ci setup`                            | Asks an admin to trust this repository's CI jobs, so they use their OIDC token instead of a stored key.                           |
@@ -455,9 +458,16 @@ To add a changeset yourself, run from `hog/`:
 sampo add --package npm/hog --bump patch --message "Describe the change for the changelog"
 ```
 
-Use `minor` or `major` instead of `patch` when it fits. Commit the file sampo writes under `hog/.sampo/changesets/`.
+Use `minor` or `major` instead of `patch` when it fits. sampo gives the file a random name under `hog/.sampo/changesets/`: rename it after the change, then commit it.
 
-A changeset a person writes starts a release when its pull request merges. A changeset the `hog changeset` workflow adds, named `pr-<number>.md`, waits for the weekly run on Tuesdays at 14:00 UTC, so MCP and catalog changes cost one approval a week. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
+The file name says when the changeset releases:
+
+| File name          | Releases                                    |
+| ------------------ | ------------------------------------------- |
+| `weekly-<name>.md` | In the weekly run, on Tuesdays at 14:00 UTC |
+| Any other name     | When its pull request merges                |
+
+Name a changeset `weekly-<name>.md` when the change can wait, so it costs no approval of its own. The `hog changeset` workflow names the changesets it adds for MCP and catalog changes `weekly-pr-<number>.md`, so they wait too. sampo reads every line of the front matter as a package and a bump, so the timing can only live in the file name. Every release ships all pending changesets. To release sooner, run the `Release hog` workflow by hand.
 
 When a release starts, the workflow:
 

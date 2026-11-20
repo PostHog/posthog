@@ -53,6 +53,18 @@
         opacity: 0.5;
     }
 
+    /* An input with a disabled reason stays hoverable for its tooltip, so the group dims around it instead. */
+    .quill-input-group:has(
+        > [data-slot='input-group-field'] > [data-slot='input-group-control'][aria-disabled='true']
+    ) {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+
+    .quill-input.quill-input-group__control[aria-disabled='true'] {
+        opacity: 1;
+    }
+
     /* Block-align variants grow the container and stack children */
     .quill-input-group:has(> [data-align='block-end']),
     .quill-input-group:has(> [data-align='block-start']) {

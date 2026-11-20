@@ -10,6 +10,7 @@ import { Releases } from '@posthog/products-error-tracking/frontend/scenes/Error
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { TagRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/tag_rules/TagRules'
 import { McpCustomHarnessesSettings } from '@posthog/products-mcp-analytics/frontend/settings/McpCustomHarnessesSettings'
 import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
@@ -60,6 +61,7 @@ import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevMod
 import { ConnectAgentSetting } from 'products/business_knowledge/frontend/scenes/settings/ConnectAgentSetting'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
+import { SupportChannelsSettings } from 'products/conversations/frontend/components/SupportChannelsSettings/SupportChannelsSettings'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { ImportsSection } from 'products/conversations/frontend/scenes/settings/ImportsSection'
@@ -127,7 +129,6 @@ import {
     EvaluationContextSuggestions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
-    FlagsSecureApiKeys,
     RequireEvaluationContexts,
     RequireFeatureFlagTags,
 } from './environment/FeatureFlagSettings'
@@ -981,6 +982,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['severity', 'priority', 'triage', 'critical', 'rule'],
             },
             {
+                id: 'error-tracking-tag-rules',
+                title: 'Tag rules',
+                description: 'Tag new issues based on rules you define.',
+                component: <TagRules />,
+                flag: 'ERROR_TRACKING_ISSUE_TAGS',
+                keywords: ['tag', 'label', 'rule', 'triage', 'categorize'],
+            },
+            {
                 id: 'error-tracking-suppression-rules',
                 title: 'Suppression rules',
                 description: 'Filter out exceptions that match the given filters.',
@@ -1199,15 +1208,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'FLAG_EVALUATION_TAGS',
                 component: <EvaluationContextSuggestions />,
                 keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
-            },
-            {
-                id: 'feature-flag-secure-api-key',
-                title: 'Feature flags secure API key',
-                description:
-                    'Deprecated. This key is still usable for local evaluation of feature flags or remote config settings, but new integrations should use a project secret API key with the feature_flag:read scope instead.',
-                docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
-                component: <FlagsSecureApiKeys />,
-                keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
             },
         ],
     },
@@ -1651,22 +1651,27 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-general',
                 title: 'General',
                 component: <GeneralSection />,
+                keywords: ['conversation', 'ticket', 'message', 'support', 'general', 'enable'],
+            },
+            {
+                id: 'conversations-channels',
+                title: 'Channels',
+                component: <SupportChannelsSettings />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: [
                     'conversation',
-                    'ticket',
-                    'message',
                     'support',
-                    'general',
-                    'api',
-                    'domain',
-                    'identity',
-                    'secret',
                     'channel',
                     'widget',
                     'email',
                     'slack',
                     'teams',
                     'microsoft',
+                    'github',
+                    'api',
+                    'domain',
+                    'identity',
+                    'secret',
                 ],
             },
             {

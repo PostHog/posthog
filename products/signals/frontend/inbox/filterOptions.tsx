@@ -162,15 +162,6 @@ export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_RANKING_SCORES.
     description: score.description,
 }))
 
-/** Orders the list by the user's stored personal ranking, behind the personalized sort flag. */
-export const INBOX_PERSONAL_SORT_OPTION: InboxSortOption = {
-    label: 'Personalized',
-    field: 'personal',
-    direction: 'asc',
-    icon: <IconPerson />,
-    description: 'Your reports first, in the order that fits your recent work.',
-}
-
 /** The `personal_tier` values the personal ranking writes, keyed by value. */
 export const INBOX_PERSONAL_TIERS: Record<string, { label: string }> = {
     top: { label: 'Top' },
@@ -179,8 +170,8 @@ export const INBOX_PERSONAL_TIERS: Record<string, { label: string }> = {
 }
 
 /** The sorts the server orders with a ranker, whose rows carry `inbox_merge_key`. */
-export function isMergeKeySortField(field: InboxSortField): field is 'recommended' | 'personal' {
-    return field === 'recommended' || field === 'personal'
+export function isMergeKeySortField(field: InboxSortField): field is 'recommended' {
+    return field === 'recommended'
 }
 
 const RANKING_SCORE_BY_FIELD = Object.fromEntries(INBOX_RANKING_SCORES.map((score) => [score.field, score])) as Record<
