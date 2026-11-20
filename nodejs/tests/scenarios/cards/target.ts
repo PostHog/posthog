@@ -40,6 +40,7 @@ function devProblems({ drive, invariants, measure, bars, valves, setup }: Card, 
             names.filter((name) => !DEV_RUNS[where]?.includes(name)).map((name) => `${where}: dev does not run ${name}`)
         ),
         ...(setup.teams === 1 ? [] : ['setup.teams: dev drives its one fixture project']),
+        ...(drive.traffic.length === 1 ? [] : ['drive.traffic: dev drives one traffic entry, so offers cannot bunch']),
         ...(peak <= DEV_CAPS.ratePerSecond ? [] : [`drive: ${peak} units a second is above the dev cap`]),
         ...(units <= DEV_CAPS.units ? [] : [`drive: ${units} units is above the dev cap`]),
         ...(durationMs(drive.for) <= DEV_CAPS.driveMs ? [] : ['drive.for: dev drives for 10m at most']),

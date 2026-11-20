@@ -422,6 +422,15 @@ describe('load', () => {
         ],
         ['a host block', devCard, { ...devProfile, host: { cpuCeiling: 0.5 } }, 'profile: dev does not run host'],
         ['a second project', { ...devCard, setup: { teams: 2 } }, devProfile, 'setup.teams: '],
+        [
+            'the same traffic twice, whose first offers would start together',
+            {
+                ...devCard,
+                drive: { ...devCard.drive, traffic: [{ name: 'capture_webhook' }, { name: 'capture_webhook' }] },
+            },
+            devProfile,
+            'drive.traffic: dev drives one traffic entry',
+        ],
         ['a rate above its cap', devCard, devAt(11), 'drive: 11 units a second is above the dev cap'],
         [
             'a ramp whose top step is above the rate cap',
