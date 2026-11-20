@@ -27,3 +27,7 @@ ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 # Matches the `log_source` column written for endpoint execution logs in the `log_entries`
 # ClickHouse table. The Logs tab and the `endpoints_logs_retrieve` API both read by this value.
 ENDPOINTS_LOG_SOURCE = "endpoints"
+
+# The `log_source` of the machine-readable record of each endpoint run. The Logs tab and the
+# `endpoints_logs_retrieve` API read `ENDPOINTS_LOG_SOURCE` only, so they do not show these rows.
+ENDPOINT_EXECUTION_RECORDS_LOG_SOURCE = "endpoint_execution_records"

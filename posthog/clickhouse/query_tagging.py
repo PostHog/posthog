@@ -469,6 +469,7 @@ class QueryTags(BaseModel):
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
+    endpoint_execution_id: Optional[str] = None  # one endpoint run; equals instance_id in its log_entries rows
     endpoint_materialization_behind: Optional[bool] = (
         None  # set when a materialized endpoint is past its data_freshness SLA
     )
