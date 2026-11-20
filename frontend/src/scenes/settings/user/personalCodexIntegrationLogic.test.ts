@@ -67,13 +67,25 @@ describe('personalCodexIntegrationLogic', () => {
         logic.mount()
     })
 
-    afterEach(() => logic.unmount())
+    afterEach(() => {
+        logic.unmount()
+        Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+    })
 
-    it('shows the device code and connects after server approval without uploading tokens', async () => {
+    const setHidden = (hidden: boolean): void => {
+        Object.defineProperty(document, 'hidden', { configurable: true, value: hidden })
+        document.dispatchEvent(new Event('visibilitychange'))
+    }
+
+    it.each([false, true])('connects without uploading tokens after switching tabs: %s', async (switchTabs) => {
         await expectLogic(logic, () => logic.actions.openConnectModal('settings')).toFinishAllListeners()
         expect(submittedFields).toEqual(['login_id'])
         expect(logic.values.login?.user_code).toBe('TEST-CODE')
         expect(logic.values.connecting).toBe(true)
+        if (switchTabs) {
+            setHidden(true)
+            setHidden(false)
+        }
         loginStatus = 'connected'
         await expectLogic(logic, () => logic.actions.pollDeviceLogin()).toFinishAllListeners()
         expect(logic.values.codexIntegration).toEqual(CONNECTED)
@@ -90,7 +102,7 @@ describe('personalCodexIntegrationLogic', () => {
         expect(logic.values.connectModalOpener).toBe('settings')
     })
 
-    it('finishes a slow status request before polling again', async () => {
+    it.each([false, true])('handles a slow status request with a tab switch: %s', async (switchTabs) => {
         await expectLogic(logic, () => logic.actions.openConnectModal('settings')).toFinishAllListeners()
         const started = deferred<void>()
         const response = deferred<void>()
@@ -109,8 +121,24 @@ describe('personalCodexIntegrationLogic', () => {
         logic.actions.pollDeviceLogin()
         await started.promise
         logic.actions.pollDeviceLogin()
+        if (switchTabs) {
+            setHidden(true)
+        }
         response.resolve()
         await expectLogic(logic).toFinishAllListeners()
+        if (switchTabs) {
+            expect(logic.values.connectError).toBeNull()
+            setHidden(false)
+            useMocks({
+                get: {
+                    '/api/users/@me/integrations/codex/login/:id/': () => [
+                        200,
+                        { login_id: loginId, status: 'connected', user_code: null },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.pollDeviceLogin()).toFinishAllListeners()
+        }
         expect(logic.values.codexIntegration).toEqual(CONNECTED)
         expect(logic.values.connectModalOpener).toBeNull()
         expect(logic.values.connectError).toBeNull()

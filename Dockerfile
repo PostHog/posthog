@@ -170,9 +170,10 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
 # Build plugin transpiler and other Node.js build artifacts.
 #
 FROM node-base AS codex-login-build
-COPY packages/agent/packages/agent/package.json /codex-agent-package.json
-RUN CODEX_VERSION="$(node -p "require('/codex-agent-package.json').dependencies['@openai/codex']")" && \
-    npm install --prefix /codex --ignore-scripts --no-audit --no-fund "@openai/codex@${CODEX_VERSION}" && \
+WORKDIR /codex
+COPY packages/agent/package.json packages/agent/pnpm-lock.yaml packages/agent/pnpm-workspace.yaml ./
+COPY packages/agent/packages/ packages/
+RUN pnpm --filter=@posthog/agent... install --prod --frozen-lockfile --ignore-scripts && \
     cp /codex/node_modules/@openai/codex-linux-*/vendor/*/bin/codex /codex-bin && \
     /codex-bin --version
 

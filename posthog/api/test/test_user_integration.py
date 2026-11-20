@@ -23,6 +23,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 from structlog.testing import capture_logs
 
+from posthog import redis
 from posthog.api.github_callback.personal_state import user_has_personal_github_integration
 from posthog.api.github_callback.state import (
     load_authorize_state,
@@ -2069,9 +2070,16 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
         assert response.status_code == 200, response.json()
         return login_id
 
-    @parameterized.expand([("success",), ("cancel",), ("disconnect",), ("replace",), ("failed",)])
+    @parameterized.expand(
+        [("success",), ("cancel",), ("disconnect",), ("replace",), ("failed",), ("access_revoked",), ("at_capacity",)]
+    )
     def test_device_login_lifecycle(self, outcome):
         login_id = self._start_device_login()
+        if outcome == "at_capacity":
+            client = redis.get_client()
+            key = "celery_running_tasks:posthog.tasks.codex_login.complete_codex_login"
+            client.zadd(key, {f"test-login-{i}": time.time() + 600 for i in range(4)})
+            self.addCleanup(client.delete, key)
         auth = {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_device"}}
         fake_codex = """
 import json, os, sys
@@ -2108,6 +2116,8 @@ for line in sys.stdin:
                     self.client.delete("/api/users/@me/integrations/codex/")
                 elif outcome == "replace":
                     replacement_id = self._start_device_login()
+                elif outcome == "access_revoked":
+                    self.access_decision.return_value = PostHogAIAccessDecision.BETA_OFF
             return changed
 
         with (
@@ -2133,6 +2143,8 @@ for line in sys.stdin:
                 "disconnect": "expired",
                 "replace": "expired",
                 "failed": "failed",
+                "access_revoked": "failed",
+                "at_capacity": "failed",
             }[outcome]
         )
         assert "rt_" not in json.dumps(result)

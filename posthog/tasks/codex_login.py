@@ -14,6 +14,7 @@ from django.db import transaction
 import structlog
 from celery import shared_task
 
+from posthog.clickhouse.client.limit import limit_concurrency
 from posthog.models.integration.codex import CodexUserIntegration, parse_codex_auth_json
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
@@ -76,6 +77,8 @@ def cancel_login(user_id: int, login_id: str) -> None:
 )
 @skip_team_scope_audit
 def complete_codex_login(user_id: int, login_id: str) -> None:
+    from posthog.api.user_integration_codex import ensure_codex_connect_enabled
+
     if not cache.add(f"codex_device_login_worker:{user_id}:{login_id}", True, timeout=LOGIN_TIMEOUT + 30):
         return
     try:
@@ -111,8 +114,8 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
                 CodexUserIntegration._lock_user(user_id)
                 if get_login(user_id, login_id)["status"] != "pending":
                     return
-                if not User.objects.filter(id=user_id, is_active=True).exists():
-                    raise RuntimeError("Account is inactive")
+                user = User.objects.get(id=user_id, is_active=True)
+                ensure_codex_connect_enabled(user)
                 tokens = parse_codex_auth_json(json.loads(Path(home, "auth.json").read_text()))
                 CodexUserIntegration.connect(user_id, tokens, source="device_login")
                 transaction.on_commit(lambda: update_login(user_id, login_id, "connected"))
@@ -135,6 +138,7 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
                 )
 
 
+@limit_concurrency(4, ttl=LOGIN_TIMEOUT + 30, limit_name="codex_device_login")
 def run_login(process: subprocess.Popen[bytes], user_id: int, login_id: str) -> None:
     assert process.stdin is not None and process.stdout is not None
     process.stdin.write(

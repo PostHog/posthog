@@ -17,7 +17,10 @@
 !packages/llm-normalizer
 !packages/owners-yaml
 !packages/agent/agent-shadow
-!packages/agent/packages/agent/package.json
+!packages/agent/package.json
+!packages/agent/pnpm-lock.yaml
+!packages/agent/pnpm-workspace.yaml
+!packages/agent/packages/*/package.json
 !packages/agent/packages/agent-contracts/src
 !dags
 !docs/onboarding

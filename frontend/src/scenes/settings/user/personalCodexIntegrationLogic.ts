@@ -186,9 +186,9 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                     return
                 }
                 actions.setLogin(login)
-                const controller = new AbortController()
-                cache.loginAbortController = controller
                 cache.disposables.add(() => {
+                    const controller = new AbortController()
+                    cache.loginAbortController = controller
                     const timer = window.setInterval(() => actions.pollDeviceLogin(), 2000)
                     return () => {
                         window.clearInterval(timer)
@@ -208,8 +208,8 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                 return
             }
             cache.pollingLoginId = loginId
+            const signal = cache.loginAbortController?.signal
             try {
-                const signal = cache.loginAbortController?.signal
                 const login = await retryWithBackoff(
                     () => usersIntegrationsCodexLoginRetrieve('@me', loginId, { signal }),
                     {
@@ -221,7 +221,7 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                             error instanceof NetworkError || (error instanceof ApiError && (error.status ?? 0) >= 500),
                     }
                 )
-                if (cache.disposables.isDisposed || values.login?.login_id !== loginId) {
+                if (signal?.aborted || cache.disposables.isDisposed || values.login?.login_id !== loginId) {
                     return
                 }
                 actions.setLogin(login)
@@ -236,7 +236,7 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                     )
                 }
             } catch {
-                if (!cache.disposables.isDisposed && values.login?.login_id === loginId) {
+                if (!signal?.aborted && !cache.disposables.isDisposed && values.login?.login_id === loginId) {
                     cache.disposables.dispose('codexLogin')
                     actions.setConnectError('Could not check the ChatGPT login. Try again.')
                 }
