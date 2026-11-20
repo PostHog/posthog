@@ -29,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
     HeldDeliveryAddress,
     LegacyAlertHistory,
     LegacyHistoryCopyRun,
+    LegacyRowSwitchOffRun,
     NativeConfigurationMatch,
     NewAlertDestination,
     OwnedCopyKey,
@@ -73,6 +74,7 @@ from products.alerts_platform.backend.logic import (
     destination_handoff,
     destination_sends,
     legacy_history_copy,
+    legacy_row_switch_off,
     platform_lifecycle,
     platform_reads,
     platform_writes,
@@ -578,6 +580,26 @@ def copy_legacy_histories(
         team_ids=team_ids if team_ids is not None else team_ids_with_copies(source_kind),
         alert_ids=alert_ids,
         legacy_history=legacy_history,
+        apply=apply,
+    )
+
+
+def switch_off_legacy_rows(
+    *,
+    source_kind: SourceKind,
+    team_ids: Collection[int] | None,
+    switch_off: Callable[[int, Sequence[UUID], bool], int],
+    batch_size: int,
+    apply: bool,
+) -> LegacyRowSwitchOffRun:
+    """Hands `switch_off` each team's platform-owned alerts of the source, `batch_size` source row ids at
+    a time, for it to switch off the rows that are on. Writes nothing unless `apply`. Every team with a
+    copy of the source's alerts when `team_ids` is None."""
+    return legacy_row_switch_off.switch_off_team_rows(
+        source_kind=source_kind.value,
+        team_ids=team_ids if team_ids is not None else team_ids_with_copies(source_kind),
+        switch_off=switch_off,
+        batch_size=batch_size,
         apply=apply,
     )
 
