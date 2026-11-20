@@ -98,15 +98,42 @@ class TestLLMGatewayQuotaTasks(BaseTest):
             reconcile_llm_gateway_quota_projection()
         reconcile.assert_not_called()
 
-    def test_deactivating_an_org_enqueues_the_projection(self) -> None:
+    @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
+    def test_deactivating_an_org_projects_the_blob_without_the_queue(self, mock_settings: MagicMock) -> None:
+        mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
         with (
             self.settings(AI_GATEWAY_REDIS_URL=_GATEWAY_REDIS_URL),
-            patch("posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay") as delay,
+            patch(
+                "posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
             self.captureOnCommitCallbacks(execute=True),
         ):
             self.organization.is_active = False
             self.organization.save()
-        delay.assert_called_once_with(str(self.organization.id))
+        blob = get_team_quota_blob(self.team)
+        assert blob is not None
+        self.assertTrue(blob["org_deactivated"])
+
+    @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
+    def test_a_failed_projection_on_deactivation_queues_a_retry(self, mock_settings: MagicMock) -> None:
+        mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
+        queued: list[str] = []
+        with (
+            self.settings(AI_GATEWAY_REDIS_URL=_GATEWAY_REDIS_URL),
+            patch(
+                "posthog.tasks.team_llm_gateway_quota.project_org_quota",
+                side_effect=ConnectionError("redis down"),
+            ),
+            patch(
+                "posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay",
+                side_effect=queued.append,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.organization.is_active = False
+            self.organization.save()
+        self.assertEqual(queued, [str(self.organization.id)])
 
     def test_deactivating_an_org_enqueues_nothing_without_gateway_redis_url(self) -> None:
         with (
