@@ -438,7 +438,7 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
                 raise ImportTooLarge(TOO_MANY_SEGMENTS_MESSAGE)
             name = str(segment.get("name") or segment_id)
             members = []
-            for members_page in client.pages(f"/segments/{quote(segment_id, safe='')}/contacts"):
+            for members_page in client.pages(f"/segments/{_path_part(segment_id)}/contacts"):
                 known = [
                     contact
                     for contact in members_page.data
@@ -503,7 +503,7 @@ def _fetch_contact_properties(
             if not contact_id:
                 continue
             try:
-                properties = client.get(f"/contacts/{quote(str(contact_id), safe='')}").get("properties")
+                properties = client.get(f"/contacts/{_path_part(contact_id)}").get("properties")
             except ResendAPIError as e:
                 # The contact was deleted after the page listed it.
                 if e.status_code == 404:
@@ -578,7 +578,9 @@ def _fetch_topic_opt_outs(
             if email and contact_id and email not in opted_out_of_all:
                 try:
                     contact_topics = [
-                        topic for topics in client.pages(f"/contacts/{contact_id}/topics") for topic in topics.data
+                        topic
+                        for topics in client.pages(f"/contacts/{_path_part(contact_id)}/topics")
+                        for topic in topics.data
                     ]
                 except ResendAPIError as e:
                     # The contact was deleted after the page listed it, so it has no choices left to import.
@@ -637,7 +639,9 @@ def _fetch_templates(
 ) -> Iterator[ImportPage]:
     for page in client.pages("/templates", _after(checkpoint)):
         # The list has no content, so each template costs one more request.
-        templates = [client.get(f"/templates/{template['id']}") for template in page.data if template.get("id")]
+        templates = [
+            client.get(f"/templates/{_path_part(template['id'])}") for template in page.data if template.get("id")
+        ]
         yield ImportPage(
             processed=len(page.data),
             save=partial(_save_templates, context, templates),
@@ -783,7 +787,7 @@ def _fetch_automations(
     templates: dict[str, dict[str, Any] | None] = {}
     segments: dict[str, str | None] = {}
     for page in client.pages("/automations", _after(checkpoint)):
-        automations = [client.get(f"/automations/{item['id']}") for item in page.data if item.get("id")]
+        automations = [client.get(f"/automations/{_path_part(item['id'])}") for item in page.data if item.get("id")]
         references = {reference for automation in automations for reference in _template_references(automation)}
         for reference in references:
             if reference not in templates:
@@ -815,6 +819,12 @@ def _template_references(automation: dict[str, Any]) -> set[str]:
     return references
 
 
+def _path_part(value: object) -> str:
+    # Resend ids go into request paths, so `/` and a bare `.` or `..` must not move the request to another endpoint.
+    part = quote(str(value), safe="")
+    return part.replace(".", "%2E") if part in {".", ".."} else part
+
+
 def _segment_references(automation: dict[str, Any]) -> set[str]:
     return {
         str(step["config"]["segment_id"])
@@ -828,7 +838,7 @@ def _segment_references(automation: dict[str, Any]) -> set[str]:
 
 def _read_segment_name(client: ResendClient, segment_id: str) -> str | None:
     try:
-        return str(client.get(f"/segments/{quote(segment_id, safe='')}").get("name") or segment_id)
+        return str(client.get(f"/segments/{_path_part(segment_id)}").get("name") or segment_id)
     except ResendAPIError as e:
         # A step can name a deleted segment. Its draft gets a note, and the rest of the import carries on.
         if e.status_code == 404:
@@ -838,7 +848,7 @@ def _read_segment_name(client: ResendClient, segment_id: str) -> str | None:
 
 def _read_template(client: ResendClient, reference: str) -> dict[str, Any] | None:
     try:
-        return client.get(f"/templates/{quote(reference, safe='')}")
+        return client.get(f"/templates/{_path_part(reference)}")
     except ResendAPIError as e:
         # A step can name a deleted template. Its draft gets a note, and the rest of the import carries on.
         if e.status_code == 404:
@@ -946,7 +956,7 @@ def _fetch_domains(
     client: ResendClient, context: ImportContext, checkpoint: StepCheckpoint | None
 ) -> Iterator[ImportPage]:
     for page in client.pages("/domains", _after(checkpoint)):
-        details = [client.get(f"/domains/{domain['id']}") for domain in page.data if domain.get("id")]
+        details = [client.get(f"/domains/{_path_part(domain['id'])}") for domain in page.data if domain.get("id")]
         yield ImportPage(
             processed=len(page.data),
             save=partial(_save_domains, context, details),

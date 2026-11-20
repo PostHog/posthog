@@ -5,7 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
@@ -99,7 +99,7 @@ class FakeResend:
             return self._response(404, {"name": "not_found", "message": "Not found"})
         if match := re.fullmatch(r"/(templates|domains|automations|segments)/([^/]+)", path):
             for row in self.data[match.group(1)]:
-                if match.group(2) in (row["id"], row.get("alias")):
+                if unquote(match.group(2)) in (row["id"], row.get("alias")):
                     return self._response(200, row)
             return self._response(404, {"name": "not_found", "message": "Not found"})
         return self._page(self.data[path.strip("/")], params)
@@ -821,6 +821,20 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         assert "/segments/s%2F..%2F..%2Fapi-keys" in self.resend.calls
         assert "/templates/t%2F..%2F..%2Fapi-keys" in self.resend.calls
         assert not any("/api-keys" in call and "%2F" not in call for call in self.resend.calls)
+
+    def test_listed_ids_cannot_reach_another_resend_endpoint(self) -> None:
+        for key, bad_id in (("templates", ".."), ("automations", "a/../../api-keys"), ("domains", ".")):
+            self.resend.data[key] = [{**self.resend.data[key][0], "id": bad_id}]
+
+        run = runs.start_run(self.team.id, "resend", ["templates", "automations", "domains"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/templates/%2E%2E" in self.resend.calls
+        assert "/automations/a%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert "/domains/%2E" in self.resend.calls
+        assert not {"/templates/..", "/domains/."} & set(self.resend.calls)
 
     def test_an_account_with_too_many_segments_fills_no_cohort(self) -> None:
         segment = self.resend.data["segments"][0]
