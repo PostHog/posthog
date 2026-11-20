@@ -234,7 +234,7 @@ class TestMailgunImport(BaseTest):
         templates = {row.key: row for row in MessageTemplate.objects.filter(team_id=self.team.id)}
         assert set(templates) >= {"welcome", "mg-example-com-5b21c8439f-welcome", "eu-welcome"}
         assert all(row.transactional_hog_flow_id is None for row in templates.values())
-        assert templates["welcome"].content["email"]["subject"] == "Welcome {{ variables.name }}"
+        assert templates["welcome"].content["email"]["subject"] == 'Welcome {{ variables.name | join: "," }}'
         assert templates["welcome"].content["email"]["replyTo"] == '{{ "{{" }}help}}@mg.example.com'
         # It has a condition, so it stays as text for a person to rewrite.
         assert templates["welcome"].content["email"]["html"].startswith("&lt;h1&gt;Hello")
