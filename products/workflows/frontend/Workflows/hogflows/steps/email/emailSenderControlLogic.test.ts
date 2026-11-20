@@ -34,6 +34,13 @@ const STOPPED_SENDER = {
     config: { verified: true, ses_sending_status: 'failed' },
 } as unknown as IntegrationType
 
+function teamWithDefaultSender(defaultSenderId: number | null): typeof MOCK_DEFAULT_TEAM {
+    return {
+        ...MOCK_DEFAULT_TEAM,
+        workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, default_email_integration_id: defaultSenderId },
+    }
+}
+
 function ownStep(value: Record<string, any> = {}): HogFlowAction {
     return {
         id: 'email_step',
@@ -85,10 +92,8 @@ describe('emailSenderControlLogic', () => {
         defaultSenderId: number | null = null,
         { sendersLoadedFirst = false }: { sendersLoadedFirst?: boolean } = {}
     ): Promise<void> {
-        initKeaTests(true, {
-            ...MOCK_DEFAULT_TEAM,
-            workflows_config: { ...MOCK_DEFAULT_TEAM.workflows_config, default_email_integration_id: defaultSenderId },
-        })
+        const team = teamWithDefaultSender(defaultSenderId)
+        initKeaTests(true, team)
         wfLogic = workflowLogic({ id: 'new' })
         wfLogic.mount()
         await expectLogic(wfLogic).toFinishAllListeners()
@@ -100,6 +105,7 @@ describe('emailSenderControlLogic', () => {
             get: {
                 '/api/projects/:team_id/integrations/': { results: senders, next: null },
                 '/api/projects/:team_id/workflow_email_sandbox/status/': status,
+                '/api/projects/:team_id': team,
             },
         })
         integrationsLogic.mount()
@@ -258,19 +264,35 @@ describe('emailSenderControlLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event === 'workflows email sender changed')).toEqual([])
     })
 
-    it('moves a sandbox step once a sender is verified in another tab and the editor returns', async () => {
-        await setUp(SANDBOX_STEP, STATUS, {}, [VERIFYING_SENDER])
-        useMocks({ get: { '/api/projects/:team_id/integrations/': { results: [OWN_SENDER], next: null } } })
+    it.each([
+        ['one sender', [OWN_SENDER], null, 7],
+        ['several senders and the project default set with them', [OWN_SENDER, SECOND_SENDER], 8, 8],
+    ])(
+        'moves a sandbox step once %s verified in another tab and the editor returns',
+        async (_, verifiedSenders, defaultSenderId, expectedSenderId) => {
+            await setUp(SANDBOX_STEP, STATUS, {}, [VERIFYING_SENDER])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': { results: verifiedSenders, next: null },
+                    '/api/projects/:team_id': teamWithDefaultSender(defaultSenderId),
+                },
+            })
 
-        window.dispatchEvent(new Event('focus'))
+            window.dispatchEvent(new Event('focus'))
 
-        await waitFor(() => expect(storedStep()).toMatchObject({ type: 'function_email' }))
-    })
+            await waitFor(() =>
+                expect(storedStep()).toMatchObject({
+                    type: 'function_email',
+                    config: { inputs: { email: { value: { from: { integrationId: expectedSenderId } } } } },
+                })
+            )
+        }
+    )
 
-    it('saves a pending canvas edit before moving a sandbox step', async () => {
+    async function openCanvasWithPendingEdit(exportEdit: (callback: (data: any) => void) => void): Promise<() => void> {
         await setUp(SANDBOX_STEP, STATUS, {}, [VERIFYING_SENDER])
         const editorListeners: Record<string, () => void> = {}
-        let editorDesign: Record<string, any> = { body: { id: 'stored', rows: [] } }
+        let edited = false
         const templater = emailTemplaterLogic({
             value: (SANDBOX_STEP.config as any).inputs.email.value,
             onChange: (email: EmailTemplate) => {
@@ -297,7 +319,9 @@ describe('emailSenderControlLogic', () => {
                     editorListeners[event] = callback
                 },
                 exportHtml: (callback: (data: any) => void) =>
-                    callback({ html: '<p>edited</p>', design: editorDesign }),
+                    edited
+                        ? exportEdit(callback)
+                        : callback({ html: '', design: { body: { id: 'stored', rows: [] } } }),
                 exportPlainText: (callback: (data: any) => void) => callback({ text: 'edited' }),
             },
         } as unknown as EditorRef)
@@ -306,12 +330,28 @@ describe('emailSenderControlLogic', () => {
         await expectLogic(templater).toFinishAllListeners()
 
         jest.useFakeTimers()
-        editorDesign = { body: { id: 'edited', rows: [] } }
+        edited = true
         editorListeners['design:updated']()
         integrationsLogic.actions.loadIntegrationsSuccess([OWN_SENDER])
+        return () => templater.unmount()
+    }
+
+    it('saves a pending canvas edit before moving a sandbox step', async () => {
+        const closeCanvas = await openCanvasWithPendingEdit((callback) =>
+            callback({ html: '<p>edited</p>', design: { body: { id: 'edited', rows: [] } } })
+        )
 
         await waitFor(() => expect(storedStep()).toMatchObject({ type: 'function_email' }))
-        templater.unmount()
+        closeCanvas()
         expect(storedStep()).toMatchObject({ config: { inputs: { email: { value: { html: '<p>edited</p>' } } } } })
+    })
+
+    it('leaves a sandbox step when its pending canvas edit cannot be saved', async () => {
+        await openCanvasWithPendingEdit(() => {
+            throw new Error('export failed')
+        })
+
+        await expectLogic(logic).toFinishListeners()
+        expect(storedStep()).toMatchObject({ type: 'email_sandbox' })
     })
 })

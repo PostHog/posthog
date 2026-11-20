@@ -17,7 +17,7 @@ import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
-import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
+import { saveOpenCanvasEdit } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { IntegrationType, TeamPublicType, TeamType } from '~/types'
@@ -94,6 +94,14 @@ export interface emailSenderControlLogicActions {
     provisionSandboxSender: (surface: import('../../../../Channels/sandboxSender').SandboxSenderSurface) => {
         surface: import('../../../../Channels/sandboxSender').SandboxSenderSurface
     } // sandboxSenderLogic
+    refreshCurrentTeam: () => any // teamLogic
+    refreshCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: any
+    ) => {
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: any
+    } // teamLogic
     setWorkflowAction: (
         actionId: string,
         action: import('../../types').HogFlowAction
@@ -194,6 +202,8 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
             ['provisionSandboxSender', 'loadSandboxStatusSuccess'],
             integrationsLogic,
             ['loadIntegrationsSuccess'],
+            teamLogic,
+            ['refreshCurrentTeam', 'refreshCurrentTeamSuccess'],
         ],
     })),
     actions({
@@ -287,7 +297,7 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
                 action?.type === 'email_sandbox',
         ],
     }),
-    subscriptions(({ values, cache }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         showSandboxOption: (shown: boolean) => {
             if (shown && !cache.offerReported) {
                 cache.offerReported = true
@@ -300,6 +310,7 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
                 integrationsLogic.actions.startPolling()
             } else if (!awaits && previous) {
                 integrationsLogic.actions.stopPolling()
+                actions.refreshCurrentTeam()
             }
         },
     })),
@@ -320,7 +331,9 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
             if (values.senderToPreselect === null) {
                 return
             }
-            await emailTemplaterLogic.findMounted()?.asyncActions.flushPendingDesignEdit()
+            if (!(await saveOpenCanvasEdit())) {
+                return
+            }
             const action = values.action
             const senderId = values.senderToPreselect
             if (action?.type === 'email_sandbox' && senderId !== null) {
@@ -332,6 +345,7 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
             preselectDefaultSender,
             loadIntegrationsSuccess: preselectDefaultSender,
             loadSandboxStatusSuccess: preselectDefaultSender,
+            refreshCurrentTeamSuccess: preselectDefaultSender,
             chooseSender: ({ choice }) => {
                 const action = values.action
                 if (!action) {
