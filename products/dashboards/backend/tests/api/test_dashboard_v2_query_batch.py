@@ -402,6 +402,18 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         self.assertEqual(lines, [{"i": 0, "error": "The LogQL query timed out. Try a shorter date range."}])
 
+    @patch("products.dashboards.backend.v2.telemetry.api_queries_budget_enforcement_enabled", return_value=True)
+    @patch("products.dashboards.backend.v2.telemetry.get_api_queries_budget_status")
+    def test_an_exhausted_byte_budget_refuses_logql_before_reaching_snuffle(
+        self, budget_status: MagicMock, _enforced: MagicMock
+    ) -> None:
+        budget_status.return_value = MagicMock(remaining_bytes=0, retry_after_seconds=42)
+        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+            lines = self._lines([_telemetry("logql", 'sum(rate({service_name="api"}[1m]))')])
+
+        self.assertEqual(lines, [{"i": 0, "error": "This project has used its query budget for now. Try again later."}])
+        request.assert_not_called()
+
     def test_a_huge_relative_date_fails_only_its_own_panel(self) -> None:
         lines = self._lines([{**_telemetry("promql", "up"), "time": {"from": "now-99999999y", "to": "now"}}])
 
