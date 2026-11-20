@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-    echo "Usage: $0 <simulator-app-path> <artifact-directory>" >&2
+if [[ $# -ne 2 && ( $# -ne 3 || $3 != --screenshots ) ]]; then
+    echo "Usage: $0 <simulator-app-path> <artifact-directory> [--screenshots]" >&2
     exit 2
 fi
 
@@ -10,7 +10,7 @@ app_dir=$(cd "$(dirname "$0")/.." && pwd)
 binary=$(cd "$1" && pwd)
 mkdir -p "$2"
 artifact_dir=$(cd "$2" && pwd)
-cd "$app_dir"
+cd "${ARGENT_APP_DIR:-$app_dir}"
 
 export DO_NOT_TRACK=1
 unset ARGENT_TOOLS_URL ARGENT_AUTH_TOKEN
@@ -72,7 +72,11 @@ export ARGENT_TOOLS_URL="http://${connection#*@}"
 export ARGENT_AUTH_TOKEN="${connection%@*}"
 
 failed=0
-for flow in demo-smoke views-smoke; do
+flows=(demo-smoke views-smoke)
+if [[ ${3:-} == --screenshots ]]; then
+    flows+=(screenshot-capture)
+fi
+for flow in "${flows[@]}"; do
     # Reinstalling drops demo changes even when the preceding flow stopped before Exit demo.
     xcrun simctl terminate "$simulator" "$bundle_id" >/dev/null 2>&1 || true
     xcrun simctl uninstall "$simulator" "$bundle_id" >/dev/null 2>&1 || true
@@ -82,6 +86,22 @@ for flow in demo-smoke views-smoke; do
         failed=1
         xcrun simctl io "$simulator" screenshot "$artifact_dir/$flow-failure.png" >/dev/null 2>&1 || true
         echo "$flow failed; see $artifact_dir/$flow.json and its failed-step screenshots." >&2
+    elif [[ "$flow" == screenshot-capture ]]; then
+        # Argent keeps successful screenshots in temporary storage until its server stops.
+        python3 - "$artifact_dir" <<'PYTHON'
+import json
+import shutil
+import sys
+from pathlib import Path
+
+output = Path(sys.argv[1])
+report = json.loads((output / "screenshot-capture.json").read_text())
+screens = [step for step in report["steps"] if step.get("tool") == "screenshot"]
+if not screens:
+    sys.exit("The capture flow produced no screenshots.")
+for index, step in enumerate(screens, 1):
+    shutil.copyfile(step["result"]["image"]["hostPath"], output / f"screen-{index:02d}.png")
+PYTHON
     fi
 done
 exit "$failed"

@@ -1,6 +1,14 @@
 # CI
 
-Three GitHub Actions workflows cover the app. They install the independent `products/mobile` workspace.
+Four GitHub Actions workflows cover the app. They install the independent `products/mobile` workspace.
+
+## Test a mobile PR on iOS
+
+In **Actions → Test mobile PR on iOS → Run workflow**, select `master`, enter the PR number and paste its full head commit SHA.
+To get the SHA, run `gh pr view <number> --repo PostHog/posthog --json headRefOid --jq .headRefOid`.
+The job checks that the PR still points to that commit, builds a bundled app on a fresh GitHub-hosted Mac, and runs the iOS demo walkthroughs and portrait capture.
+Download the reports and screenshots from the run's artifacts within three days. Inspect the images before adding them to a PR.
+For your own changes, use the usual [local testing commands](TESTING.md).
 
 ## Mobile CI
 
@@ -56,7 +64,7 @@ Details:
 
 `@cvolzer3` owns both mobile app trees and all mobile workflow files in `CODEOWNERS`, including release requests, release tooling and the public OTA certificate.
 
-The simulator demo flows do not run in CI. Run them locally before you merge a change to a screen. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
+Mobile CI runs automatically. Run the simulator demo flows locally or with [Test mobile PR on iOS](#test-a-mobile-pr-on-ios) before merging a screen change. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
 
 ## Mobile Build
 
@@ -97,5 +105,5 @@ From the main checkout:
 
 ```sh
 hogli lint:workflows
-actionlint -config-file .github/actionlint.yaml .github/workflows/mobile-ci.yml .github/workflows/mobile-build.yml .github/workflows/mobile-release.yml
+actionlint -config-file .github/actionlint.yaml .github/workflows/mobile-ci.yml .github/workflows/mobile-build.yml .github/workflows/mobile-release.yml .github/workflows/mobile-pr-simulator.yml
 ```
