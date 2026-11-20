@@ -140,11 +140,8 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
         goal: any
         event_names: string[] | null
         last_live_at: Date
-        created_at?: Date
     }[] = []
     public goalsReadGate: Promise<void> | null = null
-    // The latest posthog_hogflow.updated_at per team, as the replica shows it.
-    public replicatedFlowSaves: Record<number, Date> = {}
     public failGoalsRead = false
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
@@ -170,23 +167,11 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 postgres: {
                     query: jest.fn(async (_target: unknown, sql: string, params: any[]) => {
                         this.calls.push({ sql, params })
-                        if (sql.includes('FROM posthog_hogflow WHERE team_id')) {
-                            const rows = Object.entries(this.replicatedFlowSaves)
-                                .filter(([teamId]) => params[0].includes(Number(teamId)))
-                                .map(([teamId, updatedAt]) => ({ team_id: Number(teamId), updated_at: updatedAt }))
-                            return { rows, rowCount: rows.length }
-                        }
                         await this.goalsReadGate
                         if (this.failGoalsRead) {
                             throw new Error('goals read failed')
                         }
-                        const rows = this.goalRows
-                            .map((r) => ({ created_at: r.last_live_at, ...r }))
-                            .filter(
-                                (r) =>
-                                    r.last_live_at > params[0] ||
-                                    (r.created_at > params[1] && r.last_live_at > params[2])
-                            )
+                        const rows = this.goalRows.filter((r) => r.last_live_at > params[0])
                         return { rows, rowCount: rows.length }
                     }),
                 },
@@ -2251,21 +2236,18 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             })
 
             it.each([
-                { name: 'the replica shows the save', replicated: true, at: 3, lookedUp: false },
-                { name: 'the replica lags, within 15 minutes', replicated: false, at: 3, lookedUp: true },
-                { name: 'the replica lags, past 15 minutes', replicated: false, at: 16, lookedUp: false },
+                { name: 'still within 2 minutes', at: 1, lookedUp: true },
+                { name: 'past 2 minutes', at: 3, lookedUp: false },
             ])(
-                'after a flow change, looks up every event of the team until $name',
-                async ({ replicated, at, lookedUp }) => {
+                'after a flow change, looks up every event of the team on reads that start $name of it',
+                async ({ at, lookedUp }) => {
                     const gated = await gatedMatcher([pinnedGoal('goal-flow-1', 'wuc_upgraded')], [goalFlow(1)])
 
                     gated.pubSubHandlers['reload-hog-flows']({ teamId: 1 })
                     await (gated as any).refreshWatcherState()
                     expect(await wake(gated, 'wuc_other')).toEqual(lookedUpPairs)
 
-                    const now = Date.now()
-                    gated.replicatedFlowSaves = { 1: new Date(replicated ? now : now - minutes(60)) }
-                    const clock = jest.spyOn(Date, 'now').mockReturnValue(now + minutes(at))
+                    const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + minutes(at))
                     try {
                         await (gated as any).refreshWatcherState()
                         expect(await wake(gated, 'wuc_other')).toEqual(lookedUp ? lookedUpPairs : null)
@@ -2275,24 +2257,15 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 }
             )
 
-            it('picks up new goals on each read and drops a deleted flow on the hourly full read', async () => {
+            it('picks up new goals and drops a deleted flow on the next read', async () => {
                 const kept = pinnedGoal('goal-flow-1', 'wuc_upgraded', 120)
                 const gated = await gatedMatcher([kept, pinnedGoal('deleted-flow', 'wuc_paid', 120)], [goalFlow(1)])
 
                 gated.goalRows = [kept, pinnedGoal('goal-flow-1', 'wuc_trial', 0)]
                 await (gated as any).refreshWatcherState()
-                expect(await wake(gated, 'wuc_trial')).toEqual(lookedUpPairs)
-                expect(await wake(gated, 'wuc_paid')).toEqual(lookedUpPairs)
 
-                const now = Date.now()
-                const clock = jest.spyOn(Date, 'now').mockReturnValue(now + minutes(61))
-                try {
-                    await (gated as any).refreshWatcherState()
-                    expect(await wake(gated, 'wuc_paid')).toBeNull()
-                    expect(await wake(gated, 'wuc_trial')).toEqual(lookedUpPairs)
-                } finally {
-                    clock.mockRestore()
-                }
+                expect(await wake(gated, 'wuc_trial')).toEqual(lookedUpPairs)
+                expect(await wake(gated, 'wuc_paid')).toBeNull()
             })
 
             it.each([
@@ -2320,21 +2293,13 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 }
             })
 
-            it('does not bring back goals past the window on the reads after a full read finds none', async () => {
-                const gated = await gatedMatcher([pinnedGoal('paused-flow', 'wuc_upgraded', 400 * 24 * 60)], [])
-
-                await (gated as any).refreshWatcherState()
-
-                expect(await wake(gated, 'wuc_upgraded')).toBeNull()
-            })
-
             it('looks up every event of a team with more goals than the cap', async () => {
                 const goals = Array.from({ length: 501 }, (_, i) => pinnedGoal('goal-flow-1', `wuc_goal_${i}`))
                 const gated = await gatedMatcher(goals, [goalFlow(1)])
 
                 expect(await wake(gated, 'wuc_other')).toEqual(lookedUpPairs)
                 // Its goals are not held in memory.
-                expect((gated as any).pinnedGoalRows.size).toBe(0)
+                expect((gated as any).pinnedGoalsByTeam.size).toBe(0)
             })
 
             it('lets the rest of the tick run when the goals read hangs', async () => {
