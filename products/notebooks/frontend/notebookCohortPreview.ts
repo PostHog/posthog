@@ -49,6 +49,10 @@ export function getNotebookCohortQuery(
     if (!isInsightVizNode(query)) {
         return null
     }
+    return filterNotebookInsight(query, cohort)
+}
+
+function filterNotebookInsight(query: InsightVizNode, cohort: CohortPropertyFilter): InsightVizNode | null {
     const source = query.source
     if (
         source.kind === NodeKind.WebOverviewQuery ||

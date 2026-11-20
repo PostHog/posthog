@@ -103,7 +103,10 @@ describe('NotebookNodeQuery', () => {
                 },
             },
         }
-        const updateAttributes = jest.fn()
+        const originalAttributes = structuredClone(attributes)
+        const updateAttributes = (changes: object): void => {
+            Object.assign(attributes, changes)
+        }
         const node = notebookNodeLogic({
             notebookLogic: notebook,
             nodeType: NotebookNodeType.Query,
@@ -130,7 +133,7 @@ describe('NotebookNodeQuery', () => {
             await waitFor(() =>
                 expect(requested).toContainEqual([{ type: 'cohort', key: 'id', operator: 'in', value: 42 }])
             )
-            expect(updateAttributes).not.toHaveBeenCalled()
+            expect(attributes).toEqual(originalAttributes)
             act(() => preview.actions.setPreviewCohort(null))
             expect(await screen.findByText('Refresh')).toBeTruthy()
         } finally {

@@ -11,12 +11,16 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { notebookCohortFilterLogic } from './notebookCohortFilterLogic'
 
-export function NotebookCohortFilter(): JSX.Element {
-    const { shortId } = useValues(notebookLogic)
+export function NotebookCohortFilter(): JSX.Element | null {
+    const { shortId, mode, isShared } = useValues(notebookLogic)
     const logic = notebookCohortFilterLogic({ shortId })
     const { previewCohort } = useValues(logic)
     const { setPreviewCohort } = useActions(logic)
     const [open, setOpen] = useState(false)
+
+    if (isShared || mode === 'canvas') {
+        return null
+    }
 
     return (
         <div className="flex flex-wrap items-center gap-2">

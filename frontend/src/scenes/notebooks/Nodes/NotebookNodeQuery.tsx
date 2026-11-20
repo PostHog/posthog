@@ -33,7 +33,7 @@ import { isEventsQuery, isSavedInsightNode } from '~/queries/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { notebookCohortFilterLogic } from 'products/notebooks/frontend/notebookCohortFilterLogic'
-import { getNotebookCohortQuery } from 'products/notebooks/frontend/notebookCohortPreview'
+import { NotebookCohortQueryPreview } from 'products/notebooks/frontend/NotebookCohortQueryPreview'
 import { NotebookInsightDataframe } from 'products/notebooks/frontend/NotebookInsightDataframe'
 import type { InsightDataframeAttributes } from 'products/notebooks/frontend/notebookInsightDataframeLogic'
 
@@ -80,7 +80,30 @@ export const DEFAULT_QUERY: QuerySchema = {
     },
 }
 
-const Component = ({
+function Component(props: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null {
+    const node = useRequiredNotebookNode()
+    const { notebookLogic, expanded } = useValues(node)
+    const { shortId, isShared } = useValues(notebookLogic)
+    const { previewCohort } = useValues(notebookCohortFilterLogic({ shortId }))
+    const panel = useComponentPanelState()
+
+    if (isShared || !previewCohort) {
+        return <NotebookQueryOutput {...props} />
+    }
+    if (!(panel?.showViewPanel ?? expanded)) {
+        return null
+    }
+    return (
+        <NotebookCohortQueryPreview
+            shortId={shortId}
+            nodeId={props.attributes.nodeId}
+            cohortId={previewCohort.id}
+            query={getResolvedNotebookQuery(props.attributes)}
+        />
+    )
+}
+
+const NotebookQueryOutput = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
@@ -95,7 +118,6 @@ const Component = ({
         getSharedCachedInlineQueryResults,
         canvasFiltersOverride,
     } = useValues(notebookLogic)
-    const { previewCohort } = useValues(notebookCohortFilterLogic({ shortId: notebookLogic.props.shortId }))
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const componentPanelState = useComponentPanelState()
     const summarizeInsight = useSummarizeInsight()
@@ -117,7 +139,7 @@ const Component = ({
             ? insightLogicProps
             : { dashboardItemId: `new-AdHoc.notebook.${notebookLogic.props.shortId}.${nodeId}`, query }
     dataframeInsightProps.retainResponseOnUnmount = !isShared
-    const { insightName, insight, insightLoading } = useValues(insightLogic(insightLogicProps))
+    const { insightName } = useValues(insightLogic(insightLogicProps))
     const isOutputPaneOpen = componentPanelState?.showViewPanel ?? expanded
     const showSqlOutputToolbar = getNotebookSqlOutputToolbarVisibility({
         componentPanelState,
@@ -226,32 +248,6 @@ const Component = ({
             )
         }
         return <UnsupportedNodePlaceholder />
-    }
-
-    if (previewCohort) {
-        const source = isSavedInsightNode(query) ? insight.query : query
-        if (!source && insightLoading) {
-            return <LemonSkeleton className="h-full w-full" />
-        }
-        const filtered = getNotebookCohortQuery(source, previewCohort.id)
-        if (filtered) {
-            const key = `notebook-cohort-${notebookLogic.props.shortId}-${nodeId}-${previewCohort.id}`
-            return (
-                <div className="flex h-full flex-col">
-                    <LemonTag className="self-start" type="highlight">
-                        Cohort preview
-                    </LemonTag>
-                    <Query
-                        key={key}
-                        uniqueKey={key}
-                        query={{ ...filtered, full: false, embedded: true }}
-                        embedded
-                        readOnly
-                    />
-                </div>
-            )
-        }
-        return <div className="p-3 text-secondary">Clear the cohort filter to view this query.</div>
     }
 
     if (!componentPanelState?.outputOnly && getSqlEditorSourceQuery(query)) {
@@ -389,6 +385,7 @@ export const Settings = ({
     const nodeLogic = useRequiredNotebookNode()
     const { notebookLogic } = useValues(nodeLogic)
     const { canvasFiltersOverride } = useValues(notebookLogic)
+    const applyCanvasDefaults = canvasFiltersOverride.length > 0 && !isDefaultFilterApplied
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }
@@ -421,28 +418,22 @@ export const Settings = ({
         }
 
         if (
-            canvasFiltersOverride.length &&
+            applyCanvasDefaults &&
             isInsightVizNode(modifiedQuery) &&
             !isHogQLQuery(modifiedQuery.source) &&
-            !isActorsQuery(modifiedQuery.source) &&
-            !isDefaultFilterApplied
+            !isActorsQuery(modifiedQuery.source)
         ) {
             modifiedQuery.source.properties = canvasFiltersOverride
             updateAttributes({ isDefaultFilterApplied: true })
         }
 
-        if (
-            canvasFiltersOverride.length &&
-            isDataTableNode(modifiedQuery) &&
-            isEventsQuery(modifiedQuery.source) &&
-            !isDefaultFilterApplied
-        ) {
+        if (applyCanvasDefaults && isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
             modifiedQuery.source.fixedProperties = canvasFiltersOverride
             updateAttributes({ isDefaultFilterApplied: true })
         }
 
         return modifiedQuery
-    }, [query, canvasFiltersOverride, isDefaultFilterApplied, attributes, updateAttributes])
+    }, [query, canvasFiltersOverride, applyCanvasDefaults, attributes, updateAttributes])
 
     const detachSavedInsight = (): void => {
         if (isSavedInsightNode(query)) {

@@ -802,7 +802,7 @@ export function MarkdownNotebookV2({
                                 {jupyterMode && isEditable ? (
                                     <NotebookJupyterToolbar collapsedContainer={collapsedToolbarContainer} />
                                 ) : null}
-                                {!isShared && mountedNotebookLogic.props.mode !== 'canvas' && <NotebookCohortFilter />}
+                                <NotebookCohortFilter />
                                 <NotebookVariablesBar />
                             </>
                         }
