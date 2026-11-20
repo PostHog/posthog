@@ -59,6 +59,7 @@ _MODEL_NOTES: dict[str, str] = {
     "gpt-5.6-terra": "A mid-size model. Good for normal code changes with a clear goal.",
     "gpt-6-sol": _SOL_NOTE,
     "gpt-6.1-sol": _SOL_NOTE,
+    "gpt-6.2-sol": _SOL_NOTE,
     "gpt-5.6-sol": _SOL_NOTE,
 }
 

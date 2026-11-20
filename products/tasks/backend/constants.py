@@ -6,6 +6,7 @@ from typing import Any, Literal, get_args
 import posthoganalytics
 
 from products.tasks.backend import model_catalog
+from products.tasks.backend.logic.services.gateway_model_pin import access_flag_for_model
 
 # Canonical PR/CI snapshot vocabulary, as produced by the GitHub integration's
 # pull-request snapshot (`_map_pr_state` / `_map_ci_status`) and persisted on
@@ -116,16 +117,10 @@ DEV_STACK_PREVIEW_PORT = 8020
 
 
 def get_required_model_flag(model: str | None) -> str | None:
-    """The feature flag a caller needs to select `model`, or None when it's generally available.
-
-    Read from the catalog, which is also what the pickers project into TypeScript, so a
-    model cannot be offered on one surface and gated on another. The lookup folds a
-    provider-qualified id onto the model it names, so a gate matching raw strings cannot
-    read `anthropic/zai-org/glm-5.3` as an unknown model and skip the check.
-    """
+    """The feature flag a caller needs to select `model`, or None when it's generally available."""
     if not model:
         return None
-    return model_catalog.access_flag_for_model(model)
+    return access_flag_for_model(model)
 
 
 def _decode_vm_sandbox_payload(payload: object) -> object:

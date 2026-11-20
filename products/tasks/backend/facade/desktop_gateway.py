@@ -1,6 +1,5 @@
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     CREDIT_BUCKET_EXHAUSTED_DENIAL,
-    DESKTOP_AGENT_MODELS,
     POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
     POSTHOG_CODE_PRODUCT,
     DesktopGatewayMintError,
@@ -17,7 +16,6 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
 
 __all__ = [
     "CREDIT_BUCKET_EXHAUSTED_DENIAL",
-    "DESKTOP_AGENT_MODELS",
     "POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL",
     "POSTHOG_CODE_PRODUCT",
     "DesktopGatewayMintError",

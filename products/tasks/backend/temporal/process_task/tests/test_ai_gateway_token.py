@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import pytest
@@ -26,7 +26,6 @@ from products.signals.backend.facade.trial import TrialExecutionRefused
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.signals.backend.spend import record_task_spend
-from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.exceptions import (
     GatewayTokenUnavailableError,
@@ -34,17 +33,20 @@ from products.tasks.backend.exceptions import (
     ProcessTaskTransientError,
 )
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
+from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
 from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.logic.services.desktop_gateway_token import valid_caps
 from products.tasks.backend.logic.services.gateway_model_pin import (
-    DESKTOP_AGENT_MODELS,
     FREE_TIER_MODELS,
     FREE_TIER_PIN_KEY,
     MAX_GATEWAY_PIN_LENGTH,
     SDK_IMPLICIT_MODELS,
     gateway_pin,
+    minted_family_models,
     pinned_run_allows_model,
+    product_pin,
 )
+from products.tasks.backend.logic.services.gateway_models import GatewayModel
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, Task, TaskRun
 from products.tasks.backend.temporal.process_task import utils
@@ -196,6 +198,14 @@ class TestSandboxProductRouted:
         assert sandbox_product_routed("signals_custom_agent", "custom_agent", " , signals_custom_agent , ")
 
 
+def _mint_call(product: str, **kwargs: Any) -> dict[str, Any]:
+    family_models = minted_family_models(product)
+    return {"ai_product": product, **kwargs, **({"family_models": family_models} if family_models else {})}
+
+
+_NEW_SOL_LISTING = (GatewayModel(id="gpt-6.3-sol", owned_by="openai", context_window=1050000, family="gpt-sol"),)
+
+
 @pytest.fixture
 def mint_settings(settings):
     settings.AI_GATEWAY_URL = "https://ai-gateway.dev.posthog.dev/v1"
@@ -330,31 +340,8 @@ class TestMintScopedToken:
             assert mint_scoped_token(ai_product="review_hog", team_id=2) == "phe_abc"
         body = post.call_args.kwargs["json"]
         assert body["product"] == "review_hog"
-        assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
-
-    @pytest.mark.parametrize(
-        "product", ["posthog_ai", "account_audit", "background_agents", "review_hog", "slack_app", "workflows"]
-    )
-    def test_model_pin_follows_the_catalog(self, product):
-        from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
-        from products.tasks.backend.logic.services.gateway_model_pin import SDK_IMPLICIT_MODELS
-
-        registry = set(get_models_for_runtime_adapter(RuntimeAdapter.CLAUDE)) | set(
-            get_models_for_runtime_adapter(RuntimeAdapter.CODEX)
-        )
-        pin = _PRODUCT_ALLOWED_MODELS[product]
-        assert len(pin) == len(set(pin))
-        expected = {model for model in registry if not model.startswith("@cf/")} | set(SDK_IMPLICIT_MODELS)
-        expected -= {"zai-org/glm-5.2"}
-        if product != "review_hog":
-            expected -= {
-                "deepseek-ai/deepseek-v4-flash-0731",
-                "deepseek-ai/deepseek-v4.1-flash-1017-fast",
-                "zai-org/glm-5.3",
-                "zai-org/glm-5.3-flash",
-                "gpt-6.1-terra",
-            }
-        assert set(pin) == expected
+        assert body["allowed_models"] == product_pin("review_hog")
+        assert {"claude-haiku-4-5", "claude-opus-5-5", "gpt-6.1-terra"} <= set(body["allowed_models"])
 
     def test_onboarding_mint_carries_the_legacy_model_pin(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
@@ -497,7 +484,7 @@ class TestAiGatewayEnvVars:
             "AI_GATEWAY_PRODUCT": "signals_scout",
             "AI_GATEWAY_AI_STAGE": "scout:logs",
         }
-        mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
+        mint.assert_called_once_with(**_mint_call("signals_scout", team_id=123, user=None))
 
     @pytest.mark.parametrize(
         "products,origin_product,ai_stage",
@@ -548,7 +535,7 @@ class TestAiGatewayEnvVars:
                 )
                 assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
                 assert env["AI_GATEWAY_PRODUCT"] == product
-                mint.assert_called_once_with(ai_product=product, team_id=123, user=None)
+                mint.assert_called_once_with(**_mint_call(product, team_id=123, user=None))
             quota.assert_called_once_with(123, "ai_credits")
 
     # The agent trusts these as the worker's word, so the API must refuse a run-supplied value.
@@ -567,7 +554,7 @@ class TestAiGatewayEnvVars:
         ) as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product="signals_scout", ai_stage="scout:web-analytics")
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
-        mint.assert_called_once_with(ai_product="signals_scout", team_id=123, user=None)
+        mint.assert_called_once_with(**_mint_call("signals_scout", team_id=123, user=None))
 
     def test_mint_failure_fails_the_attempt_for_a_retry(self, mint_settings):
         with (
@@ -616,7 +603,7 @@ class TestMintableGate:
             if mints:
                 env = ai_gateway_env_vars(team_id=123, origin_product=origin_product, internal=True)
                 assert env["AI_GATEWAY_PRODUCT"] == "background_agents"
-                mint.assert_called_once_with(ai_product="background_agents", team_id=123, user=None)
+                mint.assert_called_once_with(**_mint_call("background_agents", team_id=123, user=None))
             else:
                 with pytest.raises(GatewayTokenUnavailableError, match="no_background_agents_provenance"):
                     ai_gateway_env_vars(team_id=123, origin_product=origin_product, internal=True)
@@ -630,7 +617,7 @@ class TestMintableGate:
         ) as mint:
             env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=True)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
-        mint.assert_called_once_with(ai_product="review_hog", team_id=2, user=None)
+        mint.assert_called_once_with(**_mint_call("review_hog", team_id=2, user=None))
 
     def test_routed_wizard_run_mints_onboarding(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "onboarding"
@@ -642,7 +629,7 @@ class TestMintableGate:
                 team_id=2, origin_product="onboarding", ai_stage="wizard_pr_agent", model="claude-sonnet-5"
             )
         assert env["AI_GATEWAY_PRODUCT"] == "onboarding"
-        mint.assert_called_once_with(ai_product="onboarding", team_id=2, user=None)
+        mint.assert_called_once_with(**_mint_call("onboarding", team_id=2, user=None))
 
     def test_non_internal_review_hog_does_not_mint(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
@@ -666,7 +653,7 @@ class TestMintableGate:
         ) as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product=origin_product, ai_stage=ai_stage)
         assert env["AI_GATEWAY_PRODUCT"] == expected_product
-        mint.assert_called_once_with(ai_product=expected_product, team_id=123, user=None)
+        mint.assert_called_once_with(**_mint_call(expected_product, team_id=123, user=None))
 
     def test_suggestions_stage_mints_its_own_product(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals_scout_suggestions"
@@ -676,7 +663,7 @@ class TestMintableGate:
         ) as mint:
             env = ai_gateway_env_vars(team_id=123, origin_product="scout_suggestions", ai_stage=SUGGESTIONS_AI_STAGE)
         assert env["AI_GATEWAY_PRODUCT"] == "signals_scout_suggestions"
-        mint.assert_called_once_with(ai_product="signals_scout_suggestions", team_id=123, user=None)
+        mint.assert_called_once_with(**_mint_call("signals_scout_suggestions", team_id=123, user=None))
 
 
 class TestProvisioningBoundaries:
@@ -973,17 +960,27 @@ class TestProvisioningBoundaries:
                 utils.run_gateway_env_vars(self._ctx(), task)
         record_routing.assert_not_called()
 
-    def test_pinned_mint_is_stamped_on_the_run(self, mint_settings):
-        env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
+    @pytest.mark.parametrize(
+        "minted_family,stamps",
+        [
+            ({}, {"ai_gateway_product": "slack_app"}),
+            (
+                {"_AI_GATEWAY_FAMILY_MODELS": '["gpt-6.3-sol"]'},
+                {"ai_gateway_product": "slack_app", "ai_gateway_family_models": ["gpt-6.3-sol"]},
+            ),
+        ],
+        ids=["catalog_models_only", "with_family_versions"],
+    )
+    def test_pinned_mint_is_stamped_on_the_run(self, mint_settings, minted_family, stamps):
+        env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app", **minted_family}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
             patch.object(utils, "record_gateway_routing"),
             patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
         ):
-            utils.run_gateway_env_vars(self._ctx(), self._task())
-        update.assert_called_once_with(
-            "00000000-0000-4000-8000-000000000007", updates={"ai_gateway_product": "slack_app"}
-        )
+            sandbox_env = utils.run_gateway_env_vars(self._ctx(), self._task())
+        update.assert_called_once_with("00000000-0000-4000-8000-000000000007", updates=stamps)
+        assert "_AI_GATEWAY_FAMILY_MODELS" not in sandbox_env
 
     def test_unpinned_mint_is_not_stamped(self, mint_settings):
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "signals_scout"}
@@ -1228,11 +1225,16 @@ class TestSlackAppMint:
     def _mint_response(self):
         return MagicMock(status_code=201, json=MagicMock(return_value={"token": "phe_abc"}), text="")
 
+    def test_a_run_on_a_new_family_version_carries_the_minted_versions(self, mint_settings):
+        with serve_gateway_listing(_NEW_SOL_LISTING):
+            env, _ = self._env(mint_settings, model="gpt-6.3-sol")
+        assert env["_AI_GATEWAY_FAMILY_MODELS"] == '["gpt-6.3-sol"]'
+
     def test_stamped_slack_run_mints(self, mint_settings):
         env, mint = self._env(mint_settings)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         assert env["AI_GATEWAY_PRODUCT"] == "slack_app"
-        mint.assert_called_once_with(ai_product="slack_app", team_id=123, user=None)
+        mint.assert_called_once_with(**_mint_call("slack_app", team_id=123, user=None))
 
     @pytest.mark.parametrize("state", [None, {}, {"interaction_origin": "desktop"}])
     def test_run_without_slack_provenance_does_not_mint(self, mint_settings, state):
@@ -1414,26 +1416,31 @@ class TestSlackAppMint:
             assert _team_credit_refusal(team.id, "ai_credits") == "org_deactivated"
         quota.assert_not_called()
 
-    def test_mint_carries_the_first_party_pin(self, mint_settings):
-        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+    @pytest.mark.parametrize(
+        "listing,mint_kwargs,family_versions",
+        [
+            ((), {}, []),
+            (_NEW_SOL_LISTING, {}, ["gpt-6.3-sol"]),
+            ((), {"family_models": ("gpt-6.3-sol",)}, ["gpt-6.3-sol"]),
+            (_NEW_SOL_LISTING, {"family_models": ()}, []),
+        ],
+        ids=[
+            "no_listed_versions",
+            "new_version_of_an_allowed_family",
+            "versions_the_caller_resolved",
+            "caller_resolved_no_versions",
+        ],
+    )
+    def test_mint_carries_the_first_party_pin(self, mint_settings, listing, mint_kwargs, family_versions):
+        with (
+            serve_gateway_listing(listing),
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
+        ):
             post.return_value = self._mint_response()
-            assert mint_scoped_token(ai_product="slack_app", team_id=2) == "phe_abc"
+            assert mint_scoped_token(ai_product="slack_app", team_id=2, **mint_kwargs) == "phe_abc"
         body = post.call_args.kwargs["json"]
         assert body["product"] == "slack_app"
-        assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["slack_app"]
-
-    def test_pin_covers_every_routed_catalog_model(self):
-        routed = {entry.id for entry in model_catalog.MODELS if not entry.id.startswith("@cf/")}
-        reserved = {
-            "deepseek-ai/deepseek-v4-flash-0731",
-            "deepseek-ai/deepseek-v4.1-flash-1017-fast",
-            "zai-org/glm-5.3",
-            "zai-org/glm-5.3-flash",
-            "gpt-6.1-terra",
-        }
-        assert reserved <= set(_PRODUCT_ALLOWED_MODELS["review_hog"])
-        missing = routed - reserved - {"zai-org/glm-5.2"} - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
-        assert not missing, f"catalog models absent from the slack_app pin: {sorted(missing)}"
+        assert body["allowed_models"] == [*_PRODUCT_ALLOWED_MODELS["slack_app"], *family_versions]
 
     def test_ttl_covers_the_sandbox_lifetime(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
@@ -1572,7 +1579,7 @@ class TestWorkflowsMint:
         env, mint = self._env(mint_settings)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         assert env["AI_GATEWAY_PRODUCT"] == "workflows"
-        mint.assert_called_once_with(ai_product="workflows", team_id=123, user=None)
+        mint.assert_called_once_with(**_mint_call("workflows", team_id=123, user=None))
 
     def test_pi_run_does_not_mint(self, mint_settings):
         with pytest.raises(GatewayTokenUnavailableError):
@@ -1604,7 +1611,7 @@ class TestWorkflowsMint:
             assert mint_scoped_token(ai_product="workflows", team_id=2) == "phe_abc"
         body = post.call_args.kwargs["json"]
         assert body["product"] == "workflows"
-        assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["workflows"]
+        assert body["allowed_models"] == product_pin("workflows")
 
     def test_ttl_covers_the_background_run_cap(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
@@ -1640,7 +1647,7 @@ class TestPosthogAiMint:
         env, mint = self._env(mint_settings)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         assert env["AI_GATEWAY_PRODUCT"] == "posthog_ai"
-        mint.assert_called_once_with(ai_product="posthog_ai", team_id=123, user=None)
+        mint.assert_called_once_with(**_mint_call("posthog_ai", team_id=123, user=None))
 
     def test_unrouted_posthog_ai_run_fails_without_minting(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
@@ -1672,7 +1679,7 @@ class TestPosthogAiMint:
             assert mint_scoped_token(ai_product="posthog_ai", team_id=2) == "phe_abc"
         body = post.call_args.kwargs["json"]
         assert body["product"] == "posthog_ai"
-        assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["posthog_ai"]
+        assert body["allowed_models"] == product_pin("posthog_ai")
 
     def test_ttl_covers_the_sandbox_lifetime(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS = 0
@@ -1711,7 +1718,7 @@ def test_account_audit_cost_routing_requires_server_provenance(
     assert ("AI_GATEWAY_TOKEN" in env) is mints
     assert mint.called is mints
     if mints:
-        mint.assert_called_once_with(ai_product="account_audit", team_id=123, user=None)
+        mint.assert_called_once_with(**_mint_call("account_audit", team_id=123, user=None))
 
 
 @pytest.mark.parametrize("internal", [True, False])
@@ -1725,7 +1732,7 @@ def test_support_reply_mint_requires_server_provenance(settings: Settings, inter
                 team_id=123, origin_product="support_reply", internal=True, model=None, runtime="acp"
             )
             assert env["AI_GATEWAY_TOKEN"] == "phe_test"
-            mint.assert_called_once_with(ai_product="conversations", team_id=123, user=None)
+            mint.assert_called_once_with(**_mint_call("conversations", team_id=123, user=None))
         else:
             with pytest.raises(ProcessTaskFatalError):
                 ai_gateway_env_vars(
@@ -1751,21 +1758,18 @@ class TestPosthogCodeSandboxMint:
         assert "posthog_code" in MINTABLE_PRODUCTS
         assert "posthog_code" in SANDBOX_BOUND_MINTABLE_PRODUCTS
 
-    def test_pin_holds_every_catalog_id_and_fits_the_gateway(self):
-        pin = _PRODUCT_ALLOWED_MODELS["posthog_code"]
-        assert pin == DESKTOP_AGENT_MODELS
+    def test_pin_fits_the_gateway_and_keeps_the_ids_older_builds_call(self):
+        pin = product_pin("posthog_code")
+        assert pin is not None
         assert len(pin) == len(set(pin))
         assert len(gateway_pin(pin)) <= MAX_GATEWAY_PIN_LENGTH
-        # A model reserved for ReviewHog alone would push the desktop pin past the gateway limit.
-        assert {entry.id for entry in model_catalog.MODELS} - {"gpt-6.1-terra"} <= set(pin)
         assert "gpt-6.1-terra" not in pin
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
-        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5-mini"} <= set(pin)
+        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5-mini", "zai-org/glm-5.2"} <= set(pin)
 
-    def test_pin_carries_the_go_spelling_of_every_cf_id(self):
-        pin = set(_PRODUCT_ALLOWED_MODELS["posthog_code"])
+    def test_free_pin_carries_the_go_spelling_of_every_cf_id(self):
+        pin = set(FREE_TIER_MODELS)
         assert {entry.removeprefix("@cf/") for entry in pin if entry.startswith("@cf/")} <= pin
-        assert any("/" in model for model in pin)
 
     def test_free_pin_is_the_legacy_free_tier_in_both_glm_spellings(self):
         assert FREE_TIER_MODELS == [
@@ -1851,7 +1855,7 @@ class TestPosthogCodeSandboxMint:
             post.return_value = self._mint_response()
             mint_scoped_token(ai_product="posthog_code", team_id=2)
             mint_scoped_token(ai_product="posthog_code", team_id=2, allowed_models=FREE_TIER_MODELS)
-        assert post.call_args_list[0].kwargs["json"]["allowed_models"] == gateway_pin(DESKTOP_AGENT_MODELS)
+        assert post.call_args_list[0].kwargs["json"]["allowed_models"] == product_pin("posthog_code")
         assert post.call_args_list[1].kwargs["json"]["allowed_models"] == gateway_pin(FREE_TIER_MODELS)
 
     @pytest.mark.django_db
@@ -2069,7 +2073,7 @@ class TestPosthogCodeSandboxMint:
             ) as mint,
         ):
             env = ai_gateway_env_vars(team_id=team.id, origin_product="loop", model="claude-opus-5")
-        mint.assert_called_once_with(ai_product="posthog_code", team_id=team.id, user=None, limit_tier="provisional")
+        mint.assert_called_once_with(**_mint_call("posthog_code", team_id=team.id, user=None, limit_tier="provisional"))
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         assert utils._PIN_KEY_ENV not in env
 

@@ -343,10 +343,10 @@ CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: dict[str, tuple[CapabilityNotch, ...]] = {
     ),
     CODEX: (
         CapabilityNotch("gpt-6-luna", LOW),
-        CapabilityNotch("gpt-6-sol", LOW),
-        CapabilityNotch("gpt-6-sol", MEDIUM),
-        CapabilityNotch("gpt-6-sol", HIGH),
-        CapabilityNotch("gpt-6-sol", XHIGH),
+        CapabilityNotch("gpt-6.2-sol", LOW),
+        CapabilityNotch("gpt-6.2-sol", MEDIUM),
+        CapabilityNotch("gpt-6.2-sol", HIGH),
+        CapabilityNotch("gpt-6.2-sol", XHIGH),
         CapabilityNotch("gpt-6-astra", MAX),
     ),
 }
@@ -414,9 +414,20 @@ def normalize_model_id(model_id: str) -> str:
     return normalized
 
 
+def gateway_model_id(model_id: str) -> str:
+    return normalize_model_id(model_id).removeprefix("@cf/")
+
+
 def is_anthropic_served_model(model_id: str | None) -> bool:
     """Whether Anthropic's API may serve this model, so its server can run the auto mode classifier checks."""
     return normalize_model_id(model_id or "").startswith("claude-")
+
+
+_VERSION_SEGMENT = re.compile(r"-\d[\d.]*(?=-|$)")
+
+
+def model_line(model_id: str) -> str:
+    return _VERSION_SEGMENT.sub("", normalize_model_id(model_id))
 
 
 def access_flag_for_model(model_id: str) -> str | None:
@@ -626,10 +637,12 @@ __all__ = [
     "format_cost_rates",
     "is_offered_model",
     "label_for_model",
+    "model_line",
     "models_for_runtime_adapter",
     "normalize_model_id",
     "display_name_for_model",
     "format_model_id",
+    "gateway_model_id",
     "reasoning_efforts_for",
     "reasoning_efforts_from_provider",
     "runtime_adapter_for_api_shapes",

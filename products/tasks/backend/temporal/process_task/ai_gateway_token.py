@@ -11,6 +11,7 @@ disagreement degrades ordinary runs to the Python gateway. Private trials fail c
 import time
 import random
 import logging
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
@@ -37,6 +38,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     PRODUCT_ALLOWED_MODELS,
     gateway_pin,
     model_allowed_by_product_pin,
+    product_pin,
 )
 from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
@@ -384,6 +386,7 @@ def mint_scoped_token(
     team_id: int,
     user: str | None = None,
     allowed_models: list[str] | None = None,
+    family_models: Sequence[str] | None = None,
     limit_tier: str | None = None,
     capture_mode: Literal["none"] | None = None,
     expires_in_seconds: int | None = None,
@@ -419,7 +422,12 @@ def mint_scoped_token(
         body["user"] = user
     if run_id:
         body["run"] = run_id
-    pin = allowed_models if allowed_models is not None else _PRODUCT_ALLOWED_MODELS.get(ai_product)
+    if allowed_models is not None:
+        pin: list[str] | None = allowed_models
+    elif family_models is not None:
+        pin = [*(_PRODUCT_ALLOWED_MODELS.get(ai_product) or []), *family_models]
+    else:
+        pin = product_pin(ai_product)
     if pin:
         body["allowed_models"] = gateway_pin(pin)
     if limit_tier:

@@ -1314,7 +1314,9 @@ class TestRenderEditModal:
         assert "2.5×" in options["claude-opus-5"]["description"]["text"]
 
     def test_model_option_omits_the_cost_line_when_the_listing_prices_nothing(self):
-        unpriced = GatewayModel(id="gpt-5", owned_by="openai", context_window=400000, api_shapes=("openai-responses",))
+        unpriced = GatewayModel(
+            id="gpt-5", owned_by="openai", context_window=400000, family="gpt", api_shapes=("openai-responses",)
+        )
         with serve_gateway_listing((unpriced,)):
             view = render_edit_modal(current=AIPreferences(runtime_adapter="codex"))
         model_block = _find_block(view, MODAL_BLOCK_MODEL)

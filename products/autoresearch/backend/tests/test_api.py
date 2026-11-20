@@ -1359,19 +1359,19 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             (
                 "effort_the_model_lacks",
                 {},
-                {"agent_model": "gpt-5", "agent_reasoning_effort": "max"},
+                {"agent_model": "gpt-5.5", "agent_reasoning_effort": "max"},
                 "agent_reasoning_effort",
             ),
             ("unknown_effort_on_the_default_model", {}, {"agent_reasoning_effort": "turbo"}, "agent_reasoning_effort"),
             (
                 "effort_against_the_stored_model",
-                {"agent_model": "gpt-5"},
+                {"agent_model": "gpt-5.5"},
                 {"agent_reasoning_effort": "max"},
                 "agent_reasoning_effort",
             ),
             (
                 "clearing_the_model",
-                {"agent_model": "gpt-5", "agent_reasoning_effort": "high"},
+                {"agent_model": "gpt-5.5", "agent_reasoning_effort": "high"},
                 {"agent_model": None},
                 None,
             ),

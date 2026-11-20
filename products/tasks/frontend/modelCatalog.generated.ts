@@ -591,19 +591,19 @@ export const CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: CapabilityLadders = {
             effort: 'low',
         },
         {
-            model: 'gpt-6-sol',
+            model: 'gpt-6.2-sol',
             effort: 'low',
         },
         {
-            model: 'gpt-6-sol',
+            model: 'gpt-6.2-sol',
             effort: 'medium',
         },
         {
-            model: 'gpt-6-sol',
+            model: 'gpt-6.2-sol',
             effort: 'high',
         },
         {
-            model: 'gpt-6-sol',
+            model: 'gpt-6.2-sol',
             effort: 'xhigh',
         },
         {

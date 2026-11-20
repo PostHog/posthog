@@ -28,6 +28,9 @@ from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
+from products.tasks.backend.facade.model_listing_testing import saved_gateway_listing, serve_gateway_listing
+from products.tasks.backend.logic.services import gateway_model_pin
+from products.tasks.backend.logic.services.gateway_models import GatewayModel
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
@@ -174,12 +177,23 @@ class TestWorkflowTasksAPI(APIBaseTest):
         [
             ("codex", "gpt-5.6-terra", "codex", "openai"),
             ("claude", "claude-sonnet-5", "claude", "anthropic"),
+            ("new_version_of_an_allowed_family", "gpt-6.3-sol", "codex", "openai"),
         ]
     )
     def test_derives_the_runtime_adapter_from_the_selected_model(
         self, _name: str, model: str, expected_adapter: str, expected_provider: str
     ) -> None:
-        response = self._post({"model": model, "reasoning_effort": "high"})
+        new_version = GatewayModel(
+            id="gpt-6.3-sol",
+            owned_by="openai",
+            context_window=1050000,
+            family="gpt-sol",
+            release_date="2027-01-10",
+            reasoning_efforts=("low", "medium", "high"),
+            api_shapes=("openai-chat-completions", "openai-responses"),
+        )
+        with serve_gateway_listing((*saved_gateway_listing(), new_version)):
+            response = self._post({"model": model, "reasoning_effort": "high"})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
@@ -196,6 +210,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert run.state.get("model") is None
         assert run.state.get("runtime_adapter") is None
+
+    @parameterized.expand([("with_the_flag", True, "gpt-6.2-sol"), ("without_the_flag", False, None)])
+    def test_keeps_a_gated_model_only_when_the_owner_holds_its_flag(
+        self, _name: str, flag_enabled: bool, expected_model: str | None
+    ) -> None:
+        with (
+            self.settings(DEBUG=False),
+            patch.dict(gateway_model_pin.MODEL_FAMILY_ACCESS_FLAGS, {"gpt-sol": "tasks-sol-preview"}),
+            patch(
+                "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag_enabled and flag == "tasks-sol-preview",
+            ),
+        ):
+            response = self._post({"model": "gpt-6.2-sol"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("model") == expected_model
 
     @parameterized.expand([("dropped_model", {"model": "zai-org/glm-5.3-flash"}), ("no_model", {})])
     def test_skips_a_project_default_model_outside_the_workflows_gateway_pin(self, _name: str, body: dict) -> None:

@@ -30,6 +30,7 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.profiles import SourceKind, TaskRunOptions, TaskSource
+from products.tasks.backend.feature_flags import get_model_access_error
 from products.tasks.backend.logic.services.ai_run_defaults import resolve_ai_run_selection
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
@@ -228,12 +229,11 @@ def create_workflow_task(
     )
 
     gateway_server_ids = resolve_connectors(team.id, connector_ids)
-    run_selection = _workflow_run_selection(team.id, owner_id, model)
-
     gate_owner = User.objects.filter(id=owner_id).first()
     if gate_owner is None:
         observe_workflow_task_create(reason="owner_ineligible")
         raise WorkflowTaskOwnerIneligible()
+    run_selection = _workflow_run_selection(team.id, gate_owner, model)
 
     # Fast, unlocked pre-checks so an ineligible owner or a capped workflow never reaches
     # the gate. Nothing holds the advisory locks yet, so these reads are not authoritative;
@@ -488,10 +488,14 @@ class _WorkflowRunSelection:
     model: str | None
 
 
-def _workflow_run_selection(team_id: int, owner_id: int, model: str | None) -> _WorkflowRunSelection:
-    if model and model_allowed_by_product_pin("workflows", model):
+def _workflow_run_selection(team_id: int, owner: User, model: str | None) -> _WorkflowRunSelection:
+    if (
+        model
+        and model_allowed_by_product_pin("workflows", model)
+        and get_model_access_error(model, distinct_id=owner.distinct_id) is None
+    ):
         return _WorkflowRunSelection(runtime_adapter=runtime_adapter_for(model), model=model)
-    default = resolve_ai_run_selection(team_id, owner_id)
+    default = resolve_ai_run_selection(team_id, owner.id)
     if model_allowed_by_product_pin("workflows", default.model):
         return _WorkflowRunSelection(runtime_adapter=None, model=None)
     return _WorkflowRunSelection(runtime_adapter=CLAUDE, model=None)

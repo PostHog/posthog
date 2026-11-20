@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from syrupy.extensions.json import JSONSnapshotExtension
@@ -9,6 +10,7 @@ from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.facade.model_catalogue import GatewayModel, available_model_choices, runtime_adapter_for
 from products.tasks.backend.facade.model_listing_testing import serve_gateway_listing
+from products.tasks.backend.logic.services import gateway_model_pin
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
     ReasoningEffort,
@@ -315,12 +317,16 @@ class TestAvailableModelChoices:
         with serve_gateway_listing(listing):
             assert [choice.model for choice in available_model_choices("signals")] == ["claude-fable-5"]
 
-    def test_drops_models_the_product_pin_does_not_admit(self) -> None:
+    def test_drops_models_outside_the_products_families(self) -> None:
         listing = (
             GatewayModel(
-                id="claude-opus-5-5", owned_by="anthropic", context_window=1, api_shapes=("anthropic-messages",)
+                id="claude-opus-5-5",
+                owned_by="anthropic",
+                context_window=1,
+                family="claude-opus",
+                api_shapes=("anthropic-messages",),
             ),
-            _codex("gpt-4o"),
+            _codex("gpt-4o", family="gpt-omni"),
         )
         with serve_gateway_listing(listing):
             assert [choice.model for choice in available_model_choices("posthog_code")] == ["claude-opus-5-5"]
@@ -388,14 +394,14 @@ class TestAvailableModelChoices:
         self, listed: GatewayModel, expected: tuple[str, tuple[str, ...], str | None]
     ) -> None:
         with serve_gateway_listing((_BASELINE, listed)):
-            choice = next(choice for choice in available_model_choices("posthog_code") if choice.model == listed.id)
+            choice = next(choice for choice in available_model_choices("signals") if choice.model == listed.id)
 
         assert (choice.label, choice.supported_efforts, choice.cost_multiplier) == expected
 
     def test_quotes_no_cost_when_the_baseline_model_is_not_listed(self) -> None:
         priced = _codex("gpt-5.4", input_per_mtok=8.0, output_per_mtok=40.0)
         with serve_gateway_listing((priced,)):
-            (choice,) = available_model_choices("posthog_code")
+            (choice,) = available_model_choices("signals")
 
         assert choice.cost_multiplier is None
 
@@ -425,12 +431,37 @@ class TestAvailableModelChoices:
         assert (error is None) is accepted
 
 
-def test_every_model_resolves_to_its_catalog_flag() -> None:
-    # The gate and the pickers read one field now, so this fails if a row gains an
-    # access_flag the entitlement check cannot see, whichever spelling the caller sends.
-    for model in model_catalog.MODELS:
-        assert get_required_model_flag(model.id) == model.access_flag
-        assert get_required_model_flag(f"anthropic/{model.id}") == model.access_flag
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("gpt-6.2-sol", "tasks-sol-preview"),
+        ("gpt-6.3-sol", "tasks-sol-preview"),
+        ("openai/gpt-6.3-sol", "tasks-sol-preview"),
+        ("gpt-6.3-sol-pro", "tasks-sol-preview"),
+        ("gpt-6.3-astra", None),
+        ("gpt-9-unlisted", None),
+    ],
+    ids=[
+        "version_of_the_gated_family",
+        "newer_version_of_the_gated_family",
+        "provider_qualified_spelling",
+        "suffixed_variant_of_the_gated_family",
+        "another_family",
+        "model_the_gateway_does_not_list",
+    ],
+)
+def test_a_model_takes_the_rollout_flag_of_its_gateway_family(model: str, expected: str | None) -> None:
+    listing = (
+        _codex("gpt-6.2-sol", family="gpt-sol"),
+        _codex("gpt-6.3-sol", family="gpt-sol"),
+        _codex("gpt-6.3-sol-pro", family="gpt-sol"),
+        _codex("gpt-6.3-astra", family="gpt-astra"),
+    )
+    with (
+        patch.dict(gateway_model_pin.MODEL_FAMILY_ACCESS_FLAGS, {"gpt-sol": "tasks-sol-preview"}),
+        serve_gateway_listing(listing),
+    ):
+        assert get_required_model_flag(model) == expected
 
 
 @parameterized.expand(

@@ -36,7 +36,6 @@ from products.tasks.backend.facade.access import (
 from products.tasks.backend.facade.contracts import ComputeQuotaDenialReason
 from products.tasks.backend.facade.desktop_gateway import (
     CREDIT_BUCKET_EXHAUSTED_DENIAL,
-    DESKTOP_AGENT_MODELS,
     POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
     POSTHOG_CODE_PRODUCT,
     DesktopGatewayMintError,
@@ -341,7 +340,7 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "plan": plan,
             # Go echoes only the pin it stored; a gateway without the echo stored what was sent.
             "allowed_models": echoed_models if isinstance(echoed_models, list) else allowed_models,
-            "product_models": list(DESKTOP_AGENT_MODELS),
+            "product_models": plan_allowed_models("paid"),
         }
         return Response(DesktopGatewayTokenSerializer(payload).data, status=status.HTTP_201_CREATED)
 

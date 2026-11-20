@@ -29,19 +29,19 @@
       },
       {
         "effort": "low",
-        "model": "gpt-6-sol"
+        "model": "gpt-6.2-sol"
       },
       {
         "effort": "medium",
-        "model": "gpt-6-sol"
+        "model": "gpt-6.2-sol"
       },
       {
         "effort": "high",
-        "model": "gpt-6-sol"
+        "model": "gpt-6.2-sol"
       },
       {
         "effort": "xhigh",
-        "model": "gpt-6-sol"
+        "model": "gpt-6.2-sol"
       },
       {
         "effort": "max",
