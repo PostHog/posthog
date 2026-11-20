@@ -1,5 +1,5 @@
 import { Extension } from '@tiptap/core'
-import { NodeSelection, Plugin, PluginKey, Selection } from '@tiptap/pm/state'
+import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 import { blockAtPos, moveBlock } from './emailCommands'
@@ -89,7 +89,23 @@ export const EmailBlockKeymap = Extension.create({
             const block = blockAtPos(this.editor.state.doc, this.editor.state.selection.from)
             return block ? moveBlock(this.editor, block, direction) : false
         }
-        return { 'Alt-ArrowUp': move(-1), 'Alt-ArrowDown': move(1) }
+        // The first press selects the text of the block being edited, as most editors do, so a delete right after it
+        // can't take the whole email. A second press selects everything.
+        const selectBlockText = (): boolean => {
+            const { selection, tr } = this.editor.state
+            const { $from, $to } = selection
+            if (!$from.parent.isTextblock || !$from.sameParent($to)) {
+                return false
+            }
+            const start = $from.start()
+            const end = $from.end()
+            if (start === end || (selection.from === start && selection.to === end)) {
+                return false
+            }
+            this.editor.view.dispatch(tr.setSelection(TextSelection.create(tr.doc, start, end)))
+            return true
+        }
+        return { 'Alt-ArrowUp': move(-1), 'Alt-ArrowDown': move(1), 'Mod-a': selectBlockText }
     },
     addProseMirrorPlugins() {
         return [
