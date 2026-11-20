@@ -21,8 +21,8 @@ import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import { confirmDeleteRole } from '../roleActions'
 
 export function QuillRoleDialog(): JSX.Element {
-    const { editingRoleId } = useValues(roleAccessControlLogic)
-    const { setEditingRoleId, submitEditingRole, deleteRole } = useActions(roleAccessControlLogic)
+    const { editingRoleId, isEditingRoleSubmitting } = useValues(roleAccessControlLogic)
+    const { setEditingRoleId, deleteRole } = useActions(roleAccessControlLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const isEditing = editingRoleId !== 'new'
 
@@ -74,7 +74,7 @@ export function QuillRoleDialog(): JSX.Element {
                         <Button variant="outline" onClick={() => setEditingRoleId(null)}>
                             Cancel
                         </Button>
-                        <Button variant="primary" type="submit" onClick={submitEditingRole}>
+                        <Button variant="primary" type="submit" loading={isEditingRoleSubmitting}>
                             {!isEditing ? 'Create' : 'Save'}
                         </Button>
                     </DialogFooter>
