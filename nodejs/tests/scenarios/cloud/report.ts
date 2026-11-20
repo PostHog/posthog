@@ -147,6 +147,8 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
     }
     const pre = minutes.filter(({ at }) => at < t0Minute)
     const above = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading > idleMax))
+    const under = pre.filter(({ max, avg }) => [max, avg].some((reading) => reading !== undefined && reading < min))
+    const inverted = pre.filter(({ max, avg }) => max !== undefined && avg !== undefined && avg > max)
     const unshown = pre.filter(
         ({ max, avg }) => max === undefined && avg !== undefined && avg !== min && avg <= idleMax
     )
@@ -155,6 +157,8 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
     const listed = (found: Minute[]): string => found.map(({ at }) => iso(at)).join(', ')
     const reasons = [
         above.length > 0 && `reader above its ${idleMax} ACU idle limit before T0 (${listed(above)})`,
+        under.length > 0 && `reader capacity under its ${min} ACU minimum before T0 (${listed(under)})`,
+        inverted.length > 0 && `reader average above its maximum before T0 (${listed(inverted)})`,
         unshown.length > 0 &&
             `no reader maximum before T0 to show the reader under its ${idleMax} ACU idle limit (${listed(unshown)})`,
         missing.length > 0 &&
@@ -262,6 +266,11 @@ export async function report(
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)
     const costItems = cost.map(([item, usd]) => `${item}: ${dollars(usd)}`)
     const status: Status = reasons.length > 0 || !host ? 'invalid' : host.event.status
+    const savedReason = host?.event.status_reason
+    const hostReason =
+        host && host.event.status !== 'passed' && typeof savedReason === 'string' && savedReason
+            ? [`the runner saved a ${host.event.status} scorecard: ${savedReason}`]
+            : []
     const environment = environmentOf(profile, card, manifest, host?.event.fingerprint)
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
@@ -275,7 +284,8 @@ export async function report(
         target: TARGET,
         started_at: manifest.createdAt,
         status,
-        status_reason: reasons.length > 0 ? reasons.join('; ') : String(host?.event.status_reason ?? ''),
+        status_reason:
+            reasons.length > 0 ? [...reasons, ...hostReason].join('; ') : String(host?.event.status_reason ?? ''),
         ended_at: iso(to),
         duration_s: (to - from) / 1000,
         evidence_dir: `s3://${evidence.name}/${keyOf(runId, 'evidence/')}`,

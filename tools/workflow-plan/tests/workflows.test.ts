@@ -1460,11 +1460,11 @@ describe('CI workflow run plans', () => {
             github,
             steps: {
                 ...allFiltersChanged(wf),
-                'code-quality': { 'Check static typing': { outcome } },
+                mypy: { 'Check static typing': { outcome } },
             },
         })
         expect(plan.errors).toEqual([])
-        expect(plan.jobs['code-quality']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
+        expect(plan.jobs['mypy']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
     })
 
     it.each([
