@@ -461,6 +461,30 @@ describe('HogMasker', () => {
                     expect(extra.masked).toHaveLength(1)
                 })
 
+                it('release() leaves a store alone when its increment failed there', async () => {
+                    const mirrorWhoseIncrementTimesOut: RedisV2 = {
+                        useClient: (options, callback) => valkey.useClient(options, callback),
+                        usePipeline: (options, callback) =>
+                            options.name === 'masker-mirror'
+                                ? Promise.resolve([
+                                      [new Error('Command timed out'), null],
+                                      [null, 0],
+                                  ])
+                                : valkey.usePipeline(options, callback),
+                    }
+                    const claim = await new HogMaskerService(redis, mirrorWhoseIncrementTimesOut).filterByMasking([
+                        createExampleHogFlowInvocation(hogFlowEvery),
+                    ])
+
+                    await claim.release()
+
+                    expect(
+                        await valkey.useClient({ name: 'read-mirror-keys' }, (client) =>
+                            client.keys(`*${hogFlowEvery.id}*`)
+                        )
+                    ).toEqual([])
+                })
+
                 it('uses threshold for onceEver flow trigger masking', async () => {
                     const inv = createExampleHogFlowInvocation(hogFlowOnceEver)
                     expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)

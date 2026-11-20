@@ -318,18 +318,20 @@ describe('createCdpValkeyShadowPools when Valkey is unavailable', () => {
 
         it('counts fail-open calls whose command times out', async () => {
             stopAnsweringOpenConnections()
-            holdNewConnections()
+            expect(
+                await writer.useClient({ name: 'fail-open-command-timeout', failOpen: true }, (client) => client.ping())
+            ).toBeNull()
+            expect(await writer.useClient({ name: 'replacement' }, (client) => client.ping())).toEqual('PONG')
 
+            stopAnsweringOpenConnections()
             const pipelineResults = await writer.usePipeline(
                 { name: 'fail-open-pipeline-command-timeout', failOpen: true },
                 (pipeline) => pipeline.ping()
             )
+
             expect(pipelineResults?.[0]?.[0]).toBeInstanceOf(Error)
-            expect(
-                await writer.useClient({ name: 'fail-open-command-timeout', failOpen: true }, (client) => client.ping())
-            ).toBeNull()
-            expect(await callsFailedOpen('fail-open-pipeline-command-timeout')).toBe(1)
             expect(await callsFailedOpen('fail-open-command-timeout')).toBe(1)
+            expect(await callsFailedOpen('fail-open-pipeline-command-timeout')).toBe(1)
         }, 30_000)
 
         it('answers through a new connection after a command stalls', async () => {
