@@ -1,6 +1,6 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useContext, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
@@ -41,6 +41,13 @@ export function EmailSenderRow(): JSX.Element {
     const [isEditing, setIsEditing] = useState(false)
     const [senderSetupOpen, setSenderSetupOpen] = useState(false)
     const openedWith = useRef<unknown>(null)
+    const mounted = useRef(true)
+    useEffect(() => {
+        mounted.current = true
+        return () => {
+            mounted.current = false
+        }
+    }, [])
 
     // A workflow or broadcast email can rotate senders and fill sender fields from person data.
     // A transactional template sends from one sender with values from the API call.
@@ -95,7 +102,8 @@ export function EmailSenderRow(): JSX.Element {
         // The sender list reloads only after the domain verifies, so a quick click can still see it unverified.
         void loadIntegrations()
             .then(() => {
-                if (canSend(integrationsLogic.findMounted()?.values.integrations)) {
+                // Another step's editor reuses the templater, so a closed row must not write to it.
+                if (mounted.current && canSend(integrationsLogic.findMounted()?.values.integrations)) {
                     changeFrom({ ...from, integrationId })
                 }
             })
