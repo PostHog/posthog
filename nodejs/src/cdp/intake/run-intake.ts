@@ -111,11 +111,13 @@ export class RunIntake {
                 return claims.map((claim, i) => recalledOf(claim, found[i]))
             }
         } catch (error) {
-            logger.warn('[CdpIntake] Claim lookup failed, producing the runs without it', {
-                kind,
-                run_ids: claims.map((claim) => claim.runId),
-                error: error instanceof Error ? error.message : String(error),
-            })
+            for (const claim of claims) {
+                logger.warn('[CdpIntake] Claim lookup failed, producing the run without it', {
+                    kind,
+                    run_id: claim.runId,
+                    error: error instanceof Error ? error.message : String(error),
+                })
+            }
         } finally {
             clearTimeout(timer)
         }
