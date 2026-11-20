@@ -49,7 +49,8 @@ jobs:
             # trigger paths, and the release caller validates its exact commit.
             mobile: ${{ steps.filter.outputs.mobile || 'true' }}
             api_types: ${{ steps.filter.outputs.api_types || 'false' }}
-            # The pinned bundle is behind the player source on most master commits, so a push only builds it.
+            # The pinned bundle is behind the player source on most master commits, so a push checks it
+            # against the commit that last changed it (see the replay_bundle job) instead of against HEAD.
             replay_bundle: ${{ steps.filter.outputs.replay_bundle || 'false' }}
             replay_player: ${{ steps.filter.outputs.replay_player || 'true' }}
         steps:
@@ -204,7 +205,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.replay_bundle == 'true' || needs.changes.outputs.replay_player == 'true'
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 15
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -238,6 +239,59 @@ jobs:
                   else
                     pnpm --filter @posthog/replay-headless run build:phone
                   fi
+
+            # Release runs ship the committed bundle, and Mobile CI Pass is not a required check, so a
+            # bundle could reach master without its PR check passing. No later commit touched the bundle,
+            # so it is identical at the commit that last changed it, and that commit's source must build it.
+            - name: Find the commit that last changed the bundle
+              id: pinned
+              if: github.event_name != 'pull_request' && hashFiles('products/mobile/src/features/replay/web/phonePlayer.generated.replay') != ''
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  last_change() {
+                    gh api "repos/$REPO/commits?sha=$GITHUB_SHA&path=$1&per_page=1" --jq '.[0].sha // empty'
+                  }
+                  bundle_sha=$(last_change products/mobile/src/features/replay/web/phonePlayer.generated.replay)
+                  script_sha=$(last_change common/replay-headless/build-phone.mjs)
+                  if [[ -z "$bundle_sha" || -z "$script_sha" ]]; then
+                    echo "Could not find the commits that last changed the replay bundle and its build script."
+                    exit 1
+                  fi
+                  # "ahead" means the build script changed after the bundle, so the bundle must match that newer commit.
+                  if [[ "$(gh api "repos/$REPO/compare/$bundle_sha...$script_sha" --jq .status)" == "ahead" ]]; then
+                    echo "sha=$script_sha" >>"$GITHUB_OUTPUT"
+                  else
+                    echo "sha=$bundle_sha" >>"$GITHUB_OUTPUT"
+                  fi
+
+            - name: Check out the commit that last changed the bundle
+              if: steps.pinned.outputs.sha != ''
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  ref: ${{ steps.pinned.outputs.sha }}
+                  path: pinned
+                  sparse-checkout: |
+                      .nvmrc
+                      common/replay-headless
+                      common/replay-shared
+                      package.json
+                      patches
+                      pnpm-lock.yaml
+                      pnpm-workspace.yaml
+                      products/mobile/src/features/replay/web
+                  sparse-checkout-cone-mode: false
+
+            - name: Verify the shipped bundle against the source it was built from
+              if: steps.pinned.outputs.sha != ''
+              working-directory: pinned
+              run: |
+                  cmp products/mobile/src/features/replay/web/phonePlayer.generated.replay \
+                    ../products/mobile/src/features/replay/web/phonePlayer.generated.replay
+                  pnpm --filter @posthog/replay-headless... install --frozen-lockfile --ignore-scripts
+                  pnpm --filter @posthog/replay-headless run build:phone --check
 
     mobile_checks:
         name: Mobile CI Pass
