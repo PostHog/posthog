@@ -168,6 +168,17 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // The logic toasts every failure itself, including network errors that have no HTTP status
     setIssueSummariesEnabled:
         'products.error_tracking.scenes.ErrorTrackingConfigurationScene.ai_features.aiFeaturesSettingsLogic',
+    // The managed warehouse console pages render each failure inline with a retry, and the running list and workload poll every 10 to 15 seconds
+    loadRunning: 'products.data_warehouse.frontend.scenes.WarehouseQueriesScene.warehouseQueriesLogic',
+    loadHistory: 'products.data_warehouse.frontend.scenes.WarehouseQueriesScene.warehouseQueriesLogic',
+    loadMoreHistory: 'products.data_warehouse.frontend.scenes.WarehouseQueriesScene.warehouseQueriesLogic',
+    loadUsage: 'products.data_warehouse.frontend.scenes.WarehouseUsageScene.warehouseUsageLogic',
+    loadSettings: 'products.data_warehouse.frontend.scenes.WarehouseUsageScene.warehouseUsageLogic',
+    loadStorage: 'products.data_warehouse.frontend.scenes.WarehouseStorageScene.warehouseStorageLogic',
+    loadLogins: 'products.data_warehouse.frontend.scenes.WarehouseAccessScene.warehouseLoginsLogic',
+    loadOverviewUsage: 'products.data_warehouse.frontend.scenes.WarehouseHomeScene.warehouseConsoleOverviewLogic',
+    loadOverviewSettings: 'products.data_warehouse.frontend.scenes.WarehouseHomeScene.warehouseConsoleOverviewLogic',
+    loadWorkload: 'products.data_warehouse.frontend.scenes.WarehouseHomeScene.warehouseConsoleOverviewLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.

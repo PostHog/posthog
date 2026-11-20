@@ -19,12 +19,25 @@ describe('todayWarehouseItems', () => {
     })
 
     test.each([
+        [{ [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE]: true }, ['usage', 'queries', 'storage', 'access', 'connect']],
+        [{ [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true }, []],
+    ])('with flags %j, lists the console pages %j', (featureFlags, listed) => {
+        const keys = visibleWarehouseItems(featureFlags).map((item) => item.key)
+        expect(keys.filter((key) => ['usage', 'queries', 'storage', 'access', 'connect'].includes(key))).toEqual(listed)
+    })
+
+    test.each([
         ...DEFINITIONS_TABS.map((tab): [string, string | null] => [hrefPath(tab.url), 'definitions']),
         ['/sql', 'sql_editor'],
         ['/data-management/sources/abc/schemas', 'sources'],
         ['/models', 'models'],
         ['/models/abc', 'models'],
         ['/warehouse', 'home'],
+        ['/warehouse/usage', 'usage'],
+        ['/warehouse/queries', 'queries'],
+        ['/warehouse/storage', 'storage'],
+        ['/warehouse/access', 'access'],
+        ['/warehouse/connect', 'connect'],
         ['/data-warehouse/new-source', null],
         ['/insights/abc', null],
         ['/data-management/properties/abc', 'definitions'],

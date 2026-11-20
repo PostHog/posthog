@@ -4,6 +4,7 @@ import { Heading, ItemGroup } from '@posthog/quill'
 
 import { urls } from 'scenes/urls'
 
+import { WarehouseConsoleSteps } from './WarehouseConsoleSteps'
 import { WarehouseGettingStartedStep } from './WarehouseGettingStartedStep'
 import { warehouseHomeLogic } from './warehouseHomeLogic'
 
@@ -42,6 +43,7 @@ export function WarehouseGettingStarted(): JSX.Element {
                         { label: 'Open SQL editor', to: urls.sqlEditor(), dataAttr: 'warehouse-home-create-view' },
                     ]}
                 />
+                <WarehouseConsoleSteps />
             </ItemGroup>
         </section>
     )

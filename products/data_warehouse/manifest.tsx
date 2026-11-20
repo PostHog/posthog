@@ -94,10 +94,50 @@ export const manifest: ProductManifest = {
             description: 'Connect your data, build views on it and check that it stays fresh.',
             iconType: 'data_warehouse',
         },
+        WarehouseUsage: {
+            name: 'Usage',
+            import: () => import('./frontend/scenes/WarehouseUsageScene/WarehouseUsageScene'),
+            projectBased: true,
+            description: "See what your organization's managed warehouse uses.",
+            iconType: 'data_warehouse',
+        },
+        WarehouseQueries: {
+            name: 'Queries',
+            import: () => import('./frontend/scenes/WarehouseQueriesScene/WarehouseQueriesScene'),
+            projectBased: true,
+            description: "Review the queries that run on your organization's managed warehouse.",
+            iconType: 'data_warehouse',
+        },
+        WarehouseStorage: {
+            name: 'Storage',
+            import: () => import('./frontend/scenes/WarehouseStorageScene/WarehouseStorageScene'),
+            projectBased: true,
+            description: "See how much data your organization's managed warehouse stores.",
+            iconType: 'data_warehouse',
+        },
+        WarehouseAccess: {
+            name: 'Access',
+            import: () => import('./frontend/scenes/WarehouseAccessScene/WarehouseAccessScene'),
+            projectBased: true,
+            description: 'See the login that connects tools to your managed warehouse and reset its password.',
+            iconType: 'data_warehouse',
+        },
+        WarehouseConnect: {
+            name: 'Connect',
+            import: () => import('./frontend/scenes/WarehouseConnectScene/WarehouseConnectScene'),
+            projectBased: true,
+            description: 'Connect the Trino CLI, Python, dbt, Metabase or Hex to your managed warehouse.',
+            iconType: 'data_warehouse',
+        },
     },
     routes: {
         // pinned: people bookmark this path
         '/warehouse': ['WarehouseHome', 'warehouseHome'],
+        '/warehouse/usage': ['WarehouseUsage', 'warehouseUsage'],
+        '/warehouse/queries': ['WarehouseQueries', 'warehouseQueries'],
+        '/warehouse/storage': ['WarehouseStorage', 'warehouseStorage'],
+        '/warehouse/access': ['WarehouseAccess', 'warehouseAccess'],
+        '/warehouse/connect': ['WarehouseConnect', 'warehouseConnect'],
         '/data-ops': ['DataOps', 'dataOps'],
         '/data-management/sources': ['Sources', 'sources'],
         '/data-management/sources/:sourceId/schemas/:schemaId': [
@@ -137,6 +177,11 @@ export const manifest: ProductManifest = {
     },
     urls: {
         warehouse: (): string => '/warehouse',
+        warehouseUsage: (): string => '/warehouse/usage',
+        warehouseQueries: (): string => '/warehouse/queries',
+        warehouseStorage: (): string => '/warehouse/storage',
+        warehouseAccess: (): string => '/warehouse/access',
+        warehouseConnect: (): string => '/warehouse/connect',
         dataOps: (tab?: string): string => {
             const params = new URLSearchParams()
             if (tab) {

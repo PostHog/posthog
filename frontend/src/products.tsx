@@ -178,6 +178,11 @@ export const productRoutes: Record<string, [string, string]> = {
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
     '/warehouse': ['WarehouseHome', 'warehouseHome'],
+    '/warehouse/usage': ['WarehouseUsage', 'warehouseUsage'],
+    '/warehouse/queries': ['WarehouseQueries', 'warehouseQueries'],
+    '/warehouse/storage': ['WarehouseStorage', 'warehouseStorage'],
+    '/warehouse/access': ['WarehouseAccess', 'warehouseAccess'],
+    '/warehouse/connect': ['WarehouseConnect', 'warehouseConnect'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
@@ -991,6 +996,36 @@ export const productConfiguration: Record<string, any> = {
         description: 'Connect your data, build views on it and check that it stays fresh.',
         iconType: 'data_warehouse',
     },
+    WarehouseUsage: {
+        name: 'Usage',
+        projectBased: true,
+        description: "See what your organization's managed warehouse uses.",
+        iconType: 'data_warehouse',
+    },
+    WarehouseQueries: {
+        name: 'Queries',
+        projectBased: true,
+        description: "Review the queries that run on your organization's managed warehouse.",
+        iconType: 'data_warehouse',
+    },
+    WarehouseStorage: {
+        name: 'Storage',
+        projectBased: true,
+        description: "See how much data your organization's managed warehouse stores.",
+        iconType: 'data_warehouse',
+    },
+    WarehouseAccess: {
+        name: 'Access',
+        projectBased: true,
+        description: 'See the login that connects tools to your managed warehouse and reset its password.',
+        iconType: 'data_warehouse',
+    },
+    WarehouseConnect: {
+        name: 'Connect',
+        projectBased: true,
+        description: 'Connect the Trino CLI, Python, dbt, Metabase or Hex to your managed warehouse.',
+        iconType: 'data_warehouse',
+    },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -1651,6 +1686,11 @@ export const productUrls = {
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     warehouse: (): string => '/warehouse',
+    warehouseUsage: (): string => '/warehouse/usage',
+    warehouseQueries: (): string => '/warehouse/queries',
+    warehouseStorage: (): string => '/warehouse/storage',
+    warehouseAccess: (): string => '/warehouse/access',
+    warehouseConnect: (): string => '/warehouse/connect',
     dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {

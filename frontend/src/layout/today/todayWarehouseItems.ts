@@ -24,6 +24,11 @@ export type WarehouseItemKey =
     | 'actions'
     | 'sql_variables'
     | 'data_ops'
+    | 'usage'
+    | 'queries'
+    | 'storage'
+    | 'access'
+    | 'connect'
 
 export interface WarehouseItem {
     // pinned: sent as the `item` and `from` properties of `warehouse menu item clicked`, and part of each menu row's data-attr.
@@ -193,6 +198,51 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         group: 'manage',
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
         alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+    },
+    {
+        key: 'usage',
+        label: 'Usage',
+        href: urls.warehouseUsage(),
+        iconType: 'metrics',
+        sceneKey: 'WarehouseUsage',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'queries',
+        label: 'Queries',
+        href: urls.warehouseQueries(),
+        iconType: 'sql_editor',
+        sceneKey: 'WarehouseQueries',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'storage',
+        label: 'Storage',
+        href: urls.warehouseStorage(),
+        iconType: 'data_warehouse',
+        sceneKey: 'WarehouseStorage',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'access',
+        label: 'Access',
+        href: urls.warehouseAccess(),
+        iconType: 'settings',
+        sceneKey: 'WarehouseAccess',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
+    },
+    {
+        key: 'connect',
+        label: 'Connect',
+        href: urls.warehouseConnect(),
+        iconType: 'data_pipeline',
+        sceneKey: 'WarehouseConnect',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
     },
 ]
 

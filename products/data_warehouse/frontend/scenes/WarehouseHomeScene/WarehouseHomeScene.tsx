@@ -12,6 +12,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { WarehouseConsoleOverview } from './WarehouseConsoleOverview'
 import { WarehouseGettingStarted } from './WarehouseGettingStarted'
 import { WarehouseHealth } from './WarehouseHealth'
 import { WarehouseRecentRuns } from './WarehouseRecentRuns'
@@ -37,6 +38,7 @@ export function WarehouseHomeScene(): JSX.Element {
                 resourceType={{ type: 'data_warehouse' }}
             />
             <div data-quill className="@container/warehouse-home flex flex-col gap-6">
+                <WarehouseConsoleOverview />
                 <WarehouseGettingStarted />
                 <section aria-labelledby="warehouse-overview" className="flex flex-col gap-2">
                     <Heading render={<h2 id="warehouse-overview" />} size="base" className="m-0">

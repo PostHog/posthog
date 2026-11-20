@@ -9,6 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { warehouseProvisioningLogic } from './tabs/warehouseProvisioningLogic'
 
 describe('dataWarehouseSceneLogic', () => {
     let logic: ReturnType<typeof dataWarehouseSceneLogic.build>
@@ -114,6 +115,18 @@ describe('dataWarehouseSceneLogic', () => {
                 ? [DataWarehouseTab.OVERVIEW, DataWarehouseTab.MONITORING, DataWarehouseTab.SETTINGS]
                 : [DataWarehouseTab.SETTINGS]
         )
+    })
+
+    it('reports resolved when it mounts after the provisioning logic already loaded', async () => {
+        warehouseStatusResponse = [200, { state: 'ready' }]
+        const provisioning = warehouseProvisioningLogic()
+        provisioning.mount()
+        await expectLogic(provisioning).toDispatchActions(['loadWarehouseStatusSuccess'])
+
+        mountScene()
+
+        expect(logic.values.warehouseStatusResolved).toBe(true)
+        provisioning.unmount()
     })
 
     it('leaves the tab set unresolved until the warehouse status lands', () => {

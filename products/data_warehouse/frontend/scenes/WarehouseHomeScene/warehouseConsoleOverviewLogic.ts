@@ -1,0 +1,325 @@
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import {
+    dataWarehouseManagedWarehouseTrinoMonitoringRetrieve,
+    managedWarehouseConsoleSettingsRetrieve,
+    managedWarehouseConsoleUsageRetrieve,
+} from '../../generated/api'
+import type {
+    ConsoleSettingsApi,
+    ManagedWarehouseTrinoMonitoringSnapshotResponseApi,
+    UsageBreakdownApi,
+    UsageSummaryApi,
+} from '../../generated/api.schemas'
+import { parseDecimal } from '../WarehouseConsole/warehouseConsoleFormat'
+import { buildMeter, type UsageMeter } from '../WarehouseUsageScene/warehouseUsageLogic'
+
+export const WORKLOAD_POLL_INTERVAL_MS = 15_000
+export const TOP_CONSUMERS_LIMIT = 5
+export const FAILED_SHARE_THRESHOLD = 0.1
+export const DOMINANT_LOGIN_SHARE_THRESHOLD = 0.5
+
+export interface Recommendation {
+    key: 'set_budget' | 'set_scan_cap' | 'forecast_over_budget' | 'failed_queries' | 'dominant_login'
+    title: string
+    description: string
+    actionLabel: string
+    to: string
+}
+
+export interface WorkloadCounts {
+    running: number
+    queued: number
+}
+
+const OTHER_LABEL = 'Other'
+
+/** The biggest named groups by billable bytes. The API's catch-all "Other" row is not a consumer. */
+export function topConsumers(breakdown: UsageBreakdownApi[], limit: number = TOP_CONSUMERS_LIMIT): UsageBreakdownApi[] {
+    return breakdown
+        .filter((row) => row.label !== OTHER_LABEL)
+        .sort((a, b) => b.billable_bytes - a.billable_bytes)
+        .slice(0, limit)
+}
+
+/** Rule-based suggestions for this month. Each one carries a single link to the page that fixes it. */
+export function buildRecommendations(
+    usage: UsageSummaryApi | null,
+    settings: ConsoleSettingsApi | null,
+    isAdmin: boolean
+): Recommendation[] {
+    const items: Recommendation[] = []
+
+    if (settings && isAdmin) {
+        if (settings.monthly_budget_usd === null) {
+            items.push({
+                key: 'set_budget',
+                title: 'Set a monthly budget',
+                description: 'Get an email at 50, 80 and 100 percent of the budget. Alerts never stop queries.',
+                actionLabel: 'Set a budget',
+                to: urls.warehouseUsage(),
+            })
+        }
+        if (settings.max_scan_bytes_per_query === null) {
+            items.push({
+                key: 'set_scan_cap',
+                title: 'Cap how much one query can scan',
+                description: "The cap applies to queries run from PostHog's SQL editor.",
+                actionLabel: 'Set a scan cap',
+                to: urls.warehouseUsage(),
+            })
+        }
+    }
+
+    if (usage) {
+        const budget = usage.budget.monthly_budget_usd
+        if (
+            budget !== null &&
+            usage.forecast_total_usd !== null &&
+            parseDecimal(usage.forecast_total_usd) > parseDecimal(budget)
+        ) {
+            items.push({
+                key: 'forecast_over_budget',
+                title: 'On track to pass your budget',
+                description: 'The estimated spend for this month is above your monthly budget.',
+                actionLabel: 'See usage',
+                to: urls.warehouseUsage(),
+            })
+        }
+
+        const { billable_bytes: billable, failed_billable_bytes: failed, free_bytes: free } = usage.compute
+        if (billable > 0 && failed / billable > FAILED_SHARE_THRESHOLD) {
+            items.push({
+                key: 'failed_queries',
+                title: 'Failed queries are using data',
+                description: 'More than 10 percent of the data billed this month came from failed or canceled queries.',
+                actionLabel: 'See failed queries',
+                to: `${urls.warehouseQueries()}?status=failed`,
+            })
+        }
+
+        const [top] = topConsumers([...usage.breakdown], 1)
+        if (top && billable > free && top.billable_bytes / billable > DOMINANT_LOGIN_SHARE_THRESHOLD) {
+            items.push({
+                key: 'dominant_login',
+                title: `${top.label} scans most of your data`,
+                description:
+                    'One login accounts for more than half of the billed data, and you are past the free allowance.',
+                actionLabel: 'See usage by login',
+                to: `${urls.warehouseUsage()}?group_by=principal`,
+            })
+        }
+    }
+
+    return items
+}
+
+export function workloadCounts(
+    snapshot: ManagedWarehouseTrinoMonitoringSnapshotResponseApi | null
+): WorkloadCounts | null {
+    return snapshot && snapshot.available ? { running: snapshot.totals.running, queued: snapshot.totals.queued } : null
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface warehouseConsoleOverviewLogicValues {
+    isAdminOrOwner: boolean | null // organizationLogic
+    currentTeamId: number | null // teamLogic
+    computeMeter: UsageMeter | null
+    consumers: UsageBreakdownApi[]
+    overviewFailed: boolean
+    overviewSettings: ConsoleSettingsApi | null
+    overviewSettingsLoading: boolean
+    overviewUsage: UsageSummaryApi | null
+    overviewUsageLoading: boolean
+    recommendations: Recommendation[]
+    storageMeter: UsageMeter | null
+    workload: WorkloadCounts | null
+    workloadFailed: boolean
+    workloadSnapshot: ManagedWarehouseTrinoMonitoringSnapshotResponseApi | null
+    workloadSnapshotLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface warehouseConsoleOverviewLogicActions {
+    loadOverviewSettings: () => any
+    loadOverviewSettingsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOverviewSettingsSuccess: (
+        overviewSettings: ConsoleSettingsApi,
+        payload?: any
+    ) => {
+        overviewSettings: ConsoleSettingsApi
+        payload?: any
+    }
+    loadOverviewUsage: () => any
+    loadOverviewUsageFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOverviewUsageSuccess: (
+        overviewUsage: UsageSummaryApi,
+        payload?: any
+    ) => {
+        overviewUsage: UsageSummaryApi
+        payload?: any
+    }
+    loadWorkload: () => any
+    loadWorkloadFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadWorkloadSuccess: (
+        workloadSnapshot: ManagedWarehouseTrinoMonitoringSnapshotResponseApi,
+        payload?: any
+    ) => {
+        workloadSnapshot: ManagedWarehouseTrinoMonitoringSnapshotResponseApi
+        payload?: any
+    }
+    retryOverview: () => {
+        value: true
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface warehouseConsoleOverviewLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        computeMeter: (overviewUsage: UsageSummaryApi | null) => UsageMeter | null
+        storageMeter: (overviewUsage: UsageSummaryApi | null) => UsageMeter | null
+        consumers: (overviewUsage: UsageSummaryApi | null) => UsageBreakdownApi[]
+        recommendations: (
+            overviewUsage: UsageSummaryApi | null,
+            overviewSettings: ConsoleSettingsApi | null,
+            isAdminOrOwner: boolean | null
+        ) => Recommendation[]
+        workload: (workloadSnapshot: ManagedWarehouseTrinoMonitoringSnapshotResponseApi | null) => WorkloadCounts | null
+    }
+}
+
+export type warehouseConsoleOverviewLogicType = MakeLogicType<
+    warehouseConsoleOverviewLogicValues,
+    warehouseConsoleOverviewLogicActions,
+    Record<string, any>,
+    warehouseConsoleOverviewLogicMeta
+>
+
+export const warehouseConsoleOverviewLogic = kea<warehouseConsoleOverviewLogicType>([
+    path(['products', 'data_warehouse', 'frontend', 'scenes', 'WarehouseHomeScene', 'warehouseConsoleOverviewLogic']),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId'], organizationLogic, ['isAdminOrOwner']],
+    })),
+    actions({
+        retryOverview: true,
+    }),
+    reducers({
+        overviewFailed: [false, { loadOverviewUsage: () => false, loadOverviewUsageFailure: () => true }],
+        workloadFailed: [false, { loadWorkload: () => false, loadWorkloadFailure: () => true }],
+    }),
+    loaders(({ values }) => ({
+        overviewUsage: [
+            null as UsageSummaryApi | null,
+            {
+                // Grouped by login, so one call feeds the tiles, the top consumers and the recommendations.
+                loadOverviewUsage: async () =>
+                    await managedWarehouseConsoleUsageRetrieve(String(values.currentTeamId), {
+                        period: 'current_month',
+                        group_by: 'principal',
+                    }),
+            },
+        ],
+        overviewSettings: [
+            null as ConsoleSettingsApi | null,
+            {
+                loadOverviewSettings: async () =>
+                    await managedWarehouseConsoleSettingsRetrieve(String(values.currentTeamId)),
+            },
+        ],
+        workloadSnapshot: [
+            null as ManagedWarehouseTrinoMonitoringSnapshotResponseApi | null,
+            {
+                loadWorkload: async () =>
+                    await dataWarehouseManagedWarehouseTrinoMonitoringRetrieve(String(values.currentTeamId)),
+            },
+        ],
+    })),
+    selectors({
+        computeMeter: [
+            (s) => [s.overviewUsage],
+            (usage: UsageSummaryApi | null): UsageMeter | null =>
+                usage ? buildMeter(usage.compute.billable_bytes, usage.compute.free_bytes) : null,
+        ],
+        storageMeter: [
+            (s) => [s.overviewUsage],
+            (usage: UsageSummaryApi | null): UsageMeter | null =>
+                usage
+                    ? buildMeter(parseDecimal(usage.storage.gib_months), parseDecimal(usage.storage.free_gib_months))
+                    : null,
+        ],
+        consumers: [
+            (s) => [s.overviewUsage],
+            (usage: UsageSummaryApi | null): UsageBreakdownApi[] => (usage ? topConsumers([...usage.breakdown]) : []),
+        ],
+        recommendations: [
+            (s) => [s.overviewUsage, s.overviewSettings, s.isAdminOrOwner],
+            (
+                usage: UsageSummaryApi | null,
+                settings: ConsoleSettingsApi | null,
+                isAdminOrOwner: boolean | null
+            ): Recommendation[] => buildRecommendations(usage, settings, !!isAdminOrOwner),
+        ],
+        workload: [
+            (s) => [s.workloadSnapshot],
+            (snapshot: ManagedWarehouseTrinoMonitoringSnapshotResponseApi | null): WorkloadCounts | null =>
+                workloadCounts(snapshot),
+        ],
+    }),
+    listeners(({ actions, values, cache }) => {
+        // The disposable pauses while the tab is hidden, so the count refreshes only while the page is visible.
+        const scheduleWorkloadPoll = (): void => {
+            cache.disposables.add(() => {
+                const timeoutId = window.setTimeout(() => {
+                    if (!values.workloadSnapshotLoading) {
+                        actions.loadWorkload()
+                    }
+                }, WORKLOAD_POLL_INTERVAL_MS)
+                return () => window.clearTimeout(timeoutId)
+            }, 'workloadPoll')
+        }
+        return {
+            retryOverview: () => {
+                posthog.capture('warehouse home overview retry clicked')
+                actions.loadOverviewUsage()
+                if (values.isAdminOrOwner) {
+                    actions.loadOverviewSettings()
+                }
+                actions.loadWorkload()
+            },
+            loadWorkloadSuccess: scheduleWorkloadPoll,
+            loadWorkloadFailure: scheduleWorkloadPoll,
+        }
+    }),
+    afterMount(({ actions, values }) => {
+        actions.loadOverviewUsage()
+        // Only admins get the recommendations that read the settings.
+        if (values.isAdminOrOwner) {
+            actions.loadOverviewSettings()
+        }
+        actions.loadWorkload()
+    }),
+])

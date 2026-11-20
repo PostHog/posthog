@@ -21,6 +21,7 @@ import { TrinoHistoricalCharts } from './TrinoHistoricalCharts'
 import { duration, stateLabel } from './trinoMonitoringFormat'
 import { TrinoMonitoringSummaryCards } from './TrinoMonitoringSummaryCards'
 import { TrinoQueryDetails } from './TrinoQueryDetails'
+import { WarehouseConsoleMovedNotice } from './WarehouseConsoleMovedNotice'
 
 const LONG_RUNNING_MS = 5 * 60 * 1000
 
@@ -129,6 +130,7 @@ export function TrinoMonitoringTab(): JSX.Element {
 
     return (
         <div className="mt-4 space-y-6">
+            <WarehouseConsoleMovedNotice target="queries" />
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <div className="mb-1 flex items-center gap-2">

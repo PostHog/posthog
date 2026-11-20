@@ -114,6 +114,16 @@ export const productScenes: Record<string, () => Promise<any>> = {
     WarehouseDestinationConnect: () =>
         import('../../products/data_warehouse/frontend/scenes/DestinationConnectScene/DestinationConnectScene'),
     WarehouseHome: () => import('../../products/data_warehouse/frontend/scenes/WarehouseHomeScene/WarehouseHomeScene'),
+    WarehouseUsage: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseUsageScene/WarehouseUsageScene'),
+    WarehouseQueries: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseQueriesScene/WarehouseQueriesScene'),
+    WarehouseStorage: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseStorageScene/WarehouseStorageScene'),
+    WarehouseAccess: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseAccessScene/WarehouseAccessScene'),
+    WarehouseConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseConnectScene/WarehouseConnectScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),

@@ -25,6 +25,7 @@ import { MyHoglakeCredentials } from './MyHoglakeCredentials'
 import { TrinoConnectionDetails } from './TrinoConnectionDetails'
 import { trinoCombinedStatus } from './trinoWarehouseStatus'
 import type { TrinoCombinedState } from './trinoWarehouseStatus'
+import { WarehouseConsoleMovedNotice } from './WarehouseConsoleMovedNotice'
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 
 function stateToTagType(state: WarehouseStatusResponseStateEnumApi): 'success' | 'warning' | 'danger' | 'default' {
@@ -157,6 +158,7 @@ export function SettingsTab(): JSX.Element {
 
     return (
         <div className="mt-4 space-y-4 max-w-160">
+            <WarehouseConsoleMovedNotice target="access" />
             <div>
                 <h2 className="mb-2">Managed warehouse</h2>
                 {!isReady && (
@@ -168,9 +170,11 @@ export function SettingsTab(): JSX.Element {
                 <LemonBanner type="warning" onClose={clearInitialPassword}>
                     <div className="space-y-2">
                         <strong>Save your password now — it won't be shown again.</strong>
-                        <CodeSnippet compact thing="password">
-                            {initialPassword}
-                        </CodeSnippet>
+                        <div className="ph-no-capture">
+                            <CodeSnippet compact thing="password">
+                                {initialPassword}
+                            </CodeSnippet>
+                        </div>
                     </div>
                 </LemonBanner>
             )}
