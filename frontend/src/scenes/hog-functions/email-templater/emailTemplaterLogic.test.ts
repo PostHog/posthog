@@ -994,12 +994,36 @@ describe('emailTemplaterLogic', () => {
         })
 
         it('leaves the email alone on a save when no design was ever loaded into the canvas', async () => {
-            logic.cache.lastEditorDesign = undefined
+            logic.cache.baselineConfirmed = false
             const before = parent.email
             editorDesign = DESIGN_EDITED
             await logic.asyncActions.flushPendingDesignEdit()
 
             expect(parent.email).toBe(before)
+        })
+
+        it('leaves the email alone on a save while a newly mounted editor is still loading', async () => {
+            const before = parent.email
+            logic.actions.setEmailEditorRef(fakeEditorRef())
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toBe(before)
+        })
+
+        it('reads the canvas early again once the editor confirms its loaded design', async () => {
+            updateProps({ design: DESIGN_EDITED_AGAIN })
+            editorDesign = DESIGN_EDITED
+            const before = parent.email
+            await logic.asyncActions.flushPendingDesignEdit()
+            expect(parent.email).toBe(before)
+
+            editorDesign = DESIGN_NORMALIZED
+            editorListeners['design:loaded']?.()
+            await expectLogic(logic).toFinishAllListeners()
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
         })
 
         it('blocks the save when an edit is waiting and the canvas stops answering', async () => {
