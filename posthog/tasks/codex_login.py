@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, TypedDict
 
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.db import transaction
 
 import structlog
@@ -36,7 +36,7 @@ def login_key(user_id: int) -> str:
 
 
 def get_login(user_id: int, login_id: str) -> CodexLogin:
-    login = cache.get(login_key(user_id))
+    login = caches["codex_login"].get(login_key(user_id))
     if login and login["login_id"] == login_id:
         return login
     return {"login_id": login_id, "status": "expired", "user_code": None}
@@ -85,7 +85,15 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
             with subprocess.Popen(
                 ["codex", "app-server", "-c", 'cli_auth_credentials_store="file"'],
                 cwd=home,
-                env={"PATH": os.defpath + ":/usr/local/bin", "CODEX_HOME": home},
+                env={
+                    **{
+                        key: value
+                        for key, value in os.environ.items()
+                        if key.lower() in {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
+                    },
+                    "PATH": os.defpath + ":/usr/local/bin",
+                    "CODEX_HOME": home,
+                },
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
@@ -107,7 +115,7 @@ def complete_codex_login(user_id: int, login_id: str) -> None:
                     raise RuntimeError("Account is inactive")
                 tokens = parse_codex_auth_json(json.loads(Path(home, "auth.json").read_text()))
                 CodexUserIntegration.connect(user_id, tokens, source="device_login")
-                update_login(user_id, login_id, "connected")
+                transaction.on_commit(lambda: update_login(user_id, login_id, "connected"))
     except TimeoutError:
         update_login(user_id, login_id, "expired")
     except Exception as error:

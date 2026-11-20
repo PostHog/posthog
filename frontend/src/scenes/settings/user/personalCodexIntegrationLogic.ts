@@ -3,7 +3,9 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 import { v4 as uuid } from 'uuid'
 
+import { ApiError, NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { retryWithBackoff } from 'lib/utils/async'
 
 import {
     usersIntegrationsCodexDestroy,
@@ -184,9 +186,14 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                     return
                 }
                 actions.setLogin(login)
+                const controller = new AbortController()
+                cache.loginAbortController = controller
                 cache.disposables.add(() => {
                     const timer = window.setInterval(() => actions.pollDeviceLogin(), 2000)
-                    return () => window.clearInterval(timer)
+                    return () => {
+                        window.clearInterval(timer)
+                        controller.abort()
+                    }
                 }, 'codexLogin')
                 actions.pollDeviceLogin()
             } catch {
@@ -202,7 +209,18 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
             }
             cache.pollingLoginId = loginId
             try {
-                const login = await usersIntegrationsCodexLoginRetrieve('@me', loginId)
+                const signal = cache.loginAbortController?.signal
+                const login = await retryWithBackoff(
+                    () => usersIntegrationsCodexLoginRetrieve('@me', loginId, { signal }),
+                    {
+                        signal,
+                        maxAttempts: 5,
+                        initialDelayMs: 2000,
+                        backoffMultiplier: 2,
+                        shouldRetry: (error) =>
+                            error instanceof NetworkError || (error instanceof ApiError && (error.status ?? 0) >= 500),
+                    }
+                )
                 if (cache.disposables.isDisposed || values.login?.login_id !== loginId) {
                     return
                 }

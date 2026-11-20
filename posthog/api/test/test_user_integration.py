@@ -2091,7 +2091,8 @@ for line in sys.stdin:
 
         def spawn(_args, **kwargs):
             homes.append(kwargs["cwd"])
-            assert set(kwargs["env"]) == {"PATH", "CODEX_HOME"}
+            assert kwargs["env"]["HTTPS_PROXY"] == "http://proxy.example.com:8080"
+            assert "DATABASE_URL" not in kwargs["env"]
             kwargs["env"]["LD_LIBRARY_PATH"] = os.environ.get("LD_LIBRARY_PATH", "")
             return real_popen([sys.executable, "-u", "-c", fake_codex], **kwargs)
 
@@ -2110,11 +2111,15 @@ for line in sys.stdin:
             return changed
 
         with (
+            patch.dict(os.environ, {"HTTPS_PROXY": "http://proxy.example.com:8080", "DATABASE_URL": "secret"}),
             patch("posthog.tasks.codex_login.subprocess.Popen", side_effect=spawn),
             patch("posthog.tasks.codex_login.update_login", side_effect=update),
             patch("requests.request", return_value=self._openai_response(200, _codex_refresh_body("rt_rotated"))),
+            self.captureOnCommitCallbacks(execute=outcome == "success"),
         ):
             complete_codex_login(self.user.id, login_id)
+            if outcome == "success":
+                assert get_login(self.user.id, login_id)["status"] == "pending"
 
         assert homes and all(not os.path.exists(home) for home in homes)
         assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is (outcome == "success")

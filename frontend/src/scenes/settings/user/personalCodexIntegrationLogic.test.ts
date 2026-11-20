@@ -116,6 +116,24 @@ describe('personalCodexIntegrationLogic', () => {
         expect(logic.values.connectError).toBeNull()
     })
 
+    it('recovers from a temporary status failure on the same login attempt', async () => {
+        await expectLogic(logic, () => logic.actions.openConnectModal('settings')).toFinishAllListeners()
+        const originalLoginId = loginId
+        let requests = 0
+        loginStatus = 'connected'
+        useMocks({
+            get: {
+                '/api/users/@me/integrations/codex/login/:id/': () =>
+                    ++requests === 1 ? [503, {}] : [200, { login_id: loginId, status: 'connected', user_code: null }],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.pollDeviceLogin()).toFinishAllListeners()
+        expect(loginId).toBe(originalLoginId)
+        expect(logic.values.codexIntegration).toEqual(CONNECTED)
+        expect(logic.values.connectModalOpener).toBeNull()
+        expect(logic.values.connectError).toBeNull()
+    })
+
     it('cancels a login that starts after the dialog closes', async () => {
         pendingStart = deferred<void>()
         logic.actions.openConnectModal('settings')
