@@ -10,6 +10,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     LazyTable,
     LazyTableToAdd,
+    StringArrayDatabaseField,
     StringDatabaseField,
     Table,
 )
@@ -127,6 +128,11 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
         nullable=False,
         description="Bytes the cost planner estimated the query would read before it ran. 0 when no estimate was recorded.",
     ),
+    "warehouse_table_ids": StringArrayDatabaseField(
+        name="warehouse_table_ids",
+        nullable=False,
+        description="Ids of the warehouse tables the query read. Empty when it read none, and for queries older than about one month.",
+    ),
     # "cost_usd": FloatDatabaseField(name="cost_usd", nullable=False),
 }
 
@@ -158,6 +164,19 @@ class QueryLogArchiveTable(LazyTable):
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "lc_user_id"]))
             elif name == "status":
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "type"]))
+            elif name == "warehouse_table_ids":
+                # The archive keeps log_comment for one month only, so older rows read as an empty array.
+                return ast.Alias(
+                    alias=name,
+                    expr=ast.Call(
+                        name="JSONExtract",
+                        args=[
+                            ast.Field(chain=[table_name, "log_comment"]),
+                            ast.Constant(value="warehouse_table_ids"),
+                            ast.Constant(value="Array(String)"),
+                        ],
+                    ),
+                )
             elif name == "is_personal_api_key_request":
                 cmp_expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
@@ -289,6 +308,13 @@ class RawQueryLogArchiveTable(Table):
             name="lc_estimated_bytes",
             nullable=False,
             description="Bytes the cost planner estimated the query would read. 0 when no estimate was recorded.",
+        ),
+        # Hidden from the schema: query_log reads warehouse_table_ids from it, and its other keys are internal.
+        "log_comment": StringDatabaseField(
+            name="log_comment",
+            nullable=False,
+            hidden=True,
+            description="The initial query's log_comment as JSON, without its timings and query keys. Kept for one month, then empty.",
         ),
     }
 

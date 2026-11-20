@@ -1,5 +1,10 @@
+import uuid
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.accuracy import cost_estimate_accuracy_hogql
@@ -8,6 +13,14 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
+
+ARCHIVED_LOG_COMMENTS = {
+    "reads_a_and_b": '{"product":"sql_editor","warehouse_table_ids":["table_a","table_b"]}',
+    "reads_c": '{"warehouse_table_ids":["table_c"]}',
+    "reads_no_table": '{"product":"sql_editor"}',
+    "no_log_comment": "",
+}
 
 
 class TestQueryLogTable(ClickhouseTestMixin, APIBaseTest):
@@ -50,6 +63,35 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             external_tables=None,
         )
         assert response.results is not None
+
+    @parameterized.expand(
+        [
+            ("has_one_id", "has(warehouse_table_ids, 'table_a')", ["reads_a_and_b"]),
+            ("has_any_of_ids", "hasAny(warehouse_table_ids, ['table_b', 'table_c'])", ["reads_a_and_b", "reads_c"]),
+            ("has_unknown_id", "has(warehouse_table_ids, 'table_z')", []),
+            ("read_any_table", "notEmpty(warehouse_table_ids)", ["reads_a_and_b", "reads_c"]),
+            ("read_no_table", "empty(warehouse_table_ids)", ["no_log_comment", "reads_no_table"]),
+            ("first_id", "warehouse_table_ids[1] = 'table_c'", ["reads_c"]),
+        ]
+    )
+    def test_filter_on_warehouse_table_ids(self, _name: str, condition: str, expected: list[str]):
+        # Rows stay in the archive between cases, so each case tags its own rows.
+        tag = uuid.uuid4().hex
+        sync_execute(
+            f"INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE} "
+            "(initial_query_start_time, team_id, initial_query_id, lc_client_query_id, lc_is_impersonated, log_comment) VALUES",
+            [
+                (datetime.now(UTC), self.team.pk, str(uuid.uuid4()), f"{tag}_{name}", False, log_comment)
+                for name, log_comment in ARCHIVED_LOG_COMMENTS.items()
+            ],
+        )
+
+        response = execute_hogql_query(
+            f"select query_id from query_log where startsWith(query_id, '{tag}_') and {condition} order by query_id",
+            self.team,
+        )
+
+        assert [row[0].removeprefix(f"{tag}_") for row in response.results] == expected
 
     def test_cost_estimate_accuracy_query_runs_against_the_archive(self):
         response = execute_hogql_query(cost_estimate_accuracy_hogql(days=7), self.team)
