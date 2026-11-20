@@ -43,7 +43,7 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
 export const SENDER = { email: 'flows@www.example.com', name: 'Scenario runner', domain: 'www.example.com' }
 
 const EMAIL_ACTION = 'email'
-const WEBHOOK_ACTION = 'webhook'
+export const WEBHOOK_ACTION = 'webhook'
 
 const unitAddress = (unit: Unit): string => `${unit.unitId}@${UNIT_EMAIL_DOMAIN}`
 
@@ -271,4 +271,16 @@ async function sendTransactional(
     }
 }
 
-export const TRAFFIC: TrafficKind[] = [eventEmail, eventWebhook, transactionalEmail, bounceFollowup]
+const CAPTURE_EVENT = 'scenario_offer'
+
+export const captureWebhook: TrafficKind = {
+    name: 'capture_webhook',
+    params: z.object({}).strict(),
+    profile: Shape,
+    intake: 'event',
+    deliveries: [WEBHOOK_ACTION],
+    flow: () => Promise.reject(new Error('capture_webhook drives a workflow a person made once on the target')),
+    offer: (unit, { emit }) => emit(unit, CAPTURE_EVENT, { unit_id: unit.unitId }),
+}
+
+export const TRAFFIC: TrafficKind[] = [eventEmail, eventWebhook, transactionalEmail, bounceFollowup, captureWebhook]

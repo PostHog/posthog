@@ -59,6 +59,7 @@ import { seedBacklog } from '../backlog/backlog'
 import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
 import { FakeCloud } from '../cloud/fake-cloud'
 import { pinClockAfterMinuteStart } from '../cloud/fixtures'
+import { devEnvironment, devTarget } from '../dev-target/target'
 import { Environment, RoleExit, createEnvironment, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, SCENARIO_SESSION_PREFIX, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
@@ -314,6 +315,94 @@ describe('runner', () => {
         expect(result).toMatchObject({
             status: 'invalid',
             statusReason: expect.stringContaining('the given target refused the connection'),
+        })
+    })
+
+    describe('on the dev target', () => {
+        const devCard = (): LoadedCard =>
+            load(path.join(__dirname, '..', 'cards', 'dev', 'dev-smoke.yaml'), {
+                profilePath: path.join(__dirname, '..', 'profiles', 'dev.yaml'),
+                target: 'dev',
+            })
+
+        const runOnDev = async (
+            {
+                metrics = 200,
+                project = 200,
+                projectToken = 'phc_test',
+            }: { metrics?: number; project?: number; projectToken?: string },
+            interrupt = new AbortController()
+        ): Promise<{ result: RunResult; offered: number }> => {
+            let offered = 0
+            const server = http.createServer((req, res) => {
+                req.resume().on('end', () => {
+                    const reply = (status: number, body: object): void => {
+                        res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
+                    }
+                    if (req.url === '/i/v0/e/') {
+                        offered++
+                        interrupt.abort()
+                        return reply(200, { status: 'Ok' })
+                    }
+                    if (req.headers.authorization !== 'Bearer phx_test') {
+                        return reply(401, { type: 'authentication_error' })
+                    }
+                    if (req.url!.startsWith('/api/projects/1/hog_flows/')) {
+                        return reply(metrics, { labels: [], series: [] })
+                    }
+                    if (req.url === '/api/projects/1/') {
+                        return reply(project, { id: 1, api_token: projectToken })
+                    }
+                    return reply(200, { results: [] })
+                })
+            })
+            await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+            const onDev = createRunner(
+                devEnvironment(),
+                { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL, ...api.credentials },
+                {
+                    target: devTarget({
+                        host: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+                        offers: { teamId: 1, token: 'phc_test', workflowId: '0190f6a2-0000-7000-8000-000000000001' },
+                        receiptsTeamId: 2,
+                        key: 'phx_test',
+                    }),
+                    topologyEveryMs: 10,
+                }
+            )
+            try {
+                return { result: await onDev.run(devCard(), interrupt.signal), offered }
+            } finally {
+                await onDev.down()
+                await new Promise<void>((done) => server.close(() => done()))
+            }
+        }
+
+        it.each([
+            ['a workflow dev does not know', { metrics: 404 }, 'dev answered the workflow metrics read with 404'],
+            [
+                'a key that cannot read the offers project',
+                { project: 403 },
+                'dev answered the offers project read with 403',
+            ],
+            [
+                'an offers token of another project',
+                { projectToken: 'phc_other' },
+                'DEV_TARGET_OFFERS_TOKEN is not the token of project 1',
+            ],
+        ])('calls a run invalid before its first offer on %s', async (_story, answers, reason) => {
+            const { result, offered } = await runOnDev(answers)
+
+            expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringContaining(reason) })
+            expect(offered).toBe(0)
+        })
+
+        it('publishes no topology hash for a run whose target has no processes to read', async () => {
+            const { result, offered } = await runOnDev({})
+
+            expect(offered).toBeGreaterThan(0)
+            expect(result.topologyHash).toBeUndefined()
+            expect(api.captured.map(({ properties }) => properties.topology_hash)).toEqual([null])
         })
     })
 
