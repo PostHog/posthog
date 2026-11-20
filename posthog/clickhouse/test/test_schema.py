@@ -1,4 +1,5 @@
 import re
+import time
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -32,13 +33,23 @@ from posthog.models.event.sql import (
 )
 from posthog.models.flag_evaluations.sql import (
     _FLAG_EVALUATIONS_TYPED_COLUMNS,
+    DISTRIBUTED_FLAG_EVALUATIONS_JSON_TABLE_SQL,
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
+    DROP_FLAG_EVALUATIONS_JSON_PROXY_TABLES_SQL,
+    DROP_FLAG_EVALUATIONS_JSON_TABLE_SQL,
+    FLAG_EVALUATIONS_JSON_COLUMNS_NOT_IN_TOPIC,
+    FLAG_EVALUATIONS_JSON_MV_SELECT_SQL,
+    FLAG_EVALUATIONS_JSON_TABLE,
+    FLAG_EVALUATIONS_JSON_TABLE_SQL,
+    FLAG_EVALUATIONS_JSON_WRITABLE_TABLE,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
     FLAG_EVALUATIONS_MV_SELECT_SQL,
     FLAG_EVALUATIONS_MV_SQL,
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TABLE_SQL,
+    KAFKA_FLAG_EVALUATIONS_JSON_TABLE,
     KAFKA_FLAG_EVALUATIONS_TABLE,
+    WRITABLE_FLAG_EVALUATIONS_JSON_TABLE_SQL,
 )
 from posthog.models.ingestion_warnings.sql_v2 import INGESTION_WARNINGS_V2_DATA_TABLE_SQL
 
@@ -236,16 +247,16 @@ def _declared_column_names(block: str) -> list[str]:
 
 # Cuts a column definition down to its name and type, so a parenthesized type
 # survives intact while a MATERIALIZED expression or a COMMENT is dropped.
-_COLUMN_MODIFIER = re.compile(r"\s+(?:MATERIALIZED|DEFAULT|ALIAS|COMMENT|CODEC)\b")
+_COLUMN_MODIFIER = re.compile(r"\s+(?:MATERIALIZED|DEFAULT|ALIAS|COMMENT|CODEC|TTL)\b")
 
 
 def _flag_evaluations_table_columns(create_sql: str) -> list[str]:
     # Fail closed: without the anchor, rpartition would hand back the whole
     # statement and every caller would compare the same junk list, passing while
     # checking nothing.
-    body, anchor, _ = create_sql.split("(", 1)[1].rpartition(")\nENGINE")
+    body, anchor, _ = create_sql.split("(", 1)[1].rpartition(")\nENGINE" if ")\nENGINE" in create_sql else ") ENGINE")
     assert anchor, f"no column list found in {create_sql[:60]!r}"
-    return [_COLUMN_MODIFIER.split(line, maxsplit=1)[0] for line in _column_definition_lines(body)]
+    return [_COLUMN_MODIFIER.split(line, maxsplit=1)[0].rstrip(",") for line in _column_definition_lines(body)]
 
 
 def _mv_projected_names(mv_sql: str) -> list[str]:
@@ -375,6 +386,106 @@ def test_flag_evaluations_hogql_table_matches_the_read_table():
     assert FLAG_EVALUATIONS_CLICKHOUSE_TABLE == FLAG_EVALUATIONS_TABLE
     assert declared - exposed == _FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL
     assert exposed - declared == set()
+
+
+def test_flag_evaluations_json_read_table_declares_every_stored_column():
+    stored_columns = _flag_evaluations_table_columns(FLAG_EVALUATIONS_JSON_TABLE_SQL())
+    assert stored_columns
+
+    assert _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_JSON_TABLE_SQL()) == stored_columns
+
+
+def test_flag_evaluations_json_writable_table_omits_only_the_derived_columns():
+    stored = _flag_evaluations_table_columns(FLAG_EVALUATIONS_JSON_TABLE_SQL())
+    writable = _flag_evaluations_table_columns(WRITABLE_FLAG_EVALUATIONS_JSON_TABLE_SQL())
+
+    assert [column.split()[0] for column in stored if column not in writable] == [
+        "elements_chain_href",
+        "elements_chain_texts",
+        "elements_chain_ids",
+        "elements_chain_elements",
+        "flag_key",
+        "response",
+        "request_id",
+    ]
+
+
+@pytest.mark.usefixtures("clickhouse_database")
+def test_flag_evaluations_json_fills_typed_columns_from_the_cleaned_json() -> None:
+    for drop_sql in (
+        *DROP_FLAG_EVALUATIONS_JSON_PROXY_TABLES_SQL(),
+        DROP_FLAG_EVALUATIONS_JSON_TABLE_SQL(),
+    ):
+        sync_execute(drop_sql)
+    for create_sql in (
+        FLAG_EVALUATIONS_JSON_TABLE_SQL(),
+        WRITABLE_FLAG_EVALUATIONS_JSON_TABLE_SQL(),
+        DISTRIBUTED_FLAG_EVALUATIONS_JSON_TABLE_SQL(),
+    ):
+        sync_execute(create_sql)
+
+    select = FLAG_EVALUATIONS_JSON_MV_SELECT_SQL().replace(
+        f"FROM {django_settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_JSON_TABLE}", "FROM mv_input"
+    )
+    team_id = time.time_ns()
+    mv_input = """
+        SELECT
+            generateUUIDv4() AS uuid,
+            '$feature_flag_called' AS event,
+            row.2 AS properties,
+            toDateTime64('2020-01-01 00:00:00', 6, 'UTC') AS timestamp,
+            toInt64({team_id}) AS team_id,
+            row.1 AS distinct_id,
+            timestamp AS created_at,
+            generateUUIDv4() AS person_id,
+            '' AS person_properties,
+            timestamp AS person_created_at,
+            timestamp AS inserted_at,
+            'full' AS person_mode,
+            toDateTime('2020-01-01 00:00:00', 'UTC') AS _timestamp,
+            toUInt64(0) AS _offset,
+            toUInt64(0) AS _partition
+        FROM (
+            SELECT arrayJoin([
+                ('true', '{{"$feature_flag":"f","$feature_flag_response":true,"$feature_flag_request_id":"r1"}}'),
+                ('false', '{{"$feature_flag":"f","$feature_flag_response":false,"$feature_flag_request_id":"r2"}}'),
+                ('variant', '{{"$feature_flag":"f","$feature_flag_response":"variant-a","$feature_flag_request_id":"r3"}}'),
+                ('null', '{{"$feature_flag":"f","$feature_flag_response":null}}'),
+                ('absent', '{{"$feature_flag":"f"}}')
+            ]) AS row
+        )
+    """.format(team_id=team_id)
+    columns = [
+        name
+        for name, _ in sync_execute(
+            f"WITH mv_input AS ({mv_input}) SELECT * FROM ({select}) LIMIT 0", with_column_types=True
+        )[1]
+    ]
+    writable_columns = [
+        column.split()[0] for column in _flag_evaluations_table_columns(WRITABLE_FLAG_EVALUATIONS_JSON_TABLE_SQL())
+    ]
+    assert set(columns) <= set(writable_columns)
+    assert set(writable_columns) - set(columns) == FLAG_EVALUATIONS_JSON_COLUMNS_NOT_IN_TOPIC
+
+    column_list = ", ".join(f"`{column}`" for column in columns)
+    sync_execute(
+        f"INSERT INTO {FLAG_EVALUATIONS_JSON_WRITABLE_TABLE} ({column_list}) "
+        f"WITH mv_input AS ({mv_input}) SELECT {column_list} FROM ({select}) "
+        "SETTINGS distributed_foreground_insert = 1"
+    )
+
+    rows = sync_execute(
+        f"SELECT distinct_id, flag_key, response, request_id FROM {FLAG_EVALUATIONS_JSON_TABLE} "
+        "WHERE team_id = %(team_id)s ORDER BY distinct_id",
+        {"team_id": team_id},
+    )
+    assert rows == [
+        ("absent", "f", "", ""),
+        ("false", "f", "false", "r2"),
+        ("null", "f", "null", ""),
+        ("true", "f", "true", "r1"),
+        ("variant", "f", "variant-a", "r3"),
+    ]
 
 
 @pytest.fixture(autouse=True)

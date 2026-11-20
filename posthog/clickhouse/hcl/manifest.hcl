@@ -138,8 +138,8 @@ role "batch_exports" {
 # confirmed there, and dev data keeps the storage table. The local stacks have no flags
 # node and keep the storage on data and the consumer on medium.
 role "flags" {
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/shared/flag_evaluations_json.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/shared/flag_evaluations_json.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
 }
 
 # DATA cluster: the main sharded cluster (events family, persons/groups, sessions,

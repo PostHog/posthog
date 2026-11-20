@@ -75,6 +75,13 @@ EVENTS_JSON_INSERT_SETTINGS = (
     "json_type_escape_dots_in_keys = 1, type_json_skip_duplicated_paths = 1"
 )
 
+# Storage settings that native-JSON tables share. They set how the JSON, Map and String columns serialize.
+EVENTS_JSON_SERIALIZATION_SETTINGS = (
+    "object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', "
+    "enable_block_offset_column = 1, enable_block_number_column = 1, map_serialization_version = 'with_buckets', "
+    "string_serialization_version = 'single_stream', propagate_types_serialization_versions_to_nested_types = 1"
+)
+
 # The export cleaner writes the string paths of both dicts the way the JSON column stores them. It mirrors them in
 # clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go, so update both.
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
