@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.aws_security_hub.aws_security_hub import
 from products.warehouse_sources.sources.aws_security_hub.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.aws_security_hub.settings import (
     API_DOCS_URL,
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
@@ -17,6 +18,9 @@ from products.warehouse_sources.sources.aws_security_hub.settings import (
     SECURITY_HUB_API_VERSION,
 )
 from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
@@ -31,8 +35,11 @@ from products.warehouse_sources.sources.sdk import (
     SourceRegistry,
     SourceResponse,
     SourceSchema,
+    aws_auth_endpoint_reasons,
+    aws_auth_field,
     build_endpoint_schemas,
     detect,
+    resolve_aws_credentials,
 )
 
 
@@ -52,6 +59,10 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
     default_version = SECURITY_HUB_API_VERSION
     api_docs_url = API_DOCS_URL
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
+    credential_kind = "aws-security-hub"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSSECURITYHUB
@@ -61,7 +72,10 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
         return ["region"]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {f"AWS Security Hub request failed: {code}": message for code, message in ERROR_MESSAGES.items()}
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            **{f"AWS Security Hub request failed: {code}": message for code, message in ERROR_MESSAGES.items()},
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS
@@ -90,7 +104,11 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
         schema_name: str | None = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_credentials(config, self.resolve_api_version(api_version), schema_name)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsSecurityHubResumeConfig]:
         return ResumableSourceManager(inputs, AwsSecurityHubResumeConfig)
@@ -102,7 +120,11 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
         endpoints: list[str],
         api_version: str | None = None,
     ) -> dict[str, str | None]:
-        return probe_endpoint_permissions(config, self.resolve_api_version(api_version), endpoints)
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
+        except AwsAuthError as error:
+            return aws_auth_endpoint_reasons(error, endpoints)
+        return probe_endpoint_permissions(config, credentials, self.resolve_api_version(api_version), endpoints)
 
     def source_for_pipeline(
         self,
@@ -112,6 +134,7 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
     ) -> SourceResponse:
         return aws_security_hub_source(
             config=config,
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             endpoint=inputs.schema_name,
             api_version=self.resolve_api_version(inputs.api_version),
             manager=resumable_source_manager,
@@ -128,7 +151,7 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
             caption="""Sync Security Hub CSPM findings, finding history, standards, controls, product integrations, member accounts, custom insights, insight results, and exposure remediations from the configured AWS region. You can also sync Security Hub findings and resources in the OCSF format.
 
 Grant `securityhub:GetFindings`, `securityhub:GetFindingHistory`, `securityhub:DescribeStandards`, `securityhub:GetEnabledStandards`, `securityhub:GetInsights`, `securityhub:GetInsightResults`, `securityhub:DescribeStandardsControls`, `securityhub:ListSecurityControlDefinitions`, `securityhub:DescribeProducts`, `securityhub:ListMembers`, `securityhub:GetResourcesV2`, `securityhub:GetRemediationsV2`, and `securityhub:ListExposuresByRemediationV2` to the IAM user or role.
-Enter its access key ID and secret access key. Add a session token for temporary credentials.
+Connect with that IAM role, or enter its access key ID and secret access key. Add a session token for temporary credentials.
 Enable Security Hub CSPM in the selected region.
 If you select an aggregation region, AWS can also return findings from linked regions.
 The remediation tables need Security Hub with exposure findings in the selected region.""",
@@ -138,31 +161,7 @@ The remediation tables need Security Hub with exposure findings in the selected 
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Temporary credentials expire. Reconnect with new credentials when the session token expires.",
-                        secret=True,
-                    ),
+                    aws_auth_field(),
                     SourceFieldInputConfig(
                         name="region",
                         label="AWS region",

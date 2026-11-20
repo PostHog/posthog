@@ -171,3 +171,24 @@ ERROR_MESSAGES = {
     "SubscriptionRequiredException": "Enable AWS Systems Manager for this account and region, then try again.",
     "OptInRequired": "Enable AWS Systems Manager for this account and region, then try again.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "ssm:DescribeAssociationExecutionTargets",
+    "ssm:DescribeAssociationExecutions",
+    "ssm:DescribeInstanceInformation",
+    "ssm:DescribeInstancePatchStates",
+    "ssm:DescribeInstancePatches",
+    "ssm:DescribeOpsItems",
+    "ssm:DescribePatchBaselines",
+    "ssm:DescribeSessions",
+    "ssm:GetInventory",
+    "ssm:GetInventorySchema",
+    "ssm:ListAssociations",
+    "ssm:ListComplianceItems",
+    "ssm:ListDocuments",
+    "ssm:ListInventoryEntries",
+    "ssm:ListOpsItemEvents",
+    "ssm:ListResourceComplianceSummaries",
+)

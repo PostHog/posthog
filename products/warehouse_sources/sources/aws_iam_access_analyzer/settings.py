@@ -88,8 +88,8 @@ ENDPOINTS: dict[str, Endpoint] = {
 }
 
 ACCESS_DENIED_MESSAGE = (
-    "AWS denied access. Grant access-analyzer:ListAnalyzers, access-analyzer:ListFindings, "
-    "access-analyzer:ListArchiveRules, access-analyzer:ListAnalyzedResources, access-analyzer:GetFinding, "
+    "AWS denied access. Grant access-analyzer:ListAnalyzers, access-analyzer:ListFindingsV2, "
+    "access-analyzer:ListArchiveRules, access-analyzer:ListAnalyzedResources, access-analyzer:GetFindingV2, "
     "and access-analyzer:GetFindingRecommendation for the tables you select."
 )
 
@@ -106,3 +106,14 @@ ERROR_MESSAGES = {
     "OptInRequired": "AWS requires access to this service. Enable IAM Access Analyzer in the selected account and region.",
     "ValidationException": "AWS rejected the request. Check the selected region and resume the sync with a fresh checkpoint.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "access-analyzer:GetFindingV2",
+    "access-analyzer:GetFindingRecommendation",
+    "access-analyzer:ListAnalyzedResources",
+    "access-analyzer:ListAnalyzers",
+    "access-analyzer:ListArchiveRules",
+    "access-analyzer:ListFindingsV2",
+)
