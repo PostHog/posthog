@@ -137,6 +137,13 @@ def _query_text(call: ToolCall) -> str:
     return query.lower() if isinstance(query, str) else ""
 
 
+_SQL_COMMENT = re.compile(r"--[^\n]*|/\*.*?\*/", re.DOTALL)
+
+
+def _query_code(call: ToolCall) -> str:
+    return " ".join(_SQL_COMMENT.sub(" ", _query_text(call)).split())
+
+
 def _successful_sql(parser: LogParser) -> list[ToolCall]:
     return sorted((c for c in parser.get_tool_calls(SQL_TOOL) if not c.is_error), key=lambda c: c.position)
 
@@ -1200,7 +1207,8 @@ class QueryTermsUsed(Scorer):
 
     Grades that a derived query kept what defines a measure, for example the event and the plan exclusion
     of a governed metric, or that it reached every source a markdown definition names. A term is a string or
-    a list of strings, and a list counts as found when any one of its strings is in a query.
+    a list of strings, and a list counts as found when any one of its strings is in a query. The match skips SQL
+    comments and treats any run of whitespace as one space, so a term in a comment does not count.
     """
 
     def _name(self) -> str:
@@ -1222,7 +1230,7 @@ class QueryTermsUsed(Scorer):
         parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        queries = [_query_text(call) for call in _successful_sql(parser) if not _is_discovery(call)]
+        queries = [_query_code(call) for call in _successful_sql(parser) if not _is_discovery(call)]
         found = [
             term
             for term in terms

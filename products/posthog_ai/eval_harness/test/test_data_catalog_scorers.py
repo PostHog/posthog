@@ -862,7 +862,8 @@ def test_run_override_used_matches_the_overrides(
     assert score.score == expected_score
 
 
-_BUSINESS_MRR_TERMS: list[Any] = ["paid_bill", ["business/", "group by"]]
+_BUSINESS_MRR_PLAN_OPTIONS = ["business/", "group by plan", "group by properties.plan"]
+_BUSINESS_MRR_TERMS: list[Any] = ["paid_bill", _BUSINESS_MRR_PLAN_OPTIONS]
 
 
 @parameterized.expand(
@@ -886,7 +887,7 @@ _BUSINESS_MRR_TERMS: list[Any] = ["paid_bill", ["business/", "group by"]]
         ),
         (
             "alternative_group_by",
-            ["SELECT properties.plan, sum(amount) FROM events WHERE event = 'paid_bill' GROUP BY properties.plan"],
+            ["SELECT properties.plan, sum(amount) FROM events WHERE event = 'paid_bill'\nGROUP BY\n  properties.plan"],
             _BUSINESS_MRR_TERMS,
             1.0,
             [],
@@ -896,7 +897,24 @@ _BUSINESS_MRR_TERMS: list[Any] = ["paid_bill", ["business/", "group by"]]
             ["SELECT sum(amount) FROM events WHERE event = 'paid_bill'"],
             _BUSINESS_MRR_TERMS,
             0.5,
-            [["business/", "group by"]],
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "group_by_other_column",
+            [
+                "SELECT properties.browser, sum(amount) FROM events WHERE event = 'paid_bill' "
+                "GROUP BY properties.browser"
+            ],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
+        ),
+        (
+            "alternative_only_in_comments",
+            ["SELECT sum(amount) FROM events WHERE event = 'paid_bill' -- group by plan\n/* business/ */"],
+            _BUSINESS_MRR_TERMS,
+            0.5,
+            [_BUSINESS_MRR_PLAN_OPTIONS],
         ),
     ]
 )
