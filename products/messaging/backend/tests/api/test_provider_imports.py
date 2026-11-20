@@ -49,16 +49,34 @@ class TestProviderImportsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("without_cohort_write", ["hog_flow:write"], ["automations"], False, 403),
-            ("with_cohort_write", ["hog_flow:write", "cohort:write"], ["automations"], False, 400),
+            ("without_cohort_write", ["hog_flow:write", "person:read"], ["automations"], False, 403),
+            ("with_cohort_write", ["hog_flow:write", "person:read", "cohort:write"], ["automations"], False, 400),
             ("full_access_key", ["*"], ["automations"], False, 400),
-            ("other_steps_need_no_cohort_write", ["hog_flow:write"], ["templates"], False, 400),
-            ("contacts_without_person_write", ["hog_flow:write", "cohort:write"], ["contacts"], False, 403),
+            ("other_steps_need_no_cohort_write", ["hog_flow:write", "person:read"], ["templates"], False, 400),
+            (
+                "contacts_without_person_write",
+                ["hog_flow:write", "person:read", "cohort:write"],
+                ["contacts"],
+                False,
+                403,
+            ),
             ("new_people_without_cohort_write", ["hog_flow:write", "person:write"], ["new_people"], False, 403),
             ("contacts_with_both", ["hog_flow:write", "cohort:write", "person:write"], ["contacts"], False, 400),
-            ("domains_without_integration_write", ["hog_flow:write"], ["domain_setup"], True, 403),
-            ("domains_as_a_member", ["hog_flow:write", "integration:write"], ["domain_setup"], False, 403),
-            ("domains_as_an_admin", ["hog_flow:write", "integration:write"], ["domain_setup"], True, 400),
+            ("domains_without_integration_write", ["hog_flow:write", "person:read"], ["domain_setup"], True, 403),
+            (
+                "domains_as_a_member",
+                ["hog_flow:write", "person:read", "integration:write"],
+                ["domain_setup"],
+                False,
+                403,
+            ),
+            (
+                "domains_as_an_admin",
+                ["hog_flow:write", "person:read", "integration:write"],
+                ["domain_setup"],
+                True,
+                400,
+            ),
         ]
     )
     def test_steps_that_write_beyond_workflows_need_the_access_for_it(
@@ -153,16 +171,43 @@ class TestProviderImportsAPI(APIBaseTest):
         start_workflow.assert_not_called()
         assert not Integration.objects.filter(team_id=self.team.id, kind="customerio-app").exists()
 
-    @parameterized.expand([("providers", "providers/"), ("list", "")])
+    @parameterized.expand(
+        [
+            ("providers", "providers/", ["hog_flow:read"], status.HTTP_200_OK),
+            ("runs_need_person_read", "", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+            ("runs", "", ["hog_flow:read", "person:read"], status.HTTP_200_OK),
+        ]
+    )
     def test_reads_with_a_personal_api_key(
-        self, _mock_client_class: MagicMock, _start_workflow: MagicMock, _name: str, path: str
+        self,
+        _mock_client_class: MagicMock,
+        _start_workflow: MagicMock,
+        _name: str,
+        path: str,
+        scopes: list[str],
+        expected: int,
     ) -> None:
-        key = self.create_personal_api_key_with_scopes(["hog_flow:read"])
+        key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
 
         response = self.client.get(f"{self._url()}{path}", HTTP_AUTHORIZATION=f"Bearer {key}")
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.status_code == expected, response.json()
+
+    def test_starting_an_import_with_a_key_needs_person_read(
+        self, _mock_client_class: MagicMock, start_workflow: MagicMock
+    ) -> None:
+        key = self.create_personal_api_key_with_scopes(["hog_flow:write"])
+        self.client.logout()
+
+        response = self.client.post(
+            self._url(),
+            {"provider": "customerio", "steps": ["suppressions"], "api_key": "app-key"},
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        start_workflow.assert_not_called()
 
 
 @patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=False)
@@ -179,3 +224,19 @@ class TestProviderImportFlag(APIBaseTest):
         assert [provider["key"] for provider in providers] == ["customerio"]
         assert response.status_code == 400
         assert f"Unknown import provider: {provider}" in str(response.json())
+
+    def test_mailgun_needs_its_flag_and_a_region(self, flag: MagicMock) -> None:
+        url = f"/api/projects/{self.team.id}/messaging_provider_imports/"
+        body = {"provider": "mailgun", "steps": ["bounces"], "api_key": "key"}
+        flag.return_value = False
+        assert "mailgun" not in [row["key"] for row in self.client.get(f"{url}providers/").json()]
+        assert self.client.post(url, body).status_code == 400
+
+        flag.return_value = True
+        mailgun = next(row for row in self.client.get(f"{url}providers/").json() if row["key"] == "mailgun")
+        response = self.client.post(url, body)
+
+        assert [setting["key"] for setting in mailgun["settings"]] == ["region"]
+        assert any("names on the email preferences page" in step for step in mailgun["next_steps"])
+        assert response.status_code == 400
+        assert "Mailgun region" in response.json()["detail"]
