@@ -10,15 +10,17 @@ import json
 import math
 import asyncio
 import weakref
+from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from datetime import datetime
 from functools import partial
 from queue import Empty, Queue
-from threading import BoundedSemaphore, Event, Lock, Semaphore, Thread
+from threading import BoundedSemaphore, Event, Lock, Semaphore, Thread, Timer
 from time import monotonic
 from typing import Any, Optional
+from uuid import UUID
 
 from django.db import connections
 from django.utils.timezone import now
@@ -66,25 +68,27 @@ MAX_UNREAD_LINES = WORKERS_PER_BATCH
 CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
-MAX_BATCHES_PER_TEAM = 3
+MAX_BATCHES_PER_ORG = 3
 MAX_OPEN_BATCHES = 16
-MAX_OPEN_BATCHES_PER_TEAM = 4
+MAX_OPEN_BATCHES_PER_ORG = 4
 OPEN_WAIT_SECONDS = 10.0
 MAX_STREAM_SECONDS = 600.0
 _open_slots = BoundedSemaphore(MAX_OPEN_BATCHES)
-_team_open: dict[int, int] = {}
-_team_batches: dict[int, int] = {}
-_team_batches_lock = Lock()
+_org_open: dict[UUID, int] = {}
+_org_batches: dict[UUID, int] = {}
+_org_lock = Lock()
+# Finalizers only queue a release: one can run during garbage collection while this thread holds `_org_lock`.
+_deferred_releases: deque["_OpenSlot"] = deque()
 
 
-def _admit_batch(team_id: int) -> bool:
-    # A per-team share below the process cap, so one team's slow readers cannot hold every slot.
-    with _team_batches_lock:
-        if _team_batches.get(team_id, 0) >= MAX_BATCHES_PER_TEAM:
+def _admit_batch(org_id: UUID) -> bool:
+    # A per-organization share below the process cap, so one organization's slow readers cannot hold every slot.
+    with _org_lock:
+        if _org_batches.get(org_id, 0) >= MAX_BATCHES_PER_ORG:
             return False
         if not _batch_slots.acquire(blocking=False):
             return False
-        _team_batches[team_id] = _team_batches.get(team_id, 0) + 1
+        _org_batches[org_id] = _org_batches.get(org_id, 0) + 1
         return True
 
 
@@ -93,46 +97,56 @@ class _OpenSlot:
     cached results all that time. Released once, by the stream or, if the stream never runs, when the batch is
     collected."""
 
-    def __init__(self, team_id: int) -> None:
-        self._team_id = team_id
+    def __init__(self, org_id: UUID) -> None:
+        self._org_id = org_id
         self._held = False
 
     def acquire(self) -> bool:
+        _drain_deferred_releases()
         deadline = monotonic() + OPEN_WAIT_SECONDS
-        with _team_batches_lock:
-            if _team_open.get(self._team_id, 0) >= MAX_OPEN_BATCHES_PER_TEAM:
+        with _org_lock:
+            if _org_open.get(self._org_id, 0) >= MAX_OPEN_BATCHES_PER_ORG:
                 return False
-            _team_open[self._team_id] = _team_open.get(self._team_id, 0) + 1
+            _org_open[self._org_id] = _org_open.get(self._org_id, 0) + 1
         if not _open_slots.acquire(timeout=max(0.0, deadline - monotonic())):
-            self._release_team()
+            self._release_org()
             return False
         self._held = True
         return True
 
     def release(self) -> None:
-        with _team_batches_lock:
+        with _org_lock:
             if not self._held:
                 return
             self._held = False
         _open_slots.release()
-        self._release_team()
+        self._release_org()
 
-    def _release_team(self) -> None:
-        with _team_batches_lock:
-            count = _team_open.get(self._team_id, 0) - 1
+    def _release_org(self) -> None:
+        with _org_lock:
+            count = _org_open.get(self._org_id, 0) - 1
             if count > 0:
-                _team_open[self._team_id] = count
+                _org_open[self._org_id] = count
             else:
-                _team_open.pop(self._team_id, None)
+                _org_open.pop(self._org_id, None)
 
 
-def _release_batch(team_id: int) -> None:
-    with _team_batches_lock:
-        count = _team_batches.get(team_id, 0) - 1
+def _drain_deferred_releases() -> None:
+    while True:
+        try:
+            slot = _deferred_releases.popleft()
+        except IndexError:
+            return
+        slot.release()
+
+
+def _release_batch(org_id: UUID) -> None:
+    with _org_lock:
+        count = _org_batches.get(org_id, 0) - 1
         if count > 0:
-            _team_batches[team_id] = count
+            _org_batches[org_id] = count
         else:
-            _team_batches.pop(team_id, None)
+            _org_batches.pop(org_id, None)
         _batch_slots.release()
 
 
@@ -145,6 +159,7 @@ _FAILED = "The query failed."
 _THROTTLED = "Too many queries are running for this organization. Try again shortly."
 _BUSY = "Too many dashboards are loading at once. Try again shortly."
 _TIMED_OUT = "The dashboard took too long to load. Try again."
+_TIMED_OUT_BODY = json.dumps({"error": _TIMED_OUT}).encode()
 _TOO_LARGE = "The cached results in this request are too large to send together. Request fewer panels at once."
 _INTERVAL_KINDS = frozenset({"TrendsQuery", "StickinessQuery", "LifecycleQuery", "FunnelsQuery"})
 _WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
@@ -317,6 +332,10 @@ def _refresh_all(*, team: Team, user: User, dashboard_id: Optional[int], queries
         _refresh_slots.release()
 
 
+def _render_body(line: dict[str, Any]) -> bytes:
+    return SafeJSONRenderer().render({key: value for key, value in line.items() if key != "i"})
+
+
 type _Job = Callable[[], dict[str, Any]]
 
 
@@ -355,16 +374,22 @@ class QueryBatch:
         self._lock = Lock()
         self._idle = Event()
         self._unread = Semaphore(MAX_UNREAD_LINES)
+        self._closed = False
         self._deadline = monotonic() + MAX_STREAM_SECONDS
-        self._open = _OpenSlot(team.pk)
+        self._open = _OpenSlot(team.organization_id)
         if not self._open.acquire():
             raise QueryBatchBusy()
-        weakref.finalize(self, self._open.release)
+        weakref.finalize(self, _deferred_releases.append, self._open)
         try:
             self._read_cache(inputs)
         except BaseException:
             self._open.release()
             raise
+        # A client that stops reading parks the stream inside a send, where no deadline check runs, so a timer
+        # enforces it: it drops the held results, frees the slots and cancels running queries.
+        self._watchdog = Timer(max(0.0, self._deadline - monotonic()), self._expire)
+        self._watchdog.daemon = True
+        self._watchdog.start()
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
         resolved: dict[int, ResolvedQuery] = {}
@@ -474,15 +499,19 @@ class QueryBatch:
                 if stale and not (item.swr or item.cache_only):
                     to_run.append(index)
                     continue
-                if self._ready_bytes >= MAX_READY_BYTES:
+                body = _render_body(_result_line(index, response, hit=True, stale=stale))
+                del response
+                if self._ready_bytes + len(body) > MAX_READY_BYTES:
                     self._add_ready({"i": index, "error": _TOO_LARGE})
                     continue
-                served[same_entry] = self._add_ready(_result_line(index, response, hit=True, stale=stale))
+                self.ready.append((index, body))
+                self._ready_bytes += len(body)
+                served[same_entry] = body
                 if stale and item.swr and not item.cache_only:
                     to_refresh.append(index)
 
     def _add_ready(self, line: dict[str, Any]) -> bytes:
-        body = SafeJSONRenderer().render({key: value for key, value in line.items() if key != "i"})
+        body = _render_body(line)
         self.ready.append((line["i"], body))
         self._ready_bytes += len(body)
         return body
@@ -496,10 +525,22 @@ class QueryBatch:
         self._ready_bytes += len(body)
 
     def _ready_lines(self) -> Iterator[bytes]:
-        for index, body in self.ready:
+        # By position, not a list iterator, so `_drop_ready` can swap the list and free the bodies not yet sent.
+        position = 0
+        while position < len(self.ready):
             if monotonic() >= self._deadline:
-                return
+                self._drop_ready()
+            index, body = self.ready[position]
+            position += 1
             yield b'{"i":%d,' % index + body[1:] + b"\n"
+
+    def _drop_ready(self) -> None:
+        self.ready = [(index, _TIMED_OUT_BODY) for index, _body in self.ready]
+
+    def _expire(self) -> None:
+        self._drop_ready()
+        self._open.release()
+        self._close(False)
 
     def _dispatch_refreshes(self) -> None:
         # After the cached lines are written, so a stale board is not held back by its own refreshes.
@@ -578,7 +619,9 @@ class QueryBatch:
     def _start(self) -> bool:
         if not self._jobs:
             return True
-        self._admitted = _admit_batch(self._team.pk)
+        if self._closed:
+            return False
+        self._admitted = _admit_batch(self._team.organization_id)
         if not self._admitted:
             return False
         self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch")
@@ -588,6 +631,9 @@ class QueryBatch:
 
     def _close(self, complete: bool) -> None:
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             self._cancelled = True
             active = tuple(self._active)
         if self._pool is not None:
@@ -605,7 +651,7 @@ class QueryBatch:
             # A running query keeps its thread after a disconnect, so the slot is freed when the last one ends.
             remaining = [future for future in self._futures if not future.done()]
             if not remaining:
-                _release_batch(self._team.pk)
+                _release_batch(self._team.organization_id)
             else:
                 pending = [len(remaining)]
                 counter_lock = Lock()
@@ -615,7 +661,7 @@ class QueryBatch:
                         pending[0] -= 1
                         last = pending[0] == 0
                     if last:
-                        _release_batch(self._team.pk)
+                        _release_batch(self._team.organization_id)
 
                 for future in remaining:
                     future.add_done_callback(done)
@@ -642,13 +688,15 @@ class QueryBatch:
             yield self._encode({"i": index, "error": _TIMED_OUT})
 
     def _busy_lines(self) -> Iterator[bytes]:
+        message = _TIMED_OUT if self._closed else _BUSY
         for index, _query_id, _job in self._jobs:
-            yield self._encode({"i": index, "error": _BUSY})
+            yield self._encode({"i": index, "error": message})
 
     def stream(self) -> Iterator[bytes]:
         try:
             yield from self._stream()
         finally:
+            self._watchdog.cancel()
             self._open.release()
 
     async def astream(self) -> AsyncIterator[bytes]:
@@ -657,6 +705,7 @@ class QueryBatch:
             async for chunk in body:
                 yield chunk
         finally:
+            self._watchdog.cancel()
             await body.aclose()
             self._open.release()
 
