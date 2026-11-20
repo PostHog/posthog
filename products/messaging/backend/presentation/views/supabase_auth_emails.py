@@ -290,8 +290,6 @@ class SupabaseSendEmailHookView(APIView):
                 verified=False,
             )
         team = Team.objects.filter(id=team_id).first()
-        # No flag check here: a config only exists if the flag was on when it was saved, and a flag that rolls back
-        # or fails to evaluate would fail every connected project's sign-ups.
         if team is None:
             return self._answer(
                 SupabaseHookResult(status=401, message="The hook signature doesn't match. Check the hook secret."),

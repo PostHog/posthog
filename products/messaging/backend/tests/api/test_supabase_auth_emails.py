@@ -67,7 +67,6 @@ def _payload(action: str, user_email: str = "current@example.com", **email_data:
 
 
 @patch("posthoganalytics.capture")
-@patch("posthoganalytics.feature_enabled", return_value=True)
 @patch("posthog.plugins.plugin_server_api.internal_requests.post")
 class TestSupabaseAuthEmails(APIBaseTest):
     def setUp(self):
@@ -155,7 +154,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
             ),
         ]
     )
-    def test_sends_each_auth_email_through_its_template(self, mock_post, _flag, capture, _name, payload, expected):
+    def test_sends_each_auth_email_through_its_template(self, mock_post, capture, _name, payload, expected):
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
 
         response = self._post_hook(payload)
@@ -198,7 +197,6 @@ class TestSupabaseAuthEmails(APIBaseTest):
     def test_answers_an_error_supabase_can_show_the_user(
         self,
         mock_post,
-        _flag,
         capture,
         _name,
         action,
@@ -233,9 +231,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
             [] if expected_code == 401 else [(expected_code, reported_action)]
         )
 
-    def test_settings_keep_the_secret_write_only_and_take_only_transactional_templates(
-        self, _mock_post, _flag, _capture
-    ):
+    def test_settings_keep_the_secret_write_only_and_take_only_transactional_templates(self, _mock_post, _capture):
         response = self.client.patch(
             self.settings_url, {"supabase_url": "https://abcdefgh.supabase.co/"}, format="json"
         )
@@ -261,7 +257,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "hook_secret"
 
-    def test_starter_templates_cover_the_core_auth_emails_once(self, _mock_post, _flag, _capture):
+    def test_starter_templates_cover_the_core_auth_emails_once(self, _mock_post, _capture):
         response = self.client.post(self.starter_url)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -290,7 +286,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
         again = self.client.post(self.starter_url)
         assert again.json()["templates"] == templates
 
-    def test_mapping_a_template_needs_editor_access_to_its_workflow(self, _mock_post, _flag, _capture):
+    def test_mapping_a_template_needs_editor_access_to_its_workflow(self, _mock_post, _capture):
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -319,7 +315,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
         assert denied_mapping.status_code == status.HTTP_403_FORBIDDEN, denied_mapping.json()
         assert denied_secret.status_code == status.HTTP_403_FORBIDDEN, denied_secret.json()
 
-    def test_disconnect_clears_the_settings_so_the_hook_refuses_calls(self, mock_post, _flag, _capture):
+    def test_disconnect_clears_the_settings_so_the_hook_refuses_calls(self, mock_post, _capture):
         response = self.client.delete(self.settings_url)
         hook = self._post_hook(_payload("signup"))
 
@@ -332,7 +328,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
         assert hook.status_code == status.HTTP_401_UNAUTHORIZED
         assert not mock_post.called
 
-    def test_first_save_works_before_a_secret_is_stored(self, _mock_post, _flag, _capture):
+    def test_first_save_works_before_a_secret_is_stored(self, _mock_post, _capture):
         self.config.delete()
 
         starter = self.client.post(self.starter_url)
@@ -344,7 +340,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
 
     @parameterized.expand([("deleted", {"deleted": True}), ("no_longer_sensitive", {"sensitive": False})])
     def test_a_mapped_template_that_cannot_send_fails_cleanly_and_gets_a_starter_replacement(
-        self, mock_post, _flag, _capture, _name, change
+        self, mock_post, _capture, _name, change
     ):
         MessageTemplate.objects.filter(id=self.template.id).update(**change)
 
@@ -361,7 +357,7 @@ class TestSupabaseAuthEmails(APIBaseTest):
 
     # While a secret rotates, Supabase signs with each one, so the stored secret can sign either position.
     @parameterized.expand([("stored_secret_last", True), ("stored_secret_first", False)])
-    def test_accepts_a_header_signed_with_an_old_and_a_new_secret(self, mock_post, _flag, _capture, _name, other_first):
+    def test_accepts_a_header_signed_with_an_old_and_a_new_secret(self, mock_post, _capture, _name, other_first):
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
         other = b"o" * 32
 
