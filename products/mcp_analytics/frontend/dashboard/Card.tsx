@@ -1,11 +1,22 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { Card as QuillCard, CardAction, CardContent, CardHeader, CardTitle, cn } from '@posthog/quill-primitives'
+import {
+    Card as QuillCard,
+    CardAction,
+    CardContent,
+    CardHeader,
+    CardTitle,
+    cn,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill-primitives'
 
 export function Card({
     children,
     className,
     flush = false,
     title,
+    description,
     action,
 }: {
     children: React.ReactNode
@@ -13,6 +24,8 @@ export function Card({
     /** Let a full-bleed child (table, chart) reach the card's edges, with no header-to-content gap. */
     flush?: boolean
     title?: string
+    /** Shown on title hover. */
+    description?: React.ReactNode
     /** Control shown at the top right of the header. */
     action?: React.ReactNode
 }): JSX.Element {
@@ -20,7 +33,25 @@ export function Card({
         <QuillCard size="sm" flush={flush} className={className}>
             {title ? (
                 <CardHeader className={action ? 'flex flex-wrap items-start justify-between gap-2' : undefined}>
-                    <CardTitle>{title}</CardTitle>
+                    <CardTitle>
+                        {description ? (
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <span
+                                            tabIndex={0}
+                                            className="cursor-help underline decoration-dotted decoration-1 underline-offset-4"
+                                        />
+                                    }
+                                >
+                                    {title}
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-80">{description}</TooltipContent>
+                            </Tooltip>
+                        ) : (
+                            title
+                        )}
+                    </CardTitle>
                     {action ? <CardAction>{action}</CardAction> : null}
                 </CardHeader>
             ) : null}

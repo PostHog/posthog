@@ -291,6 +291,11 @@ class MCPSessionListQuerySerializer(serializers.Serializer):
             "($mcp_is_error), false keeps sessions with none. Omit to list both."
         ),
     )
+    feedback_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Only sessions where the agent sent feedback or reported a missing capability.",
+    )
     properties = PropertyFiltersField(
         required=False,
         allow_blank=True,

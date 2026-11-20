@@ -1,35 +1,69 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 
+import { INSTRUMENTATION_FIXES } from '../instrumentationFixes'
+import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import { mcpSessionUrl } from '../sessionUrls'
+import { NotCaptured } from './NotCaptured'
 import {
+    MCP_ACTIVITY_DURATION_COLUMN,
     MCP_ACTIVITY_ERROR_COLUMN,
     MCP_ACTIVITY_INTENT_COLUMN,
     MCP_ACTIVITY_MAX_ROWS,
+    MCP_ACTIVITY_MODEL_COLUMN,
     MCP_ACTIVITY_SESSION_COLUMN,
 } from './toolCallFeedQuery'
 
 function IntentCell({ value }: { value: unknown }): JSX.Element {
-    return <span className="block min-w-64 whitespace-normal">{value ? String(value) : '—'}</span>
+    if (!value) {
+        return (
+            <NotCaptured reason="The agent didn't say what it was trying to do." fix={INSTRUMENTATION_FIXES.intent} />
+        )
+    }
+    return <span className="block min-w-64 whitespace-normal">{String(value)}</span>
 }
 
-// SDK versions stamp $mcp_is_error as a boolean, the string 'true', or 1; the backend treats all three as failures.
-export const MCP_ERROR_VALUES: ReadonlyArray<unknown> = [true, 'true', 1, '1']
+// The cell is rendered; read the raw model from the row's event.
+function ModelCell({ value, record }: { value: unknown; record: unknown }): JSX.Element {
+    const event = Array.isArray(record) ? record[0] : null
+    if (event?.properties && !event.properties.$mcp_llm_model) {
+        return (
+            <NotCaptured reason="This call arrived without the model that made it." fix={INSTRUMENTATION_FIXES.model} />
+        )
+    }
+    return renderHogQLX(value)
+}
 
-function ErrorCell({ value }: { value: unknown }): JSX.Element {
-    const failed = MCP_ERROR_VALUES.includes(value)
-    return failed ? (
-        <LemonTag type="danger" size="small">
-            Failed
+function ErrorCell({ value }: { value: unknown }): JSX.Element | null {
+    return value ? (
+        <LemonTag type="danger" size="small" className="font-mono">
+            {String(value)}
         </LemonTag>
-    ) : (
-        <span className="text-muted">OK</span>
+    ) : null
+}
+
+function DurationCell({ value }: { value: unknown }): JSX.Element {
+    const { slowThresholdMs } = useValues(mcpAnalyticsFiltersLogic)
+    if (value === null || value === undefined || value === '') {
+        return <span className="text-muted">—</span>
+    }
+    const ms = Number(value)
+    if (slowThresholdMs === null || !(ms > slowThresholdMs)) {
+        return <span className="tabular-nums">{ms.toLocaleString()}</span>
+    }
+    return (
+        <Tooltip title={`Slow: over the ${slowThresholdMs.toLocaleString()} ms p95 of all calls`}>
+            <LemonTag type="warning" size="small" className="tabular-nums">
+                {ms.toLocaleString()}
+            </LemonTag>
+        </Tooltip>
     )
 }
 
@@ -53,14 +87,17 @@ export function ToolCallFeed({
     dataNodeCollectionId,
     attachTo,
     maxRows = MCP_ACTIVITY_MAX_ROWS,
+    rowProps,
 }: {
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
+    /** Also the data node key, so the drawer can read loaded rows. */
     uniqueKey: string
     dataNodeCollectionId?: string
     attachTo?: Parameters<typeof Query>[0]['attachTo']
     /** Rows the table may page up to; at the query's own limit, "load more" never shows. */
     maxRows?: number
+    rowProps?: QueryContext['rowProps']
 }): JSX.Element {
     return (
         <Query
@@ -69,18 +106,21 @@ export function ToolCallFeed({
             query={query}
             setQuery={setQuery}
             context={{
+                dataNodeLogicKey: uniqueKey,
+                rowProps,
                 dataTableMaxPaginationRows: maxRows,
                 dataTableNouns: ['tool call', 'tool calls'],
                 compactDataTableToolbar: true,
                 hideRecordingButton: true,
                 columns: {
                     [MCP_ACTIVITY_INTENT_COLUMN]: { render: IntentCell, width: '20rem' },
-                    [MCP_ACTIVITY_ERROR_COLUMN]: { render: ErrorCell, title: 'Result' },
+                    [MCP_ACTIVITY_ERROR_COLUMN]: { render: ErrorCell, title: 'Error' },
+                    [MCP_ACTIVITY_DURATION_COLUMN]: { render: DurationCell, align: 'right' },
+                    [MCP_ACTIVITY_MODEL_COLUMN]: { render: ModelCell },
                     [MCP_ACTIVITY_SESSION_COLUMN]: { render: SessionCell },
                 },
                 emptyStateDetail: 'Adjust the date range or filters, or wait for agents to call a tool.',
                 emptyStateHeading: 'No MCP tool calls in this period',
-                extraDataTableQueryFeatures: [QueryFeature.showCount],
                 insightProps: {
                     dashboardItemId: `new-${uniqueKey}`,
                     dataNodeCollectionId,

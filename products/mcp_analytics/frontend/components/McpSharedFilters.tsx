@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconRefresh, IconX } from '@posthog/icons'
+import { IconHourglass, IconMessage, IconRefresh, IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill-primitives'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { Toggle, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
-import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
+import { DEFAULT_FACET_FILTERS, mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
+import { mcpFacetsLogic } from '../mcpFacetsLogic'
+import { MCP_FILTER_ACTIVE_CLASS, McpFacetSelect } from './McpFacetSelect'
 import { McpInternalUsersFilter } from './McpInternalUsersFilter'
 
 const TAXONOMIC_GROUP_TYPES = [
@@ -45,14 +48,34 @@ const UNIVERSAL_FILTER_TAG_ACTIVE_FILTERS = [
     '[&_.PropertyFilterButton_.LemonButton]:rounded-[0.25rem]!',
 ].join(' ')
 
+export type McpFacetControl = 'tool' | 'category' | 'errors' | 'harness' | 'model' | 'slow' | 'isNew' | 'feedback'
+
+const ALL_FACET_CONTROLS: readonly McpFacetControl[] = [
+    'tool',
+    'category',
+    'errors',
+    'harness',
+    'model',
+    'slow',
+    'isNew',
+    'feedback',
+]
+
 interface McpSharedFiltersProps {
     pageKey: string
     dataAttrPrefix: string
     className?: string
+    /** The page's search and date range, which lead the row. */
     children?: ReactNode
-    trailingControls?: ReactNode
+    /** Whether the page's own filters are set, so "Clear filters" shows for them too. */
+    hasPageFilters?: boolean
+    onClearPageFilters?: () => void
     onRefresh: () => void
     refreshing: boolean
+    /** A tab whose data lacks a facet's property leaves it out. */
+    facetControls?: readonly McpFacetControl[]
+    /** Filters only this tab has, shown after the shared facets. */
+    pageFacets?: ReactNode
 }
 
 export function McpSharedFilters({
@@ -60,12 +83,17 @@ export function McpSharedFilters({
     dataAttrPrefix,
     className,
     children,
-    trailingControls,
+    hasPageFilters = false,
+    onClearPageFilters,
     onRefresh,
     refreshing,
+    facetControls = ALL_FACET_CONTROLS,
+    pageFacets,
 }: McpSharedFiltersProps): JSX.Element {
-    const { propertyFilters } = useValues(mcpAnalyticsFiltersLogic)
-    const { setPropertyFilters } = useActions(mcpAnalyticsFiltersLogic)
+    const shows = (control: McpFacetControl): boolean => facetControls.includes(control)
+    const { propertyFilters, facetFilters, hasActiveFacetFilters } = useValues(mcpAnalyticsFiltersLogic)
+    const { setPropertyFilters, setFacetFilters } = useActions(mcpAnalyticsFiltersLogic)
+    const { facets } = useValues(mcpFacetsLogic)
 
     return (
         <div className={cn('w-full min-w-0', className)} data-attr={`${dataAttrPrefix}-property-filter`}>
@@ -85,27 +113,151 @@ export function McpSharedFilters({
                             <div data-quill className="contents">
                                 {addFilter}
                             </div>
-                            {activeFilters.length > 0 && (
+                            {shows('tool') && (
+                                <McpFacetSelect
+                                    label="Tool"
+                                    options={facets?.tools ?? []}
+                                    value={facetFilters.tools}
+                                    onChange={(tools) => setFacetFilters({ tools })}
+                                    dataAttr={`${dataAttrPrefix}-filter-tool`}
+                                />
+                            )}
+                            {/* Categories are an optional SDK field, so the filter hides when no call has one. */}
+                            {shows('category') && (facets?.categories.length || facetFilters.categories.length) ? (
+                                <McpFacetSelect
+                                    label="Category"
+                                    options={facets?.categories ?? []}
+                                    value={facetFilters.categories}
+                                    onChange={(categories) => setFacetFilters({ categories })}
+                                    dataAttr={`${dataAttrPrefix}-filter-category`}
+                                />
+                            ) : null}
+                            {shows('errors') && (
+                                <McpFacetSelect
+                                    label="Errors"
+                                    options={facets?.errorTypes ?? []}
+                                    value={facetFilters.errors}
+                                    onChange={(errors) => setFacetFilters({ errors })}
+                                    dataAttr={`${dataAttrPrefix}-filter-errors`}
+                                />
+                            )}
+                            {shows('harness') && (
+                                <McpFacetSelect
+                                    label="Harness"
+                                    options={facets?.harnesses ?? []}
+                                    value={facetFilters.harnesses}
+                                    onChange={(harnesses) => setFacetFilters({ harnesses })}
+                                    dataAttr={`${dataAttrPrefix}-filter-harness`}
+                                />
+                            )}
+                            {shows('model') && (
+                                <McpFacetSelect
+                                    label="Model"
+                                    options={facets?.models ?? []}
+                                    value={facetFilters.models}
+                                    onChange={(models) => setFacetFilters({ models })}
+                                    dataAttr={`${dataAttrPrefix}-filter-model`}
+                                />
+                            )}
+                            {shows('slow') && (
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        render={
+                                            <Toggle
+                                                variant="outline"
+                                                pressed={facetFilters.slow}
+                                                disabled={!facets?.p95 && !facetFilters.slow}
+                                                onPressedChange={(slow: boolean) => setFacetFilters({ slow })}
+                                                className={cn(facetFilters.slow && MCP_FILTER_ACTIVE_CLASS)}
+                                                data-attr={`${dataAttrPrefix}-filter-slow`}
+                                            />
+                                        }
+                                    >
+                                        <IconHourglass />
+                                        Slow
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        Calls slower than the p95 of all calls in the last 30 days
+                                    </TooltipContent>
+                                </Tooltip>
+                            )}
+                            {shows('isNew') && (
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        render={
+                                            <Toggle
+                                                variant="outline"
+                                                pressed={facetFilters.isNew}
+                                                onPressedChange={(isNew: boolean) => setFacetFilters({ isNew })}
+                                                className={cn(facetFilters.isNew && MCP_FILTER_ACTIVE_CLASS)}
+                                                data-attr={`${dataAttrPrefix}-filter-new`}
+                                            />
+                                        }
+                                    >
+                                        <IconSparkles />
+                                        New tools
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        Calls to tools first called in this date range, with no calls in the 90 days
+                                        before
+                                    </TooltipContent>
+                                </Tooltip>
+                            )}
+                            {shows('feedback') && (
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        render={
+                                            <Toggle
+                                                variant="outline"
+                                                pressed={facetFilters.gaveFeedback}
+                                                onPressedChange={(gaveFeedback: boolean) =>
+                                                    setFacetFilters({ gaveFeedback })
+                                                }
+                                                className={cn(facetFilters.gaveFeedback && MCP_FILTER_ACTIVE_CLASS)}
+                                                data-attr={`${dataAttrPrefix}-filter-feedback`}
+                                            />
+                                        }
+                                    >
+                                        <IconMessage />
+                                        Agent feedback
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        Calls from sessions where the agent sent feedback or reported a missing
+                                        capability
+                                    </TooltipContent>
+                                </Tooltip>
+                            )}
+                            {pageFacets}
+                            {(activeFilters.length > 0 || hasActiveFacetFilters || hasPageFilters) && (
                                 <Button
-                                    variant="outline"
-                                    onClick={clearFilters}
+                                    variant="link-muted"
+                                    size="sm"
+                                    onClick={() => {
+                                        if (activeFilters.length > 0) {
+                                            clearFilters()
+                                        }
+                                        if (hasActiveFacetFilters) {
+                                            setFacetFilters(DEFAULT_FACET_FILTERS)
+                                        }
+                                        onClearPageFilters?.()
+                                    }}
                                     data-attr={`${dataAttrPrefix}-clear-filters`}
                                 >
-                                    <IconX />
                                     Clear filters
                                 </Button>
                             )}
                             <div className="ml-auto flex items-center gap-2">
-                                {trailingControls}
                                 <McpInternalUsersFilter dataAttr={`${dataAttrPrefix}-test-account-filter`} />
                                 <Button
                                     variant="outline"
+                                    size="icon"
                                     onClick={onRefresh}
                                     loading={refreshing}
+                                    aria-label="Refresh"
+                                    title="Refresh"
                                     data-attr={`${dataAttrPrefix}-refresh`}
                                 >
                                     <IconRefresh />
-                                    Refresh
                                 </Button>
                             </div>
                         </div>

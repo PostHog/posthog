@@ -32,12 +32,21 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'mcp_analytics',
         },
+        MCPAnalyticsPerson: {
+            import: () => import('./frontend/MCPAnalyticsPerson'),
+            projectBased: true,
+            name: 'MCP person',
+            layout: 'app-container',
+            iconType: 'mcp_analytics',
+        },
     },
     routes: {
         // Define routes here
         '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
         '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
         '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
+        '/mcp-analytics/people': ['MCPAnalytics', 'mcpAnalyticsPeople'],
+        '/mcp-analytics/people/:distinctId': ['MCPAnalyticsPerson', 'mcpAnalyticsPerson'],
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
         '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
@@ -56,6 +65,8 @@ export const manifest: ProductManifest = {
         mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
         mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
         mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
+        mcpAnalyticsPeople: (): string => '/mcp-analytics/people',
+        mcpAnalyticsPerson: (distinctId: string): string => `/mcp-analytics/people/${encodeURIComponent(distinctId)}`,
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
         mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
@@ -83,6 +94,7 @@ export const manifest: ProductManifest = {
             searchTabs: [
                 { name: 'Activity', href: urls.mcpAnalyticsActivity() },
                 { name: 'Sessions', href: urls.mcpAnalyticsSessions() },
+                { name: 'People', href: urls.mcpAnalyticsPeople() },
                 { name: 'Tool quality', href: urls.mcpAnalyticsToolQuality() },
                 { name: 'Missing capabilities', href: urls.mcpAnalyticsMissingCapabilities() },
                 { name: 'Notifications', href: urls.mcpAnalyticsNotifications() },

@@ -9,7 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { ErrorTrackingIssueList, ErrorTrackingIssueListRow } from './ErrorTrackingIssueList'
 import { ErrorTrackingIssueListSkeleton } from './ErrorTrackingIssueListSkeleton'
 
-jest.mock('../VolumeSparkline/VolumeSparkline', () => ({
+jest.mock('lib/components/VolumeSparkline/VolumeSparkline', () => ({
     VolumeSparkline: (): JSX.Element => <div data-attr="mock-sparkline" />,
 }))
 

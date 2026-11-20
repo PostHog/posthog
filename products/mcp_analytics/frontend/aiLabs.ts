@@ -85,10 +85,11 @@ export function seriesLab(label: string): ModelLab {
 }
 
 const LAB_MARKS: Record<ModelLab, BrandMarkName> = {
-    Anthropic: 'Anthropic',
+    // Same mark as the harness: Claude for Anthropic, Grok for xAI.
+    Anthropic: 'Claude',
     OpenAI: 'OpenAI',
     Google: 'Google',
-    xAI: 'xAI',
+    xAI: 'Grok',
     Cursor: 'Cursor',
     'Open weights': 'Unbranded model',
     Other: 'Unbranded model',

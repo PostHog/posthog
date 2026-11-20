@@ -14323,6 +14323,10 @@
                     },
                     "type": "array"
                 },
+                "totals": {
+                    "$ref": "#/definitions/MCPToolQualityTotals",
+                    "description": "Window totals and the previous period's, set only when the query asks for them."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -36708,7 +36712,9 @@
                 "model",
                 "protocolVersion",
                 "tool",
+                "harness",
                 "errorType",
+                "user",
                 "labUsers",
                 "namedModelUsers",
                 "reliability"
@@ -36886,6 +36892,14 @@
                     "description": "The agent's own words for the capability it wanted, from $mcp_intent.",
                     "type": "string"
                 },
+                "model": {
+                    "description": "The model the agent self-reported, from $mcp_llm_model; empty when the report did not say.",
+                    "type": "string"
+                },
+                "outcome": {
+                    "description": "Whether the agent says it still finished the user's task, from $mcp_feedback_task_completed (or an in-app report's blocked flag): \"blocked\", \"completed\", or \"not_reported\" when the report did not say.",
+                    "type": "string"
+                },
                 "person_properties": {
                     "description": "JSON-encoded person email/name for display; \"{}\" when neither resolved.",
                     "type": "string"
@@ -36894,11 +36908,25 @@
                     "description": "Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set.",
                     "type": "string"
                 },
+                "suggested_improvement": {
+                    "description": "The change the agent suggested, from $mcp_feedback_suggested_improvement; empty when it gave none.",
+                    "type": "string"
+                },
                 "timestamp": {
                     "type": "string"
                 }
             },
-            "required": ["timestamp", "intent", "harness", "session_id", "distinct_id", "person_properties"],
+            "required": [
+                "timestamp",
+                "intent",
+                "harness",
+                "session_id",
+                "distinct_id",
+                "person_properties",
+                "model",
+                "suggested_improvement",
+                "outcome"
+            ],
             "type": "object"
         },
         "MCPMissingCapabilitiesQuery": {
@@ -36927,6 +36955,20 @@
                 "offset": {
                     "$ref": "#/definitions/integer",
                     "description": "Reports to skip before returning results. Combine with limit to page through them; the response's has_next flag indicates whether more remain."
+                },
+                "outcomes": {
+                    "description": "Only reports with one of these outcomes: \"blocked\", \"completed\" or \"not_reported\".",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "description": "Property filters applied to the report events, such as the shared harness and model filters.",
+                    "items": {
+                        "$ref": "#/definitions/MCPAnalyticsPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "response": {
                     "$ref": "#/definitions/MCPMissingCapabilitiesQueryResponse"
@@ -38755,6 +38797,10 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeTotals": {
+                    "description": "Also return window totals and the previous period's, for the Tool quality tiles.",
+                    "type": "boolean"
+                },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
                     "description": "Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."
@@ -38775,6 +38821,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/MCPToolQualityDailyStatsQueryResponse"
+                },
+                "search": {
+                    "description": "Case-insensitive substring search on the effective tool name, so the tiles match the searched table.",
+                    "type": "string"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -38831,6 +38881,10 @@
                     },
                     "type": "array"
                 },
+                "totals": {
+                    "$ref": "#/definitions/MCPToolQualityTotals",
+                    "description": "Window totals and the previous period's, set only when the query asks for them."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -38866,10 +38920,46 @@
             "required": ["results"],
             "type": "object"
         },
+        "MCPToolQualityRowBucket": {
+            "additionalProperties": false,
+            "properties": {
+                "bucket": {
+                    "description": "Bucket start as a project-timezone wall clock (\"YYYY-MM-DD HH:mm:ss\").",
+                    "type": "string"
+                },
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "errors": {
+                    "$ref": "#/definitions/integer"
+                },
+                "p95_duration_ms": {
+                    "description": "0 when no call in the bucket carried a duration.",
+                    "type": "number"
+                }
+            },
+            "required": ["bucket", "calls", "errors", "p95_duration_ms"],
+            "type": "object"
+        },
         "MCPToolQualityRowItem": {
             "additionalProperties": false,
             "description": "Per-tool quality metrics for the Tool quality tab table.",
             "properties": {
+                "buckets": {
+                    "description": "Calls, errors and p95 per interval in the current window, for the row's volume chart.",
+                    "items": {
+                        "$ref": "#/definitions/MCPToolQualityRowBucket"
+                    },
+                    "type": "array"
+                },
+                "category": {
+                    "description": "The $mcp_tool_category from the tool's latest call that sent one.",
+                    "type": ["string", "null"]
+                },
+                "description": {
+                    "description": "The description from the tool's latest call that sent one.",
+                    "type": ["string", "null"]
+                },
                 "error_rate_pct": {
                     "type": "number"
                 },
@@ -38960,6 +39050,10 @@
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Bucket granularity of each row's volume chart. Defaults to day."
                 },
                 "kind": {
                     "const": "MCPToolQualityRowsQuery",
@@ -39113,6 +39207,47 @@
         "MCPToolQualitySortDirection": {
             "enum": ["ASC", "DESC"],
             "type": "string"
+        },
+        "MCPToolQualityTotals": {
+            "additionalProperties": false,
+            "properties": {
+                "calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "errors": {
+                    "$ref": "#/definitions/integer"
+                },
+                "p50": {
+                    "type": "number"
+                },
+                "p95": {
+                    "type": "number"
+                },
+                "previous_calls": {
+                    "$ref": "#/definitions/integer"
+                },
+                "previous_errors": {
+                    "$ref": "#/definitions/integer"
+                },
+                "previous_p50": {
+                    "description": "null when no call in the previous period carried a duration.",
+                    "type": ["number", "null"]
+                },
+                "previous_p95": {
+                    "type": ["number", "null"]
+                }
+            },
+            "required": [
+                "calls",
+                "errors",
+                "p50",
+                "p95",
+                "previous_calls",
+                "previous_errors",
+                "previous_p50",
+                "previous_p95"
+            ],
+            "type": "object"
         },
         "MCPToolSampleIntentItem": {
             "additionalProperties": false,
@@ -56483,6 +56618,10 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "totals": {
+                            "$ref": "#/definitions/MCPToolQualityTotals",
+                            "description": "Window totals and the previous period's, set only when the query asks for them."
                         },
                         "used_data_warehouse_sources": {
                             "description": "Connector-synced data warehouse sources referenced by this query, if any.",

@@ -247,21 +247,18 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             ])
         })
 
-        it('reloads daily stats scoped to the tool when one is selected, passing it as a typed param', async () => {
+        it('opens a tool in the drawer without rescoping the charts', async () => {
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
             const callsBefore = mockApi.query.mock.calls.length
 
             await expectLogic(logic, () => {
-                logic.actions.setSelectedTool("evil'); DROP TABLE events; --")
+                logic.actions.openToolDrawer('tool_a')
             }).toFinishAllListeners()
 
-            const newCalls = queryCallsSince(callsBefore)
-            expect(newCalls.length).toBe(1) // daily stats only
-            // The tool rides as a typed toolName param (the runner binds it as a constant), never as raw SQL.
-            expect(newCalls[0].toolName).toBe("evil'); DROP TABLE events; --")
-            expect(newCalls[0].query).toBeUndefined()
+            expect(logic.values.selectedTool).toBe('tool_a')
+            expect(queryCallsSince(callsBefore)).toHaveLength(0)
         })
 
         // Tool-quality row item as returned by the runner.
@@ -279,28 +276,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             last_seen: '',
         })
 
-        it('clears the selected tool when the category scope changes', async () => {
-            mockApi.query.mockImplementation(async (query: any) =>
-                query.kind === NodeKind.MCPToolQualityRowsQuery
-                    ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_a')], totalCount: 1 }
-                    : { results: [] }
-            )
-            const logic = mcpAnalyticsToolQualityLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.setSelectedTool('tool_a')
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.selectedTool).toBe('tool_a')
-
-            await expectLogic(logic, () => {
-                logic.actions.setSelectedCategories(['some-category'])
-            }).toFinishAllListeners()
-
-            expect(logic.values.selectedTool).toBeNull()
-        })
-
-        it('keeps the selected tool while searching, sorting, or changing pages', async () => {
+        it('keeps the opened tool while searching, sorting, paging, or rescoping', async () => {
             mockApi.query.mockImplementation(async (query: any) =>
                 query.kind === NodeKind.MCPToolQualityRowsQuery
                     ? { ...emptyToolRowsResponse, results: [toolRowResult('tool_b')], totalCount: 100 }
@@ -315,6 +291,8 @@ describe('mcpAnalyticsToolQualityLogic', () => {
                 logic.actions.setToolQualityPageIndex(1)
                 logic.actions.setSearchTerm('tool_b')
                 logic.actions.setToolQualitySort('error_rate_pct', 'DESC')
+                logic.actions.setSelectedCategories(['some-category'])
+                logic.actions.setDateFilter('-30d', null)
             }).toFinishAllListeners()
 
             expect(logic.values.selectedTool).toBe('tool_a')
@@ -620,7 +598,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
                 { filterTestAccounts: false, propertyFilters: [EVENT_FILTER] },
                 { properties: [EVENT_FILTER] },
             ],
-        ])('keeps %s and clears the selected tool', async (_label, change, expectedFilters, expectedParams) => {
+        ])('keeps %s and the opened tool', async (_label, change, expectedFilters, expectedParams) => {
             router.actions.push(urls.mcpAnalyticsToolQuality())
             const logic = mcpAnalyticsToolQualityLogic()
             logic.mount()
@@ -628,10 +606,9 @@ describe('mcpAnalyticsToolQualityLogic', () => {
 
             await expectLogic(logic, change).toFinishAllListeners()
 
-            expect(logic.values.selectedTool).toBeNull()
+            expect(logic.values.selectedTool).toBe('tool_a')
             expect(mcpAnalyticsFiltersLogic.values).toMatchObject(expectedFilters)
-            expect(router.values.searchParams).toMatchObject(expectedParams)
-            expect(router.values.searchParams.tool).toBeUndefined()
+            expect(router.values.searchParams).toMatchObject({ ...expectedParams, tool: 'tool_a' })
         })
 
         it('reloads once when both shared filters hydrate from the URL', async () => {

@@ -4073,7 +4073,9 @@ export enum MCPDashboardSection {
     Model = 'model',
     ProtocolVersion = 'protocolVersion',
     Tool = 'tool',
+    Harness = 'harness',
     ErrorType = 'errorType',
+    User = 'user',
     LabUsers = 'labUsers',
     NamedModelUsers = 'namedModelUsers',
     Reliability = 'reliability',
@@ -4300,6 +4302,21 @@ export interface MCPToolQualityRowItem {
     previous_p95_duration_ms: number | null
     /** Distinct sessions that called the tool in the previous period. */
     previous_sessions: integer
+    /** The description from the tool's latest call that sent one. */
+    description?: string | null
+    /** The $mcp_tool_category from the tool's latest call that sent one. */
+    category?: string | null
+    /** Calls, errors and p95 per interval in the current window, for the row's volume chart. */
+    buckets?: MCPToolQualityRowBucket[]
+}
+
+export interface MCPToolQualityRowBucket {
+    /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"). */
+    bucket: string
+    calls: integer
+    errors: integer
+    /** 0 when no call in the bucket carried a duration. */
+    p95_duration_ms: number
 }
 
 export type MCPToolQualitySortColumn =
@@ -4343,6 +4360,8 @@ export interface MCPToolQualityRowsQuery extends DataNode<MCPToolQualityRowsQuer
     limit?: integer
     /** Number of matching tools to skip. */
     offset?: integer
+    /** Bucket granularity of each row's volume chart. Defaults to day. */
+    interval?: IntervalType
 }
 
 export type CachedMCPToolQualityRowsQueryResponse = CachedQueryResponse<MCPToolQualityRowsQueryResponse>
@@ -4365,6 +4384,20 @@ export interface MCPToolQualityDailyStatItem {
 
 export interface MCPToolQualityDailyStatsQueryResponse extends AnalyticsQueryResponseBase {
     results: MCPToolQualityDailyStatItem[]
+    /** Window totals and the previous period's, set only when the query asks for them. */
+    totals?: MCPToolQualityTotals
+}
+
+export interface MCPToolQualityTotals {
+    calls: integer
+    errors: integer
+    p50: number
+    p95: number
+    previous_calls: integer
+    previous_errors: integer
+    /** null when no call in the previous period carried a duration. */
+    previous_p50: number | null
+    previous_p95: number | null
 }
 
 /** Interval-bucketed activity series for the Tool quality tab (optionally scoped to one tool). */
@@ -4379,6 +4412,10 @@ export interface MCPToolQualityDailyStatsQuery extends DataNode<MCPToolQualityDa
     categories?: string[]
     /** Restrict to a single $mcp_tool_name; omitted means the aggregate across all tools. */
     toolName?: string
+    /** Also return window totals and the previous period's, for the Tool quality tiles. */
+    includeTotals?: boolean
+    /** Case-insensitive substring search on the effective tool name, so the tiles match the searched table. */
+    search?: string
 }
 
 export type CachedMCPToolQualityDailyStatsQueryResponse = CachedQueryResponse<MCPToolQualityDailyStatsQueryResponse>
@@ -4529,6 +4566,13 @@ export interface MCPMissingCapabilitiesItem {
     distinct_id: string
     /** JSON-encoded person email/name for display; "{}" when neither resolved. */
     person_properties: string
+    /** The model the agent self-reported, from $mcp_llm_model; empty when the report did not say. */
+    model: string
+    /** The change the agent suggested, from $mcp_feedback_suggested_improvement; empty when it gave none. */
+    suggested_improvement: string
+    /** Whether the agent says it still finished the user's task, from $mcp_feedback_task_completed (or an in-app
+     * report's blocked flag): "blocked", "completed", or "not_reported" when the report did not say. */
+    outcome: string
 }
 
 export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryResponseBase {
@@ -4543,8 +4587,12 @@ export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabili
     dateRange?: DateRange
     /** Exclude reports from the project's internal and test users. */
     filterTestAccounts?: boolean
+    /** Property filters applied to the report events, such as the shared harness and model filters. */
+    properties?: MCPAnalyticsPropertyFilter[]
     /** Case-insensitive substring match over the report text. */
     search?: string
+    /** Only reports with one of these outcomes: "blocked", "completed" or "not_reported". */
+    outcomes?: string[]
     /** Page size; defaults to 100, capped at 500. */
     limit?: integer
     /** Reports to skip before returning results. Combine with limit to page through them;

@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
+import { VolumeSparkline } from 'lib/components/VolumeSparkline/VolumeSparkline'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -23,7 +24,6 @@ import { IssueSeverityTag } from '../IssueSeverityTag'
 import { IssueStatusSelect } from '../IssueStatusSelect'
 import { RuntimeIcon } from '../RuntimeIcon'
 import { CustomSeparator } from '../TableColumns'
-import { VolumeSparkline } from '../VolumeSparkline/VolumeSparkline'
 
 /** Issue (flex) + volume sparkline + occurrences count. Fixed side columns so headers fit in dashboard tiles. */
 export const ERROR_TRACKING_ISSUE_LIST_GRID_COLS = 'grid-cols-[minmax(0,1fr)_5.5rem_7rem]' as const

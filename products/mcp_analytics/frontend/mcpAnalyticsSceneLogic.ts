@@ -12,6 +12,7 @@ export type MCPAnalyticsTab =
     | 'activity'
     | 'dashboard'
     | 'sessions'
+    | 'people'
     | 'tool-quality'
     | 'intent-clustering'
     | 'missing-capabilities'
@@ -21,6 +22,7 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
     activity: 'Live feed of tool calls and what agents are trying to do with your MCP server.',
     dashboard: 'Tool call volume, error rates, and latency across your MCP server.',
     sessions: 'Sessions where users interacted with your MCP tools.',
+    people: 'Who calls your MCP server, and how each person uses it.',
     'tool-quality': 'Understand how reliably your MCP tools support user workflows.',
     'intent-clustering':
         'Cluster semantically similar user intents and see which tools each cluster routes to. Highlights inconsistent routing.',
@@ -33,6 +35,7 @@ const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
     mcpAnalyticsActivity: 'activity',
     mcpAnalyticsDashboard: 'dashboard',
     mcpAnalyticsSessions: 'sessions',
+    mcpAnalyticsPeople: 'people',
     mcpAnalyticsToolQuality: 'tool-quality',
     mcpAnalyticsIntentClustering: 'intent-clustering',
     mcpAnalyticsMissingCapabilities: 'missing-capabilities',

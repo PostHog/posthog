@@ -384,6 +384,8 @@ export function DataTable({
           ? sessionGroupTypes
           : eventGroupTypes
 
+    // A date label spans the row from the first column that shows. `*` never shows.
+    const labelColumnIndex = columnsInLemonTable.findIndex((column) => column !== '*')
     // Memoized so the columns array keeps its identity between data refreshes: LemonTable derives
     // column groups from it and passes those to every memoized TableRow, so a per-render rebuild
     // here re-renders every row each poll cycle. Intentionally NOT keyed on the response itself.
@@ -409,7 +411,7 @@ export function DataTable({
                             rowCount: number
                         ) {
                             if (label) {
-                                if (index === (expandable ? 1 : 0)) {
+                                if (index === labelColumnIndex) {
                                     return {
                                         children: label,
                                         props: { colSpan: columnsInLemonTable.length + (recordingColumnShown ? 1 : 0) },
@@ -771,7 +773,7 @@ export function DataTable({
             query,
             setQuery,
             context,
-            expandable,
+            labelColumnIndex,
             recordingColumnShown,
             sourceFeatures,
             isReadOnly,

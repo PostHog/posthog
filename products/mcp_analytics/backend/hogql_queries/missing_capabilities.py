@@ -49,6 +49,15 @@ MAX_LIMIT = 500
 # `properties.$mcp_intent` returns the raw JSON text, which keeps escapes such as `\n` and `\"`.
 # A send_feedback report puts a blank line between its summary and details, so decode the string.
 _REPORT_TEXT = "JSONExtractString(properties, '$mcp_intent')"
+# send_feedback sends $mcp_feedback_task_completed, in-app reports missing_capability_blocked.
+_OUTCOME = (
+    "multiIf("
+    "JSONExtractRaw(properties, '$mcp_feedback_task_completed') = 'false'"
+    " OR JSONExtractRaw(properties, 'missing_capability_blocked') = 'true', 'blocked', "
+    "JSONExtractRaw(properties, '$mcp_feedback_task_completed') = 'true'"
+    " OR JSONExtractRaw(properties, 'missing_capability_blocked') = 'false', 'completed', "
+    "'not_reported')"
+)
 
 
 class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabilitiesQueryResponse]):
@@ -86,8 +95,18 @@ class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabi
                 "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
             ),
             parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
-            *shared_filter_exprs(self.team, None, self.query.filterTestAccounts),
+            *shared_filter_exprs(self.team, self.query.properties, self.query.filterTestAccounts),
         ]
+        if self.query.outcomes:
+            exprs.append(
+                parse_expr(
+                    "has({wanted}, {outcome})",
+                    placeholders={
+                        "outcome": parse_expr(_OUTCOME),
+                        "wanted": ast.Array(exprs=[ast.Constant(value=outcome) for outcome in self.query.outcomes]),
+                    },
+                )
+            )
         term = (self.query.search or "").strip()
         if term:
             exprs.append(
@@ -119,7 +138,10 @@ class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabi
                 session_id,
                 distinct_id,
                 person_email,
-                person_name
+                person_name,
+                model,
+                suggested_improvement,
+                outcome
             FROM (
                 SELECT
                     timestamp AS sort_ts,
@@ -129,6 +151,9 @@ class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabi
                     distinct_id,
                     toString(person.properties.email) AS person_email,
                     toString(person.properties.name) AS person_name,
+                    JSONExtractString(properties, '$mcp_llm_model') AS model,
+                    JSONExtractString(properties, '$mcp_feedback_suggested_improvement') AS suggested_improvement,
+                    {outcome} AS outcome,
                     {token} AS h,
                     {display_name} AS client_display
                 FROM events
@@ -144,6 +169,7 @@ class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabi
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "display_name": parse_expr(mcp_harness.HARNESS_DISPLAY_NAME_SQL),
                 "report_text": parse_expr(_REPORT_TEXT),
+                "outcome": parse_expr(_OUTCOME),
                 "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "where": self._where(),
                 # Over-fetch one row to detect the next page without a separate count query.
@@ -179,6 +205,9 @@ class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabi
                 distinct_id=str(row[4] or ""),
                 # Only the fields the person cell renders, not the whole properties blob.
                 person_properties=display_person_properties(email=str(row[5] or ""), name=str(row[6] or "")),
+                model=str(row[7] or ""),
+                suggested_improvement=str(row[8] or ""),
+                outcome=str(row[9] or ""),
             )
             for row in rows[: self.limit]
         ]

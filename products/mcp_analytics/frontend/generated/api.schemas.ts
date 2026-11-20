@@ -793,6 +793,10 @@ export type McpAnalyticsSessionsListParams = {
      */
     date_to?: string
     /**
+     * Only sessions where the agent sent feedback or reported a missing capability.
+     */
+    feedback_only?: boolean
+    /**
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */
     filter_test_accounts?: boolean

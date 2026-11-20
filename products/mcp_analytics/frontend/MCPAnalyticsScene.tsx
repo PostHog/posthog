@@ -21,6 +21,7 @@ import { MCPAnalyticsActivityDashboard } from './earlyData/MCPAnalyticsEarlyData
 import { mcpAnalyticsEmptyState } from './emptyState/mcpAnalyticsEmptyState'
 import { FirstDataSeen } from './FirstDataSeen'
 import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
+import { pickSharedFilterParams } from './mcpAnalyticsFiltersLogic'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
@@ -28,6 +29,7 @@ import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPAnalyticsMissingCapabilities } from './missingCapabilities/MCPAnalyticsMissingCapabilities'
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
+import { MCPAnalyticsPeople } from './people/MCPAnalyticsPeople'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 import { MCPSetupMode } from './setupMode/MCPSetupMode'
 import { SetupGuideButton } from './setupMode/SetupGuideButton'
@@ -63,10 +65,9 @@ function MCPAnalyticsSceneBody(): JSX.Element {
         return <NotFound object="page" />
     }
 
-    // landing is a one-shot redirect marker, while search belongs to Sessions and Missing capabilities.
-    // The date range stays shared across every tab.
-    const { landing: _landing, ...tabParams } = searchParams
-    const { search: _search, ...sharedParams } = tabParams
+    // Only the shared filters and search carry across tabs.
+    const sharedParams = pickSharedFilterParams(searchParams)
+    const tabParams = searchParams.search ? { ...sharedParams, search: searchParams.search } : sharedParams
 
     const activityTab: LemonTab<MCPAnalyticsTab> = {
         key: 'activity',
@@ -92,6 +93,13 @@ function MCPAnalyticsSceneBody(): JSX.Element {
             content: <MCPSessionsPlaylist />,
             link: combineUrl(urls.mcpAnalyticsSessions(), tabParams).url,
             'data-attr': 'mcp-analytics-sessions-tab',
+        },
+        {
+            key: 'people',
+            label: 'People',
+            content: <MCPAnalyticsPeople />,
+            link: combineUrl(urls.mcpAnalyticsPeople(), tabParams).url,
+            'data-attr': 'mcp-analytics-people-tab',
         },
         {
             key: 'tool-quality',

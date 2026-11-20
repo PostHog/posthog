@@ -1,150 +1,180 @@
 import { useActions, useValues } from 'kea'
 
 import * as puzzlePng from '@posthog/brand/hoggies/png/puzzle'
-import { IconBook, IconMCP } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonTable } from '@posthog/lemon-ui'
+import { IconLightBulb, IconPlug } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
+import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import type { ProductEmptyStateConfig } from 'lib/components/ProductEmptyState/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { Toggle, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
+import { cn } from 'lib/utils/css-classes'
+import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 
-import { MCPMissingCapabilitiesItem } from '~/queries/schema/schema-general'
+import { MCPMissingCapabilitiesItem, ProductKey } from '~/queries/schema/schema-general'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
+import { labMark, modelLab } from '../aiLabs'
 import { McpDateFilter } from '../components/McpDateFilter'
-import { McpInternalUsersFilter } from '../components/McpInternalUsersFilter'
+import { MCP_FILTER_ACTIVE_CLASS, McpFacetSelect } from '../components/McpFacetSelect'
+import { McpFacetControl, McpSharedFilters } from '../components/McpSharedFilters'
 import { HarnessLogo } from '../dashboard/harness'
-import { useMCPAnalyticsWizardCommand } from '../onboarding/MCPAnalyticsInstall'
-import { isUnidentifiedClient, mcpMissingCapabilitiesLogic, parsePersonProperties } from './mcpMissingCapabilitiesLogic'
+import { isUnidentifiedClient } from '../dashboard/harnessRegistry'
+import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
+import {
+    DEFAULT_DATE_FILTER,
+    REPORT_OUTCOMES,
+    ReportOutcome,
+    mcpMissingCapabilitiesLogic,
+    parsePersonProperties,
+} from './mcpMissingCapabilitiesLogic'
 import { MissingCapabilitiesPreview } from './MissingCapabilitiesPreview'
+import { MissingCapabilitySessionDrawer } from './MissingCapabilitySessionDrawer'
 
 const MISSING_CAPABILITY_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/missing-capability'
-const ACCENT_TEXT = 'text-[var(--empty-state-accent)] dark:text-[var(--empty-state-accent-dark)]'
 
 const HedgehogPuzzle = pngHoggie(puzzlePng)
 
+// Reports carry the client and, from send_feedback, the model, but no tool, error or duration.
+const REPORT_FACET_CONTROLS: readonly McpFacetControl[] = ['harness', 'model']
+
 function FilterBar(): JSX.Element {
-    const { search, dateFilter } = useValues(mcpMissingCapabilitiesLogic)
-    const { setSearch, setDateFilter } = useActions(mcpMissingCapabilitiesLogic)
+    const { search, dateFilter, reportsLoading, outcomes, hasSuggestedFix } = useValues(mcpMissingCapabilitiesLogic)
+    const { setSearch, setDateFilter, loadReports, setOutcomes, setHasSuggestedFix } =
+        useActions(mcpMissingCapabilitiesLogic)
 
     return (
-        <div className="flex flex-wrap items-center gap-2">
-            <LemonInput
-                type="search"
-                placeholder="Search what agents asked for"
+        <McpSharedFilters
+            pageKey="mcp-missing-capabilities"
+            dataAttrPrefix="mcp-missing-capabilities"
+            facetControls={REPORT_FACET_CONTROLS}
+            pageFacets={
+                <>
+                    <McpFacetSelect
+                        label="Outcome"
+                        options={OUTCOME_OPTIONS}
+                        value={outcomes.map((outcome) => REPORT_OUTCOMES[outcome])}
+                        onChange={(labels) =>
+                            setOutcomes(OUTCOME_KEYS.filter((key) => labels.includes(REPORT_OUTCOMES[key])))
+                        }
+                        dataAttr="mcp-missing-capabilities-filter-outcome"
+                    />
+                    <Tooltip>
+                        <TooltipTrigger
+                            render={
+                                <Toggle
+                                    variant="outline"
+                                    pressed={hasSuggestedFix}
+                                    onPressedChange={setHasSuggestedFix}
+                                    className={cn(hasSuggestedFix && MCP_FILTER_ACTIVE_CLASS)}
+                                    data-attr="mcp-missing-capabilities-filter-suggested-fix"
+                                />
+                            }
+                        >
+                            <IconLightBulb />
+                            Suggested fix
+                        </TooltipTrigger>
+                        <TooltipContent>Reports where the agent suggested a fix</TooltipContent>
+                    </Tooltip>
+                </>
+            }
+            hasPageFilters={outcomes.length > 0 || hasSuggestedFix}
+            onClearPageFilters={() => {
+                setOutcomes([])
+                setHasSuggestedFix(false)
+            }}
+            onRefresh={loadReports}
+            refreshing={reportsLoading}
+        >
+            <AnalyticsSearchInput
                 value={search}
                 onChange={setSearch}
-                className="min-w-60 flex-1"
-                data-attr="mcp-missing-capabilities-search"
+                label="Search what agents asked for"
+                placeholder="Search what agents asked for"
+                dataAttr="mcp-missing-capabilities-search"
+                className="max-w-64 min-w-32 flex-[1_1_8rem]"
             />
             <McpDateFilter
                 dateFrom={dateFilter.dateFrom}
                 dateTo={dateFilter.dateTo}
-                onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                onChange={setDateFilter}
                 dataAttr="mcp-missing-capabilities-date-filter"
             />
-            <McpInternalUsersFilter dataAttr="mcp-missing-capabilities-test-account-filter" />
-        </div>
+        </McpSharedFilters>
     )
 }
 
-/**
- * This tab is already inside a configured product, so it cannot use the scene-level setup gate.
- * An empty date range keeps the filters visible and explains how to enable report collection.
- */
+// Rendered by hand: the product is set up, and skipping would hide its whole gate.
+const NO_REPORTS_EMPTY_STATE: ProductEmptyStateConfig = {
+    productKey: ProductKey.MCP_ANALYTICS,
+    productName: 'Missing capabilities',
+    icon: <IconPlug />,
+    accentColor: 'var(--color-product-mcp-analytics-light)',
+    accentColorDark: 'var(--color-product-mcp-analytics-dark)',
+    hedgehog: HedgehogPuzzle,
+    text: {
+        'needs-setup': {
+            headline: "Hear what your agents couldn't do",
+            lead: "Agents can report a missing capability when the available tools can't complete a task. Each report shows what they wanted and, often, the fix that would have helped.",
+        },
+    },
+    wizard: { slug: 'mcp-analytics', pinProjectId: true },
+    manualSetupUrl: MISSING_CAPABILITY_DOCS_URL,
+    statusIndicator: (
+        <span className="text-tertiary">
+            Run Wizard from your MCP server&apos;s project root. The setup agent turns on reporting.
+        </span>
+    ),
+    previewLabel: 'Reports, once agents send them',
+    Preview: MissingCapabilitiesPreview,
+    skippable: false,
+}
+
 function NoReportsState(): JSX.Element {
-    const { command, isCloudOrDev } = useMCPAnalyticsWizardCommand()
-
     return (
-        <div
-            className="grid w-full grid-cols-1 items-center gap-8 py-4 md:grid-cols-[minmax(0,1fr)_40%]"
-            style={
-                {
-                    '--empty-state-accent': 'var(--color-product-mcp-analytics-light)',
-                    '--empty-state-accent-dark': 'var(--color-product-mcp-analytics-dark)',
-                } as React.CSSProperties
-            }
-            data-attr="mcp-missing-capabilities-empty"
-        >
-            <div className="flex min-w-0 flex-col gap-4">
-                <div className="flex items-start gap-4">
-                    <HedgehogPuzzle className="hidden w-24 shrink-0 sm:block" />
-                    <div className="flex flex-col gap-1">
-                        <div className={`inline-flex items-center gap-1.5 text-sm font-semibold ${ACCENT_TEXT}`}>
-                            <IconMCP className="text-base" />
-                            Missing capabilities
-                        </div>
-                        <h3 className="m-0 text-xl font-semibold">No reports in this date range</h3>
-                        <p className="m-0 text-sm text-secondary">
-                            Agents can report a missing capability when the available tools cannot complete a task. Each
-                            report appears here with the most recent first.
-                        </p>
-                    </div>
-                </div>
-
-                {/* Wizard commands only work against cloud; self-hosted gets the manual path promoted instead. */}
-                {isCloudOrDev ? (
-                    <div className="flex flex-col gap-2">
-                        <p className="m-0 text-xs text-tertiary">
-                            Run Wizard from your MCP server&apos;s project root. The setup agent enables reporting:
-                        </p>
-                        <CommandBlock
-                            command={command}
-                            copyLabel="MCP analytics Wizard command"
-                            ariaLabel="Copy MCP analytics Wizard command"
-                            size="md"
-                            decoration="rainbow"
-                            className="bg-bg-light border border-border hover:border-primary"
-                        />
-                    </div>
-                ) : null}
-
-                <p className="m-0 text-xs text-tertiary">
-                    {isCloudOrDev ? 'To configure reporting manually, set' : 'Set'} <code>collectFeedback: true</code>{' '}
-                    (TypeScript) or <code>collect_feedback=True</code> (Python) when you initialize the PostHog MCP SDK,
-                    and agents get a <code>send_feedback</code> tool they can call when they&apos;re stuck. Ruby uses{' '}
-                    <code>report_missing: true</code> and Go uses <code>WithMissingCapabilityTool</code> instead, and
-                    those reports appear here too.
-                </p>
-
-                <LemonButton
-                    type={isCloudOrDev ? 'tertiary' : 'primary'}
-                    size={isCloudOrDev ? 'xsmall' : 'small'}
-                    icon={<IconBook />}
-                    to={MISSING_CAPABILITY_DOCS_URL}
-                    targetBlank
-                    className="self-start"
-                >
-                    {isCloudOrDev ? 'Read the setup docs' : 'Set up missing-capability reports'}
-                </LemonButton>
-            </div>
-
-            <div
-                className="hidden min-w-0 flex-col justify-center gap-3 rounded-md border border-primary p-10 md:flex dark:[--empty-state-accent:var(--empty-state-accent-dark)]"
-                style={{
-                    backgroundImage:
-                        'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',
-                }}
-            >
-                <div className="flex items-center gap-2 text-xs font-semibold text-secondary">
-                    <span
-                        className="size-2 animate-pulse rounded-full bg-[var(--empty-state-accent)] motion-reduce:animate-none dark:bg-[var(--empty-state-accent-dark)]"
-                        aria-hidden="true"
-                    />
-                    Example reports
-                </div>
-                <MissingCapabilitiesPreview />
-            </div>
+        <div data-attr="mcp-missing-capabilities-empty">
+            {/* preview: stays out of setup-funnel events. */}
+            <ProductEmptyState config={NO_REPORTS_EMPTY_STATE} mode="needs-setup" preview />
         </div>
     )
 }
 
-function NoSearchResultsState({ search }: { search: string }): JSX.Element {
+function NoMatchesState({ search }: { search: string }): JSX.Element {
     return (
         <div className="p-6 text-center text-sm text-secondary">
-            No reports match “{search}”. Try a broader term or a wider date range.
+            {search
+                ? `No reports match “${search}”. Try a broader term or a wider date range.`
+                : 'No reports match these filters. Try a wider date range or clear the filters.'}
         </div>
+    )
+}
+
+const OUTCOME_KEYS = Object.keys(REPORT_OUTCOMES) as ReportOutcome[]
+const OUTCOME_OPTIONS = OUTCOME_KEYS.map((key) => ({ value: REPORT_OUTCOMES[key], calls: 0 }))
+
+const OUTCOME_HELP =
+    "Whether the agent says it still finished the user's task despite the gap. Blocked: it could not. Completed anyway: it found another way. Not reported: the report did not say, which is always the case for get_more_tools reports."
+const SUGGESTED_HELP =
+    'The change the agent says would have helped, such as a tool to add, from its send_feedback report.'
+
+function AskCell({ row }: { row: MCPMissingCapabilitiesItem }): JSX.Element {
+    return row.intent ? <span>{row.intent}</span> : <span className="text-muted">No description given</span>
+}
+
+function ModelCell({ model }: { model: string }): JSX.Element {
+    if (!model) {
+        return <span className="text-muted">—</span>
+    }
+    return (
+        <span className="flex max-w-28 items-center gap-1.5">
+            <BrandMark name={labMark(modelLab(model))} />
+            <span className="truncate" title={model}>
+                {model}
+            </span>
+        </span>
     )
 }
 
@@ -157,8 +187,8 @@ function ClientCell({ harness }: { harness: string }): JSX.Element {
         )
     }
     return (
-        <span className="flex items-center gap-1.5">
-            <HarnessLogo category={harness} className="h-3.5 w-3.5" />
+        <span className="flex max-w-28 items-center gap-1.5">
+            <HarnessLogo category={harness} className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate" title={harness}>
                 {harness}
             </span>
@@ -167,15 +197,35 @@ function ClientCell({ harness }: { harness: string }): JSX.Element {
 }
 
 export function MCPAnalyticsMissingCapabilities(): JSX.Element {
-    const { reports, reportsError, reportsLoading, hasNext, search } = useValues(mcpMissingCapabilitiesLogic)
-    const { loadReports, loadMoreReports } = useActions(mcpMissingCapabilitiesLogic)
+    const {
+        reports,
+        reportsError,
+        reportsLoading,
+        hasNext,
+        search,
+        openedReport,
+        dateFilter,
+        outcomes,
+        hasSuggestedFix,
+    } = useValues(mcpMissingCapabilitiesLogic)
+    const { loadReports, loadMoreReports, openReport } = useActions(mcpMissingCapabilitiesLogic)
+    const { propertyFilters, hasActiveFacetFilters } = useValues(mcpAnalyticsFiltersLogic)
 
     const initialLoadFailed = Boolean(reportsError) && reports.length === 0
-    const noReports = !reportsLoading && !reportsError && reports.length === 0 && !search
+    // Under a filter, empty means no matches, so keep the filter bar.
+    const filtered =
+        !!search ||
+        propertyFilters.length > 0 ||
+        hasActiveFacetFilters ||
+        outcomes.length > 0 ||
+        hasSuggestedFix ||
+        dateFilter.dateFrom !== DEFAULT_DATE_FILTER.dateFrom ||
+        dateFilter.dateTo !== DEFAULT_DATE_FILTER.dateTo
+    const noReports = !reportsLoading && !reportsError && reports.length === 0 && !filtered
 
     return (
         <div className="flex flex-col gap-4" data-attr="mcp-analytics-missing-capabilities">
-            <FilterBar />
+            {noReports ? null : <FilterBar />}
             {reportsError ? (
                 <LemonBanner type="error">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -199,45 +249,86 @@ export function MCPAnalyticsMissingCapabilities(): JSX.Element {
                     dataSource={reports}
                     loading={reportsLoading && reports.length === 0}
                     rowKey={(row, index) => `${row.timestamp}-${index}`}
-                    emptyState={<NoSearchResultsState search={search} />}
+                    emptyState={<NoMatchesState search={search} />}
+                    onRow={(row) => ({
+                        onClick: () => openReport(row),
+                        className: 'cursor-pointer',
+                        'data-attr': 'mcp-missing-capabilities-row',
+                    })}
+                    rowStatus={(row) => (row === openedReport ? 'highlighted' : null)}
                     columns={[
-                        {
-                            title: 'When',
-                            key: 'timestamp',
-                            width: 130,
-                            render: (_, row) => <TZLabel time={row.timestamp} />,
-                        },
                         {
                             title: 'The ask',
                             key: 'intent',
+                            className: 'min-w-48',
+                            render: (_, row) => <AskCell row={row} />,
+                        },
+                        {
+                            title: 'Suggested fix',
+                            key: 'suggested_improvement',
+                            className: 'min-w-44',
+                            tooltip: SUGGESTED_HELP,
                             render: (_, row) =>
-                                row.intent ? (
-                                    <span className="text-base">{row.intent}</span>
+                                row.suggested_improvement ? (
+                                    <span className="text-secondary">{row.suggested_improvement}</span>
                                 ) : (
-                                    // The agent filed a report without saying what it wanted.
-                                    <span className="text-muted text-base">No description given</span>
+                                    <span className="text-muted">—</span>
                                 ),
                         },
                         {
-                            title: 'Client',
+                            title: 'Outcome',
+                            key: 'outcome',
+                            width: 110,
+                            tooltip: OUTCOME_HELP,
+                            render: (_, row) =>
+                                row.outcome === 'blocked' ? (
+                                    <LemonTag type="danger" size="small">
+                                        {REPORT_OUTCOMES.blocked}
+                                    </LemonTag>
+                                ) : row.outcome === 'completed' ? (
+                                    <LemonTag type="muted" size="small">
+                                        {REPORT_OUTCOMES.completed}
+                                    </LemonTag>
+                                ) : (
+                                    <span className="text-muted">{REPORT_OUTCOMES.not_reported}</span>
+                                ),
+                        },
+                        {
+                            title: 'Harness',
                             key: 'harness',
-                            width: 170,
+                            width: 120,
                             render: (_, row) => <ClientCell harness={row.harness} />,
+                        },
+                        {
+                            title: 'Model',
+                            key: 'model',
+                            width: 110,
+                            render: (_, row) => <ModelCell model={row.model} />,
                         },
                         {
                             title: 'Person',
                             key: 'person',
                             width: 200,
                             render: (_, row) => (
-                                <PersonDisplay
-                                    person={{
-                                        distinct_id: row.distinct_id,
-                                        properties: parsePersonProperties(row.person_properties),
-                                    }}
-                                    withIcon
-                                    noPopover={false}
-                                />
+                                // The person popover takes the click, so it does not also open the session.
+                                <span className="block max-w-32 truncate" onClick={(event) => event.stopPropagation()}>
+                                    <PersonDisplay
+                                        person={{
+                                            distinct_id: row.distinct_id,
+                                            properties: parsePersonProperties(row.person_properties),
+                                        }}
+                                        withIcon
+                                        noPopover={false}
+                                    />
+                                </span>
                             ),
+                        },
+                        {
+                            title: 'When',
+                            key: 'timestamp',
+                            width: 90,
+                            align: 'right',
+                            render: (_, row) => <TZLabel time={row.timestamp} />,
                         },
                     ]}
                 />
@@ -255,6 +346,7 @@ export function MCPAnalyticsMissingCapabilities(): JSX.Element {
                     </LemonButton>
                 </div>
             ) : null}
+            <MissingCapabilitySessionDrawer reports={reports} openedReport={openedReport} onOpen={openReport} />
         </div>
     )
 }

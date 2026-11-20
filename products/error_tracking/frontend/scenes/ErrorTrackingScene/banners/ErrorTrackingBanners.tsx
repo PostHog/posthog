@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
+import { BannerDeck } from 'lib/components/BannerDeck/BannerDeck'
+
 import { AlertsBanner } from './AlertsBanner'
-import { BannerDeck } from './BannerDeck'
 import { ErrorTrackingBannerKey } from './bannerQueue'
 import { errorTrackingBannersLogic } from './errorTrackingBannersLogic'
 import { RateLimitsBanner } from './RateLimitsBanner'
@@ -41,6 +42,8 @@ export function ErrorTrackingBanners(): JSX.Element | null {
                 onPrevious={showPreviousBanner}
                 onNext={showNextBanner}
                 renderCurrent={(navigation) => renderBanner(currentBanner, navigation)}
+                // pinned: data-attr values — autocapture dashboards key on them
+                dataAttrPrefix="error-tracking-banners"
             />
         </div>
     )

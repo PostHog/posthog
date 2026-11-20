@@ -81,6 +81,8 @@ export interface AgentPromptButtonProps {
     excludeAgentKeys?: AgentPromptDestination[]
     /** `destination` names the agent on the main button ("Open in Cursor") instead of the prompt ("Open Fix prompt"). */
     labelMode?: 'action' | 'destination'
+    /** Text before the agent name in destination mode, e.g. "Fix in". */
+    destinationVerb?: string
     /** Fixed text for the main button in place of `labelMode`; the tooltip still names what a click runs. */
     label?: string
     /** Extra classes for the dropdown menu, e.g. a higher z-index when the button sits inside a toast. */
@@ -304,6 +306,7 @@ export function AgentPromptButton({
     pinnedAgentKey,
     excludeAgentKeys,
     labelMode = 'action',
+    destinationVerb = 'Open in',
     label,
     menuClassName,
     onOpenChange,
@@ -341,7 +344,7 @@ export function AgentPromptButton({
         availableAgents.find((a) => a.key === (pinnedAgentKey ?? rememberedAgentKey)) ?? availableAgents[0]
     const comboLabel =
         labelMode === 'destination' && activeAgent.key !== 'clipboard'
-            ? `Open in ${activeAgent.name}`
+            ? `${destinationVerb} ${activeAgent.name}`
             : `${activeAgent.verb} ${activeAction.label}`
 
     const groupButtonClassName = bordered ? undefined : 'border-0'

@@ -2319,6 +2319,18 @@ class MCPMissingCapabilitiesItem(BaseModel):
         ...,
         description=("The agent's own words for the capability it wanted, from $mcp_intent."),
     )
+    model: str = Field(
+        ...,
+        description=("The model the agent self-reported, from $mcp_llm_model; empty when the report did not say."),
+    )
+    outcome: str = Field(
+        ...,
+        description=(
+            "Whether the agent says it still finished the user's task, from"
+            " $mcp_feedback_task_completed (or an in-app report's blocked flag):"
+            ' "blocked", "completed", or "not_reported" when the report did not say.'
+        ),
+    )
     person_properties: str = Field(
         ...,
         description=('JSON-encoded person email/name for display; "{}" when neither resolved.'),
@@ -2326,6 +2338,12 @@ class MCPMissingCapabilitiesItem(BaseModel):
     session_id: str = Field(
         ...,
         description=("Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set."),
+    )
+    suggested_improvement: str = Field(
+        ...,
+        description=(
+            "The change the agent suggested, from $mcp_feedback_suggested_improvement; empty when it gave none."
+        ),
     )
     timestamp: str
 
@@ -7164,9 +7182,34 @@ class MCPToolQualityDailyStatItem(BaseModel):
     p99: float
 
 
+class MCPToolQualityRowBucket(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket: str = Field(
+        ...,
+        description=('Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss").'),
+    )
+    calls: int
+    errors: int
+    p95_duration_ms: float = Field(..., description="0 when no call in the bucket carried a duration.")
+
+
 class MCPToolQualityRowItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    buckets: list[MCPToolQualityRowBucket] | None = Field(
+        default=None,
+        description=("Calls, errors and p95 per interval in the current window, for the row's volume chart."),
+    )
+    category: str | None = Field(
+        default=None,
+        description="The $mcp_tool_category from the tool's latest call that sent one.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="The description from the tool's latest call that sent one.",
     )
     error_rate_pct: float
     errors: int
@@ -7204,6 +7247,20 @@ class MCPToolQualityRowItem(BaseModel):
         ),
     )
     users: int
+
+
+class MCPToolQualityTotals(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    calls: int
+    errors: int
+    p50: float
+    p95: float
+    previous_calls: int
+    previous_errors: int
+    previous_p50: float | None = Field(..., description="null when no call in the previous period carried a duration.")
+    previous_p95: float | None = None
 
 
 class MCPToolStatsItem(BaseModel):
@@ -14647,6 +14704,10 @@ class CachedMCPToolQualityDailyStatsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totals: MCPToolQualityTotals | None = Field(
+        default=None,
+        description=("Window totals and the previous period's, set only when the query asks for them."),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -21965,6 +22026,10 @@ class MCPToolQualityDailyStatsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totals: MCPToolQualityTotals | None = Field(
+        default=None,
+        description=("Window totals and the previous period's, set only when the query asks for them."),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -28814,6 +28879,10 @@ class QueryResponseAlternative109(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    totals: MCPToolQualityTotals | None = Field(
+        default=None,
+        description=("Window totals and the previous period's, set only when the query asks for them."),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -33748,6 +33817,14 @@ class MCPMissingCapabilitiesQuery(BaseModel):
             " through them; the response's has_next flag indicates whether more remain."
         ),
     )
+    outcomes: list[str] | None = Field(
+        default=None,
+        description=('Only reports with one of these outcomes: "blocked", "completed" or "not_reported".'),
+    )
+    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = Field(
+        default=None,
+        description=("Property filters applied to the report events, such as the shared harness and model filters."),
+    )
     response: MCPMissingCapabilitiesQueryResponse | None = None
     search: str | None = Field(
         default=None,
@@ -33999,6 +34076,10 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    includeTotals: bool | None = Field(
+        default=None,
+        description=("Also return window totals and the previous period's, for the Tool quality tiles."),
+    )
     interval: IntervalType | None = Field(
         default=None,
         description=("Bucket granularity; the frontend passes getDefaultInterval. Defaults to day."),
@@ -34007,6 +34088,12 @@ class MCPToolQualityDailyStatsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter] | None = None
     response: MCPToolQualityDailyStatsQueryResponse | None = None
+    search: str | None = Field(
+        default=None,
+        description=(
+            "Case-insensitive substring search on the effective tool name, so the tiles match the searched table."
+        ),
+    )
     tags: QueryLogTags | None = None
     toolName: str | None = Field(
         default=None,
@@ -34025,6 +34112,10 @@ class MCPToolQualityRowsQuery(BaseModel):
     )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
+    interval: IntervalType | None = Field(
+        default=None,
+        description="Bucket granularity of each row's volume chart. Defaults to day.",
+    )
     kind: Literal["MCPToolQualityRowsQuery"] = "MCPToolQualityRowsQuery"
     limit: int | None = Field(
         default=None,

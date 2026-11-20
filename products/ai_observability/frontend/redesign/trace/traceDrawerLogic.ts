@@ -14,12 +14,12 @@ import {
 import { combineUrl, router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { shouldCloseOnEscape } from 'lib/components/DetailPanel/shouldCloseOnEscape'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { rawSearchParam } from './rawSearchParam'
 import { recordTraceViewed } from './recordTraceViewed'
-import { shouldCloseOnEscape } from './shouldCloseOnEscape'
 import { toFullPageListParams } from './traceBackLink'
 import { TRACE_DRAWER_LISTS, TraceDrawerListConfig, TraceDrawerListId } from './traceDrawerLists'
 import { TRACE_DRAWER_PARAMS, withoutTraceDrawerParams } from './traceDrawerRows'

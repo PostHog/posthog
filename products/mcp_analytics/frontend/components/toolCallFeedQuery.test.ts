@@ -12,10 +12,10 @@ import {
 } from './toolCallFeedQuery'
 
 describe('tool call feed queries', () => {
-    it('starts the expandable MCP activity feed at 100 rows with room to load more', () => {
+    it('starts the MCP activity feed at 100 rows with room to load more, opening rows in the drawer', () => {
         expect(DEFAULT_MCP_ACTIVITY_QUERY).toMatchObject({
             embedded: false,
-            expandable: true,
+            expandable: false,
             showCount: true,
             showDateRange: true,
             showPropertyFilter: expect.any(Array),

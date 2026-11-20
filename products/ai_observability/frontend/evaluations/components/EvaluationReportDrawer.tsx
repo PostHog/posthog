@@ -4,6 +4,8 @@ import { useRef } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { DetailPanel, isDetailPanelFullWidth } from 'lib/components/DetailPanel/DetailPanel'
+import { isOverlayOpen } from 'lib/components/DetailPanel/shouldCloseOnEscape'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
@@ -11,8 +13,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { DetailPanel, isDetailPanelFullWidth } from '../../redesign/shared/components/DetailPanel'
-import { isOverlayOpen } from '../../redesign/trace/shouldCloseOnEscape'
 import { ReportStepDirection, evaluationReportDrawerLogic } from '../evaluationReportDrawerLogic'
 import { evaluationReportLogic } from '../evaluationReportLogic'
 import { evaluationReportRunsLogic } from '../evaluationReportRunsLogic'

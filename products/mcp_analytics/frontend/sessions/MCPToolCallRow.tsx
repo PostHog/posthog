@@ -1,15 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useRef } from 'react'
 
-import { IconBolt, IconChevronDown, IconCopy, IconWarning } from '@posthog/icons'
+import { IconBolt, IconCopy, IconOpenSidebar, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { MCPToolCallApi } from '../generated/api.schemas'
-import { DateFilter, mcpToolReportUrl } from '../mcpAnalyticsToolQualityLogic'
 import { CreateFixTaskButton } from '../tool-quality/CreateFixTaskButton'
 import { MCPErrorContext, formatCapturedJson, formatErrorContext } from '../tool-quality/errorContext'
 import { MCPToolCallRowShell } from './MCPToolCallRowShell'
@@ -76,11 +74,20 @@ function FailureDetails({ toolCall }: { toolCall: MCPToolCallApi }): JSX.Element
     ) : null
 }
 
-function MCPToolCallDetails({ toolCall, sessionId }: { toolCall: MCPToolCallApi; sessionId: string }): JSX.Element {
+function MCPToolCallDetails({
+    toolCall,
+    sessionId,
+    onOpen,
+}: {
+    toolCall: MCPToolCallApi
+    sessionId: string
+    onOpen?: () => void
+}): JSX.Element {
     const failure = toolCall.is_error && toolCall.tool_name ? errorContext(toolCall, sessionId) : null
 
     return (
-        <div className="flex flex-col gap-2 pl-5 pt-1">
+        // Clicks here, such as selecting the JSON, keep the call open.
+        <div className="flex flex-col gap-2 pl-5 pt-1 cursor-default" onClick={(event) => event.stopPropagation()}>
             <CapturedJson
                 label="Arguments"
                 json={toolCall.parameters}
@@ -96,8 +103,11 @@ function MCPToolCallDetails({ toolCall, sessionId }: { toolCall: MCPToolCallApi;
             <div className="flex flex-wrap items-center gap-1">
                 {toolCall.event_id ? (
                     <LemonButton
+                        type="secondary"
                         size="xsmall"
-                        to={urls.event(toolCall.event_id, toolCall.timestamp)}
+                        icon={<IconOpenSidebar />}
+                        onClick={onOpen}
+                        to={onOpen ? undefined : urls.event(toolCall.event_id, toolCall.timestamp)}
                         data-attr="mcp-session-tool-call-view-event"
                     >
                         View event
@@ -135,7 +145,7 @@ function execCommandLabel({ tool_name, exec_verb, exec_target_tool }: MCPToolCal
         : [exec_verb, exec_target_tool].filter(Boolean).join(' ')
 }
 
-function MCPToolCallTitle({ toolCall, dateFilter }: { toolCall: MCPToolCallApi; dateFilter: DateFilter }): JSX.Element {
+function MCPToolCallTitle({ toolCall }: { toolCall: MCPToolCallApi }): JSX.Element {
     return (
         <div className="flex items-center gap-1.5 min-w-0">
             {toolCall.is_error ? (
@@ -143,17 +153,7 @@ function MCPToolCallTitle({ toolCall, dateFilter }: { toolCall: MCPToolCallApi; 
             ) : (
                 <IconBolt className="text-accent shrink-0 text-xs" />
             )}
-            {toolCall.tool_name ? (
-                <Link
-                    to={mcpToolReportUrl(toolCall.tool_name, dateFilter)}
-                    className="font-mono font-semibold truncate"
-                    tooltip="Open this tool's report"
-                >
-                    {toolCall.tool_name}
-                </Link>
-            ) : (
-                <span className="font-mono font-semibold truncate">unknown</span>
-            )}
+            <span className="font-mono font-semibold truncate">{toolCall.tool_name || 'unknown'}</span>
             {execCommandLabel(toolCall) ? (
                 <span className="font-mono text-secondary truncate">{execCommandLabel(toolCall)}</span>
             ) : null}
@@ -170,30 +170,34 @@ export function MCPToolCallRow({
     toolCall,
     sessionId,
     sessionStart,
-    dateFilter,
+    expanded,
+    onToggle,
+    focused = false,
+    onOpen,
 }: {
     toolCall: MCPToolCallApi
     sessionId: string
     sessionStart: string
-    dateFilter: DateFilter
+    expanded: boolean
+    onToggle: () => void
+    /** Scrolls into view. */
+    focused?: boolean
+    /** Opens the call's event in a drawer. Without it, View event goes to the event page. */
+    onOpen?: () => void
 }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
+    const headerRef = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        if (focused) {
+            headerRef.current?.scrollIntoView({ block: 'nearest' })
+        }
+    }, [focused])
     return (
-        <MCPToolCallRowShell isError={toolCall.is_error}>
-            <div className="flex items-center justify-between gap-2 text-xs">
-                <MCPToolCallTitle toolCall={toolCall} dateFilter={dateFilter} />
+        <MCPToolCallRowShell isError={toolCall.is_error} focused={focused} onClick={onToggle}>
+            <div ref={headerRef} className="flex items-center justify-between gap-2 text-xs">
+                <MCPToolCallTitle toolCall={toolCall} />
                 <div className="flex items-center gap-2 text-secondary whitespace-nowrap font-mono text-[11px]">
                     {toolCall.duration_ms != null ? <span>{formatDuration(toolCall.duration_ms)} ·</span> : null}
                     <span>{formatRelativeOffset(sessionStart, toolCall.timestamp)}</span>
-                    <LemonButton
-                        size="xsmall"
-                        noPadding
-                        icon={<IconChevronDown className={expanded ? 'rotate-180' : undefined} />}
-                        onClick={() => setExpanded(!expanded)}
-                        aria-expanded={expanded}
-                        tooltip={expanded ? 'Hide details' : 'Show arguments, result and actions'}
-                        data-attr="mcp-session-tool-call-expand"
-                    />
                 </div>
             </div>
 
@@ -206,7 +210,7 @@ export function MCPToolCallRow({
             ) : null}
             {toolCall.is_error ? <FailureDetails toolCall={toolCall} /> : null}
 
-            {expanded ? <MCPToolCallDetails toolCall={toolCall} sessionId={sessionId} /> : null}
+            {expanded ? <MCPToolCallDetails toolCall={toolCall} sessionId={sessionId} onOpen={onOpen} /> : null}
         </MCPToolCallRowShell>
     )
 }

@@ -2,11 +2,11 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
+import type { SparklineData } from 'lib/components/VolumeSparkline/types'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { DateRange, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
-import type { SparklineData } from '../components/VolumeSparkline/types'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../utils'
 

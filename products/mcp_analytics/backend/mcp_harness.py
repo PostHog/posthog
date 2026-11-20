@@ -111,7 +111,8 @@ _MAX_TOKEN_LABEL_LENGTH = 200
 def harness_label_sql(token_col: str = "h", custom_rules: Sequence[CustomHarnessRule] = ()) -> str:
     """Bucket a normalized harness token column into a customer label.
 
-    Every unrecognized token collapses into "Other", so the result is always one of
+    Every unrecognized token collapses into "Other" and a call with no identity signal is
+    UNIDENTIFIED_HARNESS_LABEL, so the result is always one of
     `HARNESS_LABELS` or a team's custom rule names. A custom rule is tried before the built-in
     buckets, so a team can also rename a built-in client. Callers that aggregate labels into a per-row array need that
     bound; callers that rank a top-N list should prefer `harness_label_or_token_sql`,
@@ -143,10 +144,7 @@ def harness_label_or_token_sql(
     """
     if not display_col.isidentifier():
         raise ValueError(f"display_col must be a SQL identifier, got {display_col!r}")
-    fallback = (
-        f"if({token_col} = '', '{UNIDENTIFIED_HARNESS_LABEL}', substring({display_col}, 1, {_MAX_TOKEN_LABEL_LENGTH}))"
-    )
-    return _label_multi_if(token_col, fallback, custom_rules)
+    return _label_multi_if(token_col, f"substring({display_col}, 1, {_MAX_TOKEN_LABEL_LENGTH})", custom_rules)
 
 
 def custom_arms_sql(token_col: str, custom_rules: Sequence[CustomHarnessRule]) -> str:
@@ -166,7 +164,8 @@ def _label_multi_if(token_col: str, fallback_sql: str, custom_rules: Sequence[Cu
     if not token_col.isidentifier():
         raise ValueError(f"token_col must be a SQL identifier, got {token_col!r}")
     return f"""multiIf(
-        {custom_arms_sql(token_col, custom_rules)}{token_col} = 'claude-code claude-desktop', 'Claude Desktop',
+        {custom_arms_sql(token_col, custom_rules)}{token_col} = '', '{UNIDENTIFIED_HARNESS_LABEL}',
+        {token_col} = 'claude-code claude-desktop', 'Claude Desktop',
         {token_col} = 'claude-code claude-vscode', 'Claude Code (VS Code)',
         startsWith({token_col}, 'claude-code sdk'), 'Claude Agent SDK',
         startsWith({token_col}, 'claude-code'), 'Claude Code',
@@ -215,8 +214,9 @@ def _label_multi_if(token_col: str, fallback_sql: str, custom_rules: Sequence[Cu
 # Every customer label `harness_label_sql` can emit. A unit test asserts this tuple
 # stays in step with the multiIf branches; the frontend registry's logo/colour keys
 # are cross-checked against it when the dashboard is rewired onto this runner.
-# `harness_label_or_token_sql` can also emit a raw token or UNIDENTIFIED_HARNESS_LABEL.
+# `harness_label_or_token_sql` can also emit a raw token.
 HARNESS_LABELS: tuple[str, ...] = (
+    UNIDENTIFIED_HARNESS_LABEL,
     "Claude Desktop",
     "Claude Code (VS Code)",
     "Claude Agent SDK",

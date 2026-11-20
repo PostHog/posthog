@@ -1,14 +1,29 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { urls } from 'scenes/urls'
 
 import { MCPMissingCapabilitiesItem, NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
+import {
+    DEFAULT_FACET_FILTERS,
+    McpFacetFilters,
+    facetPropertyFilters,
+    mcpAnalyticsFiltersLogic,
+    parseUrlBoolean,
+} from '../mcpAnalyticsFiltersLogic'
+
+export const REPORT_OUTCOMES = {
+    blocked: 'Blocked',
+    completed: 'Completed anyway',
+    not_reported: 'Not reported',
+} as const
+export type ReportOutcome = keyof typeof REPORT_OUTCOMES
 
 export interface MCPMissingCapabilitiesDateFilter {
     dateFrom: string | null
@@ -17,23 +32,35 @@ export interface MCPMissingCapabilitiesDateFilter {
 
 // 30 days, matching the window behind the Activity tab's report count (ACTIVITY_WINDOW),
 // so following that checklist link never shows fewer reports than the count promised.
-const DEFAULT_DATE_FILTER: MCPMissingCapabilitiesDateFilter = { dateFrom: '-30d', dateTo: null }
+export const DEFAULT_DATE_FILTER: MCPMissingCapabilitiesDateFilter = { dateFrom: '-30d', dateTo: null }
 
 const SEARCH_DEBOUNCE_MS = 300
 
 // One page of reports. Each "Load more" appends the next page.
 export const MISSING_CAPABILITIES_PAGE_SIZE = 50
 
-// This value mirrors mcp_harness.UNIDENTIFIED_HARNESS_LABEL. Keep the two in sync.
-export const UNIDENTIFIED_HARNESS_LABEL = 'Unidentified client'
-
-/** Whether a report tells us nothing about which client filed it.
- *
- * The SDK only stamps `$mcp_client_name` on `$mcp_initialize`, so a report may not
- * identify its client.
- */
-export function isUnidentifiedClient(harness: string): boolean {
-    return !harness || harness === UNIDENTIFIED_HARNESS_LABEL
+/** Shared property filters plus harness/model facets, optionally suggested fixes only. */
+export function reportProperties(
+    propertyFilters: AnyPropertyFilter[],
+    facetFilters: McpFacetFilters,
+    hasSuggestedFix: boolean
+): AnyPropertyFilter[] {
+    return [
+        ...propertyFilters.filter(isValidPropertyFilter),
+        ...facetPropertyFilters(
+            { ...DEFAULT_FACET_FILTERS, harnesses: facetFilters.harnesses, models: facetFilters.models },
+            null
+        ),
+        ...(hasSuggestedFix
+            ? [
+                  {
+                      type: PropertyFilterType.Event,
+                      key: '$mcp_feedback_suggested_improvement',
+                      operator: PropertyOperator.IsSet,
+                  } as AnyPropertyFilter,
+              ]
+            : []),
+    ]
 }
 
 /** Person email/name the backend packed into the row, for PersonDisplay. */
@@ -131,7 +158,7 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
 
     // The internal users toggle is shared with the other tabs, so it keeps its value across them.
     connect(() => ({
-        values: [mcpAnalyticsFiltersLogic, ['filterTestAccounts']],
+        values: [mcpAnalyticsFiltersLogic, ['filterTestAccounts', 'propertyFilters', 'facetFilters']],
     })),
 
     actions({
@@ -141,6 +168,9 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
         setSearch: (search: string) => ({ search }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setHasNext: (hasNext: boolean) => ({ hasNext }),
+        openReport: (report: MCPMissingCapabilitiesItem | null) => ({ report }),
+        setOutcomes: (outcomes: ReportOutcome[]) => ({ outcomes }),
+        setHasSuggestedFix: (hasSuggestedFix: boolean) => ({ hasSuggestedFix }),
     }),
 
     loaders(({ values, actions }) => ({
@@ -156,6 +186,8 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
                         kind: NodeKind.MCPMissingCapabilitiesQuery,
                         dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
                         filterTestAccounts: values.filterTestAccounts,
+                        properties: JSON.parse(values.reportPropertiesKey),
+                        outcomes: values.outcomes.length > 0 ? values.outcomes : undefined,
                         search: values.search || undefined,
                         limit: MISSING_CAPABILITIES_PAGE_SIZE,
                         offset: 0,
@@ -171,11 +203,13 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
                     // post-await list would corrupt it, so we both offset and merge from the
                     // snapshot and drop the page entirely if the query moved underneath us.
                     const baseReports = values.reports
-                    const { search, dateFilter, filterTestAccounts } = values
+                    const { search, dateFilter, filterTestAccounts, reportPropertiesKey, outcomes } = values
                     const response = (await api.query({
                         kind: NodeKind.MCPMissingCapabilitiesQuery,
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                         filterTestAccounts,
+                        properties: JSON.parse(reportPropertiesKey),
+                        outcomes: outcomes.length > 0 ? outcomes : undefined,
                         search: search || undefined,
                         limit: MISSING_CAPABILITIES_PAGE_SIZE,
                         offset: baseReports.length,
@@ -183,6 +217,8 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
                     if (
                         search !== values.search ||
                         filterTestAccounts !== values.filterTestAccounts ||
+                        reportPropertiesKey !== values.reportPropertiesKey ||
+                        outcomes !== values.outcomes ||
                         dateFilter.dateFrom !== values.dateFilter.dateFrom ||
                         dateFilter.dateTo !== values.dateFilter.dateTo
                     ) {
@@ -202,10 +238,29 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
                 setSearch: (_, { search }): string => search,
             },
         ],
+        outcomes: [
+            [] as ReportOutcome[],
+            {
+                setOutcomes: (_, { outcomes }): ReportOutcome[] => outcomes,
+            },
+        ],
+        hasSuggestedFix: [
+            false,
+            {
+                setHasSuggestedFix: (_, { hasSuggestedFix }): boolean => hasSuggestedFix,
+            },
+        ],
         dateFilter: [
             DEFAULT_DATE_FILTER,
             {
                 setDateFilter: (_, { dateFrom, dateTo }): MCPMissingCapabilitiesDateFilter => ({ dateFrom, dateTo }),
+            },
+        ],
+        openedReport: [
+            null as MCPMissingCapabilitiesItem | null,
+            {
+                openReport: (_, { report }) => report,
+                loadReports: () => null,
             },
         ],
         hasNext: [
@@ -230,6 +285,15 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
         ],
     }),
 
+    selectors({
+        // A string, so unrelated shared-filter changes don't reload.
+        reportPropertiesKey: [
+            (s) => [s.propertyFilters, s.facetFilters, s.hasSuggestedFix],
+            (propertyFilters: AnyPropertyFilter[], facetFilters: McpFacetFilters, hasSuggestedFix: boolean): string =>
+                JSON.stringify(reportProperties(propertyFilters, facetFilters, hasSuggestedFix)),
+        ],
+    }),
+
     listeners(({ actions }) => ({
         // Each filter changes the result set, so each reloads the first page.
         setSearch: () => {
@@ -238,12 +302,20 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
         setDateFilter: () => {
             actions.loadReports()
         },
+        setOutcomes: () => {
+            actions.loadReports()
+        },
     })),
 
     // The toggle changes from the filter bar, URL hydration, or the team's test-account default,
     // so react to the value rather than to any one action.
     subscriptions(({ actions }) => ({
         filterTestAccounts: (_: boolean, previous: boolean | undefined) => {
+            if (previous !== undefined) {
+                actions.loadReports()
+            }
+        },
+        reportPropertiesKey: (_: string, previous: string | undefined) => {
             if (previous !== undefined) {
                 actions.loadReports()
             }
@@ -260,6 +332,8 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
                 search: values.search || null,
                 date_from: values.dateFilter.dateFrom,
                 date_to: values.dateFilter.dateTo,
+                outcome: values.outcomes.length > 0 ? values.outcomes.join(',') : null,
+                suggested: values.hasSuggestedFix ? 'true' : null,
             }
             for (const [key, value] of Object.entries(params)) {
                 if (value) {
@@ -270,7 +344,7 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
             }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
-        return { setSearch: syncUrl, setDateFilter: syncUrl }
+        return { setSearch: syncUrl, setDateFilter: syncUrl, setOutcomes: syncUrl, setHasSuggestedFix: syncUrl }
     }),
 
     urlToAction(({ actions, values }) => ({
@@ -278,6 +352,16 @@ export const mcpMissingCapabilitiesLogic = kea<mcpMissingCapabilitiesLogicType>(
             const search = typeof searchParams.search === 'string' ? searchParams.search : ''
             if (search !== values.search) {
                 actions.setSearch(search)
+            }
+            const outcomes = String(searchParams.outcome ?? '')
+                .split(',')
+                .filter((outcome): outcome is ReportOutcome => outcome in REPORT_OUTCOMES)
+            if (outcomes.join(',') !== values.outcomes.join(',')) {
+                actions.setOutcomes(outcomes)
+            }
+            const hasSuggestedFix = parseUrlBoolean(searchParams.suggested) === true
+            if (hasSuggestedFix !== values.hasSuggestedFix) {
+                actions.setHasSuggestedFix(hasSuggestedFix)
             }
             const dateFrom =
                 typeof searchParams.date_from === 'string' ? searchParams.date_from : values.dateFilter.dateFrom

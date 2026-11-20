@@ -530,8 +530,7 @@ function hogFieldRenderer(escape: ChatEscaper): MCPFieldRenderer {
     }
 }
 
-// The message copy lives here once; the Hog templates and the in-app preview differ only in how
-// fields are rendered, so the preview can never drift from what actually gets delivered.
+// The message copy lives here once; the Slack and Markdown templates differ only in how fields are rendered.
 function mcpToolFailureMessage(field: MCPFieldRenderer, bold: string): string {
     return (
         `${bold}${field('toolName')}${bold} failed on your MCP server ` +
@@ -545,27 +544,6 @@ export type MCPNotificationSubTemplateId = 'mcp-tool-error'
 
 export const MCP_NOTIFICATION_BUTTON_LABELS: Record<MCPNotificationSubTemplateId, string> = {
     'mcp-tool-error': 'View tool detail',
-}
-
-/**
- * The caps the delivered message applies to each interpolated field. Exported so a preview built
- * from real event values cuts them exactly where the chat provider will, instead of showing more
- * than actually gets sent.
- */
-export const MCP_MESSAGE_FIELD_LIMITS: Record<MCPMessageField, number> = {
-    clientName: MCP_FIELD_MAX_LENGTH,
-    serverName: MCP_FIELD_MAX_LENGTH,
-    toolName: MCP_FIELD_MAX_LENGTH,
-    intent: MCP_INTENT_MAX_LENGTH,
-}
-
-/**
- * The Slack message a notification will post, rendered with sample values in place of the Hog
- * expressions — for previewing the real copy before wiring a destination up.
- */
-export function mcpNotificationPreviewMessage(values: Record<MCPMessageField, string>): string {
-    const field: MCPFieldRenderer = (name) => values[name]
-    return mcpToolFailureMessage(field, '*')
 }
 
 const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolFailureMessage(hogFieldRenderer(slackEscapeExpr), '*')
@@ -605,13 +583,13 @@ export const PA_NOTIFICATION_BUTTON_LABELS: Record<PANotificationSubTemplateId, 
     'pa-rageclick': 'Watch session replay',
 }
 
-/** See MCP_MESSAGE_FIELD_LIMITS — the caps a preview built from real event values must apply. */
+/** The caps the delivered message applies to each field, so a preview cuts values where the chat provider will. */
 export const PA_MESSAGE_FIELD_LIMITS: Record<PAMessageField, number> = {
     page: PA_FIELD_MAX_LENGTH,
     browser: PA_FIELD_MAX_LENGTH,
 }
 
-/** See mcpNotificationPreviewMessage — the Slack message rendered with sample values. */
+/** The Slack message a notification will post, with sample values in place of the Hog expressions. */
 export function paNotificationPreviewMessage(values: Record<PAMessageField, string>): string {
     const field: PAFieldRenderer = (name) => values[name]
     return paRageclickMessage(field, '*')

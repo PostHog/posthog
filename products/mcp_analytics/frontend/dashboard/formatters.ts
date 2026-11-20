@@ -49,10 +49,3 @@ export function formatDuration(seconds: number): string {
     }
     return humanFriendlyDuration(seconds, { secondsPrecision: 0 })
 }
-
-export function truncateSessionId(id: string): string {
-    if (id.length <= 12) {
-        return id
-    }
-    return `${id.slice(0, 4)}…${id.slice(-4)}`
-}

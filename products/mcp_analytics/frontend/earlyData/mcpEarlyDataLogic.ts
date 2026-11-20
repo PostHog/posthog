@@ -14,24 +14,16 @@ import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import {
-    DataTableNode,
-    HogQLFilters,
-    MCPHarnessBreakdownItem,
-    MCPModelBreakdownItem,
-    NodeKind,
-} from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import type { HogFunctionType } from '~/types'
 
 import {
     DEFAULT_MCP_ACTIVITY_QUERY,
     MCP_ACTIVITY_DATA_COLLECTION_ID,
-    withFailedCallsOnly,
     withSharedFilters,
 } from '../components/toolCallFeedQuery'
 import { mcpAnalyticsSessionsActivityOverview } from '../generated/api'
@@ -39,7 +31,6 @@ import type { MCPActivityOverviewApi } from '../generated/api.schemas'
 import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic, sharedFilterParams } from '../mcpAnalyticsFiltersLogic'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { MCPOnboardingSignals } from '../mcpAnalyticsOnboardingLogic'
-import { type HarnessRow, type ModelRow, toHarnessRow } from '../mcpDashboardOverviewLogic'
 import { mcpAnalyticsNotificationsLogic } from '../notifications/mcpAnalyticsNotificationsLogic'
 import { mcpRecurringReportsLogic } from '../notifications/mcpRecurringReportsLogic'
 import { type WeeklyReportOffer, weeklyReportOfferLabel } from '../notifications/weeklyReportOffer'
@@ -66,10 +57,6 @@ const EMPTY_STATS: EarlyStats = {
     missingCapabilityReports: 0,
 }
 
-// The feed's default range, unfiltered like the feed and the overview endpoint, so every number on
-// the tab describes the same calls. The dashboard applies its own test-account filter.
-export const ACTIVITY_FILTERS: HogQLFilters = { dateRange: { date_from: '-30d' } }
-
 // Refresh cadence for the early view. Slower than the onboarding signal poll: the
 // overview aggregates 30 days of property-reading queries server-side, and "within
 // a minute" is live enough.
@@ -87,13 +74,8 @@ export interface mcpEarlyDataLogicValues {
     weeklyReportOffer: WeeklyReportOffer // mcpRecurringReportsLogic
     currentProjectId: number | string // teamLogic
     activityQuery: DataTableNode
-    harnessRows: HarnessRow[]
-    harnessRowsLoading: boolean
     hasFailureNotification: boolean | null
-    hasModelData: boolean
     inputSinceRefresh: boolean
-    modelRows: ModelRow[]
-    modelRowsLoading: boolean
     nextSteps: NextStep[] | null
     notificationsLoad: NotificationsLoad
     overview: MCPActivityOverviewApi | null
@@ -142,36 +124,6 @@ export interface mcpEarlyDataLogicActions {
         payload?: any
         reports: import('products/subscriptions/frontend/generated/api.schemas').SubscriptionApi[]
     } // mcpRecurringReportsLogic
-    loadHarnessRows: (_: void) => void
-    loadHarnessRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadHarnessRowsSuccess: (
-        harnessRows: HarnessRow[],
-        payload?: void
-    ) => {
-        harnessRows: HarnessRow[]
-        payload?: void
-    }
-    loadModelRows: (_: void) => void
-    loadModelRowsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadModelRowsSuccess: (
-        modelRows: ModelRow[],
-        payload?: void
-    ) => {
-        modelRows: ModelRow[]
-        payload?: void
-    }
     loadOverview: (_: void) => void
     loadOverviewFailure: (
         error: string,
@@ -248,7 +200,6 @@ export interface mcpEarlyDataLogicMeta {
             hasFailureNotification: boolean | null,
             weeklyReportOffer: WeeklyReportOffer
         ) => NextStep[] | null
-        hasModelData: (modelRows: ModelRow[]) => boolean
         refreshDelayMs: (refreshesWithoutInput: number) => number
     }
 }
@@ -332,34 +283,6 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                 return response
             },
         },
-        harnessRows: [
-            [] as HarnessRow[],
-            {
-                loadHarnessRows: async (_: void, breakpoint): Promise<HarnessRow[]> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPHarnessBreakdownQuery,
-                        ...ACTIVITY_FILTERS,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPHarnessBreakdownItem[] }
-                    breakpoint()
-                    return (response?.results ?? []).map(toHarnessRow)
-                },
-            },
-        ],
-        modelRows: [
-            [] as ModelRow[],
-            {
-                loadModelRows: async (_: void, breakpoint): Promise<ModelRow[]> => {
-                    const response = (await api.query({
-                        kind: NodeKind.MCPModelBreakdownQuery,
-                        ...ACTIVITY_FILTERS,
-                        ...values.sharedQueryFilters,
-                    })) as { results?: MCPModelBreakdownItem[] }
-                    breakpoint()
-                    return response?.results ?? []
-                },
-            },
-        ],
     })),
     selectors({
         stats: [
@@ -412,10 +335,6 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                 overview && notificationsLoad !== 'pending' && weeklyReportOffer.state !== 'loading'
                     ? buildNextSteps({ stats, hasFailureNotification, weeklyReport: weeklyReportOffer })
                     : null,
-        ],
-        hasModelData: [
-            (s) => [s.modelRows],
-            (modelRows: ModelRow[]): boolean => modelRows.some((row) => row.total_calls > 0),
         ],
         refreshDelayMs: [
             (s) => [s.refreshesWithoutInput],
@@ -486,12 +405,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         refreshFilteredActivity: () => {
             actions.setActivityQuery(withSharedFilters(values.activityQuery, values.sharedQueryFilters))
             actions.loadOverview()
-            actions.loadHarnessRows()
-            actions.loadModelRows()
             actions.reloadActivityQuery()
-        },
-        showFailedCallsOnly: () => {
-            actions.setActivityQuery(withFailedCallsOnly(values.activityQuery))
         },
     })),
     // The shared filters change from the filter bar, URL hydration, or the team's test-account default,
@@ -510,8 +424,6 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         actions.loadOverview()
         actions.loadNotifications()
         actions.loadReports()
-        actions.loadHarnessRows()
-        actions.loadModelRows()
         actions.scheduleRefresh()
         cache.disposables.add(() => {
             const onUserInput = (): void => {

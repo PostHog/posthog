@@ -4,6 +4,12 @@ import { useMemo, useRef } from 'react'
 import { IconArrowRight } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import {
+    formatCompactVolumeHoverDate,
+    formatCompactVolumeHoverOccurrences,
+} from 'lib/components/VolumeSparkline/formatCompactVolumeHover'
+import { VolumeSparkline } from 'lib/components/VolumeSparkline/VolumeSparkline'
+import { volumeSparklineLogic } from 'lib/components/VolumeSparkline/volumeSparklineLogic'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
@@ -23,12 +29,6 @@ import { IssueActions } from 'products/error_tracking/frontend/components/IssueA
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { SuppressSimilarIssuesDialog } from 'products/error_tracking/frontend/components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
-import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
-import {
-    formatCompactVolumeHoverDate,
-    formatCompactVolumeHoverOccurrences,
-} from 'products/error_tracking/frontend/components/VolumeSparkline/formatCompactVolumeHover'
-import { VolumeSparkline } from 'products/error_tracking/frontend/components/VolumeSparkline/VolumeSparkline'
 import { applyVolumeSpikeHighlights, useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
 import { batchSpikeEventsLogic } from 'products/error_tracking/frontend/logics/batchSpikeEventsLogic'
 import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
@@ -47,7 +47,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     const spikeEvents = record.id ? (spikeEventsByIssueId[record.id] ?? []) : []
     const data = useMemo(() => applyVolumeSpikeHighlights(baseData, spikeEvents), [baseData, spikeEvents])
 
-    const { hoveredDatum, isBarHighlighted } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+    const { hoveredDatum, isBarHighlighted } = useValues(volumeSparklineLogic({ sparklineKey }))
 
     return (
         <div className="flex w-full min-w-0 justify-center">

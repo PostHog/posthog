@@ -21,12 +21,11 @@ import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { McpDateFilter } from '../components/McpDateFilter'
-import { McpSharedFilters } from '../components/McpSharedFilters'
 import type { MCPSessionApi } from '../generated/api.schemas'
-import { parseUrlBoolean } from '../mcpAnalyticsFiltersLogic'
+import { ConversationIdBanner } from './ConversationIdBanner'
 import { MCPSessionDetail } from './MCPSessionDetail'
 import { type MCPSessionOrderBy, type MCPSessionSorting, mcpSessionsLogic, orderByParam } from './mcpSessionsLogic'
+import { SessionsFilters } from './SessionsFilters'
 import { formatDuration, sessionDurationMs } from './utils'
 
 const SORT_OPTIONS: { value: MCPSessionOrderBy; label: string }[] = [
@@ -34,12 +33,6 @@ const SORT_OPTIONS: { value: MCPSessionOrderBy; label: string }[] = [
     { value: 'session_start', label: 'Oldest' },
     { value: '-duration_seconds', label: 'Longest' },
     { value: '-tool_call_count', label: 'Most tool calls' },
-]
-
-const OUTCOME_OPTIONS: { value: 'all' | 'true' | 'false'; label: string }[] = [
-    { value: 'all', label: 'All sessions' },
-    { value: 'true', label: 'With errors' },
-    { value: 'false', label: 'Without errors' },
 ]
 
 function sortingToValue(sorting: MCPSessionSorting | null): MCPSessionOrderBy {
@@ -56,26 +49,13 @@ function valueToSorting(value: MCPSessionOrderBy): MCPSessionSorting {
 
 export function MCPSessionsPlaylist(): JSX.Element {
     const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const { dateFilter, sessionsLoading, toolCallsBySessionLoading } = useValues(mcpSessionsLogic)
-    const { setDateFilter, refreshSessions } = useActions(mcpSessionsLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
     const isVerticalLayout = isWindowLessThan('xl')
 
     return (
         <div className="flex w-full h-[calc(100vh-13rem)] min-h-[25rem] flex-col gap-2">
-            <McpSharedFilters
-                pageKey="mcp-sessions"
-                dataAttrPrefix="mcp-sessions"
-                onRefresh={refreshSessions}
-                refreshing={sessionsLoading || toolCallsBySessionLoading}
-            >
-                <McpDateFilter
-                    dateFrom={dateFilter.dateFrom}
-                    dateTo={dateFilter.dateTo}
-                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                    dataAttr="mcp-sessions-date-filter"
-                />
-            </McpSharedFilters>
+            <ConversationIdBanner />
+            <SessionsFilters />
             <div className={cn('flex min-h-0 flex-1', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
                 {isVerticalLayout ? <VerticalLayout /> : <HorizontalLayout />}
             </div>
@@ -150,32 +130,15 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
 }
 
 function SessionsListPanel(): JSX.Element {
-    const { setFilters, loadMoreSessions, setSorting, selectSession } = useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, sorting, hasNext, selectedSessionId, hasActiveFilters } =
+    const { loadMoreSessions, setSorting, selectSession } = useActions(mcpSessionsLogic)
+    const { sessions, sessionsLoading, sorting, hasNext, selectedSessionId, hasActiveFilters } =
         useValues(mcpSessionsLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
             <div className="shrink-0 flex flex-col gap-2 border-b border-primary p-2">
                 <div className="flex flex-col gap-2" data-quill>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Select
-                            value={String(filters.hasErrors ?? 'all')}
-                            onValueChange={(value) => setFilters({ hasErrors: parseUrlBoolean(value) })}
-                        >
-                            <SelectTrigger data-attr="mcp-sessions-outcome">
-                                <SelectValue>
-                                    {(value: string) => OUTCOME_OPTIONS.find((o) => o.value === value)?.label ?? value}
-                                </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent>
-                                {OUTCOME_OPTIONS.map((option) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                        {option.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                    <div className="flex flex-wrap items-center gap-2">
                         <Select
                             value={sortingToValue(sorting)}
                             onValueChange={(value) => setSorting(valueToSorting(value as MCPSessionOrderBy))}

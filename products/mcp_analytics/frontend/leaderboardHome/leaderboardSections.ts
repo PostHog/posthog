@@ -1,14 +1,11 @@
-export type LeaderboardSectionId = 'key-metrics' | 'models' | 'protocol' | 'agents' | 'reliability'
+export type LeaderboardSectionId = 'key-metrics' | 'agent-feedback' | 'usage' | 'agents'
 
-// A Record so a new section id fails to compile until it has a title. Key order is page order.
+// A Record so a new section id fails to compile until it has a title.
 const SECTION_TITLES: Record<LeaderboardSectionId, string> = {
     'key-metrics': 'Key metrics',
-    models: 'Models',
-    protocol: 'Protocol',
+    'agent-feedback': 'Agent feedback',
+    usage: 'Usage',
     agents: 'What agents do',
-    reliability: 'Reliability',
 }
-
-export const LEADERBOARD_SECTION_IDS = Object.keys(SECTION_TITLES) as LeaderboardSectionId[]
 
 export const leaderboardSectionTitle = (id: LeaderboardSectionId): string => SECTION_TITLES[id]

@@ -1,0 +1,33 @@
+export type SparklineDatum = {
+    date: Date
+    value: number
+    color?: string
+    /** With `color`, flags the bar as a detected spike: the color plus animated stripes. */
+    isSpike?: boolean
+    /** For a spike, how many times the detection baseline its bucket reached. */
+    spikeMultiplier?: number
+}
+
+export type SparklineData = SparklineDatum[]
+
+export type SparklineEvent<T = string> = {
+    id: string
+    date: Date
+    payload: T
+    color?: string
+}
+
+export type VolumeSparklineLayout = 'compact' | 'detailed'
+
+export type VolumeSparklineXAxisMode = 'none' | 'minimal' | 'full'
+
+export type VolumeSparklineHoverSelection =
+    | { kind: 'bin'; index: number; datum: SparklineDatum }
+    | { kind: 'event'; event: SparklineEvent<string> }
+
+export type VolumeSparklineHoverValues = {
+    hoveredIndex: number | null
+    hoveredDatum: SparklineDatum | null
+    isBarHighlighted: boolean
+    hoverSelection: VolumeSparklineHoverSelection | null
+}

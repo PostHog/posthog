@@ -63412,7 +63412,22 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface MCPToolQualityRowBucket {
+      /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"). */
+      bucket: string;
+      calls: number;
+      errors: number;
+      /** 0 when no call in the bucket carried a duration. */
+      p95_duration_ms: number;
+    }
+
     export interface MCPToolQualityRowItem {
+      /** Calls, errors and p95 per interval in the current window, for the row's volume chart. */
+      buckets?: MCPToolQualityRowBucket[] | null;
+      /** The $mcp_tool_category from the tool's latest call that sent one. */
+      category?: string | null;
+      /** The description from the tool's latest call that sent one. */
+      description?: string | null;
       error_rate_pct: number;
       errors: number;
       first_seen: string;
@@ -63494,6 +63509,8 @@ export namespace Schemas {
       categories?: string[] | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Bucket granularity of each row's volume chart. Defaults to day. */
+      interval?: IntervalType | null;
       kind?: 'MCPToolQualityRowsQuery';
       /** Page size. The server defaults to 50 and caps this at 100. */
       limit?: number | null;
@@ -63529,6 +63546,18 @@ export namespace Schemas {
       p99: number;
     }
 
+    export interface MCPToolQualityTotals {
+      calls: number;
+      errors: number;
+      p50: number;
+      p95: number;
+      previous_calls: number;
+      previous_errors: number;
+      /** null when no call in the previous period carried a duration. */
+      previous_p50: number | null;
+      previous_p95?: number | null;
+    }
+
     export interface MCPToolQualityDailyStatsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -63545,6 +63574,8 @@ export namespace Schemas {
       results: MCPToolQualityDailyStatItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Window totals and the previous period's, set only when the query asks for them. */
+      totals?: MCPToolQualityTotals | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
@@ -63558,6 +63589,8 @@ export namespace Schemas {
       categories?: string[] | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
+      /** Also return window totals and the previous period's, for the Tool quality tiles. */
+      includeTotals?: boolean | null;
       /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
       interval?: IntervalType | null;
       kind?: 'MCPToolQualityDailyStatsQuery';
@@ -63565,6 +63598,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPToolQualityDailyStatsQueryResponse | null;
+      /** Case-insensitive substring search on the effective tool name, so the tiles match the searched table. */
+      search?: string | null;
       tags?: QueryLogTags | null;
       /** Restrict to a single $mcp_tool_name; omitted means the aggregate across all tools. */
       toolName?: string | null;
@@ -63847,10 +63882,16 @@ export namespace Schemas {
       harness: string;
       /** The agent's own words for the capability it wanted, from $mcp_intent. */
       intent: string;
+      /** The model the agent self-reported, from $mcp_llm_model; empty when the report did not say. */
+      model: string;
+      /** Whether the agent says it still finished the user's task, from $mcp_feedback_task_completed (or an in-app report's blocked flag): "blocked", "completed", or "not_reported" when the report did not say. */
+      outcome: string;
       /** JSON-encoded person email/name for display; "{}" when neither resolved. */
       person_properties: string;
       /** Conversation id: $mcp_session_id, falling back to $session_id; empty when neither is set. */
       session_id: string;
+      /** The change the agent suggested, from $mcp_feedback_suggested_improvement; empty when it gave none. */
+      suggested_improvement: string;
       timestamp: string;
     }
 
@@ -63891,6 +63932,10 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Reports to skip before returning results. Combine with limit to page through them; the response's has_next flag indicates whether more remain. */
       offset?: number | null;
+      /** Only reports with one of these outcomes: "blocked", "completed" or "not_reported". */
+      outcomes?: string[] | null;
+      /** Property filters applied to the report events, such as the shared harness and model filters. */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter)[] | null;
       response?: MCPMissingCapabilitiesQueryResponse | null;
       /** Case-insensitive substring match over the report text. */
       search?: string | null;
@@ -63957,7 +64002,9 @@ export namespace Schemas {
       Model: 'model',
       ProtocolVersion: 'protocolVersion',
       Tool: 'tool',
+      Harness: 'harness',
       ErrorType: 'errorType',
+      User: 'user',
       LabUsers: 'labUsers',
       NamedModelUsers: 'namedModelUsers',
       Reliability: 'reliability',
@@ -107923,6 +107970,8 @@ export namespace Schemas {
       results: MCPToolQualityDailyStatItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      /** Window totals and the previous period's, set only when the query asks for them. */
+      totals?: MCPToolQualityTotals | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
@@ -145112,6 +145161,10 @@ export namespace Schemas {
      * End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Only sessions where the agent sent feedback or reported a missing capability.
+     */
+    feedback_only?: boolean;
     /**
      * Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.
      */

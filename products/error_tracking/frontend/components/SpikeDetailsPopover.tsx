@@ -5,6 +5,8 @@ import { LemonBanner, LemonSkeleton, Popover } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
+import type { SparklineData, SparklineDatum } from 'lib/components/VolumeSparkline/types'
+import { VolumeSparkline } from 'lib/components/VolumeSparkline/VolumeSparkline'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
@@ -12,8 +14,6 @@ import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { errorTrackingIssueQuery } from '../queries'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
-import type { SparklineData, SparklineDatum } from './VolumeSparkline/types'
-import { VolumeSparkline } from './VolumeSparkline/VolumeSparkline'
 
 const ZOOM_WINDOW_MINUTES = 120
 const ZOOM_RESOLUTION = 30
