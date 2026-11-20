@@ -29511,7 +29511,8 @@
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
                 "unserved_variant_exposures",
-                "billing_limit"
+                "events_billing_limit",
+                "feature_flags_billing_limit"
             ],
             "type": "string"
         },
@@ -29643,7 +29644,8 @@
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
                 "unserved_variant_exposures",
-                "billing_limit"
+                "events_billing_limit",
+                "feature_flags_billing_limit"
             ],
             "type": "string"
         },

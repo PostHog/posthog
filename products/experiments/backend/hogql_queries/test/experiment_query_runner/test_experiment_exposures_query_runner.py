@@ -2136,21 +2136,22 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(cache_key() == before, same_key)
 
-    def _limit_events(self, days: int = 1) -> None:
+    def _limit(self, resource: QuotaResource, days: int = 1) -> None:
         add_limited_team_tokens(
-            QuotaResource.EVENTS,
+            resource,
             {self.team.api_token: int((datetime.now(UTC) + timedelta(days=days)).timestamp())},
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
 
     @parameterized.expand(
         [
-            ("running", None, (True, False, False)),
-            ("ended", datetime(2024, 1, 7, tzinfo=UTC), (True, True, True)),
+            ("running_events", QuotaResource.EVENTS, None, (True, False, False)),
+            ("running_feature_flags", QuotaResource.FEATURE_FLAG_REQUESTS, None, (True, False, False)),
+            ("ended", QuotaResource.EVENTS, datetime(2024, 1, 7, tzinfo=UTC), (True, True, True)),
         ]
     )
-    def test_cache_key_follows_the_billing_limit(
-        self, _name: str, end_date: datetime | None, expected: tuple[bool, bool, bool]
+    def test_cache_key_follows_the_billing_limits(
+        self, _name: str, resource: QuotaResource, end_date: datetime | None, expected: tuple[bool, bool, bool]
     ) -> None:
         query = self._running_exposure_query()
         self.experiment.end_date = end_date
@@ -2162,22 +2163,34 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         before = cache_key()
         with patch("ee.billing.quota_limiting.get_client", side_effect=ConnectionError("Redis is unavailable")):
             unreadable = cache_key()
-        self._limit_events()
+        self._limit(resource)
         limited = cache_key()
-        self._limit_events(days=2)
+        self._limit(resource, days=2)
 
         self.assertEqual((unreadable == before, limited == before, cache_key() == limited), expected)
 
-    def test_billing_limit_names_the_cause_of_zero_exposures(self) -> None:
+    @parameterized.expand(
+        [
+            ("events", QuotaResource.EVENTS, ExperimentExposureHealthFindingCode.EVENTS_BILLING_LIMIT),
+            (
+                "feature_flags",
+                QuotaResource.FEATURE_FLAG_REQUESTS,
+                ExperimentExposureHealthFindingCode.FEATURE_FLAGS_BILLING_LIMIT,
+            ),
+        ]
+    )
+    def test_billing_limit_names_the_cause_of_zero_exposures(
+        self, _name: str, resource: QuotaResource, expected: ExperimentExposureHealthFindingCode
+    ) -> None:
         query = self._running_exposure_query()
 
         with time_machine.travel("2024-01-02T01:00:00Z", tick=False):
-            self._limit_events()
+            self._limit(resource)
             response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
         self.assertEqual(
             [(finding.code, finding.subcode) for finding in response.health_findings or []],
-            [(ExperimentExposureHealthFindingCode.BILLING_LIMIT, None)],
+            [(expected, None)],
         )
 
     @parameterized.expand(

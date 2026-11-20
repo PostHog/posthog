@@ -31,7 +31,7 @@ from products.experiments.backend.health.context import (
     HealthContext,
     load_health_context,
 )
-from products.experiments.backend.health.test.factories import BILLING_LIMITED, ENDED, RUNNING_CONTEXT
+from products.experiments.backend.health.test.factories import ENDED, EVENTS_LIMITED, RUNNING_CONTEXT
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.edits import FlagVariant
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -141,7 +141,7 @@ class TestZeroExposures(TestCase):
             ),
             (
                 "billing_limit_after_calls_during_the_run",
-                {"events_billing_limit": BILLING_LIMITED, "flag_called_during_run": True},
+                {"billing_limits": EVENTS_LIMITED, "flag_called_during_run": True},
                 CALLS_NOT_COUNTED,
                 (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
                 WARNING,

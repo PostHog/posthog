@@ -1,7 +1,7 @@
 import copy
 import json
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import Enum
 from functools import lru_cache, partial
 from itertools import batched, groupby
@@ -320,27 +320,8 @@ def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: Quo
     allowance has nearly every team in it. Expired entries stay in the zset until the quota job
     removes them, so the score must be compared with the current time.
     """
-    return team_limited_until(team_api_token, resource, cache_key) is not None
-
-
-def team_limited_until(
-    team_api_token: str,
-    resource: QuotaResource,
-    cache_key: QuotaLimitingCaches,
-    *,
-    timeout_seconds: float | None = None,
-) -> datetime | None:
-    """When the team's entry in the resource's zset stops being in force, or None when no entry is in force now.
-
-    Capture limits the team until this time. The quota job can remove the entry earlier, for example after the
-    organization raises its limit. `timeout_seconds` bounds the connect and the read, for a caller that can do
-    without the answer.
-    """
-    client = get_client(socket_timeout=timeout_seconds, socket_connect_timeout=timeout_seconds)
-    score = client.zscore(f"{cache_key.value}{resource.value}", team_api_token)
-    if score is None or score < timezone.now().timestamp():
-        return None
-    return datetime.fromtimestamp(score, tz=UTC)
+    score = get_client().zscore(f"{cache_key.value}{resource.value}", team_api_token)
+    return score is not None and score >= timezone.now().timestamp()
 
 
 def get_fresh_team_limited_resources(team_api_token: str) -> dict[QuotaResource, bool]:
@@ -425,11 +406,14 @@ def is_team_over_ai_credit_budget(team_api_token: str) -> bool:
     return is_team_over_credit_budget(team_api_token, QuotaResource.AI_CREDITS)
 
 
-def get_teams_limited_until(team_api_tokens: Iterable[str], resources: Iterable[str]) -> dict[str, dict[str, float]]:
+def get_teams_limited_until(
+    team_api_tokens: Iterable[str], resources: Iterable[str], *, timeout_seconds: float | None = None
+) -> dict[str, dict[str, float]]:
+    """`timeout_seconds` bounds the connect and the read, for a caller that can do without the answer."""
     tokens = list(team_api_tokens)
     names = list(resources)
     now_ts = timezone.now().timestamp()
-    pipe = get_client().pipeline()
+    pipe = get_client(socket_timeout=timeout_seconds, socket_connect_timeout=timeout_seconds).pipeline()
     for token in tokens:
         for name in names:
             pipe.zscore(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{name}", token)
@@ -444,8 +428,10 @@ def get_teams_limited_until(team_api_tokens: Iterable[str], resources: Iterable[
     }
 
 
-def get_team_limited_until(team_api_token: str, resources: Iterable[str]) -> dict[str, float]:
-    return get_teams_limited_until([team_api_token], resources)[team_api_token]
+def get_team_limited_until(
+    team_api_token: str, resources: Iterable[str], *, timeout_seconds: float | None = None
+) -> dict[str, float]:
+    return get_teams_limited_until([team_api_token], resources, timeout_seconds=timeout_seconds)[team_api_token]
 
 
 _LLM_GATEWAY_PROJECTION_BATCH = 500

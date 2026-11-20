@@ -7,7 +7,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.billing_limit import billing_limit_drops_exposures
+from products.experiments.backend.health.checks.billing_limit import (
+    events_billing_limit_drops_exposures,
+    feature_flags_billing_limit_holds,
+)
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG, ZERO_EXPOSURES_GRACE_HOURS
@@ -204,7 +207,7 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
 def _paused_or_billing_limited(
     ctx: HealthContext, evidence: dict[str, int | str], unit: str
 ) -> ExperimentHealthFinding | CheckSkip | None:
-    """The outcome when a pause or the billing limit explains why nobody is exposed, or None when neither does."""
+    """The outcome when a pause or a billing limit explains why nobody is exposed, or None when neither does."""
     events = ctx.exposure_events
     # A flag that no code called since launch exposes nobody after a resume either, so the missing calls are the cause.
     never_called = events is not None and events.required_flag_key is not None and ctx.flag_called_during_run is False
@@ -221,11 +224,15 @@ def _paused_or_billing_limited(
             evidence=evidence,
             actions=(),
         )
-    # The billing limit check names the limit, and every cause after this would blame the setup. A flag call recorded
-    # during the run means that capture took events after launch, so the limit began later and doesn't explain why
-    # none of those calls counted.
-    if ctx.flag_called_during_run is not True and billing_limit_drops_exposures(ctx):
-        return not_applicable("The billing limit check reports why no users are exposed")
+    # The billing limit checks name the limit, and every cause after this would blame the setup. While the feature flags
+    # limit holds, server SDKs keep sending flag calls without a variant, so a flag call recorded during the run doesn't
+    # rule that limit out.
+    if feature_flags_billing_limit_holds(ctx):
+        return not_applicable("The feature flags billing limit check reports why no users are exposed")
+    # A flag call recorded during the run means that capture took events after launch, so the events limit began later
+    # and doesn't explain why none of those calls counted.
+    if ctx.flag_called_during_run is not True and events_billing_limit_drops_exposures(ctx):
+        return not_applicable("The product analytics billing limit check reports why no users are exposed")
     return None
 
 

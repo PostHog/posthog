@@ -115,14 +115,17 @@ describe('healthCheckValues', () => {
         },
         {
             name: 'a billing limit that is not reached still shows',
-            values: { billing_limit_reached: false },
+            values: { events_billing_limit_reached: false },
             expected: [{ label: 'Product analytics billing limit', text: 'Not reached' }],
         },
         {
             name: 'a reached billing limit shows when it lifts as a date',
-            values: { billing_limit_reached: true, billing_limit_ends_at: '2026-12-01T00:00:00+00:00' },
+            values: {
+                feature_flags_billing_limit_reached: true,
+                feature_flags_billing_limit_ends_at: '2026-12-01T00:00:00+00:00',
+            },
             expected: [
-                { label: 'Product analytics billing limit', text: 'Reached' },
+                { label: 'Feature flags billing limit', text: 'Reached' },
                 { label: 'Limited until', time: '2026-12-01T00:00:00+00:00', asDate: true },
             ],
         },

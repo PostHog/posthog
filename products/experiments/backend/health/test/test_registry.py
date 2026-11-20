@@ -20,7 +20,6 @@ from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
-    EventsBillingLimit,
     ExperimentOnFlag,
     ExposureEvents,
     ExposureTotals,
@@ -41,7 +40,13 @@ from products.experiments.backend.health.registry import (
     HealthCheck,
     evaluate,
 )
-from products.experiments.backend.health.test.factories import BILLING_LIMITED, DRAFT, RUNNING_CONTEXT, flag_history
+from products.experiments.backend.health.test.factories import (
+    DRAFT,
+    EVENTS_LIMITED,
+    FEATURE_FLAGS_LIMITED,
+    RUNNING_CONTEXT,
+    flag_history,
+)
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.feature_flags.backend.facade.edits import FlagVariant
 
@@ -201,14 +206,19 @@ class TestEvaluate(TestCase):
             ),
             ("test_account_filter_keeps_95_percent", {"exposures": _filtered_totals(950, 1000)}, []),
             (
-                "billing_limit_with_exposures",
-                {"events_billing_limit": BILLING_LIMITED, "exposures": _filtered_totals(950, 1000)},
-                [ExperimentHealthFindingCode.BILLING_LIMIT],
+                "events_billing_limit_with_exposures",
+                {"billing_limits": EVENTS_LIMITED, "exposures": _filtered_totals(950, 1000)},
+                [ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT],
+            ),
+            (
+                "feature_flags_billing_limit_with_exposures",
+                {"billing_limits": FEATURE_FLAGS_LIMITED, "exposures": _filtered_totals(950, 1000)},
+                [ExperimentHealthFindingCode.FEATURE_FLAGS_BILLING_LIMIT],
             ),
             (
                 "billing_limit_in_the_first_day",
-                {"events_billing_limit": BILLING_LIMITED, "exposures": replace(NO_EXPOSURES, hours_since_launch=1)},
-                [ExperimentHealthFindingCode.BILLING_LIMIT],
+                {"billing_limits": EVENTS_LIMITED, "exposures": replace(NO_EXPOSURES, hours_since_launch=1)},
+                [ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT],
             ),
             ("test_account_filter_under_100_users_without_it", {"exposures": _filtered_totals(4, 99)}, []),
             (
@@ -295,14 +305,17 @@ class TestEvaluate(TestCase):
                 {Key.ZERO_EXPOSURES: Status.FINDING},
             ),
             (
-                "billing_limit_is_not_checked_when_unread",
-                {"events_billing_limit": None},
-                {Key.BILLING_LIMIT: Status.NOT_CHECKED},
+                "billing_limits_are_not_checked_when_unread",
+                {"billing_limits": None},
+                {Key.EVENTS_BILLING_LIMIT: Status.NOT_CHECKED, Key.FEATURE_FLAGS_BILLING_LIMIT: Status.NOT_CHECKED},
             ),
             (
-                "billing_limit_is_not_reported_after_the_end",
-                {**ENDED, "events_billing_limit": BILLING_LIMITED},
-                {Key.BILLING_LIMIT: Status.NOT_APPLICABLE},
+                "billing_limits_are_not_reported_after_the_end",
+                {**ENDED, "billing_limits": FEATURE_FLAGS_LIMITED},
+                {
+                    Key.EVENTS_BILLING_LIMIT: Status.NOT_APPLICABLE,
+                    Key.FEATURE_FLAGS_BILLING_LIMIT: Status.NOT_APPLICABLE,
+                },
             ),
             (
                 "events_not_received_are_not_reported_after_the_end",
@@ -601,18 +614,31 @@ class TestEvaluate(TestCase):
                 {Value.SINCE_START_HOURS: 72, Value.DAILY_CALCULATION_ENDS_AT: "2026-11-30T09:00:00+00:00"},
             ),
             (
-                "billing_limit_reads_when_the_limit_lifts",
-                Key.BILLING_LIMIT,
-                {"events_billing_limit": BILLING_LIMITED},
+                "events_billing_limit_reads_when_the_limit_lifts",
+                Key.EVENTS_BILLING_LIMIT,
+                {"billing_limits": EVENTS_LIMITED},
                 Status.FINDING,
-                {Value.BILLING_LIMIT_REACHED: True, Value.BILLING_LIMIT_ENDS_AT: "2026-12-01T00:00:00+00:00"},
+                {
+                    Value.EVENTS_BILLING_LIMIT_REACHED: True,
+                    Value.EVENTS_BILLING_LIMIT_ENDS_AT: "2026-12-01T00:00:00+00:00",
+                },
             ),
             (
-                "billing_limit_reads_a_limit_that_is_not_reached",
-                Key.BILLING_LIMIT,
-                {"events_billing_limit": EventsBillingLimit(ends_at=None)},
+                "feature_flags_billing_limit_reads_when_the_limit_lifts",
+                Key.FEATURE_FLAGS_BILLING_LIMIT,
+                {"billing_limits": FEATURE_FLAGS_LIMITED},
+                Status.FINDING,
+                {
+                    Value.FEATURE_FLAGS_BILLING_LIMIT_REACHED: True,
+                    Value.FEATURE_FLAGS_BILLING_LIMIT_ENDS_AT: "2026-12-01T00:00:00+00:00",
+                },
+            ),
+            (
+                "feature_flags_billing_limit_reads_its_own_limit",
+                Key.FEATURE_FLAGS_BILLING_LIMIT,
+                {"billing_limits": EVENTS_LIMITED},
                 Status.PASSED,
-                {Value.BILLING_LIMIT_REACHED: False},
+                {Value.FEATURE_FLAGS_BILLING_LIMIT_REACHED: False},
             ),
             (
                 "new_flag_reads_its_last_call_before_launch",
@@ -859,18 +885,23 @@ class TestEvaluate(TestCase):
                 ExperimentHealthFindingCode.ZERO_EXPOSURES,
             ),
             (
-                "billing_limit",
-                {"events_billing_limit": BILLING_LIMITED, "flag_called_during_run": False},
-                ExperimentHealthFindingCode.BILLING_LIMIT,
+                "events_billing_limit",
+                {"billing_limits": EVENTS_LIMITED, "flag_called_during_run": False},
+                ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT,
             ),
             (
-                "billing_limit_on_a_custom_exposure_event",
+                "events_billing_limit_on_a_custom_exposure_event",
                 {
                     **_events("checkout_viewed", {"checkout_viewed": True}),
-                    "events_billing_limit": BILLING_LIMITED,
+                    "billing_limits": EVENTS_LIMITED,
                     "flag_called_during_run": False,
                 },
-                ExperimentHealthFindingCode.BILLING_LIMIT,
+                ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT,
+            ),
+            (
+                "feature_flags_billing_limit_after_calls_during_the_run",
+                {"billing_limits": FEATURE_FLAGS_LIMITED, "flag_called_during_run": True},
+                ExperimentHealthFindingCode.FEATURE_FLAGS_BILLING_LIMIT,
             ),
         ]
     )
@@ -884,7 +915,8 @@ class TestEvaluate(TestCase):
         reporting = {finding.code for finding in health.findings} & {
             ExperimentHealthFindingCode.ZERO_EXPOSURES,
             ExperimentHealthFindingCode.EXPOSURE_CRITERIA_CANNOT_MATCH,
-            ExperimentHealthFindingCode.BILLING_LIMIT,
+            ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT,
+            ExperimentHealthFindingCode.FEATURE_FLAGS_BILLING_LIMIT,
         }
         zero_exposures = next(check for check in health.checks if check.key == Key.ZERO_EXPOSURES)
         self.assertEqual(
@@ -910,7 +942,7 @@ class TestEvaluate(TestCase):
             RUNNING_CONTEXT,
             flag=EVEN_SPLIT_FLAG,
             exposures=replace(NO_EXPOSURES, hours_since_launch=48),
-            events_billing_limit=BILLING_LIMITED,
+            billing_limits=EVENTS_LIMITED,
             flag_called_during_run=False,
             **_events(exposure_event, {exposure_event: True}),
         )
@@ -918,7 +950,7 @@ class TestEvaluate(TestCase):
         health = evaluate(ctx, EXPOSURE_HEALTH_CHECKS)
 
         billing = next(
-            finding for finding in health.findings if finding.code == ExperimentHealthFindingCode.BILLING_LIMIT
+            finding for finding in health.findings if finding.code == ExperimentHealthFindingCode.EVENTS_BILLING_LIMIT
         )
         zero_exposures = next(check for check in health.checks if check.key == Key.ZERO_EXPOSURES)
         self.assertEqual(
