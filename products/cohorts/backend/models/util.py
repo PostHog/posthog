@@ -1888,8 +1888,11 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
 
     rows = _retry_quorum_read(_read_max_timestamp)
     floor = _as_utc(rows[0][0]) if rows and rows[0][0] is not None else None
-    if stored is not None:
-        floor = max(floor, _as_utc(stored)) if floor is not None else _as_utc(stored)
+    # The run's first marker joins the floor: after a sweep reset clears the stored marker, an attempt on a host with
+    # a slower clock must not mint below it, or the cleanup that deletes from it would miss this attempt's rows.
+    for earlier in (stored, cohort.population_first_marker):
+        if earlier is not None:
+            floor = max(floor, _as_utc(earlier)) if floor is not None else _as_utc(earlier)
 
     marker = population_timestamp_now()
     if floor is not None and marker <= floor:
@@ -1916,8 +1919,8 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     ):
         return None
     cohort.population_marker = marker
-    if cohort.population_first_marker is None:
-        cohort.population_first_marker = marker
+    # Read back what Coalesce kept, so the instance can't diverge from the row.
+    cohort.refresh_from_db(fields=["population_first_marker"])
     return marker
 
 

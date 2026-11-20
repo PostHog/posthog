@@ -1481,15 +1481,22 @@ class TestCohortUtils(BaseTest):
         self.assertEqual(mock_exec.call_count, 2)
         self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [STATIC_COHORT_READ_BACK_WAITS_SECONDS[0]])
 
-    def test_mint_population_marker_waits_past_stored_marker_ahead_of_clickhouse_rows(self):
+    @parameterized.expand(
+        [
+            ("stored_marker", "population_marker"),
+            # A sweep reset cleared the stored marker of an attempt that minted on a faster clock and wrote no rows.
+            ("first_marker_after_sweep_reset", "population_first_marker"),
+        ]
+    )
+    def test_mint_population_marker_waits_past_marker_ahead_of_clickhouse_rows(self, _name: str, field: str):
         now = datetime(2026, 11, 7, 12, 0, 10, tzinfo=UTC)
-        stored = now + timedelta(seconds=2)
+        ahead = now + timedelta(seconds=2)
         cohort = Cohort.objects.create(
             team=self.team,
             name="replace",
             is_static=True,
             pending_population_mode=CohortPopulationMode.REPLACE,
-            population_marker=stored,
+            **{field: ahead},
         )
 
         with (
@@ -1499,7 +1506,11 @@ class TestCohortUtils(BaseTest):
             marker = mint_population_marker(cohort, team_id=self.team.pk)
 
         mock_sleep.assert_called_once_with(3.0)
-        self.assertEqual(marker, stored + timedelta(seconds=1))
+        self.assertEqual(marker, ahead + timedelta(seconds=1))
+        # The run's first marker is kept once set, and the instance matches the row.
+        expected_first_marker = ahead if field == "population_first_marker" else marker
+        self.assertEqual(cohort.population_first_marker, expected_first_marker)
+        self.assertEqual(Cohort.objects.get(pk=cohort.pk).population_first_marker, expected_first_marker)
 
     def test_a_superseded_replace_copies_and_prunes_nothing(self):
         member = create_person(team=self.team, distinct_ids=["member"], uuid=uuid4())
