@@ -9,6 +9,7 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import {
@@ -721,6 +722,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     })),
 
     afterMount(({ actions }) => {
+        void InsightVizRenderer.preload()
         actions.loadCreators()
         actions.loadScannerStats()
     }),
