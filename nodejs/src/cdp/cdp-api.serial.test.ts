@@ -5403,16 +5403,20 @@ describe('CDP API', () => {
                         ),
                 ],
                 [
-                    "the workflow's sending is paused",
+                    "the workflow's sending is paused and the suspension lookup stalls",
                     422,
                     'sending_paused',
-                    () =>
-                        hub.postgres.query(
+                    async () => {
+                        await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
                             `UPDATE posthog_hogflow SET email_sending_paused_at = now() WHERE id = $1`,
                             [hogFlow.id],
                             'pause-workflow-sending'
-                        ),
+                        )
+                        jest.spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension').mockReturnValue(
+                            new Promise(() => {})
+                        )
+                    },
                 ],
                 [
                     'email sending is suspended for the project',
