@@ -1169,7 +1169,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         the scope model treats as immutable.
         """
         self._refuse_a_legacy_write_that_moves_the_scope(attrs)
-        if "scope" not in attrs or attrs["scope"] is None:
+        if "scope" not in attrs:
+            return
+        if attrs["scope"] is None:
+            self._refuse_clearing_a_stored_scope()
             return
         scope = attrs["scope"]
         self._refuse_a_new_scope_that_names_no_variant(scope)
@@ -1205,6 +1208,22 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             raise serializers.ValidationError(
                 {"scope": "A scanner's experiment is fixed after creation. Make a new scanner instead."}
             )
+
+    def _refuse_clearing_a_stored_scope(self) -> None:
+        """Hold the experiment fixed across a clear, not only across an edit.
+
+        The immutability check below compares a written scope against the stored one, so it has
+        nothing to compare after a clear. Allowing one would let two writes do what a single
+        retarget cannot: `scope: null`, then a scope naming another experiment. The scanner's
+        earlier observations stay, and a later per-variant readout counts them under the new
+        experiment, which is the comparison the fixed-experiment rule exists to protect.
+
+        Nothing offers clearing a scope: the editor narrows or widens one, and a scanner that
+        should watch every session is a new scanner without one.
+        """
+        if self.instance is None or not isinstance(self.instance.scope, dict):
+            return
+        raise serializers.ValidationError({"scope": "A scanner's scope cannot be removed. Make a new scanner instead."})
 
     def _refuse_a_new_scope_that_names_no_variant(self, scope: dict[str, Any]) -> None:
         """Keep the variant-less shape to the rows that already carry it.

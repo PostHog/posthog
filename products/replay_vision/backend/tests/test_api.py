@@ -1707,7 +1707,10 @@ class TestScannerScope(_VisionAPITestCase):
             **extra,
         }
 
-    def test_scope_round_trips_and_clears(self) -> None:
+    def test_a_scope_round_trips_but_cannot_be_cleared(self) -> None:
+        # Clearing is refused rather than allowed, because the fixed-experiment rule compares a
+        # written scope against the stored one and a clear leaves it nothing to compare: two
+        # writes would otherwise retarget a scanner that one write cannot.
         resp = self.client.post(self.scanners_url, data=self._payload("scoped", scope=self.scope), format="json")
         self.assertEqual(resp.status_code, 201, resp.json())
         self.assertEqual(resp.json()["scope"]["experiment_id"], self.experiment.id)
@@ -1715,8 +1718,11 @@ class TestScannerScope(_VisionAPITestCase):
 
         scanner_id = resp.json()["id"]
         resp = self.client.patch(f"{self.scanners_url}{scanner_id}/", data={"scope": None}, format="json")
-        self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertIsNone(resp.json()["scope"])
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("cannot be removed", str(resp.json()))
+
+        kept = self.client.get(f"{self.scanners_url}{scanner_id}/")
+        self.assertEqual(kept.json()["scope"]["experiment_id"], self.experiment.id)
 
     def test_a_new_scope_must_name_its_variants(self) -> None:
         # The field accepts the variant-less shape so an editor can resend a mirrored scope; a
@@ -1918,6 +1924,30 @@ class TestScannerScope(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         scanner.refresh_from_db()
         self.assertEqual(scanner.name, "new-name")
+
+    def test_a_scope_cannot_be_cleared_and_re_added_to_retarget(self) -> None:
+        # The fixed-experiment rule compares a written scope against the stored one, so a clear
+        # would leave it nothing to compare and two writes could do what one retarget cannot. The
+        # scanner's earlier observations stay, and a later per-variant readout would count them
+        # under the new experiment.
+        other = create_experiment(self.team, "other-scope-flag", launched=True, variants=["control", "test"])
+        scanner = self._create_scanner(name="fixed-scope", experiment_targeting={"experiment_id": self.experiment.id})
+        scanner.refresh_from_db()
+        stored = scanner.scope
+        assert isinstance(stored, dict)
+
+        with patch("products.replay_vision.backend.scope.flag.posthoganalytics.feature_enabled", return_value=True):
+            cleared = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"scope": None}, format="json")
+            self.assertEqual(cleared.status_code, 400, cleared.json())
+            scanner.refresh_from_db()
+            self.assertEqual(scanner.scope, stored)
+
+            retargeted = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/",
+                data={"scope": {"kind": "experiment", "experiment_id": other.id, "variants": ["control"]}},
+                format="json",
+            )
+            self.assertEqual(retargeted.status_code, 400, retargeted.json())
 
     def test_a_rename_keeps_the_scope_settings_it_resends(self) -> None:
         # The settings the scope carries are not scan config the editor shows; it echoes back

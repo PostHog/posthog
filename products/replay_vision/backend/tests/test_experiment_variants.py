@@ -14,7 +14,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.signals.backend.facade.api import ScoutStructuredRecord, SourceScout
@@ -211,6 +211,19 @@ class TestExperimentVariants(_VisionAPITestCase):
         monitor = self._create_scanner(name="monitor")
         resp = self.client.get(f"{self.scanners_url}{monitor.id}/variants/")
         assert resp.status_code == 400
+
+    def test_a_scoped_scanner_of_another_type_has_variants(self) -> None:
+        # The readout is for the experiment a scanner watches, not for a scanner type. Gating on
+        # the type answers 400 for every scanner the scope-aware create path makes, which is an
+        # answer format of its own carrying its experiment in `scope`.
+        scoped = self._create_scanner(name="scoped-summarizer")
+        ReplayScanner.objects.filter(pk=scoped.pk).update(
+            scope={"kind": "experiment", "experiment_id": self.experiment.id, "variants": ["control", "test"]}
+        )
+
+        resp = self.client.get(f"{self.scanners_url}{scoped.id}/variants/")
+
+        assert resp.status_code == 200, resp.content
 
     @parameterized.expand(
         [
