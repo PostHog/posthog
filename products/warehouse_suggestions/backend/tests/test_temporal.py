@@ -1,9 +1,14 @@
 import uuid
 import dataclasses
+from collections.abc import Mapping
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -25,7 +30,7 @@ from products.warehouse_suggestions.backend.temporal import (
     ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
     WORKFLOWS,
 )
-from products.warehouse_suggestions.backend.temporal.activities import team_batches
+from products.warehouse_suggestions.backend.temporal.activities import run_batch, team_batches
 from products.warehouse_suggestions.backend.temporal.contracts import (
     WAREHOUSE_SUGGESTIONS_WORKFLOW_NAME,
     BatchOutcome,
@@ -34,6 +39,8 @@ from products.warehouse_suggestions.backend.temporal.contracts import (
 from products.warehouse_suggestions.backend.tests.factories import context, team_reads, view_subject
 
 ACTIVITIES = "products.warehouse_suggestions.backend.temporal.activities"
+READS = "products.warehouse_suggestions.backend.logic.reads"
+TIMEOUT_EXCEEDED = 159
 WORKFLOWS_MODULE = "products.warehouse_suggestions.backend.temporal.workflows"
 
 
@@ -88,6 +95,56 @@ class TestTeamBatches(BaseTest):
             batches = team_batches(WarehouseSuggestionsInputs())
 
         assert batches == [[self.team.pk]]
+
+
+class FakeClickHouse:
+    def __init__(self, *, shared_read_fails: bool = False) -> None:
+        self.shared_reads: set[tuple[int, ...]] = set()
+        self.own_reads: set[int] = set()
+        self._shared_read_fails = shared_read_fails
+
+    def __call__(
+        self, sql: str, params: Mapping[str, Any], *, settings: Mapping[str, Any], team_id: int | None = None
+    ) -> list[tuple[Any, ...]]:
+        if "team_ids" not in params:
+            return [(RULES.window_days, RULES.lifecycle.expire_after_days)]
+        if team_id is not None:
+            self.own_reads.add(team_id)
+            return []
+        self.shared_reads.add(params["team_ids"])
+        if self._shared_read_fails:
+            raise ServerException("Timeout exceeded", code=TIMEOUT_EXCEEDED)
+        return []
+
+
+class TestRunBatch(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team_ids = [self.team.pk, *(Team.objects.create(organization=self.organization).pk for _ in range(2))]
+
+    def _run_batch(self, clickhouse: FakeClickHouse) -> BatchOutcome:
+        with patch(f"{READS}.sync_execute", clickhouse):
+            return run_batch(self.team_ids, run_id="run-1")
+
+    def test_reads_each_team_alone_when_the_shared_read_fails(self) -> None:
+        clickhouse = FakeClickHouse(shared_read_fails=True)
+
+        outcome = self._run_batch(clickhouse)
+
+        assert (outcome.not_eligible, outcome.failed, clickhouse.own_reads) == (3, 0, set(self.team_ids))
+
+    def test_reads_a_team_with_its_own_clickhouse_settings_alone(self) -> None:
+        *shared_team_ids, own_settings_team_id = self.team_ids
+        clickhouse = FakeClickHouse()
+
+        with override_settings(CLICKHOUSE_PER_TEAM_QUERY_SETTINGS={str(own_settings_team_id): {"max_threads": 1}}):
+            outcome = self._run_batch(clickhouse)
+
+        assert (clickhouse.shared_reads, clickhouse.own_reads, outcome.not_eligible) == (
+            {tuple(shared_team_ids)},
+            {own_settings_team_id},
+            3,
+        )
 
 
 async def test_a_worker_measures_the_most_recomputed_views_across_teams_first() -> None:

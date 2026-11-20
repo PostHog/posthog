@@ -5,7 +5,10 @@ from math import isfinite
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_team_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAILY_TABLE, ReadKind
 from posthog.dataclasses import frozen
@@ -137,11 +140,24 @@ def read_team_reads(team_id: int, window: ReadWindow, rules: Rules, rollup_days:
     return read_teams_reads([team_id], window, rules, rollup_days)[team_id]
 
 
+def has_team_clickhouse_overrides(team_id: int) -> bool:
+    return (
+        get_team_kill_switch_level(team_id) != KillSwitchLevel.OFF
+        or str(team_id) in settings.CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
+        or str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS
+        or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM
+    )
+
+
 def read_teams_reads(
     team_ids: Sequence[int], window: ReadWindow, rules: Rules, rollup_days: RollupDays
 ) -> dict[int, TeamReads]:
+    sole_team_id = team_ids[0] if len(team_ids) == 1 else None
     tag_queries(
-        product=Product.DATA_MODELING, feature=Feature.WAREHOUSE_SUGGESTIONS, name="warehouse_suggestions_reads"
+        product=Product.DATA_MODELING,
+        feature=Feature.WAREHOUSE_SUGGESTIONS,
+        team_id=sole_team_id,
+        name="warehouse_suggestions_reads",
     )
     params: dict[str, Any] = {
         "team_ids": tuple(team_ids),
@@ -159,12 +175,14 @@ def read_teams_reads(
     params.update(surface_params)
     totals = {
         team_id: (readers, view_readers, view_reads)
-        for team_id, readers, view_readers, view_reads in _execute(TEAM_SQL.format(human=human_sql), params)
+        for team_id, readers, view_readers, view_reads in _execute(
+            TEAM_SQL.format(human=human_sql), params, sole_team_id
+        )
     }
-    surface_counts = _surface_counts(SURFACES_SQL.format(human=human_sql, surface=surface_sql), params)
-    subjects = _subject_reads(SUBJECTS_SQL.format(human=human_sql), params, surface_counts)
-    refreshes = _refreshes(params)
-    refresh_runs = _refresh_runs(params)
+    surface_counts = _surface_counts(SURFACES_SQL.format(human=human_sql, surface=surface_sql), params, sole_team_id)
+    subjects = _subject_reads(SUBJECTS_SQL.format(human=human_sql), params, sole_team_id, surface_counts)
+    refreshes = _refreshes(params, sole_team_id)
+    refresh_runs = _refresh_runs(params, sole_team_id)
     reads: dict[int, TeamReads] = {}
     for team_id in team_ids:
         readers, view_readers, view_reads = totals.get(team_id, NO_TEAM_TOTALS)
@@ -307,8 +325,8 @@ GROUP BY team_id, subject_id, workflow_id
 """
 
 
-def _execute(sql: str, params: Mapping[str, Any]) -> list[tuple[Any, ...]]:
-    return sync_execute(sql, params, settings=READS_QUERY_SETTINGS)
+def _execute(sql: str, params: Mapping[str, Any], team_id: int | None) -> list[tuple[Any, ...]]:
+    return sync_execute(sql, params, settings=READS_QUERY_SETTINGS, team_id=team_id)
 
 
 def _subject(subject_kind: str, subject_id: str) -> Subject | None:
@@ -318,9 +336,11 @@ def _subject(subject_kind: str, subject_id: str) -> Subject | None:
         return None
 
 
-def _surface_counts(sql: str, params: Mapping[str, Any]) -> dict[tuple[int, Subject], dict[Surface, int]]:
+def _surface_counts(
+    sql: str, params: Mapping[str, Any], sole_team_id: int | None
+) -> dict[tuple[int, Subject], dict[Surface, int]]:
     counts: defaultdict[tuple[int, Subject], dict[Surface, int]] = defaultdict(dict)
-    for team_id, subject_kind, subject_id, surface, requests in _execute(sql, params):
+    for team_id, subject_kind, subject_id, surface, requests in _execute(sql, params, sole_team_id):
         subject = _subject(subject_kind, subject_id)
         if subject is not None:
             counts[team_id, subject][Surface(surface)] = requests
@@ -328,10 +348,13 @@ def _surface_counts(sql: str, params: Mapping[str, Any]) -> dict[tuple[int, Subj
 
 
 def _subject_reads(
-    sql: str, params: Mapping[str, Any], surface_counts: Mapping[tuple[int, Subject], dict[Surface, int]]
+    sql: str,
+    params: Mapping[str, Any],
+    sole_team_id: int | None,
+    surface_counts: Mapping[tuple[int, Subject], dict[Surface, int]],
 ) -> dict[int, dict[Subject, SubjectReads]]:
     reads: defaultdict[int, dict[Subject, SubjectReads]] = defaultdict(dict)
-    for team_id, *row in _execute(sql, params):
+    for team_id, *row in _execute(sql, params, sole_team_id):
         subject = _subject(row[0], row[1])
         if subject is None:
             continue
@@ -365,18 +388,18 @@ def _finite(value: float) -> float:
     return float(value) if isfinite(value) else 0.0
 
 
-def _refreshes(params: Mapping[str, Any]) -> dict[int, dict[UUID, SubjectRefreshes]]:
+def _refreshes(params: Mapping[str, Any], sole_team_id: int | None) -> dict[int, dict[UUID, SubjectRefreshes]]:
     refreshes: defaultdict[int, dict[UUID, SubjectRefreshes]] = defaultdict(dict)
-    for team_id, subject_id, runs, duration_ms, read_bytes in _execute(REFRESHES_SQL, params):
+    for team_id, subject_id, runs, duration_ms, read_bytes in _execute(REFRESHES_SQL, params, sole_team_id):
         subject = _subject(WarehouseSuggestionSubjectKind.SAVED_QUERY, subject_id)
         if subject is not None:
             refreshes[team_id][subject.id] = SubjectRefreshes(runs=runs, duration_ms=duration_ms, read_bytes=read_bytes)
     return refreshes
 
 
-def _refresh_runs(params: Mapping[str, Any]) -> dict[int, dict[UUID, tuple[RefreshRun, ...]]]:
+def _refresh_runs(params: Mapping[str, Any], sole_team_id: int | None) -> dict[int, dict[UUID, tuple[RefreshRun, ...]]]:
     runs: defaultdict[int, defaultdict[UUID, list[RefreshRun]]] = defaultdict(lambda: defaultdict(list))
-    for team_id, subject_id, workflow_id, duration_ms, read_bytes in _execute(REFRESH_RUNS_SQL, params):
+    for team_id, subject_id, workflow_id, duration_ms, read_bytes in _execute(REFRESH_RUNS_SQL, params, sole_team_id):
         subject = _subject(WarehouseSuggestionSubjectKind.SAVED_QUERY, subject_id)
         if subject is not None:
             runs[team_id][subject.id].append(
