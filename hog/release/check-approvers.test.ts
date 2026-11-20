@@ -72,6 +72,24 @@ beforeAll(async () => {
     await commit('docs/notes.md', 'carol', 'chore: change docs (#4)')
     await commit('products/surveys/mcp/tools.yaml', 'dana', 'feat(surveys): change a product tool (#5)')
     await commit('hog/release/check-approvers.sh', 'erin', 'chore(cli): change the approver check (#6)')
+    await commit('drafts/exec-helper.ts', 'frank', 'chore: draft a helper (#7)')
+    execFileSync('git', ['mv', 'drafts/exec-helper.ts', 'services/mcp/src/tools/exec-helper.ts'], { cwd: repo })
+    execFileSync(
+        'git',
+        [
+            '-c',
+            'user.name=gina',
+            '-c',
+            'user.email=dev@example.com',
+            '-c',
+            'commit.gpgsign=false',
+            'commit',
+            '-q',
+            '-m',
+            'refactor(mcp): move the helper in (#8)',
+        ],
+        { cwd: repo }
+    )
 
     fakeBin = await mkdtemp(join(tmpdir(), 'hog-fake-gh-'))
     await writeFile(join(fakeBin, 'gh'), FAKE_GH)
@@ -101,6 +119,7 @@ describe.skipIf(!BASH)('check-approvers.sh', () => {
         ['the author of a change to the MCP code', 'bob', 'bob (#3)'],
         ["the author of a change to a product's MCP tools", 'dana', 'dana (#5)'],
         ['the author of a change to the approver check itself', 'erin', 'erin (#6)'],
+        ['the author of a move into the MCP code', 'gina', 'gina (#8)'],
     ])('blocks %s', async (_name, approver, violation) => {
         const result = await check(approver)
 
@@ -108,8 +127,11 @@ describe.skipIf(!BASH)('check-approvers.sh', () => {
         expect(result.output).toBe(`violations=${violation}\n`)
     })
 
-    test('clears the author of a change hog does not compile', async () => {
-        const result = await check('carol')
+    test.each([
+        ['a change hog does not compile', 'carol'],
+        ['a file before it moved into the MCP code, when hog did not compile it', 'frank'],
+    ])('clears the author of %s', async (_name, approver) => {
+        const result = await check(approver)
 
         expect(result).toEqual({ status: 0, output: '' })
     })

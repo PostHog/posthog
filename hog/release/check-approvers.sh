@@ -39,7 +39,19 @@ if [ "$report" = false ] && [ "$#" -eq 0 ]; then
     exit 1
 fi
 
-commits=$(git log --format=%H "$base..$head" -- "${RELEASE_PATHS[@]}")
+for approver in "$@"; do
+    if [ -z "$approver" ]; then
+        echo "::error::An approver login is empty"
+        exit 1
+    fi
+done
+if ! git merge-base --is-ancestor "$base" "$head"; then
+    echo "::error::$base isn't an ancestor of $head, so the range of released commits is unknown"
+    exit 1
+fi
+
+# Without rename detection, a file that moves into one of the paths counts as added there.
+commits=$(git log --no-renames --format=%H "$base..$head" -- "${RELEASE_PATHS[@]}")
 shas=()
 if [ -n "$commits" ]; then
     mapfile -t shas <<<"$commits"
