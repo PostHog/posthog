@@ -7,6 +7,7 @@ than 128 bits reaches values nested in a list, a struct or a map, and where Delt
 refuse strings that are not valid UTF-8.
 """
 
+import tracemalloc
 from collections.abc import Callable, Sequence
 from decimal import Decimal
 from pathlib import Path
@@ -17,6 +18,8 @@ import pyarrow as pa
 import deltalake
 
 from products.data_modeling.backend.temporal.activities.materialize_view import (
+    UTF8_REPAIR_MAX_BYTES,
+    InvalidUtf8KeyError,
     UnstorableDecimalError,
     UnstorableIntegerError,
     _replace_invalid_utf8,
@@ -241,3 +244,30 @@ def test_strings_that_are_not_valid_utf8_become_readable(tmp_path: Path, column:
 
     assert transformed.schema.field("c").type.equals(column.type)
     assert _stored(tmp_path, transformed) == expected
+
+
+def test_repairing_one_invalid_value_decodes_only_a_bounded_slice() -> None:
+    values = [b"x" * 1024] * (32 * UTF8_REPAIR_MAX_BYTES // 1024)
+    values[len(values) // 2] = b"\xff"
+    batch = pa.RecordBatch.from_arrays([_strings(values)], names=["c"])
+
+    tracemalloc.start()
+    try:
+        transformed = _replace_invalid_utf8(batch)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert transformed.column("c")[len(values) // 2].as_py() == "\ufffd"
+    assert peak < 8 * UTF8_REPAIR_MAX_BYTES
+
+
+def test_a_key_column_that_is_not_valid_utf8_fails_instead_of_being_replaced() -> None:
+    batch = pa.RecordBatch.from_arrays(
+        [_strings([b"k\xff", b"k\xfe"]), _strings([b"ok", b"\xff"])], names=["c", "label"]
+    )
+
+    with pytest.raises(InvalidUtf8KeyError, match='Key column "c"') as raised:
+        _replace_invalid_utf8(batch, key_columns=("c",))
+
+    assert raised.value.non_retryable is True
