@@ -1,3 +1,4 @@
+import gc
 import json
 import asyncio
 from collections.abc import AsyncIterator, Iterator
@@ -26,7 +27,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
-from products.dashboards.backend.v2.query_batch import InvalidTarget, resolve_query, to_posthog_date
+from products.dashboards.backend.v2.query_batch import InvalidTarget, QueryBatch, resolve_query, to_posthog_date
 from products.event_definitions.backend.models import PropertyDefinition
 
 _LAST_7_DAYS = {"from": "now-7d", "to": "now"}
@@ -42,6 +43,15 @@ def _insight(event: str, **options: Any) -> dict:
         "time": _LAST_7_DAYS,
         **options,
     }
+
+
+def _cache_only_inputs() -> list[QueryBatchInput]:
+    target = QueryBatchTarget(
+        ref_id="a",
+        language=QueryBatchLanguage.INSIGHT,
+        query=json.dumps({"query": _events_node("$pageview")}),
+    )
+    return [QueryBatchInput(target=target, date_from="now-7d", date_to="now", cache_only=True)]
 
 
 class _QueryBatchMixin:
@@ -204,12 +214,7 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual(reads.call_count, 1)
 
     def test_a_client_that_stops_reading_gives_its_place_back_when_the_stream_expires(self) -> None:
-        target = QueryBatchTarget(
-            ref_id="a",
-            language=QueryBatchLanguage.INSIGHT,
-            query=json.dumps({"query": _events_node("$pageview")}),
-        )
-        inputs = [QueryBatchInput(target=target, date_from="now-7d", date_to="now", cache_only=True)]
+        inputs = _cache_only_inputs()
 
         def open_batch(asynchronous: bool) -> Any:
             return query_batch_stream(
@@ -244,6 +249,17 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
 
         self.assertTrue(ended)
         self.assertEqual(json.loads(next_batch), {"i": 0, "error": "The dashboard took too long to load. Try again."})
+
+    def test_a_batch_dropped_before_it_streams_stops_its_watchdog(self) -> None:
+        batch = QueryBatch(
+            team=self.team, user=self.user, inputs=_cache_only_inputs(), dashboard_id=None, client_query_id="dropped"
+        )
+        watchdog = batch._watchdog
+        del batch
+        gc.collect()
+        watchdog.join(timeout=5)
+
+        self.assertFalse(watchdog.is_alive())
 
 
 class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):

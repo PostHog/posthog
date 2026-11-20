@@ -413,6 +413,7 @@ class QueryBatch:
         # A weak target, so a response dropped before it is iterated is still collected and its slot released.
         self._watchdog = Timer(max(0.0, self._deadline - monotonic()), _expire_if_alive, args=(weakref.ref(self),))
         self._watchdog.daemon = True
+        weakref.finalize(self, self._watchdog.cancel)
         self._watchdog.start()
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
