@@ -89,10 +89,13 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         choices=AnomalyOrder.choices,
         default=AnomalyOrder.UNUSUAL,
         help_text=(
-            "`unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose "
-            "newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts "
-            "above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. "
-            "`rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With "
+            "`unusual` puts flagged series first, and among them the series that flagged the smallest share of the "
+            "scored buckets in the chart window of its interval, because a flag on a series that rarely flags is the "
+            "surprising one. A series with fewer than 10 scored buckets in its chart window sorts after the series "
+            "with a share. The chart window ends at `date_to` and does not follow `date_from`. `recent` puts the "
+            "series whose newest flagged bucket ended last first, whatever its interval, so an hour flagged this "
+            "morning sorts above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as "
+            "`unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With "
             "`group_by: insight`, each insight sorts by its first series."
         ),
     )
@@ -255,11 +258,6 @@ class AnomalySeriesSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The newest scored bucket in the range. Buckets after it were not checked yet.",
     )
-    baseline_rate = serializers.FloatField(
-        source="summary.baseline_rate",
-        allow_null=True,
-        help_text="The anomaly rate over the 30 days before the range. Null when no bucket was scored then.",
-    )
     first_flagged_bucket = ProjectDateTimeField(
         source="summary.first_flagged_bucket",
         allow_null=True,
@@ -301,9 +299,6 @@ class AnomalyTopSeriesSerializer(serializers.Serializer):
     scored_buckets = serializers.IntegerField(help_text="Scored buckets of the series in the range.")
     flagged_buckets = serializers.IntegerField(help_text="Flagged buckets of the series in the range.")
     anomaly_rate = serializers.FloatField(allow_null=True, help_text="`flagged_buckets / scored_buckets`.")
-    baseline_rate = serializers.FloatField(
-        allow_null=True, help_text="The anomaly rate over the 30 days before the range."
-    )
 
 
 class AnomalyInsightRowSerializer(serializers.Serializer):
@@ -418,11 +413,6 @@ class AnomalyInsightSeriesSerializer(serializers.Serializer):
     )
     anomaly_rate = serializers.FloatField(
         source="summary.anomaly_rate", allow_null=True, help_text="`flagged_buckets / scored_buckets`."
-    )
-    baseline_rate = serializers.FloatField(
-        source="summary.baseline_rate",
-        allow_null=True,
-        help_text="The anomaly rate over the 30 days before the range. Null when no bucket was scored then.",
     )
     expected_buckets = serializers.IntegerField(help_text="Completed buckets in the range, scored or not.")
     coverage = serializers.FloatField(allow_null=True, help_text="`scored_buckets / expected_buckets`.")
