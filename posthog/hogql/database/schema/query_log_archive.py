@@ -131,7 +131,7 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     "warehouse_table_ids": StringArrayDatabaseField(
         name="warehouse_table_ids",
         nullable=False,
-        description="Ids of the warehouse tables the query read. Empty when it read none, and for queries older than about one month.",
+        description="Ids of the warehouse tables a HogQL query read. Empty for other queries, when it read none, and after about one month.",
     ),
     # "cost_usd": FloatDatabaseField(name="cost_usd", nullable=False),
 }
@@ -232,7 +232,7 @@ class QueryLogArchiveTable(LazyTable):
 
         return ast.SelectQuery(
             select=fields,
-            select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]), table_schema=QueryLogArchiveSourceTable()),
             where=where_clause,
         )
 
@@ -328,13 +328,6 @@ class RawQueryLogArchiveTable(Table):
             nullable=False,
             description="Bytes the cost planner estimated the query would read. 0 when no estimate was recorded.",
         ),
-        # Hidden from the schema: query_log reads warehouse_table_ids from it, and its other keys are internal.
-        "log_comment": StringDatabaseField(
-            name="log_comment",
-            nullable=False,
-            hidden=True,
-            description="The initial query's log_comment as JSON, without its timings and query keys. Kept for one month, then empty.",
-        ),
     }
 
     def to_printed_clickhouse(self, context) -> str:
@@ -342,3 +335,12 @@ class RawQueryLogArchiveTable(Table):
 
     def to_printed_hogql(self) -> str:
         return "raw_query_log"
+
+
+class QueryLogArchiveSourceTable(RawQueryLogArchiveTable):
+    # raw_query_log plus log_comment, for the query_log lazy select only. log_comment keeps tags such as
+    # http_referer, which can hold a share token, so the Database does not register this table.
+    fields: dict[str, FieldOrTable] = {
+        **RawQueryLogArchiveTable.model_fields["fields"].default,
+        "log_comment": StringDatabaseField(name="log_comment", nullable=False),
+    }

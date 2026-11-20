@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.accuracy import cost_estimate_accuracy_hogql
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -92,6 +93,12 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
         )
 
         assert [row[0].removeprefix(f"{tag}_") for row in response.results] == expected
+
+    @parameterized.expand([("raw_query_log",), ("query_log",)])
+    def test_log_comment_is_not_selectable(self, table: str):
+        # log_comment keeps tags such as http_referer, so only the warehouse_table_ids extraction may read it.
+        with self.assertRaisesRegex(QueryError, "log_comment"):
+            execute_hogql_query(f"select log_comment from {table}", self.team)
 
     def test_cost_estimate_accuracy_query_runs_against_the_archive(self):
         response = execute_hogql_query(cost_estimate_accuracy_hogql(days=7), self.team)
