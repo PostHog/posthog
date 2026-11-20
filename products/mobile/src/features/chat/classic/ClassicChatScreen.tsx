@@ -1,4 +1,5 @@
 import { BlurTargetView } from 'expo-blur'
+import { useIsFocused } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
@@ -13,6 +14,8 @@ import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import type { getConversation } from '@/api/conversations'
+import { useAuthStore } from '@/auth/authStore'
+import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { track } from '@/lib/analytics'
 import { conversationWebUrl } from '@/model/adapters/chats'
@@ -29,6 +32,7 @@ import { ChatErrorNotice } from '../ChatErrorNotice'
 import { CHAT_HEADER_HEIGHT, ChatHeader } from '../ChatHeader'
 import { type ChatSheetSource, useChatSheetEvents } from '../chatSheetEvents'
 import { SessionThread, type SessionThreadState } from '../session/SessionThread'
+import { useChatDictation } from '../useChatDictation'
 import { useChatDraft } from '../useChatDraft'
 import { ClassicComposer } from './ClassicComposer'
 import { ClassicFormPanel } from './ClassicFormPanel'
@@ -97,6 +101,17 @@ export function ClassicChatScreen({
         },
         []
     )
+    const focused = useIsFocused()
+    const accountScope = useAuthStore((state) =>
+        JSON.stringify([state.host, state.projectId, state.user?.uuid, sessionGeneration()])
+    )
+    const composerDisabled = !draft.ready || chat.loading || !!chat.historyError || sending
+    const dictation = useChatDictation({
+        onTranscript: draft.appendText,
+        draftText: draft.draft.text,
+        scopeKey: JSON.stringify([accountScope, conversationId, chat.id]),
+        disabled: !focused || composerDisabled || !!chat.form || !!chat.state.approval,
+    })
     const keyboard = useReanimatedKeyboardAnimation()
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, insets.bottom) }))
     const projectUrl = scope ? `${scope.host.replace(/\/$/, '')}/project/${scope.projectId}` : ''
@@ -118,7 +133,15 @@ export function ClassicChatScreen({
     }
     const send = async (): Promise<void> => {
         const text = draft.draft.text.trim()
-        if (!text || sendLock.current || chat.working || chat.loading || !draft.ready) return
+        if (
+            !text ||
+            composerDisabled ||
+            sendLock.current ||
+            chat.working ||
+            dictation.phase !== 'idle' ||
+            dictation.isActive()
+        )
+            return
         sendLock.current = true
         setSending(true)
         const generation = lifetime.current
@@ -155,6 +178,7 @@ export function ClassicChatScreen({
         }
     }
     const close = (): void => {
+        dictation.cancel()
         lifetime.current++
         Keyboard.dismiss()
         onBack()
@@ -285,11 +309,12 @@ export function ClassicChatScreen({
                             ) : (
                                 <ClassicComposer
                                     ref={inputRef}
+                                    dictation={dictation}
                                     text={draft.draft.text}
                                     onChangeText={(text) => draft.change({ ...draft.draft, text })}
                                     onSend={() => void send()}
                                     onStop={() => void chat.stop()}
-                                    disabled={!draft.ready || chat.loading || !!chat.historyError || sending}
+                                    disabled={composerDisabled}
                                     working={chat.working}
                                     stopping={chat.stopping}
                                 />
@@ -302,6 +327,7 @@ export function ClassicChatScreen({
                     webUrl={conversationWebUrl(scope, chat.id)}
                     onBack={close}
                     onNewChat={() => {
+                        dictation.cancel()
                         lifetime.current++
                         formDraft.current = null
                         events.countNewChat()

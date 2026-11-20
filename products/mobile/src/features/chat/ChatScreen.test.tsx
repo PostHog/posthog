@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native'
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native'
 import { Platform, TextInput } from 'react-native'
 import { ChatScreen } from './ChatScreen'
 import { queueActions, queueReducer } from './messageQueue'
 import { useSession } from './session/useSession'
+import { useChatDictation } from './useChatDictation'
 import { useChatDraft } from './useChatDraft'
 
 jest.mock('expo-notifications', () => ({}))
@@ -44,10 +45,20 @@ jest.mock('./ChatAccessGate', () => ({ ChatAccessGate: ({ children }: { children
 jest.mock('./ChatOptionsSheet', () => ({ ChatOptionsSheet: () => null }))
 jest.mock('./session/SessionThread', () => ({ SessionThread: () => null }))
 jest.mock('./session/useSession', () => ({ useSession: jest.fn() }))
+jest.mock('./useChatDictation', () => ({ useChatDictation: jest.fn() }))
 jest.mock('./useChatDraft', () => ({ useChatDraft: jest.fn() }))
 
 beforeEach(() => {
     jest.clearAllMocks()
+    jest.mocked(useChatDictation).mockReturnValue({
+        available: false,
+        phase: 'idle',
+        preview: '',
+        error: null,
+        toggle: jest.fn(),
+        cancel: jest.fn(),
+        isActive: () => false,
+    })
     jest.useFakeTimers()
 })
 afterEach(() => {
@@ -88,6 +99,7 @@ function mockReadyChat(): { session: ReturnType<typeof useSession>; draft: Retur
         dismissQueueError: jest.fn(),
         updateQueue: jest.fn(async () => true),
         change: jest.fn(),
+        appendText: jest.fn(),
         beginSend: jest.fn(async () => async () => undefined),
     }
     jest.mocked(useSession).mockImplementation(() => session)
@@ -100,6 +112,67 @@ test.each([null, 'task-1'])('shows the regional AI incident for chat %s', (taskI
     session.taskId = taskId
     render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
     expect(screen.getByLabelText('PostHog AI incident (monitoring) · Elevated latency')).toBeTruthy()
+})
+
+test('keeps dictation preview separate and blocks keyboard submission from queuing a typed follow-up', async () => {
+    const { session, draft } = mockReadyChat()
+    session.phase = 'working'
+    const dictation: ReturnType<typeof useChatDictation> = {
+        available: true,
+        phase: 'idle',
+        preview: '',
+        error: null,
+        toggle: jest.fn(),
+        cancel: jest.fn(),
+        isActive: () => dictation.phase !== 'idle',
+    }
+    jest.mocked(useChatDictation).mockReturnValue(dictation)
+    const chat = <ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />
+    const view = render(chat)
+    const buttons = within(screen.getByTestId('chat-composer-actions')).getAllByRole('button')
+    expect(buttons.map((button) => button.props.accessibilityLabel)).toEqual([
+        'Stop the reply',
+        'Start dictation',
+        'Send',
+    ])
+    fireEvent.press(screen.getByLabelText('Start dictation'))
+    expect(dictation.toggle).toHaveBeenCalledTimes(1)
+
+    dictation.phase = 'listening'
+    dictation.preview = 'by country'
+    view.rerender(<ChatScreen {...chat.props} />)
+    expect(screen.getByTestId('chat-dictation-preview')).toHaveTextContent('by country')
+    expect(screen.getByTestId('chat-input')).toHaveDisplayValue('First message')
+    expect(screen.getByTestId('chat-send')).toBeDisabled()
+    fireEvent(screen.getByTestId('chat-input'), 'submitEditing')
+    expect(draft.updateQueue).not.toHaveBeenCalled()
+    expect(session.send).not.toHaveBeenCalled()
+
+    fireEvent.press(screen.getByLabelText('Stop dictation'))
+    expect(dictation.toggle).toHaveBeenCalledTimes(2)
+    jest.mocked(useChatDictation).mock.lastCall?.[0].onTranscript('by country')
+    expect(draft.appendText).toHaveBeenCalledWith('by country')
+    expect(draft.updateQueue).not.toHaveBeenCalled()
+
+    dictation.phase = 'idle'
+    dictation.preview = ''
+    draft.draft.text = 'First message by country'
+    view.rerender(<ChatScreen {...chat.props} />)
+    expect(screen.queryByTestId('chat-dictation-preview')).toBeNull()
+
+    dictation.error = 'Allow microphone access in Settings to use dictation.'
+    view.rerender(<ChatScreen {...chat.props} />)
+    expect(screen.getByRole('alert')).toHaveTextContent(dictation.error)
+    expect(screen.getByTestId('chat-input')).toHaveDisplayValue('First message by country')
+    await act(async () => fireEvent.press(screen.getByTestId('chat-send')))
+    expect(draft.updateQueue).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'enqueue', text: 'First message by country' }),
+        true
+    )
+    draft.draft.text = ''
+    view.rerender(<ChatScreen {...chat.props} />)
+    const stopButtons = within(screen.getByTestId('chat-composer-actions')).getAllByRole('button')
+    expect(stopButtons.map((button) => button.props.accessibilityLabel)).toEqual(['Start dictation', 'Stop the reply'])
 })
 
 describe('chat send preparation', () => {
@@ -165,6 +238,7 @@ describe('chat send preparation', () => {
             dismissQueueError: jest.fn(),
             updateQueue: jest.fn(async () => true),
             change: jest.fn(),
+            appendText: jest.fn(),
             beginSend,
         })
         jest.mocked(useSession).mockReturnValue({
@@ -227,6 +301,7 @@ describe('chat send preparation', () => {
             dismissQueueError: jest.fn(),
             updateQueue,
             change: jest.fn(),
+            appendText: jest.fn(),
             beginSend: jest.fn(),
         })
         jest.mocked(useSession).mockReturnValue({

@@ -112,6 +112,12 @@ The message input wraps long text onto multiple lines and grows up to 120 points
 Longer drafts scroll vertically within the input. The keyboard's Send action sends the message
 and keeps the keyboard open for a follow-up.
 
+In Tasks and classic chat, tap the microphone to dictate using the phone's on-device speech recognizer.
+You can keep typing while the live transcript is visible. Tap the microphone again to finish, or let the
+recognizer finish after a pause. The phrase is appended to the latest draft. You can edit it, dictate
+another phrase, and press Send when you're ready. Dictation uses PostHog product names and technical
+terms as recognition hints. Availability depends on the device and its installed language models.
+
 Text and attached report IDs are saved separately for each task, each report discussion, and
 the new-chat composer. Native drafts use encrypted device storage, scoped to the account,
 host and project, with at most 50 drafts per project. Changes save after 400 ms of idle time

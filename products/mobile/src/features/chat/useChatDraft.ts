@@ -31,6 +31,7 @@ export function useChatDraft(
     retrySave: () => Promise<void>
     ready: boolean
     change: (draft: ChatDraft) => void
+    appendText: (text: string) => void
     beginSend: (message: ChatDraft) => Promise<(sent: boolean) => Promise<void>>
 } {
     const signedIn = useAuthStore((state) => state.signedIn)
@@ -117,6 +118,17 @@ export function useChatDraft(
             saveTimer.current = setTimeout(flush, 400)
         },
         [flush]
+    )
+
+    const appendText = useCallback(
+        (addition: string): void => {
+            const text = addition.trim()
+            if (!text) return
+            const current = latest.current
+            const separator = current.text && !/\s$/.test(current.text) ? ' ' : ''
+            change({ ...current, text: current.text + separator + text })
+        },
+        [change]
     )
 
     useEffect(() => {
@@ -315,6 +327,7 @@ export function useChatDraft(
         draft,
         ready,
         change,
+        appendText,
         beginSend,
         queue,
         queuePending,

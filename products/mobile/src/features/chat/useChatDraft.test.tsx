@@ -48,6 +48,21 @@ beforeEach(async () => {
 })
 
 describe('chat draft persistence', () => {
+    it('appends dictated text after the latest typed edit and keeps attached reports', async () => {
+        const hook = renderHook(() => useChatDraft('task-1', undefined))
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        act(() => {
+            hook.result.current.change({ text: 'Compare signups', reportIds: ['report-1'] })
+            hook.result.current.appendText('  by country.  ')
+        })
+        expect(hook.result.current.draft).toEqual({ text: 'Compare signups by country.', reportIds: ['report-1'] })
+        hook.unmount()
+        expect(await chatDrafts.load('scope-1', 'task:task-1')).toEqual({
+            text: 'Compare signups by country.',
+            reportIds: ['report-1'],
+        })
+    })
+
     it('flushes on close inside the debounce window and restores text and reports on reopen', async () => {
         const hook = renderHook(() => useChatDraft(null, 'report-1'))
         await waitFor(() => expect(hook.result.current.ready).toBe(true))
