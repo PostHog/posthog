@@ -19,6 +19,7 @@ import structlog
 import dateutil.parser
 import posthoganalytics
 
+from posthog.billing.entitlements_contract import check_billed_resources, load_contract
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import AvailableFeature
@@ -74,7 +75,8 @@ class OrgQuotaLimitingInformation(TypedDict):
     quota_limiting_suspended_until: Optional[int]
 
 
-# These quota resource identifiers match billing default_plans_config.yml usage_key.
+# These quota resource identifiers match billing's usage keys. The check below the class fails at import when `billed`
+# disagrees with the vendored entitlements contract.
 # These keys should match OrganizationUsageInfo and UsageCounters.
 class QuotaResource(Enum):
     EVENTS = "events"
@@ -94,10 +96,27 @@ class QuotaResource(Enum):
     POSTHOG_CODE_CREDITS = "posthog_code_credits"
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_PUSH = "workflow_push"
-    WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
+    WORKFLOW_DESTINATIONS = "workflow_destinations"
     # Covers logs and traces together: they are one product with one free tier and one price.
     LOGS_MB_INGESTED = "logs_mb_ingested"
     REPLAY_VISION_CREDITS = "replay_vision_credits"
+
+    @property
+    def billed(self) -> bool:
+        return self not in UNBILLED_QUOTA_RESOURCES
+
+
+# A new resource counts as billed until it is listed here, so the import check forces a decision about it.
+UNBILLED_QUOTA_RESOURCES: frozenset[QuotaResource] = frozenset(
+    {QuotaResource.API_QUERIES, QuotaResource.MCP_EVENTS, QuotaResource.WORKFLOW_PUSH}
+)
+
+
+check_billed_resources(
+    billed=(resource.value for resource in QuotaResource if resource.billed),
+    known=(resource.value for resource in QuotaResource),
+    contract=load_contract(),
+)
 
 
 class QuotaLimitingCaches(Enum):
@@ -169,7 +188,7 @@ class UsageCounters(TypedDict):
     sandbox_compute_memory_mib_seconds: int
     workflow_emails: int
     workflow_push: int
-    workflow_destinations_dispatched: int
+    workflow_destinations: int
     logs_mb_ingested: int
     replay_vision_credits: int
 
@@ -1448,7 +1467,7 @@ def _aggregate_quota_usage(
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
             workflow_push=all_data["teams_with_workflow_push_sent_in_period"].get(team.id, 0),
-            workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
+            workflow_destinations=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
             logs_mb_ingested=all_data["teams_with_logs_mb_in_period"].get(team.id, 0),
             replay_vision_credits=all_data["teams_with_replay_vision_credits_used_in_period"].get(team.id, 0),
         )

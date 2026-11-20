@@ -156,7 +156,7 @@ class BillingConsumer(SQSConsumer):
 
         license = get_cached_instance_license()
         billing_manager = BillingManager(license)
-        billing_manager.update_org_details(organization, data)
+        billing_manager.update_org_details(organization, data, sync_type=body.get("sync_type"))
 
         logger.info(f"Successfully processed billing customer update for {organization_id}")
 

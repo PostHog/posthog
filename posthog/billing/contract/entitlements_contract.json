@@ -1,0 +1,396 @@
+{
+  "contract_hash": "9e09baf6ed7c073803afac015f14bcba0e9f25a197a8ac9f043f7929753cf429",
+  "limited_features": {
+    "alerts": {
+      "limit_enforcement": "create",
+      "limit_enforcement_note": null,
+      "limit_scope": "team",
+      "products": [
+        "product_analytics"
+      ]
+    },
+    "audit_logs": {
+      "limit_enforcement": "runtime",
+      "limit_enforcement_note": null,
+      "limit_scope": "organization",
+      "products": [
+        "boost",
+        "enterprise",
+        "platform_and_support",
+        "scale",
+        "teams"
+      ]
+    },
+    "data_modeling_refresh_interval": {
+      "limit_enforcement": "runtime",
+      "limit_enforcement_note": null,
+      "limit_scope": "organization",
+      "products": [
+        "boost",
+        "enterprise",
+        "platform_and_support",
+        "scale",
+        "teams"
+      ]
+    },
+    "error_tracking_destinations": {
+      "limit_enforcement": "none",
+      "limit_enforcement_note": "PostHog reads this limit nowhere.",
+      "limit_scope": "organization",
+      "products": [
+        "error_tracking"
+      ]
+    },
+    "feature_flags_data_retention": {
+      "limit_enforcement": "none",
+      "limit_enforcement_note": "PostHog applies no flag retention from this limit.",
+      "limit_scope": "organization",
+      "products": [
+        "feature_flags"
+      ]
+    },
+    "managed_reverse_proxy": {
+      "limit_enforcement": "create",
+      "limit_enforcement_note": null,
+      "limit_scope": "organization",
+      "products": [
+        "platform_and_support"
+      ]
+    },
+    "organizations_projects": {
+      "limit_enforcement": "create",
+      "limit_enforcement_note": null,
+      "limit_scope": "organization",
+      "products": [
+        "platform_and_support"
+      ]
+    },
+    "posthog_code_daily_limit": {
+      "limit_enforcement": "none",
+      "limit_enforcement_note": "PostHog Code takes its spend limit from the usage quota, not this.",
+      "limit_scope": "organization",
+      "products": [
+        "posthog_code"
+      ]
+    },
+    "posthog_code_monthly_limit": {
+      "limit_enforcement": "none",
+      "limit_enforcement_note": "PostHog Code takes its spend limit from the usage quota, not this.",
+      "limit_scope": "organization",
+      "products": [
+        "posthog_code"
+      ]
+    },
+    "product_analytics_data_retention": {
+      "limit_enforcement": "runtime",
+      "limit_enforcement_note": null,
+      "limit_scope": "organization",
+      "products": [
+        "boost",
+        "enterprise",
+        "product_analytics",
+        "scale",
+        "teams"
+      ]
+    },
+    "real_time_alerts": {
+      "limit_enforcement": "create",
+      "limit_enforcement_note": null,
+      "limit_scope": "team",
+      "products": [
+        "enterprise",
+        "scale"
+      ]
+    },
+    "recordings_playlists": {
+      "limit_enforcement": "none",
+      "limit_enforcement_note": "PostHog reads this limit nowhere.",
+      "limit_scope": "team",
+      "products": [
+        "session_replay"
+      ]
+    },
+    "self_driving_trial_allowance_microusd": {
+      "limit_enforcement": "runtime",
+      "limit_enforcement_note": null,
+      "limit_scope": "project",
+      "products": [
+        "inbox_usage"
+      ]
+    },
+    "self_driving_trial_reports": {
+      "limit_enforcement": "runtime",
+      "limit_enforcement_note": null,
+      "limit_scope": "project",
+      "products": [
+        "inbox_usage"
+      ]
+    },
+    "session_replay_data_retention": {
+      "limit_enforcement": "runtime",
+      "limit_enforcement_note": null,
+      "limit_scope": "organization",
+      "products": [
+        "boost",
+        "enterprise",
+        "scale",
+        "session_replay",
+        "teams"
+      ]
+    },
+    "shared_resource_configurations": {
+      "limit_enforcement": "none",
+      "limit_enforcement_note": "PostHog reads this limit nowhere.",
+      "limit_scope": "organization",
+      "products": [
+        "boost",
+        "enterprise",
+        "platform_and_support",
+        "scale"
+      ]
+    },
+    "subscriptions": {
+      "limit_enforcement": "create",
+      "limit_enforcement_note": null,
+      "limit_scope": "team",
+      "products": [
+        "product_analytics"
+      ]
+    },
+    "surveys_data_retention": {
+      "limit_enforcement": "none",
+      "limit_enforcement_note": "PostHog applies no survey retention from this limit.",
+      "limit_scope": "organization",
+      "products": [
+        "surveys"
+      ]
+    }
+  },
+  "schema_version": 1,
+  "usage_keys": {
+    "ai_credits": {
+      "products": [
+        {
+          "parent": null,
+          "product": "posthog_ai"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops PostHog AI when the org is over its limit."
+    },
+    "cdp_trigger_events": {
+      "products": [
+        {
+          "parent": null,
+          "product": "realtime_destinations"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops realtime destinations when the org is over its limit."
+    },
+    "enhanced_persons_events": {
+      "products": [
+        {
+          "parent": "product_analytics",
+          "product": "enhanced_persons"
+        },
+        {
+          "parent": "product_analytics",
+          "product": "group_analytics"
+        }
+      ],
+      "quota_enforcement": "none",
+      "quota_enforcement_note": "Identified events are billed, not limited: PostHog has no quota resource for them."
+    },
+    "events": {
+      "products": [
+        {
+          "parent": null,
+          "product": "product_analytics"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog limits ingestion when the org is over its limit."
+    },
+    "exceptions": {
+      "products": [
+        {
+          "parent": null,
+          "product": "error_tracking"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog drops exceptions when the org is over its limit."
+    },
+    "feature_flag_requests": {
+      "products": [
+        {
+          "parent": null,
+          "product": "feature_flags"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog limits flag evaluation when the org is over its limit."
+    },
+    "historical_rows_synced": {
+      "products": [
+        {
+          "parent": "data_warehouse",
+          "product": "data_warehouse_historical"
+        }
+      ],
+      "quota_enforcement": "none",
+      "quota_enforcement_note": "Historical syncs are billed, not limited: PostHog has no quota resource for them."
+    },
+    "llm_events": {
+      "products": [
+        {
+          "parent": null,
+          "product": "llm_analytics"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog drops LLM events when the org is over its limit."
+    },
+    "logs_mb_ingested": {
+      "products": [
+        {
+          "parent": null,
+          "product": "logs"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog drops logs and traces when the org is over its limit."
+    },
+    "logs_retention_30d_mb_ingested": {
+      "products": [
+        {
+          "parent": "logs",
+          "product": "logs_retention_30d"
+        }
+      ],
+      "quota_enforcement": "none",
+      "quota_enforcement_note": "Billed with logs; PostHog limits logs ingestion through logs_mb_ingested."
+    },
+    "logs_retention_mb_days": {
+      "products": [
+        {
+          "parent": null,
+          "product": "logs_retention_custom"
+        }
+      ],
+      "quota_enforcement": "none",
+      "quota_enforcement_note": "Billed retention, not limited: PostHog has no quota resource for it."
+    },
+    "mobile_recordings": {
+      "products": [
+        {
+          "parent": "session_replay",
+          "product": "mobile_replay"
+        }
+      ],
+      "quota_enforcement": "none",
+      "quota_enforcement_note": "PostHog has no quota resource for mobile recordings."
+    },
+    "posthog_code_credits": {
+      "products": [
+        {
+          "parent": null,
+          "product": "posthog_code_usage"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "The LLM gateway stops PostHog Code when the org is over its limit."
+    },
+    "recordings": {
+      "products": [
+        {
+          "parent": null,
+          "product": "session_replay"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops recording when the org is over its limit."
+    },
+    "replay_vision_credits": {
+      "products": [
+        {
+          "parent": null,
+          "product": "replay_vision"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops replay vision when the org is over its limit."
+    },
+    "rows_exported": {
+      "products": [
+        {
+          "parent": "realtime_destinations",
+          "product": "batch_exports"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops batch exports when the org is over its limit, where its billing check is on."
+    },
+    "rows_synced": {
+      "products": [
+        {
+          "parent": null,
+          "product": "data_warehouse"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops warehouse syncs when the org is over its limit."
+    },
+    "signals_credits": {
+      "products": [
+        {
+          "parent": null,
+          "product": "inbox"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops signals work when the org is over its limit."
+    },
+    "signals_spend_credits": {
+      "products": [
+        {
+          "parent": null,
+          "product": "inbox_usage"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops self-driving work when the org is over its spend limit."
+    },
+    "survey_responses": {
+      "products": [
+        {
+          "parent": null,
+          "product": "surveys"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops showing surveys when the org is over its limit."
+    },
+    "workflow_destinations": {
+      "products": [
+        {
+          "parent": "workflows_emails",
+          "product": "workflows_destinations"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog enforces it under this key. A PostHog release that still reads workflow_destinations_dispatched does not."
+    },
+    "workflow_emails": {
+      "products": [
+        {
+          "parent": null,
+          "product": "workflows_emails"
+        }
+      ],
+      "quota_enforcement": "posthog",
+      "quota_enforcement_note": "PostHog stops workflow emails when the org is over its limit."
+    }
+  }
+}
