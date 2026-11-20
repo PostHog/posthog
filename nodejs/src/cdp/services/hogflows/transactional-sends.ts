@@ -441,7 +441,6 @@ export class TransactionalSends {
         }
     }
 
-    // Suppression and the MX check are left to the email worker, which records a skipped send in the status read.
     async acceptBatch(
         team: Team,
         hogFlow: HogFlow,
@@ -547,8 +546,15 @@ export class TransactionalSends {
                 : Promise.resolve(requests.map(() => null))
         const suspension = this.deps.teamWorkflowsConfig.getEmailSendingSuspension(teamId)
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
+        const eachRecipient = <T>(check: (email: string) => Promise<T>) =>
+            Promise.all(requests.map((request) => Promise.all(transactionalEmailRecipients(request).map(check))))
+        const suppressed = eachRecipient((email) =>
+            this.deps.emailSuppression.isKnownSuppressed(teamId, email, { transactional: true })
+        )
+        // A DNS failure lets the recipient through.
+        const unreachable = eachRecipient((email) => this.deps.emailValidation.getRecipientSkipReason(teamId, email))
         // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
-        for (const lookup of [sandbox, suspension, quota] as Promise<unknown>[]) {
+        for (const lookup of [sandbox, suspension, quota, suppressed, unreachable] as Promise<unknown>[]) {
             lookup.catch(() => undefined)
         }
         const sandboxRefusals = await sandbox
@@ -561,7 +567,18 @@ export class TransactionalSends {
         if ((await quota).isLimited) {
             return whole('quota_limited')
         }
-        return { refusal: null, recipientRefusals: sandboxRefusals }
+        const [suppressedOf, unreachableOf] = await Promise.all([suppressed, unreachable])
+        // Each recipient gets the first refusal in the single send's order.
+        const recipientRefusals = sandboxRefusals.map(
+            (sandboxRefusal, i): TransactionalSendRefusal | null =>
+                sandboxRefusal ??
+                (suppressedOf[i].some(Boolean)
+                    ? 'recipient_suppressed'
+                    : unreachableOf[i].some(Boolean)
+                      ? 'recipient_unreachable'
+                      : null)
+        )
+        return { refusal: null, recipientRefusals }
     }
 
     private buildInvocation(
