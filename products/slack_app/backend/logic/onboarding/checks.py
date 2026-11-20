@@ -68,6 +68,7 @@ def approve_ai_data_processing_for_team(team_id: int) -> bool:
     if org_id is None:
         return False
     with transaction.atomic():
+        # nosemgrep: hot-parent-row-select-for-update -- the organization row is the resource being changed
         organization = Organization.objects.select_for_update().filter(id=org_id).first()
         if organization is None or organization.is_ai_data_processing_locked:
             return False

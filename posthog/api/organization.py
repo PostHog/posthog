@@ -409,12 +409,13 @@ class OrganizationSerializer(
         ip_restrictions = validated_data.pop("ip_restrictions", None)
         ip_restrictions_enabled = validated_data.pop("ip_restrictions_enabled", None)
         with transaction.atomic():
-            # Support can set the lock while this request is in flight. Read it under a row lock so an
-            # approval cannot slip past it, and so saving the stale instance cannot clear it.
-            instance.is_ai_data_processing_locked = (
+            # Support can lock AI off while this request is in flight. Read the stored consent under a row
+            # lock so an approval cannot slip past the lock, and so saving the stale instance cannot undo it.
+            instance.is_ai_data_processing_locked, instance.is_ai_data_processing_approved = (
+                # nosemgrep: hot-parent-row-select-for-update -- the organization row is the resource being changed
                 Organization.objects.select_for_update()
                 .filter(pk=instance.pk)
-                .values_list("is_ai_data_processing_locked", flat=True)
+                .values_list("is_ai_data_processing_locked", "is_ai_data_processing_approved")
                 .get()
             )
             self.validate_is_ai_data_processing_approved(validated_data.get("is_ai_data_processing_approved"))

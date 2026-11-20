@@ -1,4 +1,5 @@
 from datetime import UTC
+from typing import Any
 
 from django import forms
 from django.conf import settings
@@ -51,12 +52,12 @@ class OrganizationAdminForm(forms.ModelForm):
             )
         }
 
-    def clean(self):
-        cleaned_data = super().clean()
+    def clean(self) -> dict[str, Any]:
+        super().clean()
         # A lock that leaves AI on would protect nothing, so locking always turns AI data processing off.
-        if cleaned_data.get("is_ai_data_processing_locked"):
-            cleaned_data["is_ai_data_processing_approved"] = False
-        return cleaned_data
+        if self.cleaned_data.get("is_ai_data_processing_locked"):
+            self.cleaned_data["is_ai_data_processing_approved"] = False
+        return self.cleaned_data
 
 
 @admin.register(Organization)
