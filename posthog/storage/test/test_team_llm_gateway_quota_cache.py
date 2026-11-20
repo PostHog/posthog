@@ -8,11 +8,7 @@ from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from parameterized import parameterized
-
-from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.storage.team_llm_gateway_quota_cache import (
@@ -574,28 +570,8 @@ class TestReconcileQuotaProjection(QuotaProjectionTestMixin):
         self.assertEqual(reconcile_quota_projection()["candidates"], 0)
         self.assertIsNotNone(get_team_quota_blob(self.team))
 
-    @parameterized.expand(["admission_enabled", "secret_key_on_child_env", "oauth_app"])
-    def test_a_long_deactivated_org_that_can_still_reach_the_gateway_has_an_evicted_blob_rewritten(
-        self, mock_settings, credential
-    ):
+    def test_a_long_deactivated_org_with_no_gateway_credential_has_an_evicted_blob_rewritten(self, mock_settings):
         mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
-        if credential == "admission_enabled":
-            Team.objects.filter(pk=self.team.pk).update(llm_gateway_enabled_at=timezone.now())
-        elif credential == "secret_key_on_child_env":
-            child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
-            ProjectSecretAPIKey.objects.create(
-                team=child, label="gateway", scopes=["llm_gateway:read"], secure_value="sha256$quota-test"
-            )
-        else:
-            OAuthApplication.objects.create(
-                name="An app",
-                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="https://example.com/callback",
-                algorithm="RS256",
-                organization=self.organization,
-                user=self.user,
-            )
         self._deactivate_long_ago()
         project_org_quota(self.organization)
         hypercache.cache_client.delete(hypercache.get_cache_key(self.team))

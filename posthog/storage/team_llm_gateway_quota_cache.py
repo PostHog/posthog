@@ -10,13 +10,12 @@ import os
 import json
 import time
 from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from itertools import batched
 from typing import Any, NamedTuple
 
 from django.conf import settings
 from django.db.models import Q, QuerySet
-from django.db.models.functions import Coalesce
 
 import structlog
 
@@ -107,31 +106,6 @@ def quota_blob_ttl(blob: Mapping[str, Any], now: datetime) -> int:
 
 def _enabled() -> bool:
     return bool(settings.AI_GATEWAY_REDIS_URL)
-
-
-def deactivated_teams_to_verify() -> QuerySet[Team]:
-    """Teams of deactivated orgs that can still spend at the gateway: tokens minted within the
-    deactivated window are live, or the team has a standing gateway credential."""
-    from posthog.models.project_secret_api_key import ProjectSecretAPIKey  # noqa: PLC0415
-    from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_REQUIRED_SCOPE  # noqa: PLC0415
-
-    recent = datetime.now(tz=UTC) - timedelta(seconds=LLM_GATEWAY_QUOTA_DEACTIVATED_TTL)
-    # A secret key bills its project root, so the root is the team that needs the blob.
-    key_roots = (
-        ProjectSecretAPIKey.objects.filter(scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE])
-        .annotate(root_team_id=Coalesce("team__parent_team_id", "team_id"))
-        .values("root_team_id")
-    )
-    return (
-        Team.objects.filter(organization__is_active=False)
-        .filter(
-            Q(organization__updated_at__gte=recent)
-            | Q(llm_gateway_enabled_at__isnull=False, llm_gateway_revoked_at__isnull=True)
-            | Q(id__in=key_roots)
-            | Q(organization__oauth_applications__isnull=False)
-        )
-        .distinct()
-    )
 
 
 def team_ai_credit_limited_until(team: Team) -> dict[str, float]:
@@ -337,9 +311,7 @@ def reconcile_quota_projection() -> dict[str, int]:
     _untrack(have - set(have_active), expired_before=now_ts)
     deactivated_have = {team_id for team_id, active in have_active.items() if active is False}
     deactivated = set(Team.objects.filter(organization__is_active=False).values_list("id", flat=True))
-    # Only teams that can still reach the gateway get a key check, so round trips per tick stay bounded.
-    to_verify = set(deactivated_teams_to_verify().values_list("id", flat=True))
-    ids = expiring | (set(have_active) - deactivated_have) | (deactivated - have) | _missing_blobs(to_verify - expiring)
+    ids = expiring | (set(have_active) - deactivated_have) | _missing_blobs(deactivated - expiring)
     candidates = Team.objects.filter(Q(api_token__in=tokens) | Q(id__in=ids))
     total = candidates.count()
     projected = _project_teams(candidates)
