@@ -172,7 +172,7 @@ class _Converter:
         self.tag_unsubscribe = False
         self.list_unsubscribe = False
         self.unsubscribe_email = False
-        self.value_count = 0
+        self.go_kinds: dict[str, str] = {}
 
     def convert(self) -> ConvertedText:
         if self.text.count("{{") + self.text.count("%") // 2 > _MAX_VALUES:
@@ -273,12 +273,15 @@ class _Converter:
         if self.engine == "handlebars":
             # Handlebars prints a list with commas between its items, and `join` leaves any other value as it is.
             return show(f'{path} | join: ","')
-        # Go prints a list as [a b] and a map as map[key:value], so the value's JSON says which it is.
-        self.value_count += 1
-        kind = f"go_value{self.value_count}"
+        # Go prints a list as [a b] and a map as map[key:value], so the value's JSON says which it is. A converted
+        # template has no blocks, so the first use of a value always runs first and later uses reuse its answer.
+        kind = self.go_kinds.get(path)
+        setup = ""
+        if kind is None:
+            kind = self.go_kinds[path] = f"go_value{len(self.go_kinds) + 1}"
+            setup = f"{{% assign {kind} = {path} | json | slice: 0 %}}"
         return (
-            f"{{% assign {kind} = {path} | json | slice: 0 %}}"
-            f'{{% if {kind} == "[" %}}[{show(f"{path} | join: ' '")}]'
+            setup + f'{{% if {kind} == "[" %}}[{show(f"{path} | join: ' '")}]'
             f'{{% elsif {kind} == "{{" %}}map[{{% for pair in {path} %}}{{% unless forloop.first %}} {{% endunless %}}'
             f"{show('pair[0]')}:{show('pair[1]')}{{% endfor %}}]"
             f"{{% else %}}{show(path)}{{% endif %}}"

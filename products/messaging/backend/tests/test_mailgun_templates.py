@@ -122,6 +122,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
         assert '{% if go_value1 == "[" %}[' in converted
         assert "map[{% for pair in variables.x %}" in converted
 
+    def test_a_go_value_used_again_is_only_turned_into_json_once(self) -> None:
+        converted = convert_text("<p>{{.x}} {{.x}} {{.y}} {{.x}}</p>", engine="go").text
+
+        assert converted.count("variables.x | json") == 1
+        assert converted.count("variables.y | json") == 1
+
     def test_a_blank_engine_with_go_syntax_reads_as_go(self) -> None:
         assert "variables.Name" in convert_version({"engine": "", "template": "{{.Name}}"}).html
 
