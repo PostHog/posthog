@@ -22,7 +22,7 @@ Then verify these signals in order:
 3. **Event acceptance ratio** — `rate(capture_events_ingested_total)` / `rate(capture_events_received_total)`.
    Sustained drop below ~0.95 warrants investigation.
 4. **Envoy backend health** — `envoy_cluster_membership_healthy` vs `envoy_cluster_membership_total`
-   for `envoy_cluster_name=~"posthog_capture-.*"`. Ratio < 1.0 outside of deploys is a problem.
+   for `envoy_cluster_name=~"capture-.*"`. Ratio < 1.0 outside of deploys is a problem.
 5. **Event restrictions staleness** — `capture_event_restrictions_stale` gauge.
    Value of 1 means restrictions aren't being refreshed from Redis.
 6. **Billing limits loaded** — `capture_billing_limits_loaded_tokens` by `cache_key`.
@@ -55,7 +55,7 @@ The event funnel: received -> ingested -> dropped/rerouted.
 Diagnose layer by layer, outside-in:
 
 1. **Envoy layer** — `envoy_cluster_upstream_rq_time_bucket` histogram for
-   `envoy_cluster_name=~"posthog_capture-.*"`.
+   `envoy_cluster_name=~"capture-.*"`.
    Compute p99 with `histogram_quantile(0.99, ...)`.
    If Envoy latency is high but HTTP handler latency is normal, the issue is between Envoy and the pod (networking, connection pool).
 

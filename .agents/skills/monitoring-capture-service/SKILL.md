@@ -74,16 +74,15 @@ For a single pipeline, scope by `namespace` (e.g., `namespace="capture-analytics
 ### Envoy cluster naming
 
 Envoy metrics use `envoy_cluster_name` to identify the upstream backend.
-Pattern: `posthog_{deployment}_{port}`.
+Pattern: `{namespace}_{service}_{port}`, the same in prod-us and prod-eu.
 
 Capture-related clusters:
-`posthog_capture-analytics_3000`, `posthog_capture-ai_3000`, `posthog_capture-replay_3000`,
-`posthog_capture-mirrored_3000`, `posthog_capture-logs_4318`, `posthog_capture-logs-canary_4318`.
+`capture-analytics_capture-analytics_3000`, `capture-ai_capture-ai_3000`, `capture-replay_capture-replay_3000`,
+`capture-logs_capture-logs_4318`, `capture-logs_capture-logs-canary_4318`, `capture-apm-metrics_capture-apm-metrics_4318`.
 
-capture-replay also has a proxy-as-a-service cluster used in KEDA autoscaling:
-`proxy-as-a-service_capture-replay_3000`.
+capture-replay's KEDA autoscaling reads `capture-replay_capture-replay_3000`.
 
-Scope with: `envoy_cluster_name=~"posthog_capture-.*"`.
+Scope with: `envoy_cluster_name=~"capture-.*"`.
 
 ### Redis instance topology
 
@@ -140,7 +139,7 @@ The default match is a substring. Use `match: "regex"` for a regular expression.
 | `capture_billing_*`            | Billing/quota tokens loaded             | `namespace`, `cache_key`                       |
 | `capture_event_restrictions_*` | Event restrictions (6 metrics)          | `namespace`, `restriction_type`                |
 | `capture_ai_otel_*`            | AI/OTel capture (12 metrics)            | `namespace="capture-ai"`                       |
-| `envoy_cluster_*`              | L7 proxy                                | `envoy_cluster_name=~"posthog_capture-.*"`     |
+| `envoy_cluster_*`              | L7 proxy                                | `envoy_cluster_name=~"capture-.*"`             |
 | `aws_msk_*`                    | MSK broker-side (JMX)                   | `environment="prod-us"` or `"prod-eu"`         |
 | `ratelimit_service_*`          | Contour rate limit                      | `domain="posthog"`                             |
 | `overflow_redirect_*`          | Node.js ingestion overflow (downstream) | `ingestion_pipeline`                           |
@@ -189,18 +188,18 @@ Profile types: `process_cpu:cpu:nanoseconds:cpu:nanoseconds`,
 
 ### Grafana dashboards
 
-| UID                       | Title                      | Use for                                                                    |
-| ------------------------- | -------------------------- | -------------------------------------------------------------------------- |
-| `capture`                 | Capture                    | Overview across capture deployments — start here                           |
-| `capture-v1-details`      | V1 Details                 | Per-panel detail for the v1 pipeline (`/i/v1/analytics/events`)            |
-| `ddfkdj56ds11xce`         | Legacy Details             | Per-panel detail for the legacy v0 pipeline (`/e/`, `/batch/`, `/i/v0/e/`) |
-| `ingestion-health`        | Ingestion - Health         | Cross-service ingestion health                                             |
-| `ingestion-analytics`     | Ingestion - Analytics      | Downstream analytics pipeline, per lane                                    |
-| `ingestion-pipelines`     | Ingestion - Pipelines      | End-to-end pipeline throughput and lag                                     |
-| `ingestion-reliability`   | Ingestion - Reliability    | Ingested-event trends, processing-lag SLOs, pod restarts                   |
-| `ingestion-sessionreplay` | Ingestion - Session Replay | Session replay ingestion                                                   |
-| `contour`                 | Contour Ingress            | Envoy L7 proxy (set `envoy_cluster_name=posthog_capture-analytics_3000`)   |
-| `AWSRedis`                | AWS ElastiCache Redis      | Per-cluster CloudWatch Redis metrics (filter `cacheclusterId`)             |
+| UID                       | Title                      | Use for                                                                            |
+| ------------------------- | -------------------------- | ---------------------------------------------------------------------------------- |
+| `capture`                 | Capture                    | Overview across capture deployments — start here                                   |
+| `capture-v1-details`      | V1 Details                 | Per-panel detail for the v1 pipeline (`/i/v1/analytics/events`)                    |
+| `ddfkdj56ds11xce`         | Legacy Details             | Per-panel detail for the legacy v0 pipeline (`/e/`, `/batch/`, `/i/v0/e/`)         |
+| `ingestion-health`        | Ingestion - Health         | Cross-service ingestion health                                                     |
+| `ingestion-analytics`     | Ingestion - Analytics      | Downstream analytics pipeline, per lane                                            |
+| `ingestion-pipelines`     | Ingestion - Pipelines      | End-to-end pipeline throughput and lag                                             |
+| `ingestion-reliability`   | Ingestion - Reliability    | Ingested-event trends, processing-lag SLOs, pod restarts                           |
+| `ingestion-sessionreplay` | Ingestion - Session Replay | Session replay ingestion                                                           |
+| `contour`                 | Contour Ingress            | Envoy L7 proxy (set `envoy_cluster_name=capture-analytics_capture-analytics_3000`) |
+| `AWSRedis`                | AWS ElastiCache Redis      | Per-cluster CloudWatch Redis metrics (filter `cacheclusterId`)                     |
 
 The two details boards live under `Capture/Ingestion/` and cross-link each other
 plus the overview. Sections for machinery shared by both pipelines (Global Rate
@@ -311,7 +310,7 @@ staleness, loaded count, applied restrictions by `restriction_type`
 
 **Envoy proxy** — upstream latency, response codes (2xx/4xx/5xx), connection health,
 circuit breakers (`_open` gauges), backend membership (healthy vs total),
-timeouts, retries. Always filter: `envoy_cluster_name=~"posthog_capture-.*"`.
+timeouts, retries. Always filter: `envoy_cluster_name=~"capture-.*"`.
 For capture-replay, also check `proxy-as-a-service_capture-replay_3000`.
 
 **Contour rate limit** — `ratelimit_service_*` for per-IP DoS protection.
