@@ -1,8 +1,5 @@
 import { basename } from 'node:path'
 
-// What hog itself knows of JavaScript bundles: which names count as one. hog-worker reads and
-// writes them.
-
 export const JS_EXTENSIONS = ['.js', '.mjs', '.cjs'] as const
 
 // Rust's `Path::extension` gives no extension for a file named `.js`.

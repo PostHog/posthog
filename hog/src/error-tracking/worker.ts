@@ -6,10 +6,8 @@ import { HogError } from '@/core/errors'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import { parseOrThrow, type Schema } from '@/core/schema'
 
-// hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output. It
-// runs the code posthog-cli runs, so the bytes match, and it holds a large build in a fraction of
-// the memory a JavaScript heap needs. hog starts one worker per command, sends it one JSON line per
-// request and reads one JSON line back. hog/worker/src/main.rs describes the requests.
+// hog-worker is the Rust program in hog/worker/ that reads, rewrites and writes build output with
+// the code posthog-cli runs, so the bytes match. hog/worker/src/main.rs describes the requests.
 
 // Must equal PROTOCOL in hog/worker/src/main.rs. hog and the worker are two files, so an upgrade
 // that replaced only one of them is caught here instead of in a request the other can't read.
@@ -55,7 +53,6 @@ const PairState = z.object({
     mapReleaseId: z.string().nullable(),
     mapDebugId: z.string().nullable(),
 })
-// A bundle and its sourcemap, held by the worker. hog keeps only what its decisions read.
 export type PairState = z.output<typeof PairState>
 
 const Detected = z.object({
@@ -85,7 +82,6 @@ const Prepared = z.object({
                 releaseId: z.string().nullable(),
                 contentHash: z.string(),
                 size: z.number(),
-                // Null in a dry run, which writes nothing.
                 path: z.string().nullable(),
             }),
         ])
@@ -279,8 +275,7 @@ export class Worker {
         const failure = { code: 'worker_failed', context: 'hog-worker sent' }
         const message = parseJson(line.value, Answer, failure)
         if (!message.ok) {
-            // A request hog built wrong is a bug in hog. Every other failure is a file the worker
-            // could not read or write, reported as hog reported it when it did the work itself.
+            // Every failure other than a bug in hog is a file the worker could not read or write.
             if (message.error.code === 'bad_request') {
                 throw new HogError('worker_failed', `hog-worker refused a request: ${message.error.message}`)
             }
@@ -341,7 +336,6 @@ export class Worker {
         }
     }
 
-    // Records what the files of each pair hold, and answers one cleanup target for each pair.
     async fingerprint(ids: number[]): Promise<number[]> {
         if (ids.length === 0) {
             return []
@@ -355,8 +349,7 @@ export class Worker {
         }
     }
 
-    // Builds the symbol set of each pair and writes it into `folder`. The worker lets the pairs
-    // go, so this is the last request that names them. Without a folder nothing is written.
+    // The worker lets the pairs go, so this is the last request that names them.
     async prepare(ids: number[], mode: 'event' | 'symbol-set', folder: string | null): Promise<PreparedPair[]> {
         if (ids.length === 0) {
             return []
@@ -364,7 +357,6 @@ export class Worker {
         return (await this.call({ op: 'prepare', ids, mode, folder }, Prepared)).prepared
     }
 
-    // The stylesheets that have a sourcemap, or a reference to one that can't be read.
     async cssCandidates(files: string[], publicPathPrefix: string | undefined): Promise<CssCandidate[]> {
         if (files.length === 0) {
             return []
@@ -380,7 +372,6 @@ export class Worker {
         return this.call({ op: 'clean_up', targets, css, roots }, Cleaned)
     }
 
-    // Checks a ProGuard mapping and writes its symbol set to `out`. Without `out` nothing is written.
     async proguard(path: string, out: string | null): Promise<ProguardContainer> {
         return this.call({ op: 'proguard', path, out }, ProguardContainer)
     }
@@ -454,7 +445,6 @@ export class Worker {
         return this.call({ op: 'wrap', path, kind, out }, Wrapped)
     }
 
-    // Closing stdin ends the worker. A worker that never started has nothing to close.
     async close(): Promise<void> {
         const running = await this.running?.catch(() => undefined)
         if (running) {
@@ -464,8 +454,6 @@ export class Worker {
     }
 }
 
-// Runs a command's file work with one worker, and ends the worker when the work is over, however
-// it ends.
 export async function withWorker<T>(work: (worker: Worker) => Promise<T>): Promise<T> {
     const worker = new Worker()
     try {

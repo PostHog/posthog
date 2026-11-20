@@ -4,7 +4,6 @@ import {
   filterScratchpadEntries,
   groupScratchpadEntries,
   humanizeNamespace,
-  scoutDisplayName,
   scratchpadNamespaceOf,
   splitScratchpadKey,
 } from "./scoutScratchpad";
@@ -58,16 +57,6 @@ describe("splitScratchpadKey", () => {
       kind: null,
       body: "standalone",
     });
-  });
-});
-
-describe("scoutDisplayName", () => {
-  it("strips the fleet prefix", () => {
-    expect(scoutDisplayName("signals-scout-apm")).toBe("apm");
-  });
-
-  it("leaves non-fleet names untouched", () => {
-    expect(scoutDisplayName("custom-scout")).toBe("custom-scout");
   });
 });
 

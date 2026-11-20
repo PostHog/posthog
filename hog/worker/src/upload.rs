@@ -1,6 +1,5 @@
-// The symbol set a pair uploads as. Copied from posthog-cli's `sourcemaps/source_pairs.rs` and
-// `plain/upload.rs`, and built with the posthog-symbol-data crate posthog-cli uses, so the
-// container and its content hash are the ones PostHog already stores for a posthog-cli upload.
+// Copied from posthog-cli's `sourcemaps/source_pairs.rs` and `plain/upload.rs`, so the container
+// and its content hash are the ones PostHog already stores for a posthog-cli upload.
 
 use anyhow::{anyhow, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
@@ -24,7 +23,6 @@ const SKIPPED_EMPTY_WRAPPER: &str = "the sourcemap is empty";
 const SKIPPED_EMPTY_SUSPECT: &str =
     "the sourcemap is empty although the file is large. Check your bundler sourcemap setting.";
 
-// SHA-512 over the parts joined with nothing in between, as lowercase hex.
 pub fn content_hash<Item: AsRef<[u8]>>(parts: impl IntoIterator<Item = Item>) -> String {
     let mut hasher = Sha512::new();
     for part in parts {
@@ -50,11 +48,9 @@ pub enum Prepared {
     },
 }
 
-// Replaces every script file path in `text` with one token, for the event-mode content hash.
-// With content-hashed file names every release renames every chunk, because each chunk carries
-// the release id, and the names appear inside chunks: imports, `sourceMappingURL` and the map's
-// `file`. A path is a run of path characters that ends in `.js`, `.mjs` or `.cjs` with no
-// identifier character after it.
+// Replaces every script file path with one token for the event-mode content hash, because with
+// content-hashed file names every release renames every chunk, and the names appear inside
+// chunks: imports, `sourceMappingURL` and the map's `file`.
 fn without_file_paths(text: &str) -> Cow<'_, str> {
     let bytes = text.as_bytes();
     let mut normalized = String::new();
@@ -142,8 +138,7 @@ fn event_mode_hash(mut pair: SourcePair, injected_chunk_id: Option<&str>) -> Res
     ]))
 }
 
-// Builds the container of one pair and writes it to `<folder>/<id>.symbolset`. The payload is
-// always the injected pair. In symbol-set mode the hash covers the container itself.
+// The payload is always the injected pair. In symbol-set mode the hash covers the container.
 pub fn prepare(
     id: usize,
     pair: SourcePair,

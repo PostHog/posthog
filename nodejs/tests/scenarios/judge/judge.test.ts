@@ -11,6 +11,7 @@ import type { Backlog } from '../cards'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
 import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, createJudge } from './judge'
+import { edgeTruth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
@@ -39,7 +40,7 @@ describe('judge', () => {
 
     const judgeOf = (): Judge =>
         createJudge({
-            edgeUrl: edge.url,
+            truth: edgeTruth(edge.url),
             probe: {
                 unfinishedJobs: () => {
                     clockMs += probeTakesMs

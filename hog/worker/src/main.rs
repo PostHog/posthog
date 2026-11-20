@@ -106,17 +106,11 @@ use trace::Trace;
 
 const PROTOCOL: u32 = 1;
 
-// The request could not be read, or names a pair the worker does not hold. A bug in hog.
 const BAD_REQUEST: &str = "bad_request";
-// The injection itself failed, for example on a sourcemap the decoder rejects.
 const INJECT_FAILED: &str = "inject_failed";
-// A file could not be written. hog reports the message as it reported its own write failures.
 const WRITE_FAILED: &str = "write_failed";
-// A file hog asked about could not be read.
 const READ_FAILED: &str = "read_failed";
-// A symbol set could not be built from a pair.
 const PREPARE_FAILED: &str = "prepare_failed";
-// The cleanup after an upload stopped on a file it could not read, write, rename or remove.
 const CLEANUP_FAILED: &str = "cleanup_failed";
 
 #[derive(Deserialize)]
@@ -158,7 +152,6 @@ enum Request {
     Prepare {
         ids: Vec<usize>,
         mode: ReleaseMode,
-        // Null in a dry run, which writes nothing.
         folder: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
@@ -227,11 +220,8 @@ struct PackItem {
 #[derive(Deserialize)]
 struct Candidate {
     path: String,
-    // Named like a bundle, so discovery asks whether its sourcemap exists.
     bundle: bool,
-    // Named like a sourcemap, so discovery asks whether the Hermes compiler composed it.
     map: bool,
-    // Named like a ProGuard mapping, so discovery asks whether it reads as one.
     mapping: bool,
     // A native binary has any name, so discovery asks for the format its first bytes give.
     native: bool,
@@ -268,14 +258,12 @@ enum Answer {
     Outcomes {
         outcomes: Vec<Outcome>,
     },
-    // Places in the worker's list of cleanup targets.
     Targets {
         targets: Vec<usize>,
     },
     Prepared {
         prepared: Vec<upload::Prepared>,
     },
-    // One for each file of the request. Null for a stylesheet without a sourcemap.
     CssCandidates {
         candidates: Vec<Option<CssCandidateAnswer>>,
     },
@@ -388,8 +376,6 @@ fn map_state(id: usize, map: &hermes::MapFile) -> MapState {
 #[serde(rename_all = "camelCase")]
 struct CssCandidateAnswer {
     id: usize,
-    // hog matches ignore patterns against the map's canonical path. Null when the stylesheet's
-    // reference can't be read, which `clean_up` reports.
     map_real_path: Option<String>,
 }
 
@@ -398,11 +384,9 @@ struct CssCandidateAnswer {
 enum PairAnswer {
     Read(PairState),
     Skipped { skipped: String },
-    // The bundle has no sourcemap after all. hog leaves it out without a message.
     Missing(()),
 }
 
-// What hog needs to know about a pair to decide what happens to it next.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PairState {
@@ -483,7 +467,6 @@ struct Worker {
     maps: Vec<Option<hermes::MapFile>>,
     // A native binary's id is its place here.
     binaries: Vec<native::Binary>,
-    // What `fingerprint` recorded, for `clean_up`.
     targets: Vec<cleanup::Target>,
     stylesheets: Vec<cleanup::CssCandidate>,
     trace: Trace,
@@ -703,8 +686,7 @@ impl Worker {
         }
     }
 
-    // Every pair is written, changed or not, which puts every map in canonical form as posthog-cli
-    // does.
+    // Unchanged pairs are written too, so every map ends in posthog-cli's canonical form.
     fn save(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
         let pairs = self.take_all(ids)?;
 
@@ -822,8 +804,7 @@ impl Worker {
         Answer::CssCandidates { candidates }
     }
 
-    // The bundles first, then the stylesheets, each in the order hog names them, which is the
-    // order of the warnings.
+    // Bundles first, then stylesheets, each in the order hog names them, which orders the warnings.
     fn clean_up(
         &mut self,
         targets: &[usize],

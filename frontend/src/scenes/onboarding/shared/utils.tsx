@@ -92,6 +92,11 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?:
     IconWarning,
 }
 
+/** False when the key has no product icon, so `getProductIcon` falls back to the PostHog logomark. */
+export function hasProductIcon(iconKey?: string | null): boolean {
+    return !!iconKey && iconKey !== 'IconLogomark' && iconKey in ICON_MAP
+}
+
 export function getProductIcon(
     iconKey?: string | null,
     { iconColor, className, productType }: { iconColor?: string; className?: string; productType?: string | null } = {}

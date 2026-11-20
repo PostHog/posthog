@@ -1,8 +1,5 @@
-// The sourcemaps of a React Native build with Hermes: Metro's packager map, and the map the Hermes
-// compiler composed for the bytecode, which is the one PostHog symbolicates with. Copied from
-// posthog-cli's `sourcemaps/hermes/clone.rs` and `upload.rs`, and built with the
-// posthog-symbol-data crate posthog-cli uses, so the maps written and the containers uploaded are
-// the bytes posthog-cli produces.
+// Copied from posthog-cli's `sourcemaps/hermes/clone.rs` and `upload.rs`, so the maps written and
+// the containers uploaded are the bytes posthog-cli produces.
 
 use anyhow::Result;
 use posthog_symbol_data::{write_symbol_data, HermesMap};

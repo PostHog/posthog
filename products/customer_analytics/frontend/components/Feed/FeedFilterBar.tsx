@@ -14,7 +14,7 @@ import {
     inboxSortOptionKey,
 } from 'products/signals/frontend/inbox/filterOptions'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
-import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
+import { scoutNameForSkill } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import { feedLogic } from './feedLogic'
 
@@ -43,6 +43,7 @@ export function FeedFilterBar(): JSX.Element {
         priorityFilter,
         scoutFilter,
         scoutNames,
+        scoutLabels,
         myReportsOnly,
         reportsResponseLoading,
     } = useValues(feedLogic)
@@ -145,7 +146,7 @@ export function FeedFilterBar(): JSX.Element {
                         label="Scout"
                         value={
                             scoutFilter.length === 1
-                                ? prettifyScoutSkillName(scoutFilter[0])
+                                ? scoutNameForSkill(scoutLabels, scoutFilter[0])
                                 : `${scoutFilter.length} scouts`
                         }
                         icon={<IconCompass />}
@@ -154,7 +155,7 @@ export function FeedFilterBar(): JSX.Element {
                         {scoutNames.map((skillName) => (
                             <FilterItem
                                 key={skillName}
-                                label={prettifyScoutSkillName(skillName)}
+                                label={scoutNameForSkill(scoutLabels, skillName)}
                                 active={scoutFilter.includes(skillName)}
                                 onClick={() => toggleScout(skillName)}
                             />

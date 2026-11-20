@@ -1,5 +1,4 @@
-// ProGuard and R8 mapping files, checked with the proguard crate and packed with the
-// posthog-symbol-data crate as posthog-cli does.
+// ProGuard and R8 mapping files, checked and packed with the crates posthog-cli uses.
 
 use posthog_symbol_data::{write_symbol_data, ProguardMapping};
 use serde::Serialize;
@@ -34,7 +33,7 @@ pub fn is_valid_mapping(bytes: &[u8]) -> bool {
 }
 
 // The payload is the file as it is on disk: a byte order mark or CRLF stays, because posthog-cli
-// uploads and hashes the bytes unchanged. `out` is None in a dry run, which writes nothing.
+// uploads and hashes the bytes unchanged.
 pub fn build(path: &Path, out: Option<&Path>) -> Result<Built, String> {
     let Ok(content) = String::from_utf8(node::read(path)?) else {
         return Ok(Built::Invalid {

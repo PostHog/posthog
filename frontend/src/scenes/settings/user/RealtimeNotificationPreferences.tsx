@@ -4,11 +4,13 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTag } from '@posthog/lemon-ui'
 
 import { REALTIME_NOTIFICATION_TYPE_META } from 'lib/components/NotificationsMenu/NotificationRow'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { userLogic } from 'scenes/userLogic'
 
 import { TeamBasicType } from '~/types'
 
-import { realtimeNotificationPreferencesLogic } from './realtimeNotificationPreferencesLogic'
+import { QuillRealtimeNotificationPreferences } from './QuillRealtimeNotificationPreferences'
+import { ProjectState, realtimeNotificationPreferencesLogic } from './realtimeNotificationPreferencesLogic'
 
 export function RealtimeNotificationPreferences(): JSX.Element {
     const { userLoading } = useValues(userLogic)
@@ -17,6 +19,16 @@ export function RealtimeNotificationPreferences(): JSX.Element {
     const { activeTypes, isTypeEnabledForTeam, projectState, teams, teamIds, isProjectExpanded, allOn, allOff } =
         useValues(realtimeNotificationPreferencesLogic)
     const { setProjectExpanded } = useActions(realtimeNotificationPreferencesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const handleSetAll = (enabled: boolean): void => updateAllRealtimeNotifications(teamIds, activeTypes, enabled)
+
+    const handleToggleProject = (teamId: number, state: ProjectState): void =>
+        updateRealtimeNotificationForProject(teamId, activeTypes, state === 'off')
+
+    if (todayRailNav) {
+        return <QuillRealtimeNotificationPreferences onSetAll={handleSetAll} onToggleProject={handleToggleProject} />
+    }
 
     if (activeTypes.length === 0) {
         return <div className="text-muted text-sm">No real-time notifications are wired up for your account yet.</div>
@@ -29,7 +41,7 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                     size="xsmall"
                     type="secondary"
                     disabled={userLoading || allOn}
-                    onClick={() => updateAllRealtimeNotifications(teamIds, activeTypes, true)}
+                    onClick={() => handleSetAll(true)}
                 >
                     Enable all
                 </LemonButton>
@@ -37,7 +49,7 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                     size="xsmall"
                     type="secondary"
                     disabled={userLoading || allOff}
-                    onClick={() => updateAllRealtimeNotifications(teamIds, activeTypes, false)}
+                    onClick={() => handleSetAll(false)}
                 >
                     Disable all
                 </LemonButton>
@@ -64,9 +76,7 @@ export function RealtimeNotificationPreferences(): JSX.Element {
                                     id={`realtime-project-${team.id}`}
                                     checked={state === 'partial' ? 'indeterminate' : state === 'on'}
                                     disabled={userLoading}
-                                    onChange={() =>
-                                        updateRealtimeNotificationForProject(team.id, activeTypes, state === 'off')
-                                    }
+                                    onChange={() => handleToggleProject(team.id, state)}
                                     label={
                                         <div className="flex items-center gap-2">
                                             <span>{team.name}</span>

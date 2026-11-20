@@ -22,9 +22,6 @@ import {
 import type { SymbolSetFile } from './upload'
 import type { InjectOutcome, PairState, Worker } from './worker'
 
-// The inject step on pairs hog-worker holds. hog decides which pairs take part and which release
-// they get, and the worker rewrites the files.
-
 export const isBundle = (artifact: Artifact): boolean =>
     artifact.kind === 'js' || (artifact.kind === 'hermes' && isHermesBundlePath(artifact.path))
 
@@ -89,7 +86,6 @@ export interface InjectedPairs {
     pairs: OwnedPair[]
 }
 
-// Symbol-set mode gives a pair a new random chunk id unless it already carries this release.
 const needsNewChunkId = (pair: PairState, releaseId: string | null): boolean =>
     pair.mapReleaseId !== releaseId || pair.chunkId === null
 
@@ -201,8 +197,6 @@ export interface PreparedPairs {
 // first and wins when a second pair has the same id.
 const nativeFirst = ({ pair }: OwnedPair): number => (pair.chunkId === null && pair.sourceDebugId !== null ? 0 : 1)
 
-// One symbol set per chunk id, written by the worker into `folder`. A dry run passes no folder
-// and gets the sizes and content hashes only.
 export async function preparePairs(
     worker: Worker,
     pairs: OwnedPair[],

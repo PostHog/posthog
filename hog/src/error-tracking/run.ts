@@ -213,8 +213,6 @@ async function proguardUpload(
     )
 }
 
-// hog-worker writes each symbol set to a file in a temporary folder, and hog reads a file when it
-// sends it. A dry run writes nothing, so it has no folder.
 export async function upload(
     ctx: Context,
     worker: Worker,
