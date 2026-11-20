@@ -1,8 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -13,8 +11,8 @@ import {
     isScannerEditorPath,
     nextScannerEditorStep,
     scannerEditorSceneLogic,
+    SCANNER_EDITOR_STEPS,
     scannerEditorStepOrder,
-    scannerEditorSteps,
     scannerStepErrors,
     scannerStepperSteps,
     scannerStepUrl,
@@ -34,66 +32,66 @@ describe('firstErroredScannerStep', () => {
     })
 })
 
-describe('step order by experiment arm', () => {
-    it('asks for the prompt before the recordings in control, and after them in recordings-first', () => {
-        expect(scannerEditorSteps(false)).toEqual(['goal', 'details', 'configure', 'triggers', 'budget'])
-        expect(scannerEditorSteps(true)).toEqual(['goal', 'details', 'triggers', 'configure', 'budget'])
+describe('step order', () => {
+    it('asks which recordings to watch before what to look for in them', () => {
+        expect(SCANNER_EDITOR_STEPS).toEqual(['goal', 'details', 'triggers', 'configure', 'budget'])
     })
 
-    it.each([false, true])('keeps the overview between goal and details (recordingsFirst=%s)', (recordingsFirst) => {
-        const order = scannerEditorStepOrder(recordingsFirst)
+    it('keeps the overview between goal and details', () => {
+        const order = scannerEditorStepOrder()
         expect(order.goal).toBeLessThan(order.overview)
         expect(order.overview).toBeLessThan(order.details)
     })
 
-    it('derives the recordings-first order from its step list', () => {
-        const order = scannerEditorStepOrder(true)
+    it('derives the step order from the step list', () => {
+        const order = scannerEditorStepOrder()
         expect(order.triggers).toBeLessThan(order.configure)
         expect(order.configure).toBeLessThan(order.budget)
     })
 
     it('ends the stepper on budget and leaves the overview outside it', () => {
-        expect(nextScannerEditorStep('triggers', scannerEditorSteps(true))).toBe('configure')
-        expect(nextScannerEditorStep('budget', scannerEditorSteps(true))).toBeNull()
-        expect(nextScannerEditorStep('overview', scannerEditorSteps(true))).toBeNull()
+        expect(nextScannerEditorStep('triggers', SCANNER_EDITOR_STEPS)).toBe('configure')
+        expect(nextScannerEditorStep('budget', SCANNER_EDITOR_STEPS)).toBeNull()
+        expect(nextScannerEditorStep('overview', SCANNER_EDITOR_STEPS)).toBeNull()
     })
 
-    it('renames the steps in recordings-first but keeps their autocapture data-attrs', () => {
-        const labels = (recordingsFirst: boolean): Record<string, string> =>
-            Object.fromEntries(scannerStepperSteps(recordingsFirst).map(({ step, label }) => [step, label]))
-        const dataAttrs = (recordingsFirst: boolean): Record<string, string | undefined> =>
-            Object.fromEntries(scannerStepperSteps(recordingsFirst).map(({ step, dataAttr }) => [step, dataAttr]))
-        expect(labels(true)).toEqual({
+    it('labels every step', () => {
+        const labels = Object.fromEntries(scannerStepperSteps().map(({ step, label }) => [step, label]))
+        expect(labels).toEqual({
             goal: 'Goal',
             details: 'Details',
             triggers: 'Target recordings',
             configure: 'Prompt & output',
             budget: 'Sampling & limits',
         })
-        expect(dataAttrs(true)).toEqual(dataAttrs(false))
     })
 
-    it('routes a failed submit to the earliest errored step in the arm’s order', () => {
+    it('keeps the pinned autocapture data-attrs, which dashboards read', () => {
+        expect(scannerStepperSteps().map(({ dataAttr }) => dataAttr)).toEqual([
+            'vision-editor-step-template',
+            'vision-editor-step-details',
+            'vision-editor-step-triggers',
+            'vision-editor-step-configure',
+            'vision-editor-step-budget',
+        ])
+    })
+
+    it('routes a failed submit to the earliest errored step in that order', () => {
         const errors = { ...PROMPT_ERROR, ...DURATION_ERROR }
-        expect(firstErroredScannerStep(errors, scannerEditorSteps(false))).toBe('configure')
-        expect(firstErroredScannerStep(errors, scannerEditorSteps(true))).toBe('triggers')
+        expect(firstErroredScannerStep(errors, SCANNER_EDITOR_STEPS)).toBe('triggers')
     })
 })
 
 describe('advancesWithoutSubmit', () => {
     it.each([
-        ['control goal', 'goal', false, PROMPT_ERROR, true],
-        ['control details', 'details', false, PROMPT_ERROR, true],
-        ['control configure even when clean', 'configure', false, {}, false],
-        ['control triggers with a prompt error', 'triggers', false, PROMPT_ERROR, false],
-        ['recordings-first triggers past an unreached prompt', 'triggers', true, PROMPT_ERROR, true],
-        ['recordings-first triggers with its own duration error', 'triggers', true, DURATION_ERROR, false],
-        ['recordings-first configure with a prompt error', 'configure', true, PROMPT_ERROR, false],
-        ['recordings-first configure past a later budget error', 'configure', true, { sampling_rate: 'Bad' }, true],
-        ['recordings-first budget, the final step', 'budget', true, {}, false],
-        ['recordings-first overview, outside the stepper', 'overview', true, {}, false],
-    ] as const)('%s → %s', (_label, step, recordingsFirst, errors, expected) => {
-        expect(advancesWithoutSubmit(step, recordingsFirst, errors)).toBe(expected)
+        ['triggers past an unreached prompt', 'triggers', PROMPT_ERROR, true],
+        ['triggers with its own duration error', 'triggers', DURATION_ERROR, false],
+        ['configure with a prompt error', 'configure', PROMPT_ERROR, false],
+        ['configure past a later budget error', 'configure', { sampling_rate: 'Bad' }, true],
+        ['budget, the final step', 'budget', {}, false],
+        ['overview, outside the stepper', 'overview', {}, false],
+    ] as const)('%s → %s', (_label, step, errors, expected) => {
+        expect(advancesWithoutSubmit(step, errors)).toBe(expected)
     })
 })
 
@@ -132,7 +130,7 @@ describe('scannerEditorSceneLogic', () => {
 
     describe('isScannerEditorPath', () => {
         it.each<[string, boolean]>([
-            ...scannerEditorSteps(false).map((step): [string, boolean] => [scannerStepUrl(step, 'abc'), true]),
+            ...SCANNER_EDITOR_STEPS.map((step): [string, boolean] => [scannerStepUrl(step, 'abc'), true]),
             [scannerStepUrl('overview', 'new'), true],
             [`/project/123${urls.replayVisionScannerBudget('abc')}`, true],
             [urls.replayVision('abc'), false],
@@ -164,37 +162,15 @@ describe('scannerEditorSceneLogic', () => {
         })
     })
 
-    describe('recordings-first experiment', () => {
-        afterEach(() => {
-            // Flags persist across kea resets, so the variant would leak into later tests.
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
+    describe('step labels', () => {
         it.each([
-            ['test', urls.replayVisionScannerTriggers('new'), true],
-            ['control', urls.replayVisionScannerTriggers('new'), false],
-            // Editing an existing scanner stays on the control order, so only creation is exposed.
-            ['test', urls.replayVisionScannerTriggers('abc-123'), false],
-        ])('variant %s at %s → %s', async (variant, url, expected) => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: variant,
-            })
+            [urls.replayVisionScannerTriggers('new'), 'Target recordings'],
+            [urls.replayVisionScannerConfigure('new'), 'Prompt & output'],
+            [urls.replayVisionScannerBudget('new'), 'Sampling & limits'],
+        ])('names the current step in the breadcrumb at %s', async (url, name) => {
             router.actions.push(url)
             await expectLogic(logic).toMatchValues({
-                recordingsFirst: expected,
-                steps: scannerEditorSteps(expected),
-            })
-        })
-
-        it('names the current step with the arm’s label in the breadcrumb', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test',
-            })
-            router.actions.push(urls.replayVisionScannerTriggers('new'))
-            await expectLogic(logic).toMatchValues({
-                breadcrumbs: expect.arrayContaining([
-                    expect.objectContaining({ key: 'new-scanner-step', name: 'Target recordings' }),
-                ]),
+                breadcrumbs: expect.arrayContaining([expect.objectContaining({ key: 'new-scanner-step', name })]),
             })
         })
     })
@@ -251,7 +227,7 @@ describe('scannerEditorSceneLogic', () => {
                         name: 'New scanner',
                         path: urls.replayVisionNewScanner(),
                     }),
-                    expect.objectContaining({ key: 'new-scanner-step', name: 'Configure' }),
+                    expect.objectContaining({ key: 'new-scanner-step', name: 'Prompt & output' }),
                 ],
             })
         })

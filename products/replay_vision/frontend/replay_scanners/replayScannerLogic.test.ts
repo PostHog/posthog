@@ -788,18 +788,19 @@ describe('replayScannerLogic', () => {
     })
 
     describe('submit intent', () => {
-        it('advance intent routes to /triggers without calling the API', async () => {
-            router.actions.push('/replay-vision/new/configure')
+        it('advance intent routes to the next step without calling the API', async () => {
+            router.actions.push('/replay-vision/new/triggers')
             logic.actions.setScannerValues({
                 name: 'Test scanner',
                 scanner_config: { prompt: 'Q?' },
             })
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
-            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
         })
 
         it('advance does not mark the draft as saved, so the unsaved-changes guard stays armed', async () => {
-            router.actions.push('/replay-vision/new/configure')
+            router.actions.push('/replay-vision/new/triggers')
             logic.actions.setScannerValues({ name: 'Draft scanner', scanner_config: { prompt: 'Q?' } })
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             // The draft must not be adopted as the saved baseline — no API write happened.
@@ -807,24 +808,32 @@ describe('replayScannerLogic', () => {
             expect(logic.values.hasUnsavedChanges).toBe(true)
         })
 
-        it('default-intent submit (Enter) on the new-scanner configure step advances instead of creating', async () => {
+        it('default-intent submit (Enter) on a middle step advances instead of creating', async () => {
             router.actions.push('/replay-vision/new/configure')
             logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
-            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+            expect(router.values.location.pathname).toContain('/replay-vision/new/budget')
         })
 
         it('advances from the step the editor scene reports, even when the URL matches no step', async () => {
             router.actions.push('/replay-vision/new/not-a-step')
-            scannerEditorSceneLogic.actions.setStep('configure')
+            scannerEditorSceneLogic.actions.setStep('triggers')
             logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
-            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
         })
 
         it('routes a rejected submit to the step that renders the errored fields', async () => {
-            // Defaults leave name and prompt empty, both configure-owned.
+            // Defaults leave the prompt empty, which the configure step owns.
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+
+        it('does not hold the recordings step back on the prompt the user has not reached', async () => {
             router.actions.push('/replay-vision/new/triggers')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
@@ -844,47 +853,6 @@ describe('replayScannerLogic', () => {
                 'Scanner created. First scan in progress.',
                 expect.objectContaining({ button: expect.objectContaining({ label: 'Scan a recording now' }) })
             )
-        })
-    })
-
-    describe('submit intent in the recordings-first arm', () => {
-        beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test',
-            })
-        })
-
-        afterEach(() => {
-            // Flags persist across kea resets, so the variant would leak into later tests.
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
-        it('moves from the recordings step to the prompt step', async () => {
-            router.actions.push('/replay-vision/new/triggers')
-            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
-            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
-            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
-        })
-
-        it('does not hold the recordings step back on the prompt the user has not reached', async () => {
-            router.actions.push('/replay-vision/new/triggers')
-            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
-            expect(createSpy).not.toHaveBeenCalled()
-            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
-        })
-
-        it('moves from the prompt step to the budget step', async () => {
-            router.actions.push('/replay-vision/new/configure')
-            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
-            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
-            expect(router.values.location.pathname).toContain('/replay-vision/new/budget')
-        })
-
-        it('creates the scanner from the budget step', async () => {
-            router.actions.push('/replay-vision/new/budget')
-            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
-            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
-            expect(createSpy).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -1367,18 +1335,18 @@ describe('replayScannerLogic', () => {
         })
 
         it('Enter on the details step advances rather than failing validation on unseen fields', async () => {
-            // A from-scratch scanner has an empty prompt, which only the configure step can fix.
+            // A from-scratch scanner has an empty prompt, which only the configure step past this one can fix.
             router.actions.push(urls.replayVisionScannerDetails('new'))
             scannerEditorSceneLogic.actions.setStep('details')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
-            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerTriggers('new'))
         })
 
         it('Enter on an intermediate step advances instead of saving and leaving the wizard', async () => {
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
             router.actions.push(urls.replayVisionScannerDetails('limited-1'))
             await expectLogic(editLogic, () => editLogic.actions.submitScanner()).toFinishAllListeners()
-            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('limited-1'))
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerTriggers('limited-1'))
         })
 
         it('strips the form-only toggle from the update payload', async () => {
