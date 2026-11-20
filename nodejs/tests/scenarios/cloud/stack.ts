@@ -53,6 +53,7 @@ function parametersOf(profile: CloudProfile, manifest: Manifest, image: string):
         WriterClass: profile.writerClass,
         ReaderMaxAcu: String(profile.readerAcu.max),
         ReaderEnabled: 'false',
+        ReaderMonitoringInterval: String(profile.readerMonitoringIntervalSeconds),
         AvailabilityZone: profile.availabilityZone,
         DbSubnetGroup: baseline.dbSubnetGroup,
         DatabaseSecurityGroup: baseline.databaseSecurityGroup,

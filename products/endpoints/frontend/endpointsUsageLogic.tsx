@@ -16,6 +16,7 @@ import {
 import { EndpointType, IntervalType } from '~/types'
 
 import { endpointsLogic } from './endpointsLogic'
+import { intervalForDateRange } from './endpointsUsageDateRanges'
 
 export const INITIAL_DATE_FROM = '-7d'
 export const INITIAL_DATE_TO = null as string | null
@@ -409,7 +410,13 @@ export const endpointsUsageLogic = kea<endpointsUsageLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        setDates: ({ dateFrom, dateTo }) => {
+            const interval = intervalForDateRange(dateFrom, dateTo, values.interval)
+            if (interval !== values.interval) {
+                actions.setInterval(interval)
+            }
+        },
         refresh: () => {
             setTimeout(
                 () => {

@@ -26,8 +26,6 @@ const TEST_PERSON: InternalPerson = {
     uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     team_id: TEAM_ID,
     properties: { name: 'Test User', email: 'test@example.com' },
-    properties_last_updated_at: {},
-    properties_last_operation: {},
     created_at: CREATED_AT,
     version: 1,
     is_identified: true,
@@ -46,8 +44,6 @@ function makeProtoPerson(
         uuid: string
         teamId: bigint
         properties: Uint8Array
-        propertiesLastUpdatedAt: Uint8Array
-        propertiesLastOperation: Uint8Array
         createdAt: bigint
         version: bigint
         isIdentified: boolean
@@ -60,8 +56,6 @@ function makeProtoPerson(
         uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
         teamId: BigInt(TEAM_ID),
         properties: jsonBytes({ name: 'Test User', email: 'test@example.com' }),
-        propertiesLastUpdatedAt: jsonBytes({}),
-        propertiesLastOperation: jsonBytes({}),
         createdAt: BigInt(CREATED_AT.toMillis()),
         version: 1n,
         isIdentified: true,
@@ -131,6 +125,7 @@ function createGrpcClient(): { client: PersonHogClient; handlers: ServiceHandler
             countCohortMembers: () => ({ count: 0n }),
             deleteCohortMember: () => ({ deleted: false }),
             deleteCohortMembersBulk: () => ({ deletedCount: 0n }),
+            deleteCohortMembersByPersonIds: () => ({ deletedCount: 0n }),
             insertCohortMembers: () => ({ insertedCount: 0n }),
             listCohortMemberIds: () => ({ personIds: [], nextCursor: 0n }),
             updatePersonProperties: () => ({}),
@@ -440,7 +435,7 @@ describe('PersonHogPersonRepository', () => {
             const repo = createRepo(100)
             const now = DateTime.utc()
 
-            const result = await repo.createPerson(now, { name: 'test' }, {}, {}, TEAM_ID, null, false, 'uuid-123', {
+            const result = await repo.createPerson(now, { name: 'test' }, TEAM_ID, null, false, 'uuid-123', {
                 distinctId: 'dist-1',
             })
 
@@ -455,8 +450,6 @@ describe('PersonHogPersonRepository', () => {
 
             const result = await repo.updatePerson(TEST_PERSON, {
                 properties: {},
-                properties_last_updated_at: {},
-                properties_last_operation: null,
                 is_identified: true,
                 created_at: CREATED_AT,
             })

@@ -27,7 +27,9 @@ export function deliveredAddressReader(
             return authorization.storedAddress
         }
         if (authorization.reason === 'authorization_unavailable') {
-            throw new SandboxRecipientUnavailableError('Could not read the address the sandbox email is delivered to')
+            throw new SandboxRecipientUnavailableError(
+                'Could not read the address the PostHog test sender delivers this email to'
+            )
         }
         return canonicalRecipient(recipient)
     }
@@ -57,7 +59,9 @@ export async function renderSandboxEmail(
     )
     const parsed = SandboxRenderedEmailSchema.safeParse(globals.inputs.email)
     if (!parsed.success) {
-        throw new SandboxRenderError('The rendered sandbox email is missing a recipient, subject, or content')
+        throw new SandboxRenderError(
+            'The rendered email from the PostHog test sender is missing a recipient, subject, or content'
+        )
     }
     return parsed.data
 }
@@ -75,7 +79,7 @@ export function logRenderFailure({ action, result }: ActionHandlerOptions<Sandbo
     result.logs.push({
         level: 'error',
         timestamp: DateTime.now(),
-        message: `${actionIdForLogging(action)} Sandbox email failed to render: ${error instanceof Error ? error.message : String(error)}`,
+        message: `${actionIdForLogging(action)} Email from the PostHog test sender failed to render: ${error instanceof Error ? error.message : String(error)}`,
     })
 }
 

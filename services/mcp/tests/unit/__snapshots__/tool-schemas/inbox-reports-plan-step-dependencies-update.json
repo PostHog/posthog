@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "depends_on": {
+            "description": "Ids of the other steps of this plan that this step builds on, replacing the current set. Pass an empty list for a step that builds on none. At most 10.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "id": {
+            "description": "Id of the plan report.",
+            "type": "string"
+        },
+        "reason": {
+            "description": "Optional one-line note on why. Recorded on the links this call writes, or on the work-log note it leaves. Capped at 500 characters.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "step_id": {
+            "description": "Id of a report that is a step of this plan.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "step_id", "depends_on"],
+    "type": "object"
+}

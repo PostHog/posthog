@@ -40,6 +40,7 @@ import { CdpCyclotronWorker } from '../../consumers/cdp-cyclotron-worker.consume
 import { CdpEventsConsumer } from '../../consumers/cdp-events.consumer'
 import {
     CdpProducerName,
+    MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
@@ -593,6 +594,7 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
                 [WARPSTREAM_CYCLOTRON_PRODUCER]: producer,
                 [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: producer,
                 [WAREHOUSE_PRODUCER]: producer,
+                [MSK_CDP_INTAKE_PRODUCER]: producer,
             }),
             internalCaptureService: new InternalCaptureService(hub),
             personRepository: new PersonHogPersonReadRepository(personhogClient, 'batch-quarantine-e2e'),

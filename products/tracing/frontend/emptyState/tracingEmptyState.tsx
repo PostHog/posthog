@@ -2,7 +2,9 @@ import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconListTree } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { SetupListeningIndicator } from 'lib/components/ProductEmptyState/SetupListeningIndicator'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -30,6 +32,14 @@ export const tracingEmptyState: SceneProductEmptyState = {
         },
         PrimaryAction: TracingOtlpSetup,
         docsUrl: TRACING_DOCS_URL,
+        statusIndicator: (
+            <SetupListeningIndicator
+                productKey={ProductKey.TRACING}
+                statusLogic={tracingSetupLogic}
+                dataName="span"
+                destination={{ label: 'Go to Tracing', url: urls.tracing() }}
+            />
+        ),
         previewLabel: 'Your traces, once connected',
         Preview: TracingPreview,
     },

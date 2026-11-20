@@ -12,6 +12,7 @@ import {
     webRetentionQuery,
     webTrendQuery,
 } from '@/api/webAnalytics'
+import { useInternalUsersFilter } from '@/features/settings/internalUsersPreference'
 import {
     WEB_TREND_LABELS,
     webActiveHoursSnapshot,
@@ -114,6 +115,7 @@ interface SharedWindow {
     interval: MetricInterval
     choices: WebAnalyticsChoices
     window: WebQueryWindow
+    filterReady: boolean
     /** Changes with the range and the filters, which start a new open path like a range change does. */
     windowKey: string
 }
@@ -127,14 +129,24 @@ function useSharedWindow(dataScope: string): SharedWindow {
     const values = webAnalyticsRange(range.choice)
     const interval = webAnalyticsInterval(values)
     const choices = useWebAnalyticsChoices(dataScope)
+    const filterTestAccounts = useInternalUsersFilter()
     const window: WebQueryWindow = {
         dateFrom: values.date_from,
         dateTo: values.date_to,
         explicitDate: values.explicitDate,
         interval,
         properties: choices.filters.flatMap((filter) => filter.properties),
+        filterTestAccounts: filterTestAccounts ?? false,
     }
-    return { range, values, interval, choices, window, windowKey: stableStringify(window) }
+    return {
+        range,
+        values,
+        interval,
+        choices,
+        window,
+        filterReady: filterTestAccounts !== undefined,
+        windowKey: stableStringify(window),
+    }
 }
 
 export interface WebTileState {
@@ -152,6 +164,7 @@ export interface WebAnalyticsScreenState {
     refresh: ViewRefresh
     interval: MetricInterval
     metric: WebTrendMetric
+    internalUsersFilter: boolean | undefined
     filters: WebFilter[]
     trend: WebItemRef
     tiles: WebTileState[]
@@ -168,7 +181,7 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
     const metric = choices.metric
     const breakdowns = WEB_TILES.map((def) => tileBreakdown(def, choices))
     const breakdownKey = breakdowns.join('|')
-    const base = `${context.identity}|web`
+    const base = `${context.identity}|web|${window.filterTestAccounts}`
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: `windowKey` and `breakdownKey` stand for the queries.
     const plan = useMemo(() => {
@@ -214,14 +227,15 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
 
     const visibleKeys = useMemo(() => new Set(plan.items.map((item) => item.key)), [plan.items])
     const overviewKey = webQueryKey(scope, plan.overviewQuery)
-    const snapshot = useSnapshot<WebOverviewSnapshot>(overviewKey)
+    const cachedOverview = useSnapshot<WebOverviewSnapshot>(overviewKey)
+    const snapshot = shared.filterReady ? cachedOverview : undefined
     const refresh = useViewRefresh({
         screen: 'web_analytics',
         dataScope: context.dataScope,
         screenKey: 'web',
         items: plan.items,
         visibleKeys,
-        enabled: context.ready && !context.offline,
+        enabled: context.ready && !context.offline && shared.filterReady,
         rangeKey: windowKey,
     })
     const error = useItemError(plan.items[0]?.key ?? null)
@@ -244,6 +258,7 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
         refresh,
         interval: shared.interval,
         metric,
+        internalUsersFilter: shared.filterReady ? window.filterTestAccounts : undefined,
         filters: choices.filters,
         trend: plan.trend,
         tiles: plan.tiles,
@@ -269,6 +284,7 @@ export function useWebBreakdownList(tileId: WebTileId, fallback: WebBreakdown | 
     const { choices, window, windowKey } = shared
     const tile = webTileDef(tileId)
     const breakdown = tileBreakdown(tile, choices, fallback)
+    const identity = `${context.identity}|web-list|${tile.id}|${breakdown}|${window.filterTestAccounts}`
     // biome-ignore lint/correctness/useExhaustiveDependencies: `windowKey` stands for `window`.
     const plan = useMemo(() => {
         const query = webBreakdownQuery({ ...window, breakdown, limit: LIST_LIMIT })
@@ -278,15 +294,15 @@ export function useWebBreakdownList(tileId: WebTileId, fallback: WebBreakdown | 
                     webBreakdownSnapshot(breakdown, response, previous, readAt)
                 ),
             ],
-            data: itemRef(scope, query, `${context.identity}|web-list|${tile.id}|${breakdown}`),
+            data: itemRef(scope, query, identity),
         }
-    }, [context.item, context.identity, scope, windowKey, tile.id, breakdown])
+    }, [context.item, scope, windowKey, breakdown, identity])
     const refresh = useViewRefresh({
         screen: 'web_analytics',
         dataScope: context.dataScope,
         screenKey: `web-list:${tile.id}`,
         items: plan.items,
-        enabled: context.ready && !context.offline,
+        enabled: context.ready && !context.offline && shared.filterReady,
         rangeKey: windowKey,
     })
     return {

@@ -60,6 +60,7 @@ from rest_framework.exceptions import (
 from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
@@ -67,8 +68,14 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
+from posthog.models.github_integration_base import (
+    GitHubIntegrationBase,
+    GitHubIntegrationError,
+    ReauthorizationRequired,
+)
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.models.user_integration import NoAccessibleRepositories, UserGitHubIntegration, UserIntegration
 from posthog.scopes.checks import scopes_not_covered
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, resolve_scopes
 from posthog.user_permissions import UserPermissions
@@ -90,7 +97,6 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     ARTIFACT_SCRIPT_SHA256_KEY as ARTIFACT_SCRIPT_SHA256_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
-    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
     FINAL_MESSAGE_MAX_CHARS,
@@ -109,6 +115,7 @@ from products.tasks.backend.constants import (
     TASK_DESCRIPTION_PREVIEW_LENGTH,
     TASK_SESSION_MAX_SIZE_BYTES,
     TIMED_OUT_INACTIVITY_STATE_KEY as TIMED_OUT_INACTIVITY_STATE_KEY,  # re-exported for the scout reaper
+    UPSTREAM_RETRYABLE_ERROR_CATEGORIES,
     get_required_model_flag,
     is_blocked_sandbox_env_key,
     is_html_artifact as is_html_artifact,
@@ -442,11 +449,8 @@ __all__ = [
     "classify_permission_response",
     "get_task_run_stream_info",
     "get_task_summaries",
-    "is_internal_debug_team",
     "is_task_controllable_by_user",
     "is_valid_sandbox_env_var_key",
-    "latest_task_run_pr_merged_subquery",
-    "latest_task_run_pr_url_subquery",
     "leave_task_presence",
     "list_sandbox_custom_images",
     "list_sandbox_environments",
@@ -515,7 +519,6 @@ __all__ = [
     "get_pull_requests_for_tasks",
     "get_prior_pr_output_by_task",
     "read_pr_urls",
-    "task_run_has_slack_mapping",
     "task_run_is_terminal",
     "task_run_matches_current_ownership",
     "task_runtime",
@@ -1752,41 +1755,11 @@ def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[Task
     return TaskRun.objects.filter(*conditions, team_id=team_id).filter(_PR_CARRYING_OUTPUT_Q).values("task_id")
 
 
-def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
-    """``Subquery`` of the latest non-empty output.pr_url for runs matching the supplied correlation
-    (keyword lookups and/or positional ``Q`` objects). Returns a query expression to embed in the
-    caller's queryset — no ORM instances cross the boundary, and the tasks facade stays free of the
-    caller's domain."""
-    return Subquery(
-        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
-        .exclude(output__pr_url="")
-        .order_by("-created_at")
-        .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
-        .values("output_pr_url_text")[:1],
-        output_field=CharField(),
-    )
-
-
-def latest_task_run_pr_merged_subquery(*conditions: Q, **task_run_filter) -> Subquery:
-    """``Subquery`` of the webhook-attested merge flag on the same run ``latest_task_run_pr_url_subquery``
-    resolves for the same correlation — so a caller displaying that PR can say whether it merged rather
-    than inferring it. Same filter and ordering, so the two always describe one run. NULL when no
-    PR-bearing run matches; treat that as "not merged"."""
-    return Subquery(
-        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
-        .exclude(output__pr_url="")
-        .order_by("-created_at")
-        .annotate(output_pr_merged_flag=KeyTextTransform("pr_merged", "output"))
-        .values("output_pr_merged_flag")[:1],
-        output_field=CharField(),
-    )
-
-
 def get_merged_pr_task_ids(task_ids: Iterable[str | UUID], *conditions: Q) -> set[str]:
     """Of the supplied tasks, those whose latest PR-bearing run has a webhook-attested merged PR.
 
-    Batched counterpart to ``latest_task_run_pr_merged_subquery``, matching ``get_latest_pr_url_by_task``
-    run-for-run so the merge flag describes the PR URL that helper returns.
+    Matches ``get_latest_pr_url_by_task`` run-for-run so the merge flag describes the PR URL that helper
+    returns.
     """
     ids = [str(t) for t in task_ids]
     if not ids:
@@ -3481,10 +3454,7 @@ TASK_RUN_FAILURE_ERROR_TYPES = (
     "output_parse_failed",
     "poll_timeout",
     "pi_runtime_error",
-    "upstream_stream_terminated",
-    "upstream_connection_error",
-    "upstream_timeout",
-    "upstream_provider_failure",
+    *UPSTREAM_RETRYABLE_ERROR_CATEGORIES,
     "upstream_request_rejected",
     "content_block_rejection",
     "turn_ended_without_response",
@@ -4760,18 +4730,6 @@ def sync_task_run_session(
     except Exception:
         _delete_task_session_object(visible_run.active_task_session_id, object_storage_key)
         raise
-
-
-def task_run_has_slack_mapping(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool | None:
-    """Whether a run is mapped to a Slack thread. ``None`` if the run isn't found."""
-    from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
-        SlackThreadTaskMapping,
-    )
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    return SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
 
 def task_run_is_terminal(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool | None:
@@ -6189,10 +6147,6 @@ def create_task_run_stream_read_token(run_id: str | UUID, task_id: str | UUID, t
     return _create(task_run=run)
 
 
-def task_uses_pi_runtime(task_id: str | UUID, team_id: int) -> bool:
-    return Task.objects.filter(id=task_id, team_id=team_id, runtime=Task.Runtime.PI).exists()
-
-
 def task_is_one_shot_analysis(task_id: str | UUID, team_id: int) -> bool:
     """Whether this task is a server-created analysis, which accepts no further runs.
 
@@ -6744,17 +6698,6 @@ def relay_task_run_message(
 # --- Task run creation / start / cloud resume ---
 
 
-def user_can_author_repository(user_id: int, repository: str) -> bool:
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
-        get_user_github_integration,
-        user_github_integration_is_usable,
-    )
-
-    user = User.objects.filter(id=user_id).first()
-    integration = get_user_github_integration(user, repository=repository, allow_refresh=False)
-    return user_github_integration_is_usable(integration)
-
-
 def user_has_usable_personal_github(user_id: int) -> bool:
     """Whether the user's personal GitHub integration can produce a usable token, ignoring repo access.
 
@@ -6771,6 +6714,63 @@ def user_has_usable_personal_github(user_id: int) -> bool:
     user = User.objects.filter(id=user_id).first()
     integration = get_user_github_integration(user, allow_refresh=False)
     return user_github_integration_is_usable(integration)
+
+
+def check_personal_github_repo_access(user_id: int, repository: str) -> contracts.PersonalGitHubRepoAccess:
+    """Ask GitHub whether the user's personal GitHub connection can open `repository`.
+
+    Unlike `user_has_usable_personal_github`, this makes network calls. A token that GitHub
+    revoked still looks usable in the stored row, and an installation that grants only
+    selected repositories can be healthy but not include this repository. A transient GitHub
+    failure returns OK, so that a GitHub outage does not block a task here.
+    """
+    from products.tasks.backend.temporal.process_task.sandbox_credentials import (  # noqa: PLC0415 — keep temporalio off the api import path
+        resolve_coordinated_user_token,
+    )
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        user_github_integration_is_usable,
+    )
+
+    integrations = list(
+        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB).order_by(
+            "created_at"
+        )
+    )
+    if not integrations:
+        return contracts.PersonalGitHubRepoAccess.NOT_CONNECTED
+
+    any_usable = False
+    for integration in integrations:
+        github = UserGitHubIntegration(integration, source="slack_app_repo_access_check", priority=Priority.NORMAL)
+        if github.needs_reauthorization or not user_github_integration_is_usable(github):
+            continue
+        try:
+            # GitHub rotates the refresh token on every refresh, so a refresh that races the
+            # task's own provisioning makes one side fail and strips the user's tokens. Refresh
+            # under the same per-integration lock that provisioning uses. If the lock wait runs
+            # out, the token is still expired, and the probes below would refresh it without
+            # the lock, so skip the check.
+            resolve_coordinated_user_token(github)
+            if github.user_access_token_expired():
+                return contracts.PersonalGitHubRepoAccess.OK
+            # Call the base installation probe directly. The `UserGitHubIntegration` override
+            # converts ReauthorizationRequired to False, which would show a revoked token as
+            # missing repo access.
+            if github.user_can_open_repository(repository) and GitHubIntegrationBase.installation_can_access_repository(
+                github, repository, raise_on_transient=True
+            ):
+                return contracts.PersonalGitHubRepoAccess.OK
+        except ReauthorizationRequired:
+            continue
+        except NoAccessibleRepositories:
+            pass
+        except GitHubIntegrationError:
+            return contracts.PersonalGitHubRepoAccess.OK
+        any_usable = True
+
+    if any_usable:
+        return contracts.PersonalGitHubRepoAccess.NO_REPO_ACCESS
+    return contracts.PersonalGitHubRepoAccess.NEEDS_RECONNECT
 
 
 def _ensure_task_team_github_integration(task: Task) -> bool:
@@ -7426,15 +7426,6 @@ def channel_queryset():
     personal channels from ``validate_channel``.
     """
     return Channel.objects.unscoped().filter(deleted=False)
-
-
-def is_internal_debug_team(team_id: int | None) -> bool:
-    """Whether the team is the PostHog-internal debugging team. Mirrors the original view helper."""
-    from django.conf import settings  # noqa: PLC0415
-
-    if settings.DEBUG and not settings.TEST:
-        return team_id == 1
-    return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
 
 
 def _task_detail_queryset():
@@ -9116,6 +9107,18 @@ def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> 
         task.soft_delete()
         soft_delete_conversations_for_task(task.id)
     return True
+
+
+def release_task_origin_key(team_id: int, origin_key: str) -> int:
+    """Soft-delete the tasks holding ``origin_key`` and clear it, since the unique keys ignore ``deleted``."""
+    with transaction.atomic():
+        tasks = list(Task.objects.select_for_update().filter(idempotency_key_q(origin_key), team_id=team_id))
+        for task in tasks:
+            if not task.deleted:
+                task.soft_delete()
+                soft_delete_conversations_for_task(task.id)
+        Task.objects.filter(id__in=[task.id for task in tasks]).update(origin_key=None, idempotency_key=None)
+    return len(tasks)
 
 
 # --- Task handoff (transfer ownership to a colleague) ---

@@ -45,6 +45,7 @@ class RecordingWriter:
     primary_keys: list[tuple[str, ...]] = []
     fail_for: set[str] = set()
     configuration_error_for: set[str] = set()
+    rows_written = 1
 
     def __init__(self, ctx) -> None:
         self._ctx = ctx
@@ -59,7 +60,7 @@ class RecordingWriter:
             raise DestinationConfigurationError(self._ctx.destination_name, "The host name does not exist.")
         RecordingWriter.calls.append(("write", self._ctx.destination_name, batch_ctx.batch_index))
         RecordingWriter.primary_keys.append(batch_ctx.run.primary_keys)
-        return BatchWriteOutcome(rows_written=1)
+        return BatchWriteOutcome(rows_written=RecordingWriter.rows_written)
 
     async def finalize_run(self, ctx) -> None:
         RecordingWriter.calls.append(("finalize", self._ctx.destination_name, -1))
@@ -75,6 +76,7 @@ class DeliveryTestCase(BaseTest):
         RecordingWriter.primary_keys = []
         RecordingWriter.fail_for = set()
         RecordingWriter.configuration_error_for = set()
+        RecordingWriter.rows_written = 1
 
         # Registered before the snapshot, so the first delivery in the process cannot replace the
         # fakes below, and the cleanup puts the real writers back.
@@ -459,15 +461,52 @@ class TestDestinationHealth(DeliveryTestCase):
 
     @parameterized.expand(
         [
-            ("failing_is_reset", ExternalDataDestination.Status.FAILING, 2, ExternalDataDestination.Status.HEALTHY, 0),
-            ("paused_stays_paused", ExternalDataDestination.Status.PAUSED, 3, ExternalDataDestination.Status.PAUSED, 3),
+            (
+                "failing_is_reset",
+                ExternalDataDestination.Status.FAILING,
+                2,
+                1,
+                ExternalDataDestination.Status.HEALTHY,
+                0,
+            ),
+            (
+                "paused_stays_paused",
+                ExternalDataDestination.Status.PAUSED,
+                3,
+                1,
+                ExternalDataDestination.Status.PAUSED,
+                3,
+            ),
+            (
+                "empty_delivery_keeps_configuration_failures",
+                ExternalDataDestination.Status.FAILING,
+                2,
+                0,
+                ExternalDataDestination.Status.FAILING,
+                2,
+            ),
+            (
+                "empty_delivery_clears_a_transient_failure",
+                ExternalDataDestination.Status.FAILING,
+                0,
+                0,
+                ExternalDataDestination.Status.HEALTHY,
+                0,
+            ),
         ]
     )
     def test_a_successful_delivery_resets_a_failing_destination(
-        self, _name: str, status: str, failures: int, expected_status: str, expected_failures: int
+        self,
+        _name: str,
+        status: str,
+        failures: int,
+        rows_written: int,
+        expected_status: str,
+        expected_failures: int,
     ) -> None:
         destination = self._destination("customer redshift")
         self._set_health(destination, status, failures)
+        RecordingWriter.rows_written = rows_written
 
         assert self._deliver(destination) is None
 

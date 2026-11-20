@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from .activities import (
     collect_metric_runs,
     collect_table_sources,
@@ -11,8 +13,11 @@ from .activities import (
 )
 from .workflows import DataCatalogUsageScanWorkflow, DataCatalogUsageScheduleWorkflow
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [DataCatalogUsageScanWorkflow, DataCatalogUsageScheduleWorkflow]
-ACTIVITIES = [
+ACTIVITIES: list[ActivityDefinition] = [
     list_teams_due,
     create_snapshot,
     collect_metric_runs,

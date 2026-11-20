@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -63,6 +64,10 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+
+
+def _hogql_database_builds(trigger: str) -> float:
+    return REGISTRY.get_sample_value("hogql_database_build_total", {"trigger": trigger}) or 0.0
 
 
 class TestSavedQuery(APIBaseTest):
@@ -1813,6 +1818,26 @@ class TestSavedQuery(APIBaseTest):
                 }
             ],
         )
+
+    def test_query_edit_builds_one_database_for_the_caller_and_one_for_lineage(self) -> None:
+        created = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "event_view", "query": {"kind": "HogQLQuery", "query": "select event as event from events"}},
+        ).json()
+        triggers = ("saved_query_save", "saved_query_dag_sync", "printer", "direct")
+        builds_before = {trigger: _hogql_database_builds(trigger) for trigger in triggers}
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{created['id']}",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select distinct_id as distinct_id from events"},
+                "edited_history_id": created["latest_history_id"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        builds = {trigger: _hogql_database_builds(trigger) - builds_before[trigger] for trigger in triggers}
+        self.assertEqual(builds, {"saved_query_save": 1, "saved_query_dag_sync": 1, "printer": 0, "direct": 0})
 
     def test_nested_view(self):
         saved_query_1_response = self.client.post(

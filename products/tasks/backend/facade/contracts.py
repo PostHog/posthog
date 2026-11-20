@@ -36,6 +36,13 @@ class DesktopAccessReason(LabeledStrEnum):
     PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
 
 
+class PersonalGitHubRepoAccess(StrEnum):
+    OK = "ok"
+    NOT_CONNECTED = "not_connected"
+    NEEDS_RECONNECT = "needs_reconnect"
+    NO_REPO_ACCESS = "no_repo_access"
+
+
 @dataclass(frozen=True)
 class TaskDTO:
     """A code task."""
@@ -1096,14 +1103,6 @@ class SandboxSnapshotDTO:
     external_id: str
     status: str
     repos: list[str] = Field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class SignalReportPrUrlDTO:
-    """The PR URL produced by the latest task run for a signal report."""
-
-    report_id: str
-    pr_url: str
 
 
 @dataclass(frozen=True)

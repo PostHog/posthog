@@ -28,7 +28,7 @@ describe('CommentsList', () => {
                     await firstLoadReached
                     return [200, { results: [] }]
                 },
-                '/api/organizations/@current/members/': { results: [] },
+                '/api/organizations/:organization_id/members/': { results: [] },
             },
         })
 
