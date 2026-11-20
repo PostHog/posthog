@@ -526,10 +526,18 @@ Reference docs
     )
 }
 
+export interface ExperimentAgentPromptFilter {
+    subject: string
+    key: string | null
+    operator: string | null
+    values: string[]
+}
+
 /** An event or action the experiment counts on, named as it is in the project. */
 export interface ExperimentAgentPromptEvent {
     kind: 'event' | 'action'
     name: string
+    filters?: ExperimentAgentPromptFilter[]
 }
 
 export interface ExperimentAgentPromptWarehouseExposure {
@@ -572,6 +580,20 @@ function eventNoun({ kind }: ExperimentAgentPromptEvent): string {
     return kind === 'event' ? 'event' : "action's event"
 }
 
+function describeFilter({ subject, key, operator, values }: ExperimentAgentPromptFilter): string {
+    return [subject, key ? quote(key) : null, operator, values.length > 0 ? values.map(quote).join(' or ') : null]
+        .filter(Boolean)
+        .join(' ')
+}
+
+function describeEvent({ name, filters = [] }: ExperimentAgentPromptEvent): string {
+    return filters.length > 0 ? `${quote(name)}, where ${filters.map(describeFilter).join(' and ')}` : quote(name)
+}
+
+function filtersNote({ filters = [] }: ExperimentAgentPromptEvent): string | null {
+    return filters.length > 0 ? 'It only counts when it matches its filters.' : null
+}
+
 /** Asks a coding agent to add a product experiment's feature flag to the user's code. */
 export function buildExperimentFlagAgentPrompt(input: ExperimentFlagAgentPromptInput): string {
     const prompt = composeExperimentFlagAgentPrompt(input, false)
@@ -604,8 +626,8 @@ function composeExperimentFlagAgentPrompt(
                         .join(', ')}`
                   : null,
               groupType ? `- Group type: ${quote(groupType)}` : null,
-              customExposure ? `- Exposure ${customExposure.kind}: ${quote(customExposure.name)}` : null,
-              activation ? `- Activation ${activation.kind}: ${quote(activation.name)}` : null,
+              customExposure ? `- Exposure ${customExposure.kind}: ${describeEvent(customExposure)}` : null,
+              activation ? `- Activation ${activation.kind}: ${describeEvent(activation)}` : null,
               warehouseExposure
                   ? `- Exposure source: a data warehouse query with one row per ${quote(warehouseExposure.unitType)}, identified by ${quote(warehouseExposure.idNamespace)}`
                   : null,
@@ -628,6 +650,7 @@ function composeExperimentFlagAgentPrompt(
           ? [
                 `Read the flag where users see the change. Users count as exposed when the exposure ${eventNoun(customExposure)} fires there, not on the flag read.`,
                 `Fire it after the flag loads, with the flag's value in its "$feature/<flag key>" property. Add it if the project doesn't send it.`,
+                filtersNote(customExposure),
                 customExposure.kind === 'action'
                     ? "Look up the action's events with the PostHog MCP server, or ask me."
                     : null,
@@ -637,6 +660,7 @@ function composeExperimentFlagAgentPrompt(
                 activation
                     ? `Users count as exposed only once the activation ${eventNoun(activation)} fires after that read. Add it if the project doesn't send it.`
                     : null,
+                activation ? filtersNote(activation) : null,
             ]
     const testVariantCount = variantKeys.filter((key) => key !== baselineVariantKey).length
     const steps = [

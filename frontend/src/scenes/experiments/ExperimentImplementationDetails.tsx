@@ -13,12 +13,22 @@ import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { allOperatorsMapping } from 'lib/utils/operators'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { ExperimentExposureConfig, NodeKind } from '~/queries/schema/schema-general'
-import { Experiment, GroupType, GroupTypeIndex, MultivariateFlagVariant, SDKKey } from '~/types'
+import {
+    AnyPropertyFilter,
+    Experiment,
+    GroupType,
+    GroupTypeIndex,
+    MultivariateFlagVariant,
+    PropertyFilterType,
+    PropertyOperator,
+    SDKKey,
+} from '~/types'
 
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 
@@ -26,6 +36,7 @@ import {
     AndroidSnippet,
     buildExperimentFlagAgentPrompt,
     type ExperimentAgentPromptEvent,
+    type ExperimentAgentPromptFilter,
     type ExperimentAgentPromptWarehouseExposure,
     FlutterSnippet,
     GolangSnippet,
@@ -116,6 +127,40 @@ function reportAgentPromptCopied(
     })
 }
 
+function operatorLabel(operator: PropertyOperator): string {
+    return (allOperatorsMapping[operator] ?? operator).replace(/^[^\p{L}]+\s/u, '')
+}
+
+function promptFilter(filter: AnyPropertyFilter): ExperimentAgentPromptFilter | null {
+    if (filter.type === PropertyFilterType.Cohort) {
+        return {
+            subject: filter.operator === PropertyOperator.NotIn ? 'not in cohort' : 'in cohort',
+            key: filter.cohort_name ?? String(filter.value),
+            operator: null,
+            values: [],
+        }
+    }
+    if (filter.type === PropertyFilterType.HogQL) {
+        return { subject: 'HogQL expression', key: filter.key, operator: null, values: [] }
+    }
+    if (!filter.type || !('key' in filter) || !filter.key) {
+        return null
+    }
+    const value = 'value' in filter ? filter.value : null
+    return {
+        subject: `${filter.type.replace(/_/g, ' ')} property`,
+        key: String(filter.key),
+        operator: 'operator' in filter && filter.operator ? operatorLabel(filter.operator) : null,
+        values: value == null ? [] : (Array.isArray(value) ? value : [value]).map(String),
+    }
+}
+
+function promptFilters(properties: AnyPropertyFilter[] | undefined): ExperimentAgentPromptFilter[] {
+    return (properties ?? [])
+        .map(promptFilter)
+        .filter((filter): filter is ExperimentAgentPromptFilter => filter !== null)
+}
+
 /** The event or action an exposure or activation config names, or null when there is none to name: the default
  * exposure the flag read records, or exposures a warehouse query reads. */
 function promptEvent(
@@ -128,12 +173,12 @@ function promptEvent(
     if ('event' in config) {
         return role === 'exposure' && [EXPOSURE_DEFAULT_EVENT, EXPERIMENT_EXPOSURE_EVENT].includes(config.event)
             ? null
-            : { kind: 'event', name: config.event }
+            : { kind: 'event', name: config.event, filters: promptFilters(config.properties) }
     }
     if (config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
         return null
     }
-    return { kind: 'action', name: config.name ?? String(config.id) }
+    return { kind: 'action', name: config.name ?? String(config.id), filters: promptFilters(config.properties) }
 }
 
 function promptWarehouseExposure(

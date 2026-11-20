@@ -13,7 +13,7 @@ import { useMocks } from '~/mocks/jest'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExperimentStatus, SDKKey } from '~/types'
+import { ExperimentStatus, PropertyFilterType, PropertyOperator, SDKKey } from '~/types'
 import type { Experiment } from '~/types'
 
 import {
@@ -376,6 +376,29 @@ describe('ExperimentImplementationDetails', () => {
             ],
         },
         {
+            setup: 'the filters on a custom exposure event',
+            overrides: {
+                exposure_criteria: {
+                    exposure_config: {
+                        kind: NodeKind.ExperimentEventExposureConfig,
+                        event: 'viewed checkout',
+                        properties: [
+                            {
+                                key: 'plan',
+                                type: PropertyFilterType.Event,
+                                operator: PropertyOperator.Exact,
+                                value: ['pro'],
+                            },
+                        ],
+                    },
+                },
+            },
+            expected: [
+                '- Exposure event: "viewed checkout", where event property "plan" equals "pro"',
+                'It only counts when it matches its filters.',
+            ],
+        },
+        {
             setup: 'an exposure action',
             overrides: {
                 exposure_criteria: { exposure_config: { kind: NodeKind.ActionsNode, id: 7, name: 'Viewed checkout' } },
@@ -418,6 +441,31 @@ describe('ExperimentImplementationDetails', () => {
             expected: [
                 '- Activation event: "opened cart"',
                 'Users count as exposed only once the activation event fires after that read.',
+            ],
+        },
+        {
+            setup: 'the filters on an activation event',
+            overrides: {
+                exposure_criteria: {
+                    activation_config: {
+                        kind: NodeKind.ExperimentEventExposureConfig,
+                        event: 'opened cart',
+                        properties: [
+                            {
+                                key: 'source',
+                                type: PropertyFilterType.Event,
+                                operator: PropertyOperator.IContains,
+                                value: 'email',
+                            },
+                            { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsSet },
+                            { key: 'id', type: PropertyFilterType.Cohort, operator: PropertyOperator.In, value: 12 },
+                        ],
+                    },
+                },
+            },
+            expected: [
+                '- Activation event: "opened cart", where event property "source" contains "email" and person property "email" is set and in cohort "12"',
+                'It only counts when it matches its filters.',
             ],
         },
         {
