@@ -538,6 +538,9 @@ class BasePrinter(Visitor[str]):
         if not predicates or node_type is None:
             return []
 
+        if isinstance(node_type, ast.ColumnAliasedTableType):
+            # Predicates name the table's own columns, not the names a query gives them.
+            node_type = ast.TableAliasType(alias=node_type.alias, table_type=node_type.table_type)
         scope = ast.SelectQueryType(tables={"t": node_type})
         return [resolve_types(clone_expr(pred), self.context, self.DIALECT_NAME, [scope]) for pred in predicates]
 
