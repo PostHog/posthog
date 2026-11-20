@@ -1,3 +1,4 @@
+import io
 import gzip
 import json
 from collections.abc import Callable
@@ -7,6 +8,9 @@ from typing import Any, Literal
 import pytest
 import time_machine
 
+from requests import ConnectionError
+
+from products.warehouse_sources.sources.appcues import appcues
 from products.warehouse_sources.sources.appcues._config import AppcuesSourceConfig
 from products.warehouse_sources.sources.appcues.appcues import AppcuesExportError, AppcuesResumeConfig
 from products.warehouse_sources.sources.appcues.source import AppcuesSource
@@ -102,14 +106,23 @@ def _file(rows: list[dict[str, Any]], encoding: str = "jsonl") -> ScriptedRespon
     return ScriptedResponse(body=gzip.compress(body) if encoding == "gzip" else body)
 
 
-def _run(schema: str, script: Script, *, resume_state: Any = None, watermark: Any = None) -> DriveResult:
-    with time_machine.travel(datetime(2026, 3, 3, 1, 0, tzinfo=UTC), tick=False):
+def _run(
+    schema: str,
+    script: Script,
+    *,
+    resume_state: Any = None,
+    watermark: Any = None,
+    history_start: datetime | None = None,
+    now: datetime = datetime(2026, 3, 3, 1, 0, tzinfo=UTC),
+) -> DriveResult:
+    with time_machine.travel(now, tick=False):
         return SourceDriver(AppcuesSource(), CONFIG).run(
             schema,
             script,
             resume_state=resume_state,
             incremental_field="timestamp" if watermark is not None else None,
             db_incremental_field_last_value=watermark,
+            history_start=history_start,
         )
 
 
@@ -293,3 +306,113 @@ def test_ingestion_filtering_rules_read_one_object_or_none(answer: ScriptedRespo
     assert result.raised is None
     assert result.rows == rows
     assert result.paths == ["/v2/accounts/12345/ingestion_filtering_rules"]
+
+
+@pytest.mark.parametrize("chunk_chars", [1, 7, 4096])
+@pytest.mark.parametrize(
+    ("text", "objects"),
+    [
+        ('[{"a": 1}, {"a": "x,]}"}]', [{"a": 1}, {"a": "x,]}"}]),
+        ('[\n  {\n    "a": 1\n  },\n  {"b": [1, 2]}\n]\n', [{"a": 1}, {"b": [1, 2]}]),
+        ('{"a": 1}\n\n{"a": 2}\n', [{"a": 1}, {"a": 2}]),
+        ("[]", []),
+        ("", []),
+    ],
+)
+def test_export_parser_streams_both_json_shapes_across_read_boundaries(
+    monkeypatch: pytest.MonkeyPatch, chunk_chars: int, text: str, objects: list[dict[str, Any]]
+) -> None:
+    monkeypatch.setattr(appcues, "PARSE_CHUNK_CHARS", chunk_chars)
+
+    assert list(appcues._iter_json_objects(io.StringIO(text))) == objects
+
+
+@pytest.mark.parametrize(("text", "error"), [('[{"a": 1}, {"a"', "not valid JSON"), ("[1, 2]", "not an event")])
+def test_export_parser_rejects_a_broken_file(text: str, error: str) -> None:
+    with pytest.raises(AppcuesExportError, match=error):
+        list(appcues._iter_json_objects(io.StringIO(text)))
+
+
+def test_event_export_pages_through_a_capped_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(appcues, "EVENTS_EXPORT_PAGE_SIZE", 2)
+    rows = [{"name": "e", "timestamp": f"2026-03-02T1{n}:00:00Z", "user_id": f"u{n}"} for n in range(3)]
+    result = _run(
+        "events",
+        [
+            _job("page-1"),
+            _completed("https://files.example.com/page-1"),
+            _file(rows[:2]),
+            _job("page-2"),
+            _completed("https://files.example.com/page-2"),
+            _file(rows[2:]),
+        ],
+        watermark="2026-03-02T00:00:00Z",
+    )
+
+    assert result.raised is None
+    assert [row["user_id"] for row in result.rows] == ["u0", "u1", "u2"]
+    created = [request.json() for request in result.requests if request.method == "POST"]
+    assert [(body["limit"], body["offset"], body["start_time"]) for body in created] == [
+        (2, 0, "2026-03-02T00:00:00.001Z"),
+        (2, 2, "2026-03-02T00:00:00.001Z"),
+    ]
+    assert result.committed_states[-1].offset == 2
+
+
+@pytest.mark.parametrize(
+    ("download", "reason"),
+    [
+        (ConnectionError("Max retries exceeded with url: /f?X-Amz-Signature=secret-signature"), "ConnectionError"),
+        (ScriptedResponse(status=403, body=b"<Error>X-Amz-Signature=secret-signature</Error>"), "HTTP 403"),
+    ],
+)
+def test_failed_file_download_never_exposes_the_signed_url(
+    download: ConnectionError | ScriptedResponse, reason: str
+) -> None:
+    url = "https://files.example.com/f?X-Amz-Signature=secret-signature"
+
+    def respond(request: Any) -> ScriptedResponse:
+        if request.method == "POST":
+            return _job("job-1")
+        if "/jobs/" in request.path:
+            return _completed(url)
+        if isinstance(download, BaseException):
+            raise download
+        return download
+
+    result = _run("events", respond, watermark="2026-03-02T12:00:00Z")
+
+    assert isinstance(result.raised, AppcuesExportError)
+    assert str(result.raised) == f"The Appcues export file download failed ({reason})"
+    assert result.raised.__cause__ is None and result.raised.__suppress_context__
+
+
+def test_event_rebuild_starts_at_the_schema_history_floor_with_millisecond_bounds() -> None:
+    result = _run(
+        "events",
+        [
+            _job("job-1"),
+            _completed("https://files.example.com/job-1"),
+            _file([]),
+            _job("job-2"),
+            _completed("https://files.example.com/job-2"),
+            _file(
+                [
+                    {"name": "e", "timestamp": "2026-03-03T00:00:00.122Z", "user_id": "inside"},
+                    # The request ends at .123, so the next sync reads this event, not this one.
+                    {"name": "e", "timestamp": "2026-03-03T00:00:00.123Z", "user_id": "at-end"},
+                ]
+            ),
+        ],
+        history_start=datetime(2026, 3, 2, tzinfo=UTC),
+        now=datetime(2026, 3, 3, 1, 0, 0, 123456, tzinfo=UTC),
+    )
+
+    assert result.raised is None
+    assert [row["user_id"] for row in result.rows] == ["inside"]
+    created = [request.json() for request in result.requests if request.method == "POST"]
+    assert [(body["start_time"], body["end_time"]) for body in created] == [
+        ("2026-03-02T00:00:00.000Z", "2026-03-03T00:00:00.000Z"),
+        ("2026-03-03T00:00:00.000Z", "2026-03-03T00:00:00.123Z"),
+    ]
+    assert result.committed_states[-1].window_end == "2026-03-03T00:00:00.123Z"

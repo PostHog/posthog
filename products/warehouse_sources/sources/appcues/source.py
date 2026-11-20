@@ -1,3 +1,4 @@
+import datetime
 from typing import cast
 
 from requests import HTTPError
@@ -5,7 +6,7 @@ from requests import HTTPError
 from products.warehouse_sources.sources.appcues._config import AppcuesSourceConfig
 from products.warehouse_sources.sources.appcues.appcues import AppcuesResumeConfig, appcues_source, probe_credentials
 from products.warehouse_sources.sources.appcues.canonical_descriptions import CANONICAL_DESCRIPTIONS
-from products.warehouse_sources.sources.appcues.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.appcues.settings import ENDPOINTS, EVENTS_INITIAL_LOOKBACK, INCREMENTAL_FIELDS
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -56,6 +57,11 @@ class AppcuesSource(ResumableSource[AppcuesSourceConfig, AppcuesResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.APPCUES
+
+    def history_lookback_for_schema(
+        self, schema_name: str, config: AppcuesSourceConfig | None = None
+    ) -> datetime.timedelta | None:
+        return EVENTS_INITIAL_LOOKBACK if schema_name == "events" else None
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

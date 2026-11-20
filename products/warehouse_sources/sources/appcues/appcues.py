@@ -1,5 +1,8 @@
+import io
 import re
 import gzip
+import json
+import time
 import base64
 import tempfile
 import itertools
@@ -16,6 +19,7 @@ from products.warehouse_sources.sources.appcues.settings import (
     BASE_URLS,
     ENDPOINTS,
     EVENTS_EXPORT_END_LAG,
+    EVENTS_EXPORT_PAGE_SIZE,
     EVENTS_EXPORT_WINDOW,
     EVENTS_INITIAL_LOOKBACK,
     EXPORT_BATCH_SIZE,
@@ -33,14 +37,12 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     format_datetime,
     frozen,
-    iter_file_rows,
     make_tracked_session,
     parse_datetime_or_epoch,
     parse_datetime_value,
     poll_until_done,
     raise_for_retryable_status,
     raise_for_status_redacted,
-    resolve_file_format,
     resolve_incremental_start,
     rest_api_resource,
     schema_for_resource,
@@ -49,6 +51,11 @@ from products.warehouse_sources.sources.sdk import (
 
 REQUEST_TIMEOUT_SECONDS = 30
 DOWNLOAD_TIMEOUT_SECONDS = 300
+# A slow file host must not hold the worker past this, also while it keeps sending bytes.
+DOWNLOAD_BUDGET_SECONDS = 30 * 60
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+PARSE_CHUNK_CHARS = 1024 * 1024
+JSON_SEPARATORS = frozenset(" \t\r\n,")
 RETRY_BUDGET_SECONDS = 240
 
 JOB_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
@@ -58,13 +65,14 @@ JOB_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 class AppcuesResumeConfig:
     """The export job in progress and how many rows of its file are already written.
 
-    Events keep the job's time window; segment membership keeps the segment the job exports.
+    Events keep the job's time window and page offset; segment membership keeps the segment the job exports.
     """
 
     job_id: str | None = None
     rows_done: int = 0
     window_start: str | None = None
     window_end: str | None = None
+    offset: int = 0
     segment_id: str | None = None
 
 
@@ -119,9 +127,11 @@ class AppcuesExportClient:
     def __init__(self, config: AppcuesSourceConfig, api_version: str) -> None:
         self.base_url = account_url(config, api_version)
         token = base64.b64encode(f"{config.api_key}:{config.api_secret}".encode()).decode()
+        # Job status bodies carry the signed file URL, so they stay out of sample capture.
         self.session = make_tracked_session(
             headers={"Accept": "application/json", "Authorization": f"Basic {token}"},
             redact_values=(config.api_key, config.api_secret, token),
+            capture=False,
         )
 
     def get(self, path: str) -> requests.Response:
@@ -188,37 +198,79 @@ def signed_file_url(job: dict[str, Any]) -> str | None:
     return None
 
 
-def _first_byte(file: IO[bytes]) -> bytes:
-    while chunk := file.read(4096):
-        stripped = chunk.lstrip()
-        if stripped:
-            return stripped[:1]
-    return b""
+def _iter_json_objects(text: IO[str]) -> Iterator[dict[str, Any]]:
+    """Stream the objects of a JSON array, or of one object per line, without loading the file.
+
+    The docs do not say which of the two shapes a JSON export has.
+    """
+    decoder = json.JSONDecoder()
+    buffer = ""
+    position = 0
+    at_end = False
+    in_array = False
+
+    def refill() -> None:
+        nonlocal buffer, position, at_end
+        chunk = text.read(PARSE_CHUNK_CHARS)
+        at_end = not chunk
+        buffer = buffer[position:] + chunk
+        position = 0
+
+    while True:
+        while position < len(buffer) and buffer[position] in JSON_SEPARATORS:
+            position += 1
+        if position >= len(buffer):
+            if at_end:
+                return
+            refill()
+            continue
+        if buffer[position] == "[" and not in_array:
+            in_array = True
+            position += 1
+            continue
+        if buffer[position] == "]" and in_array:
+            in_array = False
+            position += 1
+            continue
+        try:
+            value, position = decoder.raw_decode(buffer, position)
+        except json.JSONDecodeError:
+            if at_end:
+                raise AppcuesExportError("The Appcues export file is not valid JSON") from None
+            refill()
+            continue
+        if not isinstance(value, dict):
+            raise AppcuesExportError("The Appcues export file holds a value that is not an event object")
+        yield value
 
 
-def iter_export_file(url: str) -> Iterator[dict[str, Any]]:
+def _download(url: str, file: IO[bytes], safe_point: Callable[[], None]) -> None:
     # The file sits on a pre-signed storage URL, so the download must not carry the API key.
-    download_session = make_tracked_session(redact_values=(url,))
-    with tempfile.TemporaryFile() as file:
+    download_session = make_tracked_session(redact_values=(url,), capture=False)
+    deadline = time.monotonic() + DOWNLOAD_BUDGET_SECONDS
+    try:
         with download_session.get(url, stream=True, timeout=DOWNLOAD_TIMEOUT_SECONDS) as download:
             raise_for_status_redacted(download, url=url)
-            for chunk in download.iter_content(chunk_size=1024 * 1024):
+            for chunk in download.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
                 file.write(chunk)
+                safe_point()
+                if time.monotonic() > deadline:
+                    raise AppcuesExportError("The Appcues export file download took longer than 30 minutes")
+    except requests.RequestException as error:
+        # The exception text holds the signed URL, so it must not reach logs or job errors.
+        status = error.response.status_code if error.response is not None else None
+        reason = f"HTTP {status}" if status is not None else type(error).__name__
+        raise AppcuesExportError(f"The Appcues export file download failed ({reason})") from None
 
+
+def iter_export_file(url: str, safe_point: Callable[[], None]) -> Iterator[dict[str, Any]]:
+    with tempfile.TemporaryFile() as file:
+        _download(url, file, safe_point)
         file.seek(0)
         compressed = file.read(2) == b"\x1f\x8b"
         file.seek(0)
-        if compressed:
-            with gzip.GzipFile(fileobj=file) as unzipped:
-                first = _first_byte(unzipped)
-        else:
-            first = _first_byte(file)
-        file.seek(0)
-        # The docs do not say whether a JSON export is one array or one object per line.
-        name = "export.json" if first == b"[" else "export.jsonl"
-        resolved = resolve_file_format(name + (".gz" if compressed else ""))
-        for chunk in iter_file_rows(file, resolved, name):
-            yield from chunk
+        binary = gzip.GzipFile(fileobj=file) if compressed else file
+        yield from _iter_json_objects(io.TextIOWrapper(binary, encoding="utf-8"))
 
 
 def normalize_event(row: dict[str, Any]) -> dict[str, Any]:
@@ -231,6 +283,11 @@ def normalize_event(row: dict[str, Any]) -> dict[str, Any]:
 def _in_window(row: dict[str, Any], start: datetime, end: datetime) -> bool:
     timestamp = row.get("timestamp")
     return not isinstance(timestamp, datetime) or start <= timestamp < end
+
+
+@dataclasses.dataclass
+class _FileProgress:
+    rows: int = 0
 
 
 @frozen
@@ -265,6 +322,7 @@ def _read_job_rows(
     checkpoint: AppcuesResumeConfig,
     start_job: Callable[[], str],
     yielded_any: bool,
+    progress: _FileProgress | None = None,
 ) -> Iterator[tuple[AppcuesResumeConfig, dict[str, Any]]]:
     """Yield each file row of the checkpoint's job, with the checkpoint that covers it.
 
@@ -283,7 +341,9 @@ def _read_job_rows(
         _stage_new_job(manager, checkpoint, commit=not yielded_any)
         url = client.wait_for_file(job_id, manager)
 
-    for index, row in enumerate(iter_export_file(url)):
+    for index, row in enumerate(iter_export_file(url, manager.safe_point)):
+        if progress is not None:
+            progress.rows = index + 1
         if index < checkpoint.rows_done:
             continue
         yield dataclasses.replace(checkpoint, rows_done=index + 1), row
@@ -306,10 +366,15 @@ def _batched_rows(
         yield batch
 
 
+def _to_milliseconds(value: datetime) -> datetime:
+    # Requests and checkpoints carry milliseconds, so the row filter must use the same bounds.
+    return value.replace(microsecond=value.microsecond // 1000 * 1000)
+
+
 def get_events(
     client: AppcuesExportClient, manager: ResumableSourceManager[AppcuesResumeConfig], inputs: SourceInputs
 ) -> Iterator[list[dict[str, Any]]]:
-    end = datetime.now(UTC) - EVENTS_EXPORT_END_LAG
+    end = _to_milliseconds(datetime.now(UTC) - EVENTS_EXPORT_END_LAG)
     resume = manager.load_state() if manager.can_resume() else None
     resumed_start = parse_datetime_value(resume.window_start) if resume else None
     resumed_end = parse_datetime_value(resume.window_end) if resume else None
@@ -323,16 +388,17 @@ def get_events(
         )
         pending = resume
     else:
+        # A rebuild has no watermark; the schema's recorded history floor keeps it as deep as the first sync.
         start = resolve_incremental_start(
             bool(inputs.should_use_incremental_field),
             inputs.db_incremental_field_last_value,
-            default=EVENTS_INITIAL_LOOKBACK,
+            default=inputs.history_start or EVENTS_INITIAL_LOOKBACK,
             now=end,
         )
         if inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None:
             # The export's time range includes its start, so step past the last synced event.
             start += timedelta(milliseconds=1)
-        windows = _export_windows(start, end)
+        windows = _export_windows(_to_milliseconds(start), end)
 
     yielded_any = False
     for window in windows:
@@ -342,31 +408,45 @@ def get_events(
         )
         pending = None
 
-        def start_job(window: _ExportWindow = window) -> str:
-            return client.create_job(
-                "export/events",
-                {
-                    "format": "json",
-                    "conditions": [],
-                    "start_time": format_datetime(window.start, "iso_z_millis"),
-                    "end_time": format_datetime(window.end, "iso_z_millis"),
-                    "time_zone": "+00:00",
-                    # Appcues sends no email when this is null, and the file comes from the job status.
-                    "email": None,
-                },
-            )
+        # Appcues caps one export, so page through a window until a page comes back short.
+        while True:
 
-        rows = (
-            (state, row)
-            for state, row in (
-                (state, normalize_event(row))
-                for state, row in _read_job_rows(client, manager, checkpoint, start_job, yielded_any)
+            def start_job(window: _ExportWindow = window, offset: int = checkpoint.offset) -> str:
+                return client.create_job(
+                    "export/events",
+                    {
+                        "format": "json",
+                        "conditions": [],
+                        "start_time": format_datetime(window.start, "iso_z_millis"),
+                        "end_time": format_datetime(window.end, "iso_z_millis"),
+                        "time_zone": "+00:00",
+                        "limit": EVENTS_EXPORT_PAGE_SIZE,
+                        "offset": offset,
+                        # Appcues sends no email when this is null, and the file comes from the job status.
+                        "email": None,
+                    },
+                )
+
+            progress = _FileProgress()
+            rows = (
+                (state, row)
+                for state, row in (
+                    (state, normalize_event(row))
+                    for state, row in _read_job_rows(client, manager, checkpoint, start_job, yielded_any, progress)
+                )
+                if _in_window(row, window.start, window.end)
             )
-            if _in_window(row, window.start, window.end)
-        )
-        for batch in _batched_rows(rows, manager):
-            yield batch
-            yielded_any = True
+            for batch in _batched_rows(rows, manager):
+                yield batch
+                yielded_any = True
+
+            if progress.rows < EVENTS_EXPORT_PAGE_SIZE:
+                break
+            checkpoint = AppcuesResumeConfig(
+                window_start=checkpoint.window_start,
+                window_end=checkpoint.window_end,
+                offset=checkpoint.offset + EVENTS_EXPORT_PAGE_SIZE,
+            )
 
 
 def get_segment_membership(

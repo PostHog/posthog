@@ -103,10 +103,12 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 }
 
 EVENTS_INITIAL_LOOKBACK = timedelta(days=90)
-# Appcues caps one export at 10 million events and recommends short ranges, so export one day per job.
+# Appcues recommends short export ranges, so each window covers one day.
 EVENTS_EXPORT_WINDOW = timedelta(days=1)
 # Leave recent events out of the export until Appcues has ingested them.
 EVENTS_EXPORT_END_LAG = timedelta(hours=1)
+# Appcues caps one export at 10 million events, so each export job reads at most one page of a window.
+EVENTS_EXPORT_PAGE_SIZE = 1_000_000
 EXPORT_POLL_INTERVAL_SECONDS = 10
 EXPORT_POLL_BUDGET_SECONDS = 30 * 60
 EXPORT_BATCH_SIZE = 5000
