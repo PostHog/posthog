@@ -127316,6 +127316,11 @@ export namespace Schemas {
          * @nullable
          */
       code_email_id: string | null;
+      /**
+         * The workflow behind this row's emails, which the results endpoint takes as `workflow_id`. Null for a sending domain, or for an email whose workflow was deleted.
+         * @nullable
+         */
+      workflow_id: string | null;
       /** Emails that reached the email provider. */
       sent: number;
       /** Emails the recipient's mail server accepted. */

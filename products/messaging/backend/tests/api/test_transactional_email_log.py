@@ -874,6 +874,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         impact = self.client.get(self._url("impact/"), {"workflow_id": restricted})
 
         stats = self.client.get(self._url("stats/"), {"group_by": "sending_domain"}).json()["results"]
+        email_stats = self.client.get(self._url("stats/"), {"group_by": "template"}).json()["results"]
         over_time = self.client.get(self._url("stats_over_time/")).json()["buckets"]
 
         assert [r["message_id"] for r in listed] == [deleted_id, visible_id]
@@ -883,6 +884,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert results.status_code == status.HTTP_404_NOT_FOUND
         assert impact.status_code == status.HTTP_404_NOT_FOUND
         assert {row["label"] for row in stats} == {"mail.example.com", "old.example.com"}
+        assert {row["workflow_id"] for row in email_stats} == {self.workflow_id, None}
         assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
         assert self.client.get(self._url(f"{denied_then_deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
 
@@ -941,17 +943,19 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         listed = self.client.get(self._url()).json()["results"]
         detail = self.client.get(self._url(f"{message_id}/")).json()
         stats = self.client.get(self._url("stats/"), {"group_by": "template"}).json()["results"]
+        code_results = self.client.get(self._url("results/"), {"workflow_id": workflow_id, "event": "purchase"})
 
+        assert code_results.status_code == status.HTTP_200_OK, code_results.json()
         assert [(r["template_name"], r["code_email_id"]) for r in listed] == [
             ("order-shipped", str(code_email.id)),
             ("Password reset", None),
             ("welcome", None),
         ]
         assert (detail["code_email_id"], detail["sensitive"]) == (str(code_email.id), False)
-        assert sorted((r["label"], r["template_id"], r["code_email_id"]) for r in stats) == [
-            ("Password reset", str(self.template.id), None),
-            ("order-shipped", None, str(code_email.id)),
-            ("welcome", None, None),
+        assert sorted((r["label"], r["template_id"], r["code_email_id"], r["workflow_id"]) for r in stats) == [
+            ("Password reset", str(self.template.id), None, self.workflow_id),
+            ("order-shipped", None, str(code_email.id), workflow_id),
+            ("welcome", None, None, taken_workflow_id),
         ]
 
     def test_no_access_to_workflows_also_hides_the_sends_of_deleted_ones(self, _flag):

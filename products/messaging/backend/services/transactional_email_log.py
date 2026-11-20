@@ -412,10 +412,12 @@ def transactional_email_stats(
         template = templates.get(key)
         live_template = template if template and not template.deleted else None
         if group_by == EmailStatsGroupBy.TEMPLATE:
+            workflow_id: str | None = key if access is None or key in access.viewable_ids else None
             label = live_template.name if live_template else code_sends.keys.get(key, "")
             code_email_id = None if live_template else code_sends.code_email_ids.get(key)
             key = str(template.id) if template else key
         else:
+            workflow_id = None
             label = key
             code_email_id = None
         stats.append(
@@ -424,6 +426,7 @@ def transactional_email_stats(
                 label=label,
                 template_id=str(live_template.id) if live_template else None,
                 code_email_id=code_email_id,
+                workflow_id=workflow_id,
                 sent=sent,
                 delivered=delivered,
                 bounced=bounced,
