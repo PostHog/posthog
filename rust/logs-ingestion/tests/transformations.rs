@@ -105,7 +105,7 @@ fn service(
         hog_timeout_ms,
         message_budget_ms: 60_000.0,
         batch_budget_ms: 600_000.0,
-        batch_ceiling_ms: f64::INFINITY,
+        batch_deadline_ms: f64::INFINITY,
         max_error_logs_per_function_per_message: 3,
     };
     (
@@ -195,13 +195,12 @@ async fn the_batch_budget_is_shared_across_messages_of_one_team_only() {
 }
 
 #[tokio::test]
-async fn the_batch_ceiling_stops_every_team() {
+async fn the_batch_deadline_stops_every_team() {
     let (service, _) = service(
         Arc::new(StaticHogFunctions(vec![function(BUSY, "{}", None)])),
         60_000.0,
     );
-    let budget = Arc::new(TransformationBatchBudget::new(60_000.0, 0.0001));
-    budget.add(TEAM_ID + 1, 1.0);
+    let budget = Arc::new(TransformationBatchBudget::new(60_000.0, 0.0));
     let mut records = vec![record("api")];
     service
         .transform_records(TEAM_ID, &mut records, Some(budget))

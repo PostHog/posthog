@@ -43,7 +43,7 @@ Hog log transformations run for the teams in `LOGS_TRANSFORMATIONS_ENABLED_TEAMS
 - Functions of type `transformation_log` load from `posthog_hogfunction` through two `LazyLoader` caches (5 minutes), and a message on the PostHog Redis channel `reload-hog-functions` marks them for refresh.
 - `encrypted_inputs` decrypt with the Fernet keys in `ENCRYPTION_SALT_KEYS`. A key that is not 32 bytes stops startup, as `new Fernet` throws in Node.
 - Function logs go to `LOGS_INGESTION_OUTPUT_LOG_ENTRIES_TOPIC` and function app metrics to the `app_metrics` output, both on `LOGS_INGESTION_OUTPUT_*_PRODUCER`.
-- `LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS`, `LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS` and `LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS` are wall-clock limits, as in Node. The VM runs on a blocking thread, so a slow program does not stall the async workers. One message is transformed at a time, as on Node's single thread, so the limits measure the program and not the wait for a CPU. Each team has its own batch budget, and all teams of a batch together stop at half of `CONSUMER_BACKGROUND_TASK_TIMEOUT_MS`.
+- `LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS`, `LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS` and `LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS` are wall-clock limits, as in Node. The VM runs on a blocking thread, so a slow program does not stall the async workers. One message is transformed at a time, as on Node's single thread, so the limits measure the program and not the wait for a CPU. Each team has its own batch budget, and every team stops once the batch has run for half of `CONSUMER_BACKGROUND_TASK_TIMEOUT_MS`.
 - `CDP_INTERNAL_LOGS_SOURCES` is not read: function logs go to `log_entries` only, and not to the logs product.
 
 ## Shadow mode

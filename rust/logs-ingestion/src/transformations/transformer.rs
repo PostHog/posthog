@@ -35,16 +35,17 @@ pub struct LogsTransformerConfig {
     pub hog_timeout_ms: f64,
     pub message_budget_ms: f64,
     pub batch_budget_ms: f64,
-    pub batch_ceiling_ms: f64,
+    pub batch_deadline_ms: f64,
     pub max_error_logs_per_function_per_message: usize,
 }
 
 /// Each team spends its own share, so one team's slow functions cannot skip another team's transformations.
-/// The ceiling bounds the sum of the shares, because that sum grows with the number of teams in a batch.
+/// The deadline is wall-clock from the start of the batch, so it also covers the shares of many teams and the wait for the VM.
 #[derive(Debug)]
 pub struct TransformationBatchBudget {
     team_ms: f64,
-    ceiling_ms: f64,
+    deadline_ms: f64,
+    started: Instant,
     spend: Mutex<BatchSpend>,
 }
 
@@ -55,17 +56,18 @@ struct BatchSpend {
 }
 
 impl TransformationBatchBudget {
-    pub fn new(team_ms: f64, ceiling_ms: f64) -> Self {
+    pub fn new(team_ms: f64, deadline_ms: f64) -> Self {
         Self {
             team_ms,
-            ceiling_ms,
+            deadline_ms,
+            started: Instant::now(),
             spend: Mutex::default(),
         }
     }
 
     pub fn exhausted(&self, team_id: i64) -> bool {
         let spend = self.spend.lock().unwrap();
-        spend.total_ms >= self.ceiling_ms
+        self.started.elapsed().as_secs_f64() * 1000.0 >= self.deadline_ms
             || spend.by_team.get(&team_id).copied().unwrap_or(0.0) >= self.team_ms
     }
 
@@ -488,7 +490,7 @@ impl LogsTransformer for LogsTransformerService {
     fn start_batch(&self) -> Arc<TransformationBatchBudget> {
         Arc::new(TransformationBatchBudget::new(
             self.config.batch_budget_ms,
-            self.config.batch_ceiling_ms,
+            self.config.batch_deadline_ms,
         ))
     }
 
