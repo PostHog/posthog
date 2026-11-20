@@ -3,7 +3,7 @@ import { ReactNode, useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { QuillDetailLine, QuillDetailSection } from './QuillDetailSection'
 

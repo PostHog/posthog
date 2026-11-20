@@ -5,8 +5,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { membersLogic } from '~/models/membersLogic'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { reportNotesFromArtefacts } from '../../utils/reportNotes'

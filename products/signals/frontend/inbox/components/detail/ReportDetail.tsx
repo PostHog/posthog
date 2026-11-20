@@ -11,7 +11,7 @@ import {
     IconSidebarOpen,
     IconTrends,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -581,7 +581,27 @@ export function InboxDetailFrame({
             )}
         </>
     )
-    const pullRequestPicker = children
+    const pullRequests = reportPullRequests(currentReport ?? report)
+    const pullRequestPicker =
+        pullRequests.length > 1 ? (
+            <LemonSelect
+                value={selectedPullRequest.url}
+                onChange={(url) => {
+                    captureInboxReportAction({
+                        report,
+                        actionType: 'select_pull_request',
+                        surface: 'detail_pane',
+                        extra: { pull_request_count: pullRequests.length },
+                    })
+                    selectPullRequest(url)
+                }}
+                options={pullRequests.map((pr) => ({
+                    value: pr.url,
+                    label: `${parsePrUrlParts(pr.url)?.repoSlug}#${parsePrUrlParts(pr.url)?.number} (${pr.state})`,
+                }))}
+                data-attr="inbox-report-select-pull-request"
+            />
+        ) : null
     const reviewersAndSpend = (
         <>
             <SuggestedReviewersSection report={report} />
@@ -592,8 +612,6 @@ export function InboxDetailFrame({
     )
     const detailSections = (
         <>
-            {/* The pull request picker (when present), then reviewers, runs, and activity. */}
-            {pullRequestPicker}
             {reviewersAndSpend}
             <ReportTasksSection report={report} />
             {!isMonitoring && <ReportChecksSection report={report} />}

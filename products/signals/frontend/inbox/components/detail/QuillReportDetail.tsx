@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 
 import 'scenes/project-homepage/today/Today.scss'
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { TodayReportFeedback } from 'scenes/project-homepage/today/TodayReportFeedback'
 import { todayReportLogic } from 'scenes/project-homepage/today/todayReportLogic'
 import { TodayReportTitle } from 'scenes/project-homepage/today/TodayReportTitle'
