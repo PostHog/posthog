@@ -441,6 +441,9 @@ def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | Non
         if settled:
             return
 
+    gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+    raise RuntimeError("Organization state did not settle during gateway credential projection")
+
 
 def clear_gateway_credential(credential_or_hash: Credential | str) -> None:
     cache_hash = credential_or_hash if isinstance(credential_or_hash, str) else credential_hash(credential_or_hash)

@@ -393,6 +393,21 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
 
         self.assertIsNone(self._read_blob(credential_hash(credential)))
 
+    def test_a_projection_that_never_settles_is_cleared(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+
+        with (
+            patch.object(
+                gateway_credential_cache,
+                "_organization_deactivated",
+                side_effect=[False, False, True, True, True, False, False, False, True],
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
     def test_expired_oauth_token_clears(self):
         credential = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=-1)
         project_gateway_credential(credential)
