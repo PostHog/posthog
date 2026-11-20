@@ -254,6 +254,18 @@ describe('loadPostHogJS', () => {
         expect(result?.properties?.$update_person_last_seen_at).toBe(passive ? false : undefined)
     })
 
+    it('redacts invite ids from captured URLs', () => {
+        const beforeSend = [initConfigFor({ run_mode: 'US' }, false).before_send ?? []].flat()
+        const url = 'https://us.posthog.com/signup/0190f1a2-9c8b-7a69-8584-736251403f2e'
+        const capture = { uuid: 'example', event: '$pageview', properties: { $current_url: url } } as CaptureResult
+        const result = beforeSend.reduce<CaptureResult | null>(
+            (current, filter) => (current ? filter(current) : null),
+            capture
+        )
+
+        expect(result?.properties?.$current_url).toBe('https://us.posthog.com/signup/:id')
+    })
+
     it.each([
         ['local development sending to Cloud', { run_mode: 'LOCAL' }, false, false],
         ['local development with self-capture', { run_mode: 'LOCAL' }, true, true],

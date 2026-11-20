@@ -28,7 +28,7 @@ function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.El
     return invite.is_expired ? (
         <b>Expired – please recreate</b>
     ) : (
-        <CopyToClipboardInline data-attr="invite-link" description="invite link" iconPosition="start">
+        <CopyToClipboardInline data-attr="invite-link" description="invite link" iconPosition="start" isValueSensitive>
             {url}
         </CopyToClipboardInline>
     )

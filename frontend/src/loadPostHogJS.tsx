@@ -15,6 +15,7 @@ import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
 import { networkMetricName } from 'lib/utils/networkMetricName'
 import { isOAuthMode } from 'lib/utils/oauthClient'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
+import { redactSensitiveUrls } from 'lib/utils/sensitiveUrlRedaction'
 import { consumeMobileHandoff, installMobileHandoff } from 'lib/utils/webMobileHandoff'
 
 import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
@@ -172,6 +173,7 @@ export function loadPostHogJS(): void {
                 dropWebMCPToolErrors,
                 redactMetricVariableUrls,
                 redactDestinationSecretsInReplay,
+                redactSensitiveUrls,
                 suppressPassiveTelemetryLastSeen,
                 // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
                 // `register` would persist the property in storage the main window shares, so it is stamped per event.
