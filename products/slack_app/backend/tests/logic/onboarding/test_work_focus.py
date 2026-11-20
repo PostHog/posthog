@@ -28,6 +28,7 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
     WorkFocus,
     WorkFocusRateLimited,
     WorkFocusSuggestion,
+    WorkFocusSummaryItem,
     WorkFocusTransientError,
     find_and_send_daily_focus,
     find_and_send_work_focus,
@@ -708,3 +709,24 @@ def test_turn_off_in_the_dm_stops_the_daily_work_focus_and_says_so(mock_slack_cl
     assert resolve_daily_focus(SLACK_TEAM_ID, SLACK_USER_ID).enabled is False
     updated = mock_slack_cls.return_value.client.chat_update.call_args.kwargs["blocks"]
     assert action_ids(updated) == [] and "daily work focus is off" in all_block_text(updated)
+
+
+def test_model_text_cannot_carry_a_link_or_a_broadcast_but_keeps_mentions() -> None:
+    focus = WorkFocus(
+        intro="<!channel> your week",
+        suggestions=[WorkFocusSuggestion(offer="<https://evil.example.com|Reconnect PostHog> now?", request="r")],
+        summary=[
+            WorkFocusSummaryItem(
+                text="<@U_LEAD> shared <https://evil.example.com|the fix>",
+                channel_id="C1",
+                permalink="https://example.slack.com/archives/C1/p1",
+            )
+        ],
+    )
+
+    text = all_block_text(work_focus_blocks(MagicMock(id=1), focus, SLACK_USER_ID))
+
+    # A thread anyone in the channel wrote shapes this text, so only user mentions stay live.
+    assert "<https://evil.example.com" not in text and "<!channel>" not in text
+    assert "&lt;https://evil.example.com|the fix&gt;" in text and "&lt;!channel&gt;" in text
+    assert "• <@U_LEAD> shared" in text and "in <#C1>. <https://example.slack.com/archives/C1/p1|[1]>" in text

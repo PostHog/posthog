@@ -45,7 +45,8 @@ CHANNELS_PER_WORKSPACE = 100
 ROOTS_PER_CHANNEL = 50
 # Jev scores the newest roots across the workspace. Older ones stay in the index for the threads a person is in.
 ROOTS_SCORED_PER_WORKSPACE = 400
-INDEX_TTL_SECONDS = 36 * 3600
+# Rebuilt in each hour that has runs, so a run late in the day reads the threads from earlier that day.
+INDEX_TTL_SECONDS = 2 * 3600
 BUILD_LOCK_SECONDS = 300
 # The index build reads one history page per channel, and Slack allows about 50 of those a minute per workspace.
 # The burst covers one build of the largest index.
@@ -58,7 +59,9 @@ THREADS_PER_PERSON = 5
 THREAD_TAIL_REPLIES = 6
 REPLY_CHARS = 300
 THREAD_CHARS = 2000
-SUMMARY_REPLIES_LIMIT = 100
+# Slack returns a thread's replies oldest first. These pages reach the end of all but the longest threads.
+THREAD_PAGE_SIZE = 200
+THREAD_PAGES = 3
 # Thread reads are tier 3 calls; a handful at once stays well inside the workspace's limit.
 READ_WORKERS = 5
 
@@ -76,13 +79,18 @@ RANK_FALSE = (
 )
 
 _MENTION = re.compile(r"<@(U[A-Z0-9]+)")
+# Slack errors that pass on their own. Any other error on one channel skips that channel.
+_TRANSIENT_SLACK_ERRORS = frozenset(
+    {"ratelimited", "internal_error", "fatal_error", "service_unavailable", "request_timeout"}
+)
 
 _Item = TypeVar("_Item")
 _Result = TypeVar("_Result")
 
 
-class DailySummaryRateLimited(Exception):
-    """Raised before anything is read, so the build can retry later."""
+class DailySummaryIndexNotReady(Exception):
+    """Raised so the build retries later: Slack rate limited it or failed for a moment, or another build of the same
+    index is still running. Nothing is cached, so no run reads a partial index."""
 
 
 @frozen
@@ -139,16 +147,28 @@ def app_took_part(messages: Iterable[dict[str, Any]], bot_user_id: str | None) -
     )
 
 
-def read_thread(
-    client: WebClient, channel_id: str, ts: str, *, bot_user_id: str | None, limit: int
-) -> ReadThread | None:
-    """One thread as the people wrote it. None when Slack will not return it."""
+def read_thread(client: WebClient, channel_id: str, ts: str, *, bot_user_id: str | None) -> ReadThread | None:
+    """One thread as the people wrote it, through its latest replies. None when Slack will not return it."""
+    raw: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    cursor = ""
     try:
-        response = client.conversations_replies(channel=channel_id, ts=ts, limit=limit)
+        for _ in range(THREAD_PAGES):
+            response = client.conversations_replies(
+                channel=channel_id, ts=ts, limit=THREAD_PAGE_SIZE, cursor=cursor or None
+            )
+            # Each page can repeat the root, so a message with a ts is kept once.
+            for message in response.get("messages") or []:
+                ts_of = message.get("ts")
+                if ts_of is None or str(ts_of) not in seen:
+                    raw.append(message)
+                    seen.add(str(ts_of))
+            cursor = str((response.get("response_metadata") or {}).get("next_cursor") or "")
+            if not cursor:
+                break
     except (SlackApiError, SlackClientError, OSError):
         logger.warning("slack_app_daily_summary_thread_failed", channel=channel_id, exc_info=True)
         return None
-    raw = response.get("messages") or []
     return ReadThread(
         messages=[m for m in raw if str(m.get("text") or "").strip() and not m.get("bot_id")],
         app_took_part=app_took_part(raw, bot_user_id),
@@ -225,7 +245,7 @@ def pick_threads(
 
 
 def _index_key(integration: WorkspaceIntegration) -> str:
-    return f"slack_app:daily_summary:index:{integration.integration_id}:{timezone.now().date().isoformat()}"
+    return f"slack_app:daily_summary:index:{integration.integration_id}:{timezone.now().strftime('%Y-%m-%dT%H')}"
 
 
 def cached_index(integration: WorkspaceIntegration) -> list[RootRef] | None:
@@ -245,18 +265,27 @@ def build_workspace_index(integration: WorkspaceIntegration) -> int:
     cached = cache.get(key)
     if isinstance(cached, list):
         return len(cached)
-    if not cache.add(f"{key}:lock", 1, BUILD_LOCK_SECONDS):
-        logger.info("slack_app_daily_summary_index_skipped", reason="already_building", integration_id=integration.id)
-        return 0
+    lock = f"{key}:lock"
+    if not cache.add(lock, 1, BUILD_LOCK_SECONDS):
+        # The retry waits for the other build, so the runs after it still get a summary.
+        logger.info("slack_app_daily_summary_index_busy", integration_id=integration.id)
+        raise DailySummaryIndexNotReady
+    try:
+        return _build(integration, slack, key)
+    except BaseException:
+        # A failed build leaves nothing cached, and its retry has to be able to take the lock again.
+        cache.delete(lock)
+        raise
+
+
+def _build(integration: WorkspaceIntegration, slack: SlackIntegration, key: str) -> int:
     client = slack.client
     channels = _member_channels(client, types=_channel_types(slack), limit=CHANNELS_PER_WORKSPACE)
     decision = consume(
         f"slack_app:daily_summary:history:{integration.integration_id}", HISTORY_BUDGET, cost=len(channels)
     )
     if isinstance(decision, BucketDecision) and not decision.allowed:
-        # The retry has to be able to take the lock again.
-        cache.delete(f"{key}:lock")
-        raise DailySummaryRateLimited
+        raise DailySummaryIndexNotReady
     oldest = (timezone.now() - INDEX_LOOKBACK).timestamp()
     roots: list[RootRef] = []
     texts: list[str] = []
@@ -309,9 +338,13 @@ def _member_channels(
 def _channel_roots(client: WebClient, channel_id: str, *, oldest: float) -> list[dict[str, Any]]:
     try:
         response = client.conversations_history(channel=channel_id, oldest=str(oldest), limit=ROOTS_PER_CHANNEL)
-    except (SlackApiError, SlackClientError, OSError):
+    except SlackApiError as error:
+        if (error.response or {}).get("error") in _TRANSIENT_SLACK_ERRORS:
+            raise DailySummaryIndexNotReady from error
         logger.warning("slack_app_daily_summary_history_failed", channel=channel_id, exc_info=True)
         return []
+    except (SlackClientError, OSError) as error:
+        raise DailySummaryIndexNotReady from error
     return [
         message
         for message in response.get("messages") or []
@@ -374,7 +407,7 @@ def _scored(integration: WorkspaceIntegration, roots: list[RootRef], texts: list
 def _summary_thread(
     slack: SlackIntegration, root: RootRef, slack_user_id: str, bot_user_id: str | None
 ) -> SummaryThread | None:
-    read = read_thread(slack.client, root.channel_id, root.ts, bot_user_id=bot_user_id, limit=SUMMARY_REPLIES_LIMIT)
+    read = read_thread(slack.client, root.channel_id, root.ts, bot_user_id=bot_user_id)
     # The app answered in the thread, so it was a request to the app, which the person already got back.
     if read is None or read.app_took_part or not read.messages:
         return None

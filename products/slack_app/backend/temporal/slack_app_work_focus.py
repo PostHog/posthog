@@ -19,6 +19,8 @@ from products.slack_app.backend.temporal.types import SlackAppDailySummaryIndexI
 SLACK_APP_WORK_FOCUS_ACTIVITY_TIMEOUT = timedelta(minutes=2)
 # One read of every channel the bot is in, plus Jev over the newest roots, for the largest workspace.
 SLACK_APP_DAILY_SUMMARY_INDEX_TIMEOUT = timedelta(minutes=5)
+# All attempts end inside the sweep's ten-minute run, so a stuck index costs the summary, never the workspace's runs.
+SLACK_APP_DAILY_SUMMARY_INDEX_DEADLINE = timedelta(minutes=6)
 _INDEX_RETRY = RetryPolicy(initial_interval=timedelta(minutes=1), backoff_coefficient=2.0, maximum_attempts=3)
 # A burst of links runs out of search calls for the workspace. The retries wait for tokens, a minute apart at first.
 _RETRY = RetryPolicy(initial_interval=timedelta(minutes=1), backoff_coefficient=2.0, maximum_attempts=5)
@@ -40,6 +42,7 @@ async def _index_workspace(integration_id: int, slack_team_id: str, slack_user_i
                 integration_id=integration_id, slack_team_id=slack_team_id, slack_user_ids=slack_user_ids
             ),
             start_to_close_timeout=SLACK_APP_DAILY_SUMMARY_INDEX_TIMEOUT,
+            schedule_to_close_timeout=SLACK_APP_DAILY_SUMMARY_INDEX_DEADLINE,
             retry_policy=_INDEX_RETRY,
             summary=f"index the channels of {slack_team_id}",
         )
@@ -99,6 +102,9 @@ class SlackAppDailyFocusSweepWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
             summary="claim the due daily work focus runs",
         )
+        # A sweep that started before the index step existed replays its children in claim order, without it.
+        if not workflow.patched("slack-app-daily-focus-sweep-index"):
+            return await self._start_children(due)
         by_workspace: dict[tuple[int, str], list[SlackAppWorkFocusInputs]] = defaultdict(list)
         for inputs in due:
             by_workspace[(inputs.integration_id, inputs.slack_team_id)].append(inputs)
@@ -108,6 +114,9 @@ class SlackAppDailyFocusSweepWorkflow(PostHogWorkflow):
     async def _run_workspace(self, people: list[SlackAppWorkFocusInputs]) -> int:
         first = people[0]
         await _index_workspace(first.integration_id, first.slack_team_id, [inputs.slack_user_id for inputs in people])
+        return await self._start_children(people)
+
+    async def _start_children(self, people: list[SlackAppWorkFocusInputs]) -> int:
         started = 0
         for inputs in people:
             try:

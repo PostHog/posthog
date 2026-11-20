@@ -5,6 +5,7 @@ this process: one call searches, has Jev pick the messages that hold work, and h
 Only the suggestions and their links leave it.
 """
 
+import re
 import json
 import asyncio
 from dataclasses import field, replace
@@ -28,6 +29,7 @@ from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.llm.system_one import NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
 from posthog.models.integration import SlackIntegration
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
 from products.slack_app.backend.analytics import capture_slack_event
@@ -42,7 +44,7 @@ from products.slack_app.backend.logic.daily_focus import (
     turn_on_daily_focus,
 )
 from products.slack_app.backend.logic.onboarding.actions import WORK_FOCUS_START_ACTION_ID, WORK_FOCUS_TASK_ACTION_ID
-from products.slack_app.backend.logic.onboarding.checks import has_ai_approval
+from products.slack_app.backend.logic.onboarding.checks import has_ai_approval, out_of_ai_credits
 from products.slack_app.backend.logic.onboarding.daily_summary import (
     SummaryThread,
     parallel_map,
@@ -109,8 +111,6 @@ RANK_FALSE = (
     "The message is chat, a greeting, a status note, something the person asked PostHog itself to do, or work that "
     "PostHog cannot help with."
 )
-# The thread of each message Jev kept, so work that the thread already finished is not offered again.
-THREAD_REPLIES_LIMIT = 20
 RESOLVE_MIN_PROBABILITY = 0.5
 RESOLVE_INSTRUCTIONS = (
     "`person` is the person the digest is for. `threads` holds Slack threads in which they asked for, reported or planned some work. For the thread this "
@@ -344,23 +344,9 @@ def _blocked_reason(integration: WorkspaceIntegration, slack_user_id: str) -> st
         return "no_project_access"
     if not has_ai_approval(integration.team_id):
         return "no_ai_consent"
-    if _out_of_ai_credits(integration):
+    if out_of_ai_credits(integration.team_id):
         return "out_of_ai_credits"
     return None
-
-
-def _out_of_ai_credits(integration: WorkspaceIntegration) -> bool:
-    """Nobody asked for a work focus, so a team without AI credits gets no run and no message about it."""
-    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the Slack import path
-        is_team_over_ai_credit_budget,
-    )
-
-    try:
-        return is_team_over_ai_credit_budget(integration.team.api_token)
-    except Exception:
-        # The quota cache reads Redis. An outage must not stop the runs of teams that have credits.
-        logger.warning("slack_app_daily_focus_ai_credit_check_failed", team_id=integration.team_id, exc_info=True)
-        return False
 
 
 def _ready_to_send(integration: WorkspaceIntegration, slack_user_id: str) -> None:
@@ -478,7 +464,7 @@ def _post(integration: WorkspaceIntegration, slack_user_id: str, found: _Found, 
     try:
         SlackIntegration(integration).client.chat_postMessage(
             channel=slack_user_id,
-            text=found.focus.intro,
+            text=_safe_mrkdwn(found.focus.intro),
             blocks=blocks,
             unfurl_links=False,
             unfurl_media=False,
@@ -570,9 +556,7 @@ def _still_open(
     def thread_of(candidate: _FoundMessage) -> tuple[str | None, bool]:
         if (summary := known.get((candidate.channel_id, candidate.thread_ts))) is not None:
             return summary.text, False
-        read = read_thread(
-            slack.client, candidate.channel_id, candidate.thread_ts, bot_user_id=bot_user_id, limit=THREAD_REPLIES_LIMIT
-        )
+        read = read_thread(slack.client, candidate.channel_id, candidate.thread_ts, bot_user_id=bot_user_id)
         if read is None:
             return None, False
         # A lone root is the message itself, which Jev already read.
@@ -811,19 +795,30 @@ def source_line(suggestion: WorkFocusSuggestion, slack_user_id: str) -> str | No
     return f"<{suggestion.source_permalink}|Here's the thread>{with_author}{where}"
 
 
+_USER_MENTION = re.compile(r"(<@[UW][A-Z0-9_]+>)")
+
+
+def _safe_mrkdwn(text: str) -> str:
+    """The models read whole Slack threads, so anyone in those channels can shape what they write. Only user mentions
+    stay live; every other `<…>` is escaped, so a DM from the app cannot carry a disguised link or a broadcast."""
+    return "".join(
+        part if _USER_MENTION.fullmatch(part) else escape_slack_mrkdwn(part) for part in _USER_MENTION.split(text)
+    )
+
+
 def work_focus_blocks(
     integration: WorkspaceIntegration, focus: WorkFocus, slack_user_id: str, *, privacy: str = ONBOARDING_PRIVACY_LINE
 ) -> list[dict]:
     if not focus.summary:
-        blocks: list[dict] = [section_block(f"{focus.intro} Here's where I can jump in:")]
+        blocks: list[dict] = [section_block(f"{_safe_mrkdwn(focus.intro)} Here's where I can jump in:")]
     else:
         # Slackbot's own search answers: one line per finding, the channel after it, a small numbered link to the thread.
         lines = [
-            f"• {item.text.rstrip('.')} in <#{item.channel_id}>."
+            f"• {_safe_mrkdwn(item.text.rstrip('.'))} in <#{item.channel_id}>."
             + (f" <{item.permalink}|[{number}]>" if item.permalink else "")
             for number, item in enumerate(focus.summary, start=1)
         ]
-        blocks = [section_block(focus.intro + "\n" + "\n".join(lines))]
+        blocks = [section_block(_safe_mrkdwn(focus.intro) + "\n" + "\n".join(lines))]
         if focus.suggestions:
             blocks.append(section_block("Here's where I can jump in:"))
     for index, suggestion in enumerate(focus.suggestions):
@@ -837,7 +832,7 @@ def work_focus_blocks(
         link = f" <{suggestion.source_permalink}|[{number}]>" if suggestion.source_permalink else ""
         blocks.append(
             {
-                **section_block(f"• {suggestion.offer}{link}"),
+                **section_block(f"• {_safe_mrkdwn(suggestion.offer)}{link}"),
                 "block_id": f"{WORK_FOCUS_SUGGESTION_BLOCK_PREFIX}{index}",
                 "accessory": {
                     "type": "button",

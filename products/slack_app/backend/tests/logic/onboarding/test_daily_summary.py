@@ -2,17 +2,23 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.utils import timezone
 
+from slack_sdk.errors import SlackApiError
+
 from posthog.llm.system_one import NoulAnswer, SystemOneResult
 
 from products.slack_app.backend.logic.onboarding.daily_summary import (
+    DailySummaryIndexNotReady,
     RootRef,
     build_workspace_index,
+    cached_index,
     pick_threads,
+    read_thread,
     summary_threads,
     thread_text,
 )
@@ -70,6 +76,7 @@ def test_thread_text_keeps_the_root_and_the_tail_of_a_long_thread() -> None:
 
 
 @pytest.mark.django_db
+@time_machine.travel(datetime(2026, 11, 9, 9, 30, tzinfo=UTC), tick=False)
 def test_the_sweep_builds_the_index_once_and_the_runs_only_read_it(workspace_integration) -> None:
     cache.clear()
     workspace_integration.config = {"scope": "channels:read,channels:history"}
@@ -135,5 +142,81 @@ def test_the_sweep_builds_the_index_once_and_the_runs_only_read_it(workspace_int
     assert sum("user" not in call.kwargs for call in client.users_conversations.call_args_list) == 1
     assert client.conversations_history.call_count == 1
     assert ranker.return_value.decide.call_count == 1
-    cached = cache.get(f"slack_app:daily_summary:index:{SLACK_TEAM_ID}:{timezone.now().date().isoformat()}")
+    cached = cache.get(f"slack_app:daily_summary:index:{SLACK_TEAM_ID}:{timezone.now().strftime('%Y-%m-%dT%H')}")
     assert cached and "text" not in str(cached) and "rolling back" not in str(cached)
+
+
+def test_read_thread_follows_the_pages_to_the_latest_replies() -> None:
+    root = {"ts": "1.0", "user": "U_OTHER", "text": "the export is broken"}
+    client = MagicMock()
+    client.conversations_replies.side_effect = [
+        {
+            "messages": [root, {"ts": "1.1", "user": SLACK_USER_ID, "text": "looking"}],
+            "response_metadata": {"next_cursor": "c2"},
+        },
+        {"messages": [root, {"ts": "1.2", "user": "U_BOT", "bot_id": "B1", "text": "Done, merged."}]},
+    ]
+
+    read = read_thread(client, "C1", "1.0", bot_user_id="U_BOT")
+
+    # The app's reply sits on the second page, which a single read would never see.
+    assert read is not None and read.app_took_part is True
+    assert [message["ts"] for message in read.messages] == ["1.0", "1.1"]
+    assert client.conversations_replies.call_args_list[1].kwargs["cursor"] == "c2"
+
+
+def _index_client(history: list[Any]) -> MagicMock:
+    client = MagicMock()
+    client.users_conversations.return_value = {"channels": [{"id": "C1"}]}
+    client.conversations_history.side_effect = history
+    return client
+
+
+def _patched_slack(client: MagicMock) -> Any:
+    slack = patch(f"{DAILY_SUMMARY}.SlackIntegration")
+    started = slack.start()
+    started.return_value.client = client
+    started.return_value.missing_scopes.side_effect = lambda required: frozenset(required) - {
+        "channels:read",
+        "channels:history",
+    }
+    return slack
+
+
+@pytest.mark.django_db
+@time_machine.travel(datetime(2026, 11, 9, 9, 30, tzinfo=UTC), tick=False)
+def test_a_failed_build_caches_nothing_and_its_retry_can_build(workspace_integration) -> None:
+    cache.clear()
+    root = {"ts": f"{AFTER:.6f}", "user": "U_OTHER", "text": "rolling back", "reply_count": 2}
+    client = _index_client([SlackApiError("rate limited", {"ok": False, "error": "ratelimited"}), {"messages": [root]}])
+    slack = _patched_slack(client)
+    try:
+        with patch(f"{DAILY_SUMMARY}.build_system_one_client") as ranker:
+            ranker.return_value.decide.return_value = SystemOneResult(model="jev", answers={}, input_tokens=None)
+            # A rate-limited channel read is not a quiet channel, so the build fails instead of caching a partial index.
+            with pytest.raises(DailySummaryIndexNotReady):
+                build_workspace_index(workspace_integration)
+            assert cached_index(workspace_integration) is None
+            # The failed build gave its lock back, so the retry builds at once instead of reporting a build under way.
+            assert build_workspace_index(workspace_integration) == 1
+    finally:
+        slack.stop()
+
+
+@pytest.mark.django_db
+def test_a_later_hour_rebuilds_the_index_so_late_runs_see_the_day(workspace_integration) -> None:
+    cache.clear()
+    client = _index_client([{"messages": []}, {"messages": []}])
+    slack = _patched_slack(client)
+    try:
+        with patch(f"{DAILY_SUMMARY}.build_system_one_client"):
+            with time_machine.travel(datetime(2026, 11, 9, 8, 5, tzinfo=UTC), tick=False):
+                build_workspace_index(workspace_integration)
+                build_workspace_index(workspace_integration)
+            with time_machine.travel(datetime(2026, 11, 9, 9, 5, tzinfo=UTC), tick=False):
+                build_workspace_index(workspace_integration)
+    finally:
+        slack.stop()
+
+    # Runs in one hour share a build; the next hour's runs get a fresh one, while the first build is still cached.
+    assert client.conversations_history.call_count == 2
