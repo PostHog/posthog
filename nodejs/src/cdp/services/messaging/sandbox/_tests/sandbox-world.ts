@@ -194,7 +194,8 @@ export function useSandboxWorld(): SandboxWorld {
 
     const sesBucketKey = () => `@posthog/ses/test-${world.team.id}`
 
-    world.addMember = async (email, { verified = true, organizationId } = {}) => {
+    world.addMember = async (email, options) => {
+        const { verified = true, organizationId } = options ?? {}
         const userId = await createUser(world.postgres, new UUIDT().toString())
         await createOrganizationMembership(world.postgres, organizationId ?? world.organizationId, userId)
         await write('UPDATE posthog_user SET email = $1, is_active = true, is_email_verified = $2 WHERE id = $3', [
