@@ -285,7 +285,7 @@ def _in_window(row: dict[str, Any], start: datetime, end: datetime) -> bool:
     return not isinstance(timestamp, datetime) or start <= timestamp < end
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class _FileProgress:
     rows: int = 0
 
