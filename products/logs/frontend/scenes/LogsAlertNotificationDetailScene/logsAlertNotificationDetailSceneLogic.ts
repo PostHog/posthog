@@ -200,6 +200,7 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
         alertSettled: [
             false,
             {
+                loadAlert: () => false,
                 loadAlertSuccess: () => true,
                 loadAlertFailure: () => true,
             },

@@ -116,6 +116,19 @@ describe('logsAlertNotificationDetailSceneLogic', () => {
         expect(logic.values.destinationGroup).toBeNull()
     })
 
+    it('treats the alert as unsettled again while a retry after a failed load runs', async () => {
+        ;(logsAlertsRetrieve as jest.Mock).mockImplementation(() => Promise.reject(new Error('boom')))
+        const logic = logsAlertNotificationDetailSceneLogic({ alertId: 'alert-1', hogFunctionId: 'fn-resolved' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.alertSettled).toBe(true)
+
+        ;(logsAlertsRetrieve as jest.Mock).mockImplementation(() => new Promise(() => {}))
+        logic.actions.loadAlert()
+
+        expect(logic.values.alertSettled).toBe(false)
+    })
+
     it.each([
         ['splits a URL group the alert lists apart', false, [['fn-firing'], ['fn-resolved']], ['fn-resolved']],
         ['joins functions whose URL is secret', true, [['fn-firing', 'fn-resolved']], ['fn-firing', 'fn-resolved']],
