@@ -367,7 +367,8 @@ export function createCdpValkeyShadowPools(
     // commandTimeout aborts in-flight commands at the ioredis protocol level, so a slow Valkey
     // doesn't tie up a pool client until the kernel TCP timeout. Pair this with the race-timeout
     // in dual-store's secondary path (which only stops awaiting); together they prevent leaks
-    // on bad Valkey health.
+    // on bad Valkey health. The acquire timeout is the same value, below that race timeout, so
+    // a caller that dual-store stopped waiting for does not stay queued on the pool.
     const shadowCommandTimeoutMs = 1000
 
     const tls = config.CDP_VALKEY_TLS ? {} : undefined
@@ -382,14 +383,17 @@ export function createCdpValkeyShadowPools(
                 tls,
             },
             name: `${name}-shadow`,
+            exitOnRepeatedErrors: false,
         },
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        acquireTimeoutMillis: shadowCommandTimeoutMs,
     })
 
     // The config is required, but reachability is not fatal: features not named in
     // CDP_VALKEY_READ_FEATURES still read from Redis, so an unreachable Valkey must not take
-    // CDP down at boot. Features that have moved over surface it as failing reads instead.
+    // CDP down, at boot or later. Both pools use non-fatal clients for that reason. Features
+    // that have moved over surface it as failing reads instead.
     void writer
         .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
         .catch((err) => {
@@ -412,9 +416,11 @@ export function createCdpValkeyShadowPools(
                     tls,
                 },
                 name: `${name}-shadow-reader`,
+                exitOnRepeatedErrors: false,
             },
             poolMinSize: config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+            acquireTimeoutMillis: shadowCommandTimeoutMs,
         })
 
         void reader
