@@ -542,6 +542,14 @@ describe('drive', () => {
             },
             { targetUnits: 35, offeredUnits: 28, held: { dueUnits: 19, offeredUnits: 12 }, burst: 2 },
         ],
+        [
+            'the gate answered in the millisecond a unit was due after a stall, before it went out',
+            async (startedAt) => {
+                await jest.advanceTimersByTimeAsync(2100)
+                jest.setSystemTime(startedAt + 3250)
+            },
+            { targetUnits: 34, offeredUnits: 25, held: { dueUnits: 18, offeredUnits: 9 }, burst: 1 },
+        ],
     ])('while a step holds for the gate of the step before it, %s', async (_story, wait, expected) => {
         let answer = (): void => undefined
         const gate: StepGate = ({ index }) =>
