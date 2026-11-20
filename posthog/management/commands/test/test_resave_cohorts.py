@@ -57,7 +57,14 @@ def _make_realtime_filters(email: str = "test@example.com") -> dict[str, Any]:
             "type": "AND",
             "values": [
                 {"type": "person", "key": "email", "operator": "exact", "value": email},
-                {"type": "behavioral", "key": "purchase", "value": "performed_event", "event_type": "events"},
+                {
+                    "type": "behavioral",
+                    "key": "purchase",
+                    "value": "performed_event",
+                    "event_type": "events",
+                    "time_value": 30,
+                    "time_interval": "day",
+                },
             ],
         }
     }
@@ -126,6 +133,8 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
                                 "key": "page_view",
                                 "value": "performed_event",
                                 "event_type": "events",
+                                "time_value": 30,
+                                "time_interval": "day",
                             },
                         ],
                     }
@@ -652,6 +661,8 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
                                     "key": "page_view",
                                     "value": "performed_event",
                                     "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
                                 },
                             ],
                         }
@@ -936,19 +947,16 @@ class TestResaveCohortsCommandConditionTypeVerification(BaseTest):
         with pytest.raises(CommandError, match=f"cohorts still have a null condition_type: {cohort.id}"):
             call_command("resave_cohorts", team_id=[self.team.id])
 
-    def test_leafless_cohort_the_resave_classifies_fails_the_command(self):
-        # A well-formed group with no leaves passes validation and saves as realtime, but has nothing
-        # to derive a condition_type from, so the success path writes the state the gate misreads.
+    def test_leafless_cohort_is_not_classified_realtime(self):
+        # The realtime processor never composes an empty group, so the resave must not route one to it.
         cohort = Cohort.objects.create(
             team=self.team, name="leafless", filters={"properties": {"type": "AND", "values": []}}
         )
 
-        with pytest.raises(CommandError, match=f"cohorts still have a null condition_type: {cohort.id}"):
-            call_command("resave_cohorts", team_id=[self.team.id])
+        call_command("resave_cohorts", team_id=[self.team.id])
 
         cohort.refresh_from_db()
-        assert cohort.cohort_type == "realtime"
-        assert cohort.condition_type is None
+        assert cohort.cohort_type is None
 
     def test_gated_cohort_left_unclassified_by_a_failed_save_fails_the_command(self):
         cohort = Cohort.objects.create(team=self.team, name="rt", filters=_make_realtime_filters())

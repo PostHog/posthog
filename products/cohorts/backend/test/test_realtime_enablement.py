@@ -21,14 +21,13 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillScope,
     CohortBackfillTrigger,
 )
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.team_access import (
     RealtimeCohortAccessPurpose,
     RealtimeCohortLevel,
     RealtimeCohortTeamAccess,
 )
 from products.cohorts.backend.realtime_enablement import (
-    CohortRefusal,
     NothingToBackfill,
     RunAlreadyCreated,
     RunCreated,
@@ -126,7 +125,7 @@ class TestEnableRealtimeCohorts(BaseTest):
     def test_enables_a_team_in_one_call(self) -> None:
         mixed = self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
         person_only = self._cohort(PERSON_LEAF)
-        # The API accepts a behavioral leaf with no time window, and the catalog drops it.
+        # The catalog drops a behavioral leaf with no time window, so the resave takes this cohort off realtime.
         windowless = self._cohort({key: value for key, value in PAGEVIEW_LEAF.items() if not key.startswith("time_")})
         deleted = self._cohort(PAGEVIEW_LEAF)
         Cohort.objects.filter(id=mixed.id).update(last_backfill_person_properties_at=STAMPED_AT)
@@ -158,10 +157,11 @@ class TestEnableRealtimeCohorts(BaseTest):
             False,
             True,
         ]
+        assert [cohort.cohort_type for cohort in cohorts] == [CohortType.REALTIME, CohortType.REALTIME, None]
         assert all(
             None
             not in (cohort.filters_shape_hash, cohort.behavioral_filters_shape_hash, cohort.person_filters_shape_hash)
-            for cohort in cohorts
+            for cohort in cohorts[:2]
         )
 
         assert isinstance(enablement.behavioral, RunCreated)
@@ -178,13 +178,8 @@ class TestEnableRealtimeCohorts(BaseTest):
             mixed.id,
             person_only.id,
         ]
-        assert enablement.refused_cohorts == (
-            CohortRefusal(
-                cohort_id=windowless.id,
-                kind=CohortBackfillKind.BEHAVIORAL,
-                reason="has a filter the realtime catalog drops (unsupported_state_variant)",
-            ),
-        )
+        assert windowless.id == cohorts[2].id
+        assert enablement.refused_cohorts == ()
 
     def test_cohorts_with_realtime_off_get_no_run(self) -> None:
         self._cohort(PERSON_LEAF, PAGEVIEW_LEAF, realtime_enabled_at=None)

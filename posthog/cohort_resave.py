@@ -116,10 +116,9 @@ def unclassified_cohort_ids(team_ids: Sequence[int] | None) -> list[int]:
     """Cohorts the realtime gate routes that still have a null `condition_type`, read back from
     the database.
 
-    Reading persisted state covers every way a cohort ends up unclassified: a save that raised, a
-    filter set the validator rejected, and a well-formed filter group with no leaf conditions,
-    which the resave classifies as realtime and leaves with a null `condition_type`. It only
-    means anything after a run that persisted, so the caller skips it on a dry run.
+    Reading persisted state covers every way a cohort ends up unclassified, such as a save that
+    raised or a filter set the validator rejected. It only means anything after a run that
+    persisted, so the caller skips it on a dry run.
     """
     qs = Cohort.objects.filter(cohort_type__in=REALTIME_GATED_COHORT_TYPES, condition_type__isnull=True)
     if team_ids is not None:
