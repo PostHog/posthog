@@ -19,7 +19,7 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict, RoutingMode
-from products.stamphog.backend.logic.attestation_checks import PendingCheck, all_reported
+from products.stamphog.backend.logic.attestation_checks import AttestationCheck, all_reported
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.routing.attestation import attestation_checks_to_wait_for, attestation_proven
 from products.stamphog.backend.logic.routing.service import (
@@ -132,7 +132,7 @@ class _Step:
     # The head waits instead of routing now: for stamphog's verdict, or for `attestation_checks` when there are any.
     wait: bool = False
     scope: str = SCOPE_FULL
-    attestation_checks: tuple[PendingCheck, ...] = ()
+    attestation_checks: tuple[AttestationCheck, ...] = ()
 
 
 def _load_state(repo_config: StamphogRepoConfig, pr_number: int, task_id: str) -> _State:
@@ -663,7 +663,7 @@ def _attestation_poll_step(
     if live_head_sha != head_sha:
         return _attestation_wait_on_live_head(client, state, pr, trigger=TRIGGER_ATTESTATION)
     repository = state.repo_config.repository
-    if not all_reported(client, repository, head_sha, checks):
+    if not all_reported(client, repository, head_sha, checks, pr_number=state.pr_number):
         review_path.schedule_attestation_poll(state.repo_config, state.pr_number, head_sha, poll + 1)
         return None
     if not attestation_proven(client, repository, pr):

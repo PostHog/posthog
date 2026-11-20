@@ -192,12 +192,14 @@ attestations:
           - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
       sibling_files: [max_migration.txt]
     - name: dependency_proof
-      # The Dependency proof workflow posts this check with a posthog-dependency-proof token. For
-      # an npm update it replays the pnpm update from the merge base, and confirms that the replay
+      # The Dependency proof workflow's publish job posts this check and signs it with its OIDC token.
+      # For an npm update it replays the pnpm update from the merge base, and confirms that the replay
       # writes the same lockfile as the PR head. For a first-party Python SDK bump it checks that
       # only the SDK version moves and that PyPI serves the locked files from the SDK's release workflow.
       check: 'Dependency proof'
-      app_id: 5697920
+      workflow: .github/workflows/dependency-proof.yml
+      job: 'Publish the Dependency proof check'
+      events: [workflow_run]
       lifts: [deps_toolchain]
       paths:
           - '(?:^|/)package\.json$'
@@ -210,7 +212,7 @@ attestations:
       # from the default branch and ignores a proof whose marker does not pin every path in it.
       issuer: tools/change-prover/issuer.yml
     - name: revert_proof
-      # The Revert proof workflow posts this check with the same posthog-dependency-proof token. It
+      # The Revert proof workflow's publish job posts this check and signs it the same way. It
       # recomputes the revert of one PR merged into the default branch in the last 30 days, and
       # confirms that the PR head holds exactly that tree and that the PR author pushed it. The
       # restored code was reviewed and ran before, so the proof lifts what asks only whether code
@@ -225,7 +227,9 @@ attestations:
       #   lift would only let another team undo the owner's change.
       # - devex_guardrails: reverting a guard turns the guard off.
       check: 'Revert proof'
-      app_id: 5697920
+      workflow: .github/workflows/revert-proof.yml
+      job: 'Publish the Revert proof check'
+      events: [workflow_run]
       lifts: [public_api]
       # A revert can touch any file. The trigger runs only for a title that starts with "Revert",
       # so no other PR waits for this check.
