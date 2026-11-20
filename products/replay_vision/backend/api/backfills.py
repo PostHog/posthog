@@ -27,7 +27,7 @@ from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ObservationStatus
-from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -40,6 +40,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 )
 from products.replay_vision.backend.quota import quota_state
 from products.replay_vision.backend.scanner_access import can_read_targeted_experiment
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 
@@ -60,9 +61,9 @@ def _experiment_end_date(scanner: ReplayScanner) -> datetime | None:
     still match. A backfill covers the experiment's own run, and stopping at the end is what keeps
     it from paying for that afterlife.
     """
-    if scanner.scanner_type != ScannerType.EXPERIMENT:
-        return None
-    experiment_id = (scanner.experiment_scope() or {}).get("experiment_id")
+    # Judged on the scope, so a backfill of a scanner narrowed only by the `scope` column stops at
+    # the experiment's end too, rather than paying for the afterlife this docstring describes.
+    experiment_id = experiment_id_of(scanner)
     if experiment_id is None:
         return None
     # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
@@ -292,7 +293,6 @@ class ReplayScannerBackfillViewSet(
             sampling_rate=snapshot.sampling_rate,
             sampling_salt=str(scanner.id),
             scanner_id=str(scanner.id),
-            sampling_mode=snapshot.sampling_mode,
             exclude_observed_by_scanner=str(scanner.id) if exclude_observed else None,
             max_execution_time_seconds=ENUMERATION_MAX_EXECUTION_SECONDS,
         ).count(query_type=BACKFILL_COUNT_QUERY_TYPE)

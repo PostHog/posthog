@@ -39,7 +39,7 @@ from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALL
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.hogql_queries.hogql_query_runner import API_SQL_WINDOW_CACHE_AGE_FLAG, HogQLQueryRunner
 from posthog.hogql_queries.paginators import OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, ExecutionMode
@@ -145,6 +145,14 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.hasMore, False)
         self.assertIsNotNone(response.limit)
+
+    @parameterized.expand([(100, False), (168, True)])
+    def test_default_row_limit_flags_truncated_results(self, row_count, has_more):
+        response = self._create_runner(HogQLQuery(query=f"SELECT number FROM numbers({row_count})")).calculate()
+        assert response.results is not None
+        assert len(response.results) == 100
+        assert response.hasMore is has_more
+        assert response.limit == 100
 
     def test_default_hogql_query_with_limit(self):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 5"))
@@ -638,6 +646,34 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 app_runner.get_cache_key(),
                 app_runner.single_flight_variant(),
             )
+
+    @parameterized.expand(
+        [
+            ("personal_api_key", AccessMethod.PERSONAL_API_KEY, LimitContext.QUERY, True),
+            ("project_secret_api_key", AccessMethod.PROJECT_SECRET_API_KEY, LimitContext.QUERY, True),
+            ("oauth", AccessMethod.OAUTH, LimitContext.QUERY, False),
+            ("api_key_with_extended_time", AccessMethod.PERSONAL_API_KEY, LimitContext.QUERY_ASYNC, False),
+        ]
+    )
+    def test_api_key_cap_applies_without_query_service(self, _name, access_method, limit_context, capped):
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query="select event from events limit 1"),
+            limit_context=limit_context,
+        )
+        with (
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.app_settings.API_QUERIES_LEGACY_TEAM_LIST",
+                {self.team.pk + 1},
+            ),
+            tags_context(access_method=access_method),
+        ):
+            variant = runner.single_flight_variant()
+            clickhouse_sql = runner.calculate().clickhouse
+        assert clickhouse_sql is not None
+        assert variant.endswith(":max_execution_time=10") is capped
+        assert ("max_execution_time=10," in clickhouse_sql) is capped
+        assert ("max_threads=60" in clickhouse_sql) is capped
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):

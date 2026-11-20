@@ -12,6 +12,7 @@ export type TraceDrawerListId =
     | 'dataset-items'
     | 'offline-experiment'
     | 'cluster-traces'
+    | 'clusters'
     | 'eval-suggestions'
 
 export interface TraceDrawerListConfig {
@@ -54,7 +55,7 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         rowClick: true,
     },
     // Shares its path with reviews: the two are tabs of one scene, and only the open tab mounts its list. It also
-    // shares the back target, because the legacy trace page only keeps queue context for `back_to=reviews`.
+    // shares the back target, because the trace page keeps queue context only for `back_to=reviews`.
     'review-queue': {
         pathMatcher: /^\/ai-observability\/reviews$/,
         backTo: 'reviews',
@@ -93,7 +94,14 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         pathMatcher: /^\/ai-observability\/clusters\/[^/]+\/[^/]+$/,
         backTo: 'cluster',
         backLabel: 'Back to cluster',
-        openingMode: 'summary',
+        openingMode: 'thread',
+        rowClick: false,
+    },
+    clusters: {
+        pathMatcher: /^\/ai-observability\/clusters(?:\/[^/]+)?$/,
+        backTo: 'clusters',
+        backLabel: 'Back to clusters',
+        openingMode: 'thread',
         rowClick: false,
     },
     'eval-suggestions': {

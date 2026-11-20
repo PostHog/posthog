@@ -41,7 +41,7 @@ from products.warehouse_suggestions.backend.logic.suggestions import transition_
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
 
-from .test_accept import REPORT
+from .test_api import REPORT
 
 NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
 FLAG = "products.warehouse_suggestions.backend.logic.assignment.is_warehouse_suggestions_enabled"
@@ -454,9 +454,20 @@ class TestApplyRun(BaseTest):
             team_id=self.team.pk,
         )
 
-        apply_run(later, self.team, [], NOW, surface=False)
+        with patch(REPORT) as report, self.captureOnCommitCallbacks(execute=True):
+            apply_run(later, self.team, [], NOW, surface=False)
+        with patch(REPORT) as unchanged_report, self.captureOnCommitCallbacks(execute=True):
+            apply_run(later, self.team, [], NOW, surface=False)
 
         assert WarehouseSuggestion.objects.for_team(self.team.pk).get().asset_outcome == expected
+        assert [
+            call.args[1]["asset_outcome"]
+            for call in report.call_args_list
+            if call.args[0] == "warehouse suggestion asset outcome changed"
+        ] == [expected]
+        assert "warehouse suggestion asset outcome changed" not in [
+            call.args[0] for call in unchanged_report.call_args_list
+        ]
 
     @parameterized.expand(
         [

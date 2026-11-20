@@ -333,17 +333,6 @@ def build_task_run_artifact_size_error(
     return f"{artifact_name or 'Artifact'} exceeds the {max_mb}MB attachment limit"
 
 
-class AgentDefinitionSerializer(serializers.Serializer):
-    """Serializer for agent definitions"""
-
-    id = serializers.CharField()
-    name = serializers.CharField()
-    agent_type = serializers.CharField()
-    description = serializers.CharField()
-    config = serializers.DictField(default=dict)
-    is_active = serializers.BooleanField(default=True)
-
-
 class TaskRunUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
@@ -693,6 +682,26 @@ class TaskSerializer(DataclassSerializer):
         required=False,
         help_text="GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.",
     )
+    status = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatus.choices,
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken "
+            "by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet."
+        ),
+    )
+    status_reason = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatusReason.choices,
+        allow_null=True,
+        required=False,
+        help_text="Why the task stopped. Set only when `status` is `idle` or `done`.",
+    )
+    status_detail = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Message shown next to `status_reason`, such as the error from a failed run.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -727,6 +736,9 @@ class TaskSerializer(DataclassSerializer):
             "last_client",
             "last_client_at",
             "repository_integration",
+            "status",
+            "status_reason",
+            "status_detail",
         ]
 
 
@@ -1328,6 +1340,19 @@ class TaskSourceRequestSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
+    warm_submission_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.",
+    )
+    warm_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.",
+    )
+
     start_run = serializers.BooleanField(
         required=False,
         default=False,
@@ -1595,6 +1620,9 @@ class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
 
 
 class TaskRunErrorResponseSerializer(serializers.Serializer):
+    id = serializers.JSONField(
+        required=False, help_text="Message ID to reuse as the JSON-RPC id when retrying delivery"
+    )
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
@@ -1627,10 +1655,6 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Whether the team is on a Pro plan (drives the upgrade-prompt copy)",
     )
-
-
-class AgentListResponseSerializer(serializers.Serializer):
-    results = AgentDefinitionSerializer(many=True, help_text="Array of available agent definitions")
 
 
 class TaskRunAppendLogRequestSerializer(serializers.Serializer):
@@ -2548,6 +2572,18 @@ class TaskSummarySerializer(DataclassSerializer):
         help_text="ID of the user who created the task, or null for system-created tasks.",
     )
     latest_run = TaskRunSummarySerializer(allow_null=True, required=False)
+    status = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatus.choices,
+        allow_null=True,
+        required=False,
+        help_text="Where the task is now: queued, running, idle or done. Null on older tasks not filled in yet.",
+    )
+    status_reason = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatusReason.choices,
+        allow_null=True,
+        required=False,
+        help_text="Why the task stopped. Set only when `status` is `idle` or `done`.",
+    )
 
     class Meta:
         dataclass = TaskSummaryDTO
@@ -2560,6 +2596,8 @@ class TaskSummarySerializer(DataclassSerializer):
             "updated_at",
             "origin_product",
             "latest_run",
+            "status",
+            "status_reason",
         ]
 
 
@@ -2638,6 +2676,11 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
+    )
+    task_status = serializers.ChoiceField(
+        required=False,
+        choices=tasks_facade.TaskStatus.choices,
+        help_text="Filter tasks by their own status: queued, running, idle or done.",
     )
     pr_state = serializers.ChoiceField(
         required=False,
@@ -4537,6 +4580,11 @@ class WarmTaskResponseSerializer(serializers.Serializer):
         help_text="Id of the idling warm Run. The normal create+run path reuses and activates it on submit.",
     )
 
+    permission_mode_mutable = serializers.BooleanField(
+        default=False,
+        help_text="The server can negotiate the final permission mode before activating an explicitly targeted warm run.",
+    )
+
 
 class WarmTaskResumeRequestSerializer(serializers.Serializer):
     """Request body for warming a successor to an existing terminal task run."""
@@ -5143,6 +5191,7 @@ class SandboxCustomImageWriteSerializer(serializers.Serializer):
     repository = serializers.CharField(
         required=False,
         allow_null=True,
+        allow_blank=True,
         default=None,
         max_length=255,
         help_text="Optional 'org/repo' the builder session clones so it can verify the image "

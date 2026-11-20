@@ -194,7 +194,6 @@ export enum NodeKind {
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
     SessionQuery = 'SessionQuery',
-    TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
 
@@ -298,7 +297,6 @@ export type AnyDataNode =
     | TracesQuery
     | TraceQuery
     | SessionQuery
-    | TraceNeighborsQuery
     | VectorSearchQuery
     | InboxUsageQuery
     | UsageMetricsQuery
@@ -436,7 +434,6 @@ export type QuerySchema =
     | TracesQuery
     | TraceQuery
     | SessionQuery
-    | TraceNeighborsQuery
     | VectorSearchQuery
 
     // Customer analytics
@@ -556,7 +553,7 @@ export interface HogQLQueryModifiers {
     sessionTimestampBufferMinutes?: integer
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean
-    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
     personIdPushdown?: boolean
     /** Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN. */
     negatedPersonFiltersNotIn?: boolean
@@ -572,7 +569,7 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's tab switch or `ph_new_events_schema` cookie applies, then the project. A project reads the native table once PostHog has moved it there. Before that, it can opt in early by storing `true` here in its project settings. A stored `false` is ignored. */
     useNewEventsSchema?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
@@ -752,8 +749,15 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    /**
+     * Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own.
+     * True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`.
+     * Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`.
+     */
     hasMore?: boolean
+    /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
     limit?: integer
+    /** Rows skipped before the default row limit applied. */
     offset?: integer
 }
 
@@ -781,6 +785,11 @@ export interface HogQLVariable {
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
+    /**
+     * The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response,
+     * or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit.
+     * With `sendRawQuery`, no default limit applies and `hasMore` is not set.
+     */
     query: string
     /** Optional id of a direct-query-capable external data source to run against instead of ClickHouse — a pure-direct source, or a synced source with direct query enabled. */
     connectionId?: string
@@ -836,7 +845,6 @@ export const VALID_RECORDING_ORDERS = [
     'mouse_activity_count',
     'activity_score',
     'recording_ttl',
-    'surfacing_score',
 ] as const
 
 export interface MatchingEventsResponse {
@@ -879,8 +887,6 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     having_predicates?: AnyPropertyFilter[] // duration and snapshot_source filters
     comment_text?: RecordingPropertyFilter // search comments by text content
     filter_test_accounts?: boolean
-    /** Restrict results to recordings above the replay relevance threshold. */
-    recommended_only?: boolean
     /**
      * @default "AND"
      * */
@@ -1548,6 +1554,7 @@ export enum HeatmapSortOrder {
 
 export interface HeatmapSettings {
     xAxisColumn?: string
+    xAxisSortOrder?: HeatmapSortOrder
     yAxisColumn?: string
     valueColumn?: string
     xAxisLabel?: string
@@ -1635,6 +1642,8 @@ export interface ChartSettings {
     rightYAxisSettings?: YAxisSettings
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
+    /** Color each X-axis category in single-series bar charts. */
+    colorBarsByCategory?: boolean
     seriesBreakdownColumn?: string | null
     showXAxisTicks?: boolean
     showXAxisBorder?: boolean
@@ -1648,6 +1657,8 @@ export interface ChartSettings {
     showValuesOnSeries?: boolean
     valueLabelPosition?: 'end' | 'center'
     valueLabelBackground?: boolean
+    valueLabelColor?: string
+    valueLabelBackgroundColor?: string
     valueLabelFontSize?: number
     valueLabelRotation?: number
     barGap?: number
@@ -2080,6 +2091,7 @@ export type CachedTrendsQueryResponse = CachedQueryResponse<TrendsQueryResponse>
 export type ResultCustomizationBase = {
     color?: DataColorToken
     hidden?: boolean
+    yAxisPosition?: 'auto' | 'left' | 'right'
 }
 
 export interface ResultCustomizationByPosition extends ResultCustomizationBase {
@@ -2088,6 +2100,7 @@ export interface ResultCustomizationByPosition extends ResultCustomizationBase {
 
 export interface ResultCustomizationByValue extends ResultCustomizationBase {
     customColor?: string
+    label?: string
     assignmentBy: ResultCustomizationBy.Value
 }
 
@@ -2206,6 +2219,8 @@ export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusion
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
+    /** @default false */
+    showSummaryOnDashboards?: boolean
     /** @default [] */
     exclusions?: FunnelExclusion[]
     /** @default vertical */
@@ -4898,6 +4913,13 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+export interface ErrorTrackingIssueTagFilter {
+    /** Key of the tag definition. */
+    key: string
+    /** True matches the issues the tag is applied to. False matches every other issue. */
+    applied: boolean
+}
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     /** Filter to a specific error tracking issue by ID. */
@@ -4912,13 +4934,20 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
+    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    issueTag?: ErrorTrackingIssueTagFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
     filterTestAccounts?: boolean
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string
-    volumeResolution: integer
+    /**
+     * @asType integer
+     * @minimum 0
+     * @maximum 200
+     */
+    volumeResolution: number
     withAggregations?: boolean
     withFirstEvent?: boolean
     withLastEvent?: boolean
@@ -5115,6 +5144,17 @@ export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pen
 /** @title ErrorTrackingQueryStatus */
 export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
 
+export interface ErrorTrackingIssueTag {
+    /** Key of the tag definition. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+    source?: string | null
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -5126,6 +5166,8 @@ export interface ErrorTrackingRelationalIssue {
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
     cohort?: ErrorTrackingIssueCohort
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTag[] | null
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
@@ -5437,6 +5479,10 @@ export type MetricsAggregation =
     | 'rate'
     | 'increase'
     | 'histogram_quantile'
+    /** Rate of a histogram's or summary's observation count, not its running sum: requests per second from a latency histogram */
+    | 'count_rate'
+    /** Increase of a histogram's or summary's observation count per bucket */
+    | 'count_increase'
 
 /** Counter-aware transform applied to each series before any aggregation */
 export type MetricsRangeFunction = 'rate' | 'increase'
@@ -5510,6 +5556,8 @@ export interface MetricsQueryClause {
     groupBy?: MetricsQueryGroupBy[]
     /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
     quantile?: number
+    /** Apdex threshold T in milliseconds for `posthog.derived.spans.apdex`: a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. */
+    apdexThresholdMs?: number
 }
 
 export interface MetricsQueryPoint {
@@ -5532,8 +5580,21 @@ export interface MetricsQuerySeries {
     histogramBounds?: number[]
 }
 
+/** `precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples. */
+export type MetricsQueryProvenanceMode = 'precomputed' | 'mixed' | 'raw'
+
+/** Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles. */
+export interface MetricsQueryProvenance {
+    mode: MetricsQueryProvenanceMode
+    /** Buckets before this time came from precomputed metrics. Absent when no clause read them. */
+    precomputedUntil?: string
+    /** Why clauses ran raw, one per clause. */
+    reasons?: string[]
+}
+
 export interface MetricsQueryResponse extends AnalyticsQueryResponseBase {
     results: MetricsQuerySeries[]
+    provenance?: MetricsQueryProvenance
 }
 export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryResponse>
 
@@ -5739,6 +5800,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     prefetchSpans?: integer
     /** Omit the per-span `attributes` map from results to keep payloads compact */
     excludeAttributes?: boolean
+    /** Include each span's OpenTelemetry events. The column is large, so only set this on small lists */
+    includeEvents?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -5766,6 +5829,8 @@ export interface AggregatedSpanRow {
     p99_duration_nano: number
     p999_duration_nano: number
     error_count: integer
+    /** Spans a traces alert measures: root spans, and server or consumer spans. Absent from older cached results. */
+    entry_span_count?: integer
     /** Set only when the query asked for `includeImpact`. `sessions` and `users` are uniq() estimates; the two span counts are exact. */
     sessions?: integer
     users?: integer
@@ -7002,6 +7067,7 @@ export type ExperimentExposureHealthFindingActionKind =
     | 'edit_exposure_criteria'
     | 'adjust_distribution'
     | 'use_first_seen_variant'
+    | 'move_start_date'
 
 /** A problem that a health check found in the exposure answer. Same shape as the experiment's `health.findings`. */
 export interface ExperimentExposureHealthFinding {
@@ -7725,6 +7791,7 @@ export enum DetectorType {
     OCSVM = 'ocsvm',
     PCA = 'pca',
     LLM = 'llm',
+    FORECAST = 'forecast',
 }
 
 /** Preprocessing transforms applied to the time series before detection */
@@ -7875,6 +7942,8 @@ export interface PCADetectorConfig {
  * Hands the series to a model instead of a statistical test. Carries no preprocessing block:
  * differencing or smoothing would hide from the model exactly what it is meant to read.
  */
+export type LLMDetectorModel = 'claude-haiku-5-5' | 'gpt-6-luna'
+
 export interface LLMDetectorConfig {
     type: 'llm'
     /**
@@ -7882,6 +7951,39 @@ export interface LLMDetectorConfig {
      * @maxLength 2000
      */
     instructions?: string
+    /**
+     * The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the
+     * alert uses claude-haiku-5-5.
+     */
+    model?: LLMDetectorModel
+}
+
+/**
+ * One side of a forecast detector. The side fires when every condition it sets is true.
+ */
+export interface ForecastSideRule {
+    /**
+     * The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99.
+     * Below: 0.01, or 0.05 to 0.45 in steps of 0.05.
+     */
+    quantile?: number
+    /** The value is at least this fraction away from the expected value. 1 = 100% */
+    min_relative_change?: number
+    /** The value is at least this far from the expected value, in the series' units */
+    min_absolute_change?: number
+}
+
+/**
+ * Forecasts the next point from the points before it, then compares the actual value with the
+ * forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither
+ * side set, it fires outside the 0.01 to 0.99 forecast range on either side.
+ */
+export interface ForecastDetectorConfig {
+    type: 'forecast'
+    /** Rule for a value higher than expected. Omit to ignore that side. */
+    above?: ForecastSideRule
+    /** Rule for a value lower than expected. Omit to ignore that side. */
+    below?: ForecastSideRule
 }
 
 export enum EnsembleOperator {
@@ -7907,8 +8009,9 @@ export type SingleDetectorConfig =
     | OCSVMDetectorConfig
     | PCADetectorConfig
     | LLMDetectorConfig
+    | ForecastDetectorConfig
 
-export type EnsembleSubDetectorConfig = Exclude<SingleDetectorConfig, LLMDetectorConfig>
+export type EnsembleSubDetectorConfig = Exclude<SingleDetectorConfig, LLMDetectorConfig | ForecastDetectorConfig>
 
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
@@ -8337,38 +8440,9 @@ export interface SessionQuery extends DataNode<SessionQueryResponse> {
     includeSentiment?: boolean
 }
 
-export interface TraceNeighborsQueryResponse {
-    /** ID of the newer trace (chronologically after current) */
-    newerTraceId?: string
-    /** Timestamp of the newer trace */
-    newerTimestamp?: string
-    /** ID of the older trace (chronologically before current) */
-    olderTraceId?: string
-    /** Timestamp of the older trace */
-    olderTimestamp?: string
-    /** Measured timings for different parts of the query generation process */
-    timings?: QueryTiming[]
-    /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
-    warnings?: DataWarehouseSyncWarning[]
-}
-
-export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {
-    kind: NodeKind.TraceNeighborsQuery
-    /** ID of the current trace to find neighbors for */
-    traceId: string
-    /** Timestamp of the current trace to find neighbors for */
-    timestamp: string
-    dateRange?: DateRange
-    filterTestAccounts?: boolean
-    filterSupportTraces?: boolean
-    /** Properties configurable in the interface */
-    properties?: AnyPropertyFilter[]
-}
-
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
 export type CachedSessionQueryResponse = CachedQueryResponse<SessionQueryResponse>
-export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
@@ -9120,6 +9194,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     searchTermKeywordTable?: string
     /** Google Ads search term table for Performance Max campaigns. */
     performanceMaxSearchTermTable?: string
+    /** Google Ads ad table, used to read the ad copy and landing pages of each ad group. */
+    adTable?: string
     /** Google Ads daily campaign conversions split by conversion action. */
     campaignConversionActionTable?: string
     /** Google Ads daily search term conversions split by conversion action. */
@@ -9137,6 +9213,11 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
     dateRange?: DateRange
     /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
     sources?: MarketingAnalyticsRecommendationsSource[]
+    /**
+     * Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.
+     * @default false
+     */
+    includeResolved?: boolean
     /**
      * Resource names of the Google Ads conversion actions that count as conversions, such as
      * `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an
@@ -9193,6 +9274,16 @@ export interface MarketingAnalyticsRecommendationIdentity {
     subject: string
 }
 
+export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
+
+export interface MarketingAnalyticsRecommendationResolution {
+    /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
+    id: string
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    /** When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp. */
+    resolved_at: string
+}
+
 /**
  * The benchmark a recommendation compares a CPA with, in this order of preference:
  * - `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.
@@ -9242,12 +9333,16 @@ export interface MarketingAnalyticsRecommendation {
     identity: MarketingAnalyticsRecommendationIdentity
     /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
     key: string
+    /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
+    resolution?: MarketingAnalyticsRecommendationResolution | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */
     impact?: number | null
     impactDirection: MarketingAnalyticsRecommendationImpactDirection
     impactType: MarketingAnalyticsRecommendationImpactType
+    /** True when the monthly impact is under 1% of the ad account's monthly spend. */
+    minor?: boolean
     currency?: string | null
     /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
     steps?: MarketingAnalyticsRecommendationStep[]

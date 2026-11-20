@@ -89,6 +89,11 @@
                     "description": "Return the matching spans themselves, one row per span (root and child), instead of collapsing to traces. Use this to search by a child-span attribute (e.g. code.filepath) without the whole-trace grouping. Distinct from rootSpans. Defaults to false.",
                     "type": "boolean"
                 },
+                "includeEvents": {
+                    "default": false,
+                    "description": "Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false.",
+                    "type": "boolean"
+                },
                 "limit": {
                     "default": 100,
                     "description": "Max results (1-1000). Defaults to 100.",

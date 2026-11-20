@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck } from '@posthog/icons'
-import { Button } from '@posthog/quill'
+import { IconBolt } from '@posthog/icons'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
@@ -9,15 +8,16 @@ import { suggestionBlockedReason } from '../suggestionBlockedReason'
 import { isMaterializePayload, materializeHighlight, readSummary, rebuiltSummary } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { MaterializeSuggestionRowProps } from './MaterializeSuggestionRow'
-import { QuillDismissSuggestionButtons } from './QuillDismissSuggestionButtons'
-import { QuillSuggestionRow } from './QuillSuggestionRow'
+import { QuillSuggestionActions } from './QuillSuggestionActions'
+import { QuillRowSelectionProps, QuillSuggestionRow } from './QuillSuggestionRow'
 import { QuillSuggestionSubjectLink } from './QuillSuggestionSubjectLink'
 import { QuillWhyThisSuggestion } from './QuillWhyThisSuggestion'
 
 export function QuillMaterializeSuggestionRow({
     suggestion,
     windowDays,
-}: MaterializeSuggestionRowProps): JSX.Element | null {
+    selection,
+}: MaterializeSuggestionRowProps & QuillRowSelectionProps): JSX.Element | null {
     const { actionsInFlight, leavingSuggestionIds } = useValues(warehouseSuggestionsLogic)
     const { openMaterializeModal } = useActions(warehouseSuggestionsLogic)
     const { payload } = suggestion
@@ -32,6 +32,7 @@ export function QuillMaterializeSuggestionRow({
     return (
         <QuillSuggestionRow
             suggestionId={suggestion.id}
+            selection={selection}
             assignee={suggestion.assignee}
             canAct={suggestion.can_act}
             leaving={leaving}
@@ -50,24 +51,15 @@ export function QuillMaterializeSuggestionRow({
             ].filter(Boolean)}
             highlight={materializeHighlight(payload)}
             actions={
-                <>
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label="Materialize"
-                        tooltip="Materialize"
-                        disabledReason={blockedReason}
-                        onClick={() => openMaterializeModal(suggestion.id)}
-                        data-attr="warehouse-suggestions-materialize"
-                    >
-                        <IconCheck />
-                    </Button>
-                    <QuillDismissSuggestionButtons
-                        suggestionId={suggestion.id}
-                        kind={suggestion.kind}
-                        disabledReason={blockedReason}
-                    />
-                </>
+                <QuillSuggestionActions
+                    suggestion={suggestion}
+                    label="Materialize"
+                    icon={<IconBolt />}
+                    onAccept={() => openMaterializeModal(suggestion.id)}
+                    acceptBlockedReason={blockedReason}
+                    dismissBlockedReason={blockedReason}
+                    acceptDataAttr="warehouse-suggestions-materialize"
+                />
             }
         />
     )

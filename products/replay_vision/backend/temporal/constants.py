@@ -112,7 +112,8 @@ SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 # What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
 # scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
 # kills the attempt after the candidates were found, so the tick retries without ever dispatching.
-FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+# Covers the 30 s group key lookup and the 180 s candidate query, plus slack for Postgres reads.
+FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=230)
 
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
@@ -200,9 +201,8 @@ def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
     """Scheduled-dispatch headroom for a sweep or backfill tick: the tighter of the per-scanner and
     per-team caps, minus the slots reserved for on-demand admission.
 
-    The sweep workflow throttles on this and the count activity records the throttled
-    metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
-    inside deterministic workflow code.
+    The sweep tick throttles on this and the count activity records the throttled metric from
+    it, so the decision and the metric can't drift apart.
     """
     return min(
         MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - scanner_in_flight,
@@ -222,7 +222,7 @@ BACKFILL_TICK_INTERVAL = dt.timedelta(minutes=1)
 BACKFILL_TICK_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
 
 PREPARE_BACKFILL_TICK_TIMEOUT = dt.timedelta(seconds=30)
-FIND_BACKFILL_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+FIND_BACKFILL_CANDIDATES_TIMEOUT = FIND_SCANNER_CANDIDATES_TIMEOUT
 ADVANCE_BACKFILL_CURSOR_TIMEOUT = dt.timedelta(seconds=30)
 BACKFILL_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
 

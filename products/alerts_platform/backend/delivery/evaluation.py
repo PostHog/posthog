@@ -5,12 +5,15 @@ is what decides which destinations there are and which transport each one takes.
 """
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import cache
 from typing import Any, Final
 from uuid import UUID
+
+from django.db import DEFAULT_DB_ALIAS, connections, transaction
 
 import structlog
 
@@ -26,7 +29,10 @@ from products.alerts_platform.backend.delivery import (
     recipients,
     subscribers,
 )
-from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups, live_hog_function_ids
+from products.alerts_platform.backend.delivery.destinations import (
+    copies_of_live_hog_functions,
+    list_alert_destination_groups,
+)
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import (
     add_late_image as add_late_image_to_target,
@@ -34,16 +40,23 @@ from products.alerts_platform.backend.delivery.dispatch import (
 )
 from products.alerts_platform.backend.delivery.email import EmailTransport
 from products.alerts_platform.backend.delivery.in_app import InAppTransport
+from products.alerts_platform.backend.delivery.incident_io import IncidentIoTransport
 from products.alerts_platform.backend.delivery.message import INCIDENT_KINDS, AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, source_incident_key
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
-from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy, ThreadKey
+from products.alerts_platform.backend.delivery.thread_store import (
+    LEGACY_EVENTS_PROVIDER,
+    DatabaseThreadStore,
+    ThreadBusy,
+    ThreadKey,
+)
 from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
     DestinationMisconfigured,
+    RefusedEverywhere,
     RootImageEditor,
 )
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
@@ -64,12 +77,17 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.alerts_platform.backend.logic import delivery_holds
+from products.alerts_platform.backend.logic import delivery_holds, source_configs
 from products.alerts_platform.backend.logic.alert_destinations import (
     INCIDENT_DESTINATION_TYPES,
     enabled_alert_destinations,
 )
-from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
+from products.alerts_platform.backend.logic.platform_alert_events import (
+    AnnouncementStatus,
+    announced_kinds,
+    announcement,
+    read_announcement,
+)
 from products.alerts_platform.backend.logic.platform_reads import rule_metadata
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
@@ -78,7 +96,7 @@ logger = structlog.get_logger(__name__)
 
 # Emitted events have no conversation, so each delivery part keeps one row in the thread store
 # under this provider and a fixed episode. The row only records which evaluations already emitted.
-_EMISSION_PROVIDER: Final = "legacy_events"
+_EMISSION_PROVIDER: Final = LEGACY_EVENTS_PROVIDER
 _EMISSION_EPISODE: Final = datetime(1970, 1, 1, tzinfo=UTC)
 
 # A destination type with no entry here has no native transport, and delivery skips it. Hand an
@@ -91,6 +109,7 @@ _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.TEAMS: TeamsTransport,
     DestinationType.DISCORD: DiscordTransport,
     DestinationType.PAGERDUTY: PagerDutyTransport,
+    DestinationType.INCIDENT_IO: IncidentIoTransport,
     DestinationType.EMAIL: EmailTransport,
     DestinationType.IN_APP: InAppTransport,
 }
@@ -109,11 +128,11 @@ class DeliveryOutcome:
 
 
 class _WebhookTransports:
-    """The webhook transport for one evaluation, with the legacy body when the team keeps it.
+    """The webhook transport for one evaluation, with the legacy body when the team or the destination keeps it.
 
-    The flag is read once, and only when a webhook destination is about to be sent to. A failed read
-    is a failed delivery: a guess either way sends a body some receiver cannot parse, and a retry
-    costs only time.
+    The flag is read once, and only when a webhook destination that does not keep the legacy body
+    itself is about to be sent to. A failed read is a failed delivery: a guess either way sends a
+    body some receiver cannot parse, and a retry costs only time.
     """
 
     def __init__(self, team: Team, request: AlertDeliveryRequest, announced: EvaluationAnnouncement) -> None:
@@ -121,9 +140,16 @@ class _WebhookTransports:
         self._request = request
         self._announced = announced
         self._transport: WebhookTransport | None = None
+        self._legacy_transport: WebhookTransport | None = None
         self._failure: DeliveryError | None = None
 
-    def get(self) -> WebhookTransport:
+    def get(self, *, keeps_legacy_body: bool = False) -> WebhookTransport:
+        if keeps_legacy_body:
+            legacy_body = self._source_legacy_body()
+            if legacy_body is not None:
+                if self._legacy_transport is None:
+                    self._legacy_transport = WebhookTransport(legacy_body=legacy_body)
+                return self._legacy_transport
         # A failed read is kept too, so a flags outage costs one lookup per evaluation rather than
         # one per webhook, inside an activity whose time is shared by every destination.
         if self._failure is not None:
@@ -137,8 +163,7 @@ class _WebhookTransports:
         return self._transport
 
     def _legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
-        body = legacy_webhook.body_for(self._request.source)
-        if body is None:
+        if legacy_webhook.body_for(self._request.source) is None:
             return None
         try:
             keeps_legacy_body = legacy_webhook.keeps_legacy_webhook_body(self._team)
@@ -147,6 +172,12 @@ class _WebhookTransports:
         if keeps_legacy_body is None:
             raise DeliveryError("Could not read which webhook body this team receives.")
         if not keeps_legacy_body:
+            return None
+        return self._source_legacy_body()
+
+    def _source_legacy_body(self) -> Callable[[AlertMessage], dict[str, Any]] | None:
+        body = legacy_webhook.body_for(self._request.source)
+        if body is None:
             return None
         team_id = self._team.id
         alert_id = self._request.destination_alert_id
@@ -158,6 +189,51 @@ class _WebhookTransports:
             consecutive_failures=consecutive_failures,
             transition=message.transition,
         )
+
+
+def announcement_to_deliver(request: AlertDeliveryRequest, *, path: str) -> EvaluationAnnouncement | None:
+    """What this part of the evaluation announces, or None when there is nothing to send.
+
+    The history row is written after the Postgres commit and read back here, so a row that is late
+    or whose insert failed would otherwise look like an evaluation that announced nothing, and a
+    committed firing would go unsent with no trace. Each None is counted under its reason instead:
+    `announcement_empty` when the evaluation is recorded and announced nothing (a mute held it, or
+    this part has no groups), `announcement_superseded` when the platform no longer owns the alert,
+    and `announcement_missing` when no record of the evaluation turned up after the retries.
+    """
+    read = read_announcement(
+        request.team_id,
+        request.configuration_id,
+        request.evaluation_key,
+        source=request.source,
+        incident_grouping_keys=request.incident_actions.keys(),
+        part=request.part,
+        parts=request.parts,
+    )
+    if read.status is AnnouncementStatus.FOUND:
+        return read.announcement
+    outcome: DeliveryOutcomeLabel = "announcement_empty"
+    if read.status is AnnouncementStatus.MISSING:
+        owner = (
+            PlatformAlertConfiguration.objects.for_team(request.team_id)
+            .filter(id=request.configuration_id)
+            .values_list("owner", flat=True)
+            .first()
+        )
+        # Handed back to its source or deleted after the check read it: the record that would
+        # have written the row was refused, and the source sends its own message now.
+        outcome = "announcement_superseded" if owner != PlatformAlertOwner.PLATFORM else "announcement_missing"
+        if outcome == "announcement_missing":
+            logger.warning(
+                "alerts_platform_announcement_missing",
+                source=request.source.value,
+                path=path,
+                configuration_id=request.configuration_id,
+                evaluation_key=request.evaluation_key,
+                part=request.part,
+            )
+    safe_record(increment_deliveries, request.source.value, "-", path, outcome)
+    return None
 
 
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
@@ -176,15 +252,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         )
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
 
-    announced = announcement(
-        request.team_id,
-        request.configuration_id,
-        request.evaluation_key,
-        source=request.source,
-        incident_grouping_keys=request.incident_actions.keys(),
-        part=request.part,
-        parts=request.parts,
-    )
+    announced = announcement_to_deliver(request, path=DeliveryPath.NATIVE.value)
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
     announced = replace(announced, rule=rule_metadata(request.team_id, request.configuration_id))
@@ -199,11 +267,16 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
             request,
             incident_actions={key: action for key, action in request.incident_actions.items() if key not in stale},
         )
-    platform_destinations = _platform_destinations(request)
+    subscribed_by_event = _by_subscription(request, announced)
+    notices_overflow = request.parts > 1 and request.overflowed
+    platform_destinations = _platform_destinations(
+        request,
+        event_ids={*subscribed_by_event, *(request.event_ids_by_kind.values() if notices_overflow else ())},
+    )
     native_announced, emissions = _split_by_path(request, announced, platform_destinations)
     emitter = delivery_paths.emitter_for(request.source) if emissions else None
     notice_keys: dict[str, str] = {}
-    if request.parts > 1 and request.overflowed:
+    if notices_overflow:
         notice_keys = _overflow_notice_keys(
             request,
             platform_destinations,
@@ -222,6 +295,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     busy: list[str] = []
     failures: list[str] = []
     first_refusal: DeliveryError | None = None
+    retryable = False
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
@@ -233,7 +307,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     # Destinations already told about the overflow, so each hears it once, on its first message.
     noticed: set[str] = set()
     native_by_event = _by_subscription(request, native_announced)
-    for event_id, all_transitions in _by_subscription(request, announced).items():
+    for event_id, all_transitions in subscribed_by_event.items():
         for subscribed_destination in _destinations(request, event_id, platform_destinations):
             transitions = (
                 native_by_event.get(event_id, ()) if subscribed_destination.receives_emitted_events else all_transitions
@@ -262,7 +336,11 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
                 continue
             try:
-                transport = webhook_transports.get() if transport_class is WebhookTransport else transport_class()
+                transport = (
+                    webhook_transports.get(keeps_legacy_body=subscribed_destination.keeps_legacy_webhook_body)
+                    if transport_class is WebhookTransport
+                    else transport_class()
+                )
             except DeliveryError as error:
                 # Fails before a send starts, where `deliver` counts its failures, so it is counted here.
                 for _ in transitions:
@@ -284,6 +362,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
                 failures.append(str(error))
                 first_refusal = first_refusal or error
+                retryable = True
                 continue
             try:
                 deliver(
@@ -314,8 +393,10 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
             except DeliveryError as error:
                 failures.append(str(error))
                 first_refusal = first_refusal or error
+                retryable = retryable or not isinstance(error, DestinationMisconfigured)
             except Exception as error:
                 failures.append(type(error).__name__)
+                retryable = True
             else:
                 sent += 1
     # Emitted last and only without a held thread, because the workflow runs a held delivery again
@@ -353,6 +434,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     exc_info=True,
                 )
                 failures.append(f"legacy events: {type(error).__name__}")
+                retryable = True
                 _count_emissions(request, "failed", len(emissions))
             else:
                 thread_store.delivered(emission, None)
@@ -365,7 +447,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         # The failures ride along, so a wait that ends still says which destinations refused.
         raise ThreadBusy("; ".join([*busy, *failures]))
     if failures:
-        raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
+        failed = DeliveryError if retryable else RefusedEverywhere
+        raise failed(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
     return DeliveryOutcome(
         live=True,
         sent=sent,
@@ -422,7 +505,9 @@ def add_late_image(request: AlertDeliveryRequest, late_detail: dict[str, Any]) -
 
     thread_store = DatabaseThreadStore(request.team_id)
     result = NO_LATE_IMAGE
-    for subscribed_destination in _destinations(request, firing_event, _platform_destinations(request)):
+    for subscribed_destination in _destinations(
+        request, firing_event, _platform_destinations(request, event_ids=[firing_event])
+    ):
         transport_class = _TRANSPORTS.get(subscribed_destination.data["type"])
         if transport_class is None or not issubclass(transport_class, RootImageEditor):
             continue
@@ -490,8 +575,8 @@ def _split_by_path(
     a person built, and the source also emits every transition for it. That includes a function
     from a custom template or one with no `alert_id` filter, which no destination lookup lists, so
     the source emits without asking who listens, as its own stack did. No destination is on both
-    paths, so nothing is sent twice. Moving an existing alert's destinations onto the platform must
-    therefore disable the HogFunctions it copies, or each of them hears every transition as well.
+    paths, so nothing is sent twice. A row that copies a live HogFunction is skipped, so that
+    HogFunction alone sends.
     """
     if delivery_paths.emitter_for(request.source) is None:
         return announced, ()
@@ -618,6 +703,7 @@ class _SubscribedDestination:
     data: AlertDestinationData
     # Whether the destination hears the events the source emits for its HogFunctions.
     receives_emitted_events: bool
+    keeps_legacy_webhook_body: bool = False
 
 
 @frozen
@@ -634,39 +720,75 @@ class _PlatformDestinations:
     recipients: tuple[str, ...]
     kind_by_event_id: dict[str, AlertEventKind]
     incident_event_ids: frozenset[str]
+    # Read in the same snapshot as the rows. Empty when the platform keeps the destinations.
+    groups_by_event_id: dict[str, tuple[AlertDestinationGroup, ...]]
 
 
-def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinations:
-    """The alert's `AlertDestination` rows, and whether they are all of its destinations. Read once per
-    delivery, and after the check, so a destination removed in between is not sent to."""
-    owner = (
-        PlatformAlertConfiguration.objects.for_team(request.team_id)
-        .filter(id=request.configuration_id)
-        .values_list("destinations_owner", flat=True)
-        .first()
-    )
-    owns_destinations = owner == PlatformAlertOwner.PLATFORM
+@contextmanager
+def _one_snapshot() -> Iterator[None]:
+    """Reads inside see the database as it stood at the first of them.
+
+    A destination moving between a HogFunction group and a row changes both in one transaction. Read
+    apart, the rows can come from before the move and the groups from after it, or the other way round,
+    and then neither sends. Inside a caller's transaction the caller's isolation level stands.
+    """
+    opens_transaction = not connections[DEFAULT_DB_ALIAS].in_atomic_block
+    with transaction.atomic(using=DEFAULT_DB_ALIAS):
+        if opens_transaction:
+            with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        yield
+
+
+def _platform_destinations(request: AlertDeliveryRequest, *, event_ids: Collection[str]) -> _PlatformDestinations:
+    """The alert's `AlertDestination` rows, whether they are all of its destinations, and its HogFunction
+    groups for `event_ids`. Read once per delivery, after the check, so a destination removed in between
+    is not sent to, and from one snapshot, so a destination that moves during the read is read once."""
+    with _one_snapshot():
+        owns_destinations = source_configs.keeps_platform_destinations(request.source)
+        destinations = enabled_alert_destinations(
+            team_id=request.team_id, configuration_id=UUID(request.configuration_id)
+        )
+        copies = _copies_of_live_hog_functions(request.team_id, destinations)
+        groups_by_event_id = (
+            {}
+            if owns_destinations
+            else {
+                event_id: tuple(
+                    list_alert_destination_groups(
+                        team_id=request.team_id,
+                        alert_id=request.destination_alert_id,
+                        allowed_event_ids=[event_id],
+                    )
+                )
+                for event_id in sorted(event_ids)
+            }
+        )
+        resolved = _with_subscribers_resolved(request, destinations)
+        # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
+        addresses = (
+            recipients.addresses(
+                request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
+            )
+            if owns_destinations and request.sends_messages
+            else ()
+        )
     incident_kinds = {
         event_id: INCIDENT_KINDS[IncidentAction(action)]
         for action, event_id in request.event_ids_by_incident_action.items()
     }
-    destinations = enabled_alert_destinations(team_id=request.team_id, configuration_id=UUID(request.configuration_id))
     return _PlatformDestinations(
-        destinations=_with_subscribers_resolved(request, destinations),
+        destinations=resolved,
         owns_destinations=owns_destinations,
-        copies=frozenset() if owns_destinations else _copies_of_live_hog_functions(request.team_id, destinations),
+        copies=copies,
         holds_subscribers=any(_names_users(destination.data) for destination in destinations),
-        # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
-        recipients=recipients.addresses(
-            request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
-        )
-        if owns_destinations and request.sends_messages
-        else (),
+        recipients=addresses,
         kind_by_event_id={
             **{event_id: AlertEventKind(kind) for kind, event_id in request.event_ids_by_kind.items()},
             **incident_kinds,
         },
         incident_event_ids=frozenset(incident_kinds),
+        groups_by_event_id=groups_by_event_id,
     )
 
 
@@ -710,14 +832,13 @@ def _is_subscriber_group(group: AlertDestinationGroup) -> bool:
 
 def _copies_of_live_hog_functions(team_id: int, destinations: tuple[StoredAlertDestination, ...]) -> frozenset[str]:
     """Read apart from the alert's destination lookup, which misses a HogFunction whose alert filter a
-    person removed, while that function still hears every emitted event. A disabled HogFunction
-    counts too: a person who disabled it did not ask its copy to send instead."""
-    copied = {
-        hog_function_id for destination in destinations for hog_function_id in destination.legacy_hog_function_ids
-    }
-    live = live_hog_function_ids(team_id=team_id, hog_function_ids=copied)
+    person removed, while that function still hears every emitted event."""
     return frozenset(
-        str(destination.id) for destination in destinations if live.intersection(destination.legacy_hog_function_ids)
+        str(destination_id)
+        for destination_id in copies_of_live_hog_functions(
+            team_id=team_id,
+            copied_by_row={destination.id: destination.legacy_hog_function_ids for destination in destinations},
+        )
     )
 
 
@@ -726,7 +847,8 @@ def _destinations(
     event_id: str,
     platform_destinations: "_PlatformDestinations",
 ) -> list[_SubscribedDestination]:
-    """Who subscribed to this event, resolved now rather than pinned when the check ran.
+    """Who subscribed to this event, as `_platform_destinations` read it for this delivery rather than
+    pinned when the check ran.
 
     A destination removed between the check and the send is not sent to, which a pinned set
     would get wrong.
@@ -741,14 +863,14 @@ def _destinations(
     are left out. Both are decided from the rows this delivery read, so a backfill that lands in
     between cannot leave a subscriber out of both.
     """
-    rows = _platform_subscribers(event_id, platform_destinations)
+    rows = [
+        row
+        for row in _platform_subscribers(event_id, platform_destinations)
+        if row.id not in platform_destinations.copies
+    ]
     if platform_destinations.owns_destinations:
         return rows
-    groups = list_alert_destination_groups(
-        team_id=request.team_id,
-        alert_id=request.destination_alert_id,
-        allowed_event_ids=[event_id],
-    )
+    groups = platform_destinations.groups_by_event_id[event_id]
     return [
         *(
             _SubscribedDestination(
@@ -759,7 +881,7 @@ def _destinations(
             for group in groups
             if group.fully_enabled and not (platform_destinations.holds_subscribers and _is_subscriber_group(group))
         ),
-        *(row for row in rows if row.id not in platform_destinations.copies),
+        *rows,
     ]
 
 
@@ -775,7 +897,12 @@ def _platform_subscribers(event_id: str, platform: _PlatformDestinations) -> lis
         return []
     incident = event_id in platform.incident_event_ids
     subscribers = [
-        _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
+        _SubscribedDestination(
+            id=str(destination.id),
+            data=destination.data,
+            receives_emitted_events=False,
+            keeps_legacy_webhook_body=destination.keeps_legacy_webhook_body,
+        )
         for destination in platform.destinations
         if (destination.data["type"] in INCIDENT_DESTINATION_TYPES) == incident
         and (incident or kind.delivered_as in destination.event_kinds)

@@ -376,7 +376,7 @@ def new_topics_to_add(
     return list(distinct.values())[: max(0, MAX_TOPICS - len(existing_titles))]
 
 
-def _decoded(raw: str) -> Any:
+def decode_nested_json(raw: str) -> Any:
     value: Any = raw
     for _ in range(2):
         if not isinstance(value, str):
@@ -389,13 +389,13 @@ def _decoded(raw: str) -> Any:
 
 
 def query_text(raw_input: str) -> str:
-    value = _decoded(raw_input)
+    value = decode_nested_json(raw_input)
     return str(value.get("query", "")) if isinstance(value, dict) else str(value)
 
 
 def result_text(raw_output: str) -> str:
     """The rows as plain lines. The stored text is cut, so it often stops being valid JSON."""
-    value = _decoded(raw_output)
+    value = decode_nested_json(raw_output)
     if isinstance(value, dict):
         content = value.get("content")
         if isinstance(content, list) and content and isinstance(content[0], dict):
@@ -404,7 +404,7 @@ def result_text(raw_output: str) -> str:
 
 
 def _metric_name(raw_input: str) -> str:
-    value = _decoded(raw_input)
+    value = decode_nested_json(raw_input)
     return str(value.get("name", "")) if isinstance(value, dict) else ""
 
 

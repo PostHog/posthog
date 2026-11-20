@@ -1257,6 +1257,7 @@ class DetectorType(StrEnum):
     OCSVM = "ocsvm"
     PCA = "pca"
     LLM = "llm"
+    FORECAST = "forecast"
 
 
 class DistanceFunc(StrEnum):
@@ -1506,6 +1507,7 @@ class ExperimentExposureHealthFindingActionKind(StrEnum):
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentExposureHealthFindingCode(StrEnum):
@@ -2036,6 +2038,7 @@ class IntegrationKind(StrEnum):
     AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
+    MOTHERDUCK = "motherduck"
     YOUTUBE_ANALYTICS = "youtube-analytics"
     TWITTER_ADS = "twitter-ads"
 
@@ -2055,6 +2058,11 @@ class Method(StrEnum):
     LARGEST = "largest"
     MEAN = "mean"
     MEDIAN = "median"
+
+
+class LLMDetectorModel(StrEnum):
+    CLAUDE_HAIKU_5_5 = "claude-haiku-5-5"
+    GPT_6_LUNA = "gpt-6-luna"
 
 
 class LifecycleToggle(StrEnum):
@@ -2245,6 +2253,11 @@ class MarketingAnalyticsRecommendationLevel(StrEnum):
     SEARCH_TERM = "search_term"
 
 
+class MarketingAnalyticsRecommendationResolutionState(StrEnum):
+    DISMISSED = "dismissed"
+    APPLIED = "applied"
+
+
 class MarketingAnalyticsRecommendationRule(StrEnum):
     BUDGET_CONSTRAINED = "budget_constrained"
     BRAND_LEAK = "brand_leak"
@@ -2376,6 +2389,8 @@ class MetricsAggregation(StrEnum):
     RATE = "rate"
     INCREASE = "increase"
     HISTOGRAM_QUANTILE = "histogram_quantile"
+    COUNT_RATE = "count_rate"
+    COUNT_INCREASE = "count_increase"
 
 
 class MetricsAttributeScope(StrEnum):
@@ -2432,6 +2447,12 @@ class MetricsQueryLanguage(StrEnum):
     BUILDER = "builder"
     PROMQL = "promql"
     SQL = "sql"
+
+
+class MetricsQueryProvenanceMode(StrEnum):
+    PRECOMPUTED = "precomputed"
+    MIXED = "mixed"
+    RAW = "raw"
 
 
 class MetricsRangeFunction(StrEnum):
@@ -2592,7 +2613,6 @@ class NodeKind(StrEnum):
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
     SESSION_QUERY = "SessionQuery"
-    TRACE_NEIGHBORS_QUERY = "TraceNeighborsQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
@@ -3030,7 +3050,6 @@ class RecordingOrder(StrEnum):
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
     RECORDING_TTL = "recording_ttl"
-    SURFACING_SCORE = "surfacing_score"
 
 
 class RecordingOrderDirection(StrEnum):
@@ -3061,6 +3080,12 @@ class RefreshType(StrEnum):
     FORCE_BLOCKING = "force_blocking"
     FORCE_CACHE = "force_cache"
     LAZY_ASYNC = "lazy_async"
+
+
+class YAxisPosition2(StrEnum):
+    AUTO = "auto"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class ResultCustomizationBy(StrEnum):
@@ -3127,8 +3152,10 @@ class Theme(StrEnum):
 class SlackIntegrationScope(StrEnum):
     APP_MENTIONS_READ = "app_mentions:read"
     ASSISTANT_WRITE = "assistant:write"
+    CANVASES_READ = "canvases:read"
     CANVASES_WRITE = "canvases:write"
     CHANNELS_HISTORY = "channels:history"
+    CHANNELS_JOIN = "channels:join"
     CHANNELS_MANAGE = "channels:manage"
     CHANNELS_READ = "channels:read"
     CHAT_WRITE = "chat:write"
@@ -3150,9 +3177,9 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
+# Add the Slack scopes that wait on Slack app review to SlackIntegrationScopeInReview in frontend/src/types.ts.
 class SlackIntegrationScopeInReview(StrEnum):
-    CANVASES_READ = "canvases:read"
-    CHANNELS_JOIN = "channels:join"
+    pass
 
 
 class SlashCommandName(StrEnum):

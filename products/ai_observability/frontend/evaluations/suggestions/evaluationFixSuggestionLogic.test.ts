@@ -52,6 +52,8 @@ const FIX: EvalSuggestionApi = {
     headline: 'Your "Scout findings are grounded" eval stopped running',
     outcome: 'Its filter looks for ai_product = signals, which your traffic stopped sending.',
     reason: '',
+    observation: '',
+    observation_scope: '',
     draft: { conditions: conditions('signals_scout') },
     filters: [],
     rollout_percentage: 100,
@@ -64,6 +66,7 @@ const FIX: EvalSuggestionApi = {
     created_evaluation: null,
     target_evaluation: 'eval-1',
     target_evaluation_name: 'Scout findings are grounded',
+    fix_problem: 'no_runs',
     similar_evaluation: null,
     similar_evaluation_name: null,
     dismiss_reason: null,
@@ -116,6 +119,20 @@ describe('evaluationFixSuggestionLogic', () => {
             template_key: '',
         })
         evaluationLogic.unmount()
+    })
+
+    it('leaves another suggestion open when the user opened it while this fix applied', async () => {
+        router.actions.push(urls.aiObservabilityEvaluation('eval-1'), { suggestion: 'fix-1' })
+        const logic = evaluationFixSuggestionLogic({ suggestionId: 'fix-1', evaluationId: 'eval-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.applyFix()
+            router.actions.push(urls.aiObservabilityEvaluation('eval-2'), { suggestion: 'fix-2' })
+        }).toFinishAllListeners()
+
+        expect(router.values.searchParams.suggestion).toBe('fix-2')
     })
 
     it('keeps edits made while the fix applies, with the new filter in the form', async () => {

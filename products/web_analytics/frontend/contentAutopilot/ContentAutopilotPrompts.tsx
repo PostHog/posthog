@@ -6,8 +6,6 @@ import {
     LemonButton,
     LemonCard,
     LemonSegmentedButton,
-    LemonSelect,
-    LemonSkeleton,
     LemonSwitch,
     LemonTable,
     LemonTag,
@@ -20,9 +18,13 @@ import { urls } from 'scenes/urls'
 
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { promptsTabFilters } from './aiVisibilityFilters'
 import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
 import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
+import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
+import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotMentionResultTag } from './ContentAutopilotMentionResultTag'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
@@ -79,31 +81,16 @@ const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element |
     )
 }
 
+const LOADING_ROWS = 6
+
 export const ContentAutopilotPrompts = (): JSX.Element => {
-    const {
-        prompts,
-        promptsLoading,
-        promptsError,
-        promptsPage,
-        promptsTopic,
-        promptTopics,
-        promptTopicsError,
-        promptTopicsLoading,
-        promptEngines,
-        showArchived,
-        needsImprovement,
-        promptsBranded,
-    } = useValues(contentAutopilotPromptsLogic)
-    const {
-        loadAeoPrompts,
-        loadAeoPromptTopics,
-        openAddPrompts,
-        setNeedsImprovement,
-        setPromptsPage,
-        setPromptsTopic,
-        setPromptsBranded,
-        setShowArchived,
-    } = useActions(contentAutopilotPromptsLogic)
+    const { prompts, promptsLoading, promptsError, promptsPage, promptEngines, showArchived, needsImprovement } =
+        useValues(contentAutopilotPromptsLogic)
+    const { loadAeoPrompts, openAddPrompts, setNeedsImprovement, setPromptsPage, setShowArchived } =
+        useActions(contentAutopilotPromptsLogic)
+    const { filters } = useValues(contentAutopilotFiltersLogic)
+    // The topic list counts every prompt that is not archived, so an empty one means the project has no prompts yet.
+    const { promptTopics } = useValues(contentAutopilotFilterBarLogic)
     const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
 
     if (promptsError === 'forbidden') {
@@ -114,6 +101,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
 
     return (
         <section className="flex flex-col gap-3">
+            <ContentAutopilotFilterBar tab="prompts" filters={promptsTabFilters(needsImprovement)} />
             <p className="m-0 text-muted max-w-3xl">
                 PostHog sends each active prompt to AI assistants once a day and records whether the answer cites your
                 site. Open a prompt to see the answers, edit it, or archive it.
@@ -128,59 +116,12 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                         {
                             value: 'needs-improvement',
                             label: 'Needs improvement',
-                            tooltip: 'Prompts the AI assistants answered in the last 30 days without citing your site.',
+                            tooltip:
+                                'Prompts the AI assistants answered in the chosen date range without citing your site.',
                         },
                     ]}
                     data-attr="content-autopilot-prompts-needs-improvement"
                 />
-                <LemonSelect
-                    size="small"
-                    aria-label="Topic"
-                    value={promptsTopic}
-                    onChange={setPromptsTopic}
-                    options={[
-                        { value: null, label: 'All topics' },
-                        ...promptTopics.map(({ topic, prompts: topicCount }) => ({
-                            value: topic,
-                            label: `${topic || 'No topic'} (${topicCount})`,
-                        })),
-                    ]}
-                    data-attr="content-autopilot-prompts-topic-filter"
-                />
-                <LemonSelect
-                    size="small"
-                    aria-label="Branded"
-                    value={promptsBranded === null ? 'all' : promptsBranded ? 'branded' : 'non_branded'}
-                    onChange={(value) => setPromptsBranded(value === 'all' ? null : value === 'branded')}
-                    options={[
-                        { value: 'all', label: 'Branded and non-branded' },
-                        {
-                            value: 'branded',
-                            label: 'Branded',
-                            tooltip: 'Prompts that name your brand.',
-                        },
-                        {
-                            value: 'non_branded',
-                            label: 'Non-branded',
-                            tooltip: "Prompts that don't name your brand.",
-                        },
-                    ]}
-                    data-attr="content-autopilot-prompts-branded-filter"
-                />
-                {promptTopicsError ? (
-                    <span className="flex items-center gap-1 text-danger text-sm">
-                        Couldn't load topics.
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            onClick={loadAeoPromptTopics}
-                            loading={promptTopicsLoading}
-                            data-attr="content-autopilot-prompts-topics-retry"
-                        >
-                            Try again
-                        </LemonButton>
-                    </span>
-                ) : null}
                 <LemonSwitch
                     checked={showArchived}
                     onChange={setShowArchived}
@@ -212,15 +153,10 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonBanner>
             ) : null}
 
-            {prompts === null ? (
-                promptsError ? null : (
-                    <LemonSkeleton className="h-40 w-full" />
-                )
-            ) : count === 0 &&
-              promptsTopic === null &&
-              promptsBranded === null &&
+            {prompts === null && promptsError ? null : prompts !== null &&
+              count === 0 &&
               !showArchived &&
-              !needsImprovement ? (
+              promptTopics?.length === 0 ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
@@ -234,15 +170,15 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonCard>
             ) : (
                 <LemonTable
-                    dataSource={prompts.results}
+                    dataSource={prompts?.results ?? []}
                     rowKey="id"
-                    loading={promptsLoading}
+                    // Before the first page arrives, placeholder rows hold the table's shape.
+                    loading={promptsLoading || prompts === null}
+                    loadingSkeletonRows={LOADING_ROWS}
                     emptyState={
                         needsImprovement
-                            ? 'No prompts need improvement. A prompt shows here when an AI assistant answered it in the last 30 days without citing your site.'
-                            : promptsTopic === null
-                              ? 'No prompts to show'
-                              : 'No prompts have this topic'
+                            ? `No prompts need improvement. A prompt shows here when an AI assistant answered it in the last ${filters.days} days without citing your site.`
+                            : 'No prompts match these filters'
                     }
                     pagination={{
                         controlled: true,

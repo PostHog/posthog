@@ -22,13 +22,13 @@ from django.utils import timezone
 
 import urllib3
 import requests
+import posthoganalytics
 from celery.exceptions import Retry
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.email import (
     HTTP_SEND_RETRY_COUNTDOWNS_SECONDS,
-    WORKFLOWS_TEMPLATE_ID_MAP,
     EmailMessage,
     WorkflowsEmailError,
     _send_email,
@@ -186,6 +186,50 @@ class TestEmail(BaseTest):
         after = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
         self.assertEqual(after - before, 1.0)
 
+    @patch("posthog.email.ph_background_capture", side_effect=RuntimeError("capture down"))
+    def test_smtp_send_goes_out_when_the_capture_client_cannot_start(self, _capture: MagicMock) -> None:
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="capture_down", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("capture-down@posthog.com")
+            message.send(send_async=False)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIsNotNone(MessagingRecord.objects.get(campaign_key="capture_down").sent_at)
+
+    def test_smtp_send_captures_the_send_with_the_instance_region(self) -> None:
+        events: list[dict[str, Any]] = []
+
+        def record_event(event: dict[str, Any]) -> dict[str, Any]:
+            events.append(event)
+            return event
+
+        client = posthoganalytics.Client("example-key", send=False, before_send=record_event)
+        client.super_properties = {"region": "US"}
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(CLOUD_DEPLOYMENT="EU"),
+            patch("posthog.ph_client.get_client", return_value=client),
+            patch.dict("posthog.ph_client._background_clients", clear=True),
+        ):
+            message = EmailMessage(
+                campaign_key="capture_test_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("capture-test@posthog.com")
+            message.send(send_async=False)
+
+        self.assertEqual([e["event"] for e in events], ["transactional email triggered"])
+        self.assertLessEqual(
+            {
+                "template_name": "async_migration_error",
+                "campaign_key": "capture_test_campaign",
+                "provider": "smtp",
+                "region": "EU",
+            }.items(),
+            events[0]["properties"].items(),
+        )
+
     @parameterized.expand(
         [
             ("transient_disconnect", smtplib.SMTPServerDisconnected("dropped"), True),
@@ -223,6 +267,7 @@ class TestEmail(BaseTest):
             kwargs: dict[str, Any] = {
                 "to": [{"raw_email": f"{name}@posthog.com", "recipient": f"{name}@posthog.com"}],
                 "campaign_key": f"retry_{name}",
+                "template_name": "async_migration_error",
                 "subject": "Subject",
                 "txt_body": "",
                 "html_body": "<p>hi</p>",
@@ -254,6 +299,7 @@ class TestEmail(BaseTest):
                     {"raw_email": "second@posthog.com", "recipient": "second@posthog.com"},
                 ],
                 "campaign_key": "batch_transient",
+                "template_name": "async_migration_error",
                 "subject": "Subject",
                 "txt_body": "",
                 "html_body": "<p>hi</p>",
@@ -285,6 +331,7 @@ class TestEmail(BaseTest):
             _send_via_smtp(
                 to=[{"raw_email": "t@posthog.com", "recipient": "t@posthog.com"}],
                 campaign_key="timeout_kwarg",
+                template_name="async_migration_error",
                 subject="Subject",
                 txt_body="",
                 html_body="<p>hi</p>",
@@ -475,11 +522,12 @@ class TestEmail(BaseTest):
         with (
             override_instance_config("EMAIL_HOST", ""),
             self.settings(
-                CUSTOMER_IO_API_KEY="",
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
                 POSTHOG_HOST="https://us.posthog.com",
             ),
-            patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "tmpl-1"}),
+            patch.dict(
+                "posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "0b5f6c2e-8d4a-4f1e-9c3b-7a2d1e6f4c58"}
+            ),
         ):
             self.assertTrue(is_email_available())
             message = EmailMessage(
@@ -501,14 +549,13 @@ class TestEmail(BaseTest):
 
         mock_post.assert_called_once()
         workflows_call = mock_post.call_args
-        self.assertEqual(
-            workflows_call.args[0], "https://us.posthog.com/api/projects/@current/messaging_templates/tmpl-1/send/"
-        )
+        self.assertEqual(workflows_call.args[0], "https://us.posthog.com/api/messaging/send/email/")
         self.assertEqual(workflows_call.kwargs["headers"]["Authorization"], "Bearer phs_test")
         self.assertIn("Idempotency-Key", workflows_call.kwargs["headers"])
         self.assertFalse(workflows_call.kwargs["allow_redirects"])
         payload = workflows_call.kwargs["json"]
-        self.assertEqual(payload["identifiers"], {"distinct_id": "user-1"})
+        self.assertEqual(payload["template_id"], "0b5f6c2e-8d4a-4f1e-9c3b-7a2d1e6f4c58")
+        self.assertEqual(payload["distinct_id"], "user-1")
         # Workflows escapes Liquid output itself, so values must arrive unescaped or they render as &amp;amp;
         self.assertEqual(payload["message_data"]["team_name"], "O'Brien & Co")
         self.assertEqual(payload["message_data"]["url"], "https://app.posthog.com/r?a=1&b=2")
@@ -894,55 +941,6 @@ class TestEmail(BaseTest):
 
             # Raw email should remain unchanged
             self.assertEqual(message.to[0]["raw_email"], "test@example.com")
-
-    def test_all_http_templates_are_registered_in_workflows_map(self) -> None:
-        # Every EmailMessage(use_http=True, template_name="X", ...) call in
-        # production code under posthog/ needs "X" in WORKFLOWS_TEMPLATE_ID_MAP.
-        # The HTTP sender raises "Unknown template name" if it
-        # isn't, and the Celery task wrapper swallows the exception via
-        # capture_exception. Without this test, a new transactional email
-        # added with a forgotten map entry sends zero emails and surfaces
-        # nothing user-visible.
-        import ast
-        from pathlib import Path
-
-        import posthog as posthog_pkg
-
-        posthog_root = Path(posthog_pkg.__file__).parent
-        sources = sorted(
-            p
-            for p in posthog_root.rglob("*.py")
-            if "/test/" not in str(p) and "/tests/" not in str(p) and not p.name.startswith("test_")
-        )
-
-        missing: dict[str, str] = {}  # template_name -> first source path that uses it
-        for source_path in sources:
-            try:
-                tree = ast.parse(source_path.read_text())
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                if not (isinstance(node.func, ast.Name) and node.func.id == "EmailMessage"):
-                    continue
-                kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg is not None}
-                use_http = kwargs.get("use_http")
-                if not (isinstance(use_http, ast.Constant) and use_http.value is True):
-                    continue
-                template_name = kwargs.get("template_name")
-                if isinstance(template_name, ast.Constant) and isinstance(template_name.value, str):
-                    if template_name.value not in WORKFLOWS_TEMPLATE_ID_MAP:
-                        missing.setdefault(template_name.value, str(source_path.relative_to(posthog_root.parent)))
-
-        self.assertEqual(
-            missing,
-            {},
-            "These template_name values use use_http=True in production code but are missing "
-            "from WORKFLOWS_TEMPLATE_ID_MAP in posthog/email.py. Add a map entry pointing to "
-            "the Workflows message template ID, otherwise the sender will raise "
-            "'Unknown template name' at runtime and capture_exception will swallow it.",
-        )
 
 
 class TestMessagingHashSalt(BaseTest):

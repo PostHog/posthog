@@ -57,6 +57,7 @@ import { VisionUsageTab } from './components/VisionUsageTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { disabledReasonDetail, limitReachedTooltip } from './scannerCopy'
+import { scannerEditUrl } from './scannerEditorSceneLogic'
 import { scannerStatus } from './scannerStatus'
 import { ScannerTagsFilter } from './ScannerTagsFilter'
 import { ENABLED_OPTIONS, EnabledFilter, scannerTypeOptions, ScannerType, ReplayScanner } from './types'
@@ -74,7 +75,7 @@ function ScannerRowActions({ scanner }: { scanner: ReplayScanner }): JSX.Element
                 <>
                     <LemonButton
                         fullWidth
-                        to={urls.replayVision(scanner.id)}
+                        to={scannerEditUrl(scanner.id, null)}
                         disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
                         data-attr="vision-scanner-edit-row"
                         data-ph-capture-attribute-scanner-type={scanner.scanner_type}

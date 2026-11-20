@@ -25,7 +25,9 @@ import {
     isTerminalSuiteRun,
     suiteRunOutcome,
     suiteRunPollListeners,
-    suiteRunSummary,
+    SUITE_RUN_TOAST_DISPOSABLE,
+    suiteRunToastId,
+    suiteRunToastMessage,
 } from 'products/data_quality/frontend/suiteRuns'
 
 export const CHECKS_LIMIT = 500
@@ -753,14 +755,30 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 const outcome = suiteRunOutcome(suiteRun)
                 if (outcome === 'empty') {
                     lemonToast.info('No enabled checks to run')
-                } else if (outcome === 'errored') {
+                    return
+                }
+                if (outcome === 'errored') {
                     // An inline banner rather than a toast: this page has a retry control for it.
                     actions.setRunError(suiteRun.error || "Couldn't run checks. Try again.")
-                } else if (outcome === 'warning') {
-                    lemonToast.warning(suiteRunSummary(suiteRun))
-                } else {
-                    lemonToast.success(suiteRunSummary(suiteRun))
+                    return
                 }
+                const message = suiteRunToastMessage(suiteRun)
+                if (outcome === 'success') {
+                    lemonToast.success(message)
+                    return
+                }
+                const toastId = suiteRunToastId(suiteRun)
+                lemonToast.warning(message, {
+                    toastId,
+                    button: {
+                        label: 'Show failing',
+                        action: () => actions.setFilters({ status: 'failing' }),
+                        dataAttr: 'data-quality-toast-show-failing',
+                    },
+                })
+                cache.disposables.add(() => () => lemonToast.dismiss(toastId), SUITE_RUN_TOAST_DISPOSABLE, {
+                    pauseOnPageHidden: false,
+                })
             },
         }
     }),

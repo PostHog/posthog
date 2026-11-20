@@ -11,6 +11,7 @@ import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
+import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import { getToolsFromContext } from '@/tools'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
@@ -367,6 +368,33 @@ describe('exec tool', () => {
                 )
             }
         )
+
+        it.each([
+            ['call mock-tool', { appendTimeSeriesChartData: true }, true],
+            ['call mock-tool', undefined, false],
+            ['call --json mock-tool', { appendTimeSeriesChartData: true }, false],
+        ])('for %s with options %j, appends the time series block: %s', async (command, options, appended) => {
+            const handlerResult = {
+                results: [{ data: [5, 7], days: ['2026-11-10', '2026-11-11'], label: 'signups' }],
+                [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|signups\n2026-11-10|5\n2026-11-11|7',
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })], undefined, options)
+
+            const result = await exec.handler(mockContext, { command })
+
+            const block = JSON.stringify({
+                series: [
+                    {
+                        name: 'signups',
+                        data: [
+                            ['2026-11-10', 5],
+                            ['2026-11-11', 7],
+                        ],
+                    },
+                ],
+            })
+            expect((result as string).endsWith(`\n\n${CHART_DATA_PREAMBLE}\n${block}`)).toBe(appended)
+        })
 
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
@@ -734,6 +762,7 @@ describe('exec tool', () => {
             'call mock-tool --json {"name":"foo","tags":["a","b"]}',
             'call mock-tool {"name":"foo","tags":["a","b"]} --json',
             'call mock-tool --confirm {"name":"foo","tags":["a","b"]} --json',
+            'call mock-tool "{\\"name\\":\\"foo\\",\\"tags\\":[\\"a\\",\\"b\\"]}" --json',
         ])('passes inline JSON arguments to the inner tool for %s', async (command) => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), tags: z.array(z.string()) }),
@@ -750,7 +779,10 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it('preserves quote-heavy and multi-line content in inline JSON', async () => {
+        it.each([
+            { case: 'inline JSON', encode: (payload: string) => payload },
+            { case: 'inline JSON wrapped in a JSON string', encode: (payload: string) => JSON.stringify(payload) },
+        ])('preserves quote-heavy and multi-line content in $case', async ({ encode }) => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), content: z.string() }),
                 handler: async (_ctx, params) => params,
@@ -759,18 +791,35 @@ describe('exec tool', () => {
             const content = '# Title\n\nLine with "double quotes", \'single quotes\', and `backticks` — also unicode ☃.'
             const payload = JSON.stringify({ name: 'skill', content })
             const result = await exec.handler(mockContext, {
-                command: `call --json mock-tool ${payload}`,
+                command: `call --json mock-tool ${encode(payload)}`,
             })
             expect(JSON.parse(result as string)).toEqual({ name: 'skill', content })
         })
 
-        it('throws a descriptive error when the inline JSON body is malformed', async () => {
+        it('runs a bare SQL string sent to execute-sql as its query', async () => {
+            const tool = makeMockTool({
+                name: 'execute-sql',
+                schema: z.object({ query: z.string() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call --json execute-sql "SELECT 1"' })
+            expect(JSON.parse(result as string)).toEqual({ query: 'SELECT 1' })
+        })
+
+        it.each([
+            { case: 'is malformed', body: '{not-json}', expected: /Invalid JSON input:/ },
+            { case: 'is a JSON string', body: '"funnels"', expected: /expected a JSON object, got a string/ },
+            {
+                case: 'wraps invalid JSON in a string',
+                body: '"{not-json}"',
+                expected: /expected a JSON object, got a string/,
+            },
+            { case: 'is a bare number', body: '42', expected: /expected a JSON object, got a number/ },
+            { case: 'is null', body: 'null', expected: /expected a JSON object, got null/ },
+        ])('throws a descriptive error when the inline JSON body $case', async ({ body, expected }) => {
             const exec = createExec()
-            await expect(
-                exec.handler(mockContext, {
-                    command: 'call mock-tool {not-json}',
-                })
-            ).rejects.toThrow(/Invalid JSON input:/)
+            await expect(exec.handler(mockContext, { command: `call mock-tool ${body}` })).rejects.toThrow(expected)
         })
 
         it.each([
@@ -1817,13 +1866,23 @@ describe('exec tool', () => {
             expect(result.hint).toContain('metric-list')
         })
 
-        it('keeps the metric catalog hint when a data-domain tool is a top match', async () => {
-            const exec = createExec([makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools])
+        it.each([
+            { name: 'keeps', metricCatalogLookup: undefined, hinted: true },
+            { name: 'drops', metricCatalogLookup: false, hinted: false },
+        ])(
+            '$name the metric catalog hint for a top data-domain match (metricCatalogLookup: $metricCatalogLookup)',
+            async ({ metricCatalogLookup, hinted }) => {
+                const exec = createExec(
+                    [makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools],
+                    undefined,
+                    { metricCatalogLookup }
+                )
 
-            const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
+                const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
 
-            expect(result.hint).toContain('metric-list')
-        })
+                expect(result.hint?.includes('metric-list') ?? false).toBe(hinted)
+            }
+        )
 
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
@@ -2102,6 +2161,7 @@ describe('exec tool', () => {
             ['llma-tagger-create', 'llma-evaluation-create'],
             ['vision-scanners-suggest-tags', 'vision-scanners-update'],
             ['warehouse-tables-create', 'data-warehouse-source-setup'],
+            ['stamphog-review-runs-create', 'code-review-approvals-runs-create'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -2178,9 +2238,14 @@ describe('exec tool', () => {
                 recovery:
                     'If the user already reconnected and approved all access, this tool is not available through the app yet.',
             },
+            {
+                apiToken: 'pha_test',
+                supportsStepUp: true,
+                recovery: 'Call the tool anyway: this client then asks the user to approve the missing scopes',
+            },
         ])(
-            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId)',
-            async ({ apiToken, oauthClientId, recovery }) => {
+            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId, $supportsStepUp)',
+            async ({ apiToken, oauthClientId, supportsStepUp, recovery }) => {
                 const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
                 const scopeGated = [
                     {
@@ -2201,6 +2266,7 @@ describe('exec tool', () => {
                     scopeGated,
                     {
                         oauthClientId,
+                        supportsStepUp,
                     }
                 )
 
@@ -2662,6 +2728,46 @@ describe('exec tool', () => {
             expect(message).not.toContain('undefined')
         })
 
+        it.each([
+            {
+                case: 'a nested key, naming the object it sat in',
+                input: { query: { kind: 'events', search: 'signup' } },
+                expected:
+                    'Invalid input for "read-data-schema": unexpected property: search in "query"; this tool does not accept it, so remove or rename it and call the tool again',
+            },
+            {
+                case: 'several top-level keys',
+                input: { query: { kind: 'events' }, select: 'name', after: 'x' },
+                expected:
+                    'Invalid input for "read-data-schema": unexpected properties: select, after; this tool does not accept them, so remove or rename them and call the tool again',
+            },
+            {
+                case: 'a real field sent in the wrong variant',
+                input: { query: { kind: 'events', event_name: '$pageview' } },
+                expected:
+                    'Invalid input for "read-data-schema": unexpected property: event_name in "query"; "query" accepts it only in another variant, so change its other fields to match that variant instead of removing it',
+            },
+            {
+                case: 'a wrong-variant field next to an unknown one',
+                input: { query: { kind: 'events', event_name: '$pageview', search: 'signup' } },
+                expected:
+                    'Invalid input for "read-data-schema": unexpected properties: event_name, search in "query"; "query" accepts event_name only in another variant, so change its other fields to match that variant instead of removing it; this tool does not accept search, so remove or rename it and call the tool again',
+            },
+        ])('tells the caller how to fix $case', ({ input, expected }) => {
+            const schema = z
+                .object({
+                    query: z.discriminatedUnion('kind', [
+                        z.object({ kind: z.literal('events') }).strict(),
+                        z.object({ kind: z.literal('event_properties'), event_name: z.string() }).strict(),
+                    ]),
+                })
+                .strict()
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(formatInputValidationError('read-data-schema', result.error!, input, schema)).toBe(expected)
+        })
+
         // A tool whose whole payload sits under one required object is the shape
         // agents flatten most often, and zod strips the misplaced keys — so
         // "sent everything, unwrapped" and "sent nothing" both arrive as a bare
@@ -2814,7 +2920,7 @@ describe('exec tool', () => {
                 it('says nothing was ignored when the schema rejected the keys instead', () => {
                     // This tool's schema is strict, so `hash` was refused rather than dropped.
                     expect(formatFor('change-requests-approve-execute', { hash: 'x', confirmation: 'confirm' })).toBe(
-                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash'
+                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash; this tool does not accept it, so remove or rename it and call the tool again'
                     )
                 })
 

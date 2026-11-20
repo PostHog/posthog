@@ -54,7 +54,9 @@ class CatalogIndex:
     def __init__(self, measures: Iterable[CatalogMeasure], *, unmeasured_metric_ids: Iterable[UUID] = ()) -> None:
         self._by_digest: dict[str, list[CatalogMeasure]] = defaultdict(list)
         self._by_source: dict[tuple[tuple[str, ...], str], list[CatalogMeasure]] = defaultdict(list)
+        self._created_at: dict[UUID, datetime] = {}
         for measure in measures:
+            self._created_at[measure.metric_id] = measure.created_at
             self._by_digest[measure.fingerprint.digest].append(measure)
             self._by_source[(measure.fingerprint.tables, measure.fingerprint.aggregate)].append(measure)
         # Metrics the index cannot match: markdown, funnels, multi-series trends, or no aggregate.
@@ -80,9 +82,14 @@ class CatalogIndex:
             )
         return cls(measures, unmeasured_metric_ids=unmeasured)
 
-    def classify(self, shape: MeasureFingerprint) -> ShapeMatch:
-        """``covered`` when the shape equals any measure of a metric, ``slice`` when it adds filters to one."""
-        exact = self._by_digest.get(shape.digest)
+    def classify(self, shape: MeasureFingerprint, as_of: datetime | None = None) -> ShapeMatch:
+        """``covered`` when the shape equals any measure of a metric, ``slice`` when it adds filters to one.
+
+        With ``as_of``, only metrics created by then compete, so a newer metric never hides an older match.
+        """
+        exact = [
+            measure for measure in self._by_digest.get(shape.digest, []) if as_of is None or measure.created_at <= as_of
+        ]
         if exact:
             return _match(ShapeOutcome.COVERED, exact)
 
@@ -90,7 +97,7 @@ class CatalogIndex:
         narrower = [
             measure
             for measure in self._by_source.get((shape.tables, shape.aggregate), [])
-            if set(measure.fingerprint.predicate) < shape_predicate
+            if set(measure.fingerprint.predicate) < shape_predicate and (as_of is None or measure.created_at <= as_of)
         ]
         if narrower:
             return _match(ShapeOutcome.SLICE, narrower)

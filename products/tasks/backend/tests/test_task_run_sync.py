@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, TestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -18,6 +19,7 @@ from products.tasks.backend.logic.services.workflow_dispatch import materialize_
 from products.tasks.backend.models import Task, TaskRun, TaskStatusChange
 from products.tasks.backend.task_profiles import USER
 from products.tasks.backend.task_run_sync import (
+    DoneMode,
     LatestRun,
     StatusMismatch,
     collect_status_mismatches,
@@ -169,6 +171,25 @@ class TestTaskRunSync(TestCase):
             collect_status_mismatches(), [StatusMismatch(stored_status="running", derived_status="idle", count=1)]
         )
 
+    @parameterized.expand(
+        [
+            ("run_started_before_its_first_sync", "idle", TaskRun.Status.IN_PROGRESS, "running", 0),
+            ("run_went_back_to_queued", "running", TaskRun.Status.QUEUED, "queued", 1),
+        ]
+    )
+    def test_counts_only_the_moves_the_table_forbids(
+        self, _name: str, stored: str, run_status: str, derived: str, counted: int
+    ) -> None:
+        sample = {"from_status": stored, "to_status": derived}
+        before = REGISTRY.get_sample_value("posthog_tasks_status_outside_transitions_total", sample) or 0
+        self._lose_sync(self.task, run_status=run_status, stored=stored)
+
+        sync_task_status(self.task.id)
+
+        after = REGISTRY.get_sample_value("posthog_tasks_status_outside_transitions_total", sample) or 0
+        self.task.refresh_from_db()
+        self.assertEqual((after - before, self.task.status), (counted, derived))
+
     def _lose_sync(self, task: Task, *, run_status: str | None, stored: str | None) -> None:
         if run_status is not None:
             TaskRun.objects.create(task=task, team=self.team, status=run_status)
@@ -209,6 +230,15 @@ class TestTaskRunSync(TestCase):
         self.assertEqual(repair_status_mismatches(), [])
 
         self.assertEqual(TaskStatusChange.objects.for_team(self.team.id).count(), changes_before)
+
+    def test_repair_leaves_a_done_task_alone(self) -> None:
+        self._lose_sync(self.task, run_status=TaskRun.Status.IN_PROGRESS, stored="done")
+
+        with patch("products.tasks.backend.task_run_sync.done_mode", return_value=DoneMode.OFF):
+            repaired = repair_status_mismatches()
+
+        self.task.refresh_from_db()
+        self.assertEqual((repaired, self.task.status), ([], "done"))
 
     def test_repair_does_not_count_a_task_another_writer_fixed_first(self) -> None:
         self._lose_sync(self.task, run_status=TaskRun.Status.IN_PROGRESS, stored="queued")

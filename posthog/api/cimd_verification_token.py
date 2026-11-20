@@ -1,6 +1,7 @@
 from typing import Any
 from urllib.parse import urlparse
 
+from django.conf import settings
 from django.core.cache import cache
 from django.views.decorators.debug import sensitive_variables
 
@@ -20,6 +21,13 @@ from posthog.models.oauth import (
     normalize_cimd_url,
 )
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
+
+
+def tokens_issued_elsewhere_message(issuer_url: str) -> str:
+    return (
+        f"Create verification tokens from your organization at {issuer_url}. "
+        "A metadata document carries one token for every region."
+    )
 
 
 class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
@@ -221,6 +229,10 @@ class CIMDVerificationTokenViewSet(
     )
     @sensitive_variables("plaintext", "output")
     def create(self, request, *args: Any, **kwargs: Any) -> Response:
+        if settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL:
+            raise serializers.ValidationError(
+                tokens_issued_elsewhere_message(settings.CIMD_VERIFICATION_TOKEN_ISSUER_URL)
+            )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         token, plaintext = create_cimd_verification_token(

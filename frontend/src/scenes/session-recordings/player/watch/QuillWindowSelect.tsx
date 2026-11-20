@@ -43,7 +43,7 @@ export function QuillWindowSelect({ filled = false }: { filled?: boolean }): JSX
             >
                 <SelectValue />
             </SelectTrigger>
-            <SelectContent container={floatingContainer}>
+            <SelectContent container={floatingContainer ?? undefined}>
                 <SelectItem value={FOLLOW_USER}>Follow the user</SelectItem>
                 {windowIds.map((windowId) => (
                     <SelectItem key={windowId} value={String(windowId)}>

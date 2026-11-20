@@ -110,7 +110,7 @@ class PennylaneSource(ResumableSource[PennylaneSourceConfig, PennylaneResumeConf
             label="Pennylane",
             iconPath="/static/services/pennylane.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pennylane",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Create a company API token in Pennylane under **Settings > Connectivity > Developers**. "
                 "You need admin access and an Essential plan or higher. "

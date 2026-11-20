@@ -1,8 +1,22 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -19,7 +33,8 @@ import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLog
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
-import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
+import { selectedSenderIds } from 'scenes/hog-functions/email-templater/emailSenderFields'
+import type { EmailFieldErrors, EmailTemplateFrom } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -32,7 +47,6 @@ import type { IntegrationConfigApi } from 'products/integrations/frontend/genera
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import {
     hogFlowsCreate,
-    hogFlowsResumeEmailSending,
     hogFlowsRunCreate,
     hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
@@ -48,7 +62,7 @@ import {
 } from '../Broadcasts/broadcastLifecycle'
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
-import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { isVerifiedEmailSender, resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
 import { readySandboxSender } from '../Channels/sandboxSender'
 import {
     AiEmailDraftResult,
@@ -60,6 +74,12 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
+import {
+    EmailSendingPause,
+    emailSendingPause,
+    openResumeEmailSendingDialog,
+    requestResumeEmailSending,
+} from './emailSending'
 import { getRegisteredTriggerTypes, getTriggerDisplayType } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
@@ -407,6 +427,8 @@ interface SaveContext {
     // The form's edit version when this save was dispatched. Its response compares against it to
     // tell whether the user kept editing, including while an earlier save was still in flight.
     editVersion: number
+    // Names of the steps this save sent with errors. The form can change before the response lands.
+    stepsNeedingWork: string[]
 }
 
 // Putting the edits back adds no new content, so a queued save that already sent them stays current.
@@ -443,6 +465,7 @@ export interface workflowLogicValues {
     currentProjectId: number | null // projectLogic
     user: UserType | null // userLogic
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+    actionsWithErrors: HogFlowAction[]
     addingSchedule: boolean
     aiEmailDraft: AiEmailDraftResult | null
     aiEmailDraftApplied: boolean
@@ -450,14 +473,12 @@ export interface workflowLogicValues {
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
     autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
+    awaitsSenderFix: boolean
     currentSchedule: HogFlowSchedule | null
     discardDisabledReason: string | undefined
     draftActionPending: 'discard' | 'publish' | null
     edgesByActionId: Record<string, HogFlowEdge[]>
-    emailSendingPauseRequiresSupport: boolean
-    emailSendingPaused: boolean
-    emailSendingPausedByStaff: boolean
-    emailSendingPausedReason: string
+    emailSendingPause: EmailSendingPause
     externallyEdited: boolean
     hasStagedDraft: boolean
     hasUnsavedChanges: boolean
@@ -618,7 +639,16 @@ export interface workflowLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -1562,7 +1592,16 @@ export interface workflowLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -2521,7 +2560,16 @@ export interface workflowLogicActions {
                       filters: {
                           actions?: any[] | undefined
                           events?: any[] | undefined
-                          properties?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
                       }
                       name?: string | undefined
                   }[]
@@ -2956,7 +3004,16 @@ export interface workflowLogicActions {
                       filters: {
                           actions?: any[] | undefined
                           events?: any[] | undefined
-                          properties?: any[] | undefined
+                          properties?:
+                              | {
+                                    type: 'AND' | 'OR'
+                                    values: {
+                                        type: 'AND' | 'OR'
+                                        values: any[]
+                                    }[]
+                                }
+                              | any[]
+                              | undefined
                       }
                       name?: string | undefined
                   }[]
@@ -3405,11 +3462,13 @@ export interface workflowLogicMeta {
             saveAttemptedActionIds: string[] | null,
             integrations: IntegrationType[] | null
         ) => Record<string, HogFlowActionValidationResult | null>
-        workflowHasActionErrors: (
+        actionsWithErrors: (
             workflow: HogFlow,
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
-        ) => boolean
+        ) => HogFlowAction[]
+        workflowHasActionErrors: (actionsWithErrors: HogFlowAction[]) => boolean
         autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
+        awaitsSenderFix: (workflow: HogFlow, integrations: IntegrationType[] | null) => boolean
         keepsLocalEditsOnExternalEdit: (featureFlags: FeatureFlagsSet) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
@@ -3554,10 +3613,7 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
         ) => HogFlow
         hasStagedDraft: (originalWorkflow: HogFlow | null) => boolean
-        emailSendingPaused: (originalWorkflow: HogFlow | null) => boolean
-        emailSendingPausedReason: (originalWorkflow: HogFlow | null) => string
-        emailSendingPausedByStaff: (originalWorkflow: HogFlow | null) => boolean
-        emailSendingPauseRequiresSupport: (originalWorkflow: HogFlow | null) => boolean
+        emailSendingPause: (originalWorkflow: HogFlow | null) => EmailSendingPause
         showDraftActions: (originalWorkflow: HogFlow | null) => boolean
         publishDisabledReason: (
             hasStagedDraft: boolean,
@@ -3624,6 +3680,22 @@ function senderErrors(
             : (getTemplatingError(emailValue?.from?.email, templating) ??
               getTemplatingError(emailValue?.from?.name, templating)),
     }
+}
+
+function unusableSenderError(action: HogFlowAction, integrations: IntegrationType[] | null): string | undefined {
+    if (action.type !== 'function_email' || !integrations) {
+        return undefined
+    }
+    const from: EmailTemplateFrom | undefined = action.config.inputs?.email?.value?.from
+    for (const senderId of selectedSenderIds(from ?? {})) {
+        const sender = integrations.find((integration) => integration.kind === 'email' && integration.id === senderId)
+        // The list leaves out senders this user can't view, so a missing one may still send. The backend
+        // refuses a deleted sender by name when the workflow goes live.
+        if (sender && !isVerifiedEmailSender(sender)) {
+            return "This sender's domain isn't verified yet, so its emails would fail. Verify the domain, or choose a verified sender."
+        }
+    }
+    return undefined
 }
 
 export const workflowLogic = kea<workflowLogicType>([
@@ -3789,6 +3861,8 @@ export const workflowLogic = kea<workflowLogicType>([
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
                         keepsFormEdits,
                         editVersion: values.workflowEditVersion,
+                        // The validation results describe the form, which this save does not send.
+                        stepsNeedingWork: keepsFormEdits ? [] : values.actionsWithErrors.map((action) => action.name),
                     }
                     saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
@@ -4408,6 +4482,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),
                             }
 
+                            const unusableSender = unusableSenderError(action, integrations)
+                            emailErrors.from = unusableSender ?? emailErrors.from
+
                             const hasEmailErrors = Object.values(emailErrors).some((v) => !!v)
 
                             if (hasEmailErrors) {
@@ -4418,6 +4495,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                 // always lacks a sender) reads as clean.
                                 if (saveAttemptedActionIds?.includes(action.id)) {
                                     result.emailErrors = emailErrors
+                                } else if (unusableSender) {
+                                    // A sender that can't send is no template-start gap, so it shows before any save.
+                                    result.emailErrors = { from: unusableSender }
                                 }
                             }
                         } else if (isFunctionAction(action) && action.config.template_id === 'template-native-push') {
@@ -4521,14 +4601,19 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
-        workflowHasActionErrors: [
+        actionsWithErrors: [
             (s) => [s.workflow, s.actionValidationErrorsById],
             (
                 workflow: HogFlow,
                 actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
-            ): boolean => {
-                return workflow.actions.some((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
+            ): HogFlowAction[] => {
+                return workflow.actions.filter((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
             },
+        ],
+
+        workflowHasActionErrors: [
+            (s) => [s.actionsWithErrors],
+            (actionsWithErrors: HogFlowAction[]): boolean => actionsWithErrors.length > 0,
         ],
 
         // Only a missing name blocks auto-save; the payload itself is unsaveable without one.
@@ -4537,6 +4622,11 @@ export const workflowLogic = kea<workflowLogicType>([
         // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
         // them would strand a user's edits unsaved exactly while they iterate.
         autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+        awaitsSenderFix: [
+            (s) => [s.workflow, s.integrations],
+            (workflow: HogFlow, integrations: IntegrationType[] | null): boolean =>
+                workflow.actions.some((action) => !!unusableSenderError(action, integrations)),
+        ],
         keepsLocalEditsOnExternalEdit: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS],
@@ -4572,24 +4662,9 @@ export const workflowLogic = kea<workflowLogicType>([
 
         // Read off the saved row, never the editor form: a pause is server state and the form is
         // whatever the author has typed since.
-        emailSendingPaused: [
+        emailSendingPause: [
             (s) => [s.originalWorkflow],
-            (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.email_sending_paused_at,
-        ],
-        emailSendingPausedReason: [
-            (s) => [s.originalWorkflow],
-            (originalWorkflow: HogFlow | null): string => originalWorkflow?.email_sending_paused_reason ?? '',
-        ],
-        // "staff" means only PostHog staff can lift the pause, so the banner hides the resume button.
-        emailSendingPausedByStaff: [
-            (s) => [s.originalWorkflow],
-            (originalWorkflow: HogFlow | null): boolean => originalWorkflow?.email_sending_paused_by === 'staff',
-        ],
-        // Covers staff pauses and repeat pauses (re-tripped soon after a resume): no resume button.
-        emailSendingPauseRequiresSupport: [
-            (s) => [s.originalWorkflow],
-            (originalWorkflow: HogFlow | null): boolean =>
-                originalWorkflow?.email_sending_pause_requires_support === true,
+            (originalWorkflow: HogFlow | null): EmailSendingPause => emailSendingPause(originalWorkflow),
         ],
 
         // A staged draft outlives the edits made after it, so the draft actions stay mounted while
@@ -4735,6 +4810,20 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
+            // The "Draft saved" toast offers Publish too, while auto-save may still hold edits. The step
+            // check below reads the form, so it describes the staged draft only once the form is saved.
+            if (values.publishDisabledReason) {
+                lemonToast.warning(values.publishDisabledReason)
+                return
+            }
+            // Publish stays clickable with step errors, like enabling: the attempt is what reveals the
+            // per-field messages, which stay hidden until then.
+            if (values.workflowHasActionErrors) {
+                actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
+                const names = values.actionsWithErrors.map((action) => action.name).join(', ')
+                lemonToast.error(`Fix these steps before publishing: ${names}`)
+                return
+            }
             actions.setDraftActionPending('publish')
             let preview
             try {
@@ -4764,9 +4853,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 await api.hogFlows.publishHogFlow(props.id, { confirm: true, confirm_token: confirmToken })
                 lemonToast.success('Changes published')
                 actions.loadWorkflow()
-            } catch {
-                // Covers a stale/expired token (the draft moved since the preview) and plain failures.
-                lemonToast.error('Publishing failed. Review the staged changes and try again.')
+            } catch (error) {
+                const genericMessage = 'Publishing failed. Review the staged changes and try again.'
+                const validationDetail = error instanceof ApiError && error.status === 400 ? error.detail : null
+                // The detail can repeat step names and template text, so analytics gets the generic message.
+                lemonToast.error(validationDetail || genericMessage, { capturedMessage: genericMessage })
                 actions.loadWorkflow()
             } finally {
                 actions.setDraftActionPending(null)
@@ -4776,18 +4867,7 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.resumeEmailSendingPending) {
                 return
             }
-            LemonDialog.open({
-                title: 'Resume email sending?',
-                description:
-                    'Send again from this workflow. If it keeps drawing spam complaints or hitting addresses that do not exist, sending pauses again on its own within a couple of hours.',
-                primaryButton: {
-                    children: 'Resume sending',
-                    onClick: () => actions.confirmResumeEmailSending(),
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
-            })
+            openResumeEmailSendingDialog('workflow', () => actions.confirmResumeEmailSending())
         },
         confirmResumeEmailSending: async () => {
             // Also guards the dialog's close-animation window, where a fast double-click on the
@@ -4797,10 +4877,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.setResumeEmailSendingPending(true)
             try {
-                await hogFlowsResumeEmailSending(String(values.currentProjectId), props.id)
-                lemonToast.success('Email sending resumed')
-            } catch {
-                lemonToast.error('Could not resume email sending. Please try again.')
+                await requestResumeEmailSending(String(values.currentProjectId), props.id)
             } finally {
                 actions.setResumeEmailSendingPending(false)
                 // Reload either way: on success to clear the banner, on failure because another
@@ -4868,7 +4945,10 @@ export const workflowLogic = kea<workflowLogicType>([
             const keepsFormEdits = 'status' in workflow && values.hasUnsavedChanges && !!stored
             const merged = { ...(keepsFormEdits && stored ? withStagedDraft(stored) : values.workflow), ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
-                lemonToast.error('Fix all errors before enabling')
+                const names = values.actionsWithErrors.map((action) => action.name).join(', ')
+                lemonToast.error(`Fix these steps before enabling: ${names}`, {
+                    capturedMessage: 'Fix these steps before enabling',
+                })
                 actions.enableBlocked()
                 return
             }
@@ -4903,7 +4983,7 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.replayDeferredResourceEdited()
             // Load schedules whatever the trigger is. A schedule outlives a switch to another trigger,
             // and a save that cannot see it creates a second one that fires next to it.
-            if (originalWorkflow.id) {
+            if (props.id && props.id !== 'new') {
                 try {
                     const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
                     actions.setSchedules(schedules)
@@ -5003,6 +5083,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     }
                 }
 
+                const stepsNeedingWork = (saveContext?.stepsNeedingWork ?? []).join(', ')
+
                 if (originalWorkflow.draft) {
                     // Saving used to deploy immediately, so the changed contract needs a loud cue at
                     // the moment of saving, not only the status bar.
@@ -5025,6 +5107,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     } else {
                         lemonToast.success('Broadcast saved')
                     }
+                } else if (stepsNeedingWork) {
+                    lemonToast.warning(`Workflow saved. These steps still need work: ${stepsNeedingWork}`)
                 } else {
                     lemonToast.success('Workflow saved')
                 }
@@ -5383,9 +5467,24 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
     })),
+    // A sender verified or added in another tab then clears its step error on return, without a reload.
+    subscriptions(() => ({
+        awaitsSenderFix: (awaits: boolean, previous: boolean | undefined) => {
+            if (awaits && !previous) {
+                integrationsLogic.actions.startPolling()
+            } else if (!awaits && previous) {
+                integrationsLogic.actions.stopPolling()
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
+    }),
+    beforeUnmount(({ values }) => {
+        if (values.awaitsSenderFix) {
+            integrationsLogic.actions.stopPolling()
+        }
     }),
     beforeUnload((logic) => ({
         enabled: (newLocation) => {

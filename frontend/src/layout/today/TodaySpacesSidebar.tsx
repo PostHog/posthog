@@ -3,6 +3,8 @@ import { Fragment } from 'react'
 
 import { Button, Skeleton, Text, TooltipProvider, cn } from '@posthog/quill'
 
+import { sessionPinKey } from '~/layout/today/sidebar/sidebarPinsLogic'
+import { SidebarRowEnter } from '~/layout/today/sidebar/SidebarRowEnter'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection, SidebarSectionProps } from '~/layout/today/sidebar/SidebarSection'
 
@@ -170,7 +172,11 @@ export function TodaySpacesSidebar(): JSX.Element {
         />
     )
 
-    const pinnedRows = shownPinnedItems.map((item) => renderItem(item, 'pinned', 'today-pinned-session', true))
+    const pinnedRows = shownPinnedItems.map((item) => (
+        <SidebarRowEnter key={`${item.kind}-${item.id}`} pinKey={sessionPinKey(item.id)}>
+            {renderItem(item, 'pinned', 'today-pinned-session', true)}
+        </SidebarRowEnter>
+    ))
 
     const recentBody =
         recentState === 'loading' ? (

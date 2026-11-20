@@ -146,7 +146,8 @@ function CollectionRow({
             data-attr={playlist.is_synthetic ? 'list-collections-row-synthetic' : 'list-collections-row'}
         >
             {icon}
-            <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
+            {/* w-0 keeps the nowrap name out of the list column's min-content width. */}
+            <span className="truncate w-0 flex-1 text-left">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
             {counts && (
                 <Badge
                     variant={counts.unwatched ? 'info' : 'default'}

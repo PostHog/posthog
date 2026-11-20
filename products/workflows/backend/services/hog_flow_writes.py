@@ -29,6 +29,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES
 from products.workflows.backend.services.action_redirects import compute_action_redirects
+from products.workflows.backend.services.batch_jobs import rate_limit_change_unpaces_batch
 from products.workflows.backend.services.email_utm_defaults import (
     flow_has_active_schedule,
     is_apply_eligible,
@@ -436,6 +437,14 @@ def update_workflow(
                 validated_disabled_from_active is not None
                 and before_update.disabled_from_active != validated_disabled_from_active
             )
+        ):
+            raise WorkflowStale()
+        # A batch launched since validation may have taken a raised cap from the stored rate limit.
+        if "email_sending_rate_limit" in validated_data and rate_limit_change_unpaces_batch(
+            team_id=team_id,
+            hog_flow_id=hog_flow_id,
+            current=before_update.email_sending_rate_limit,
+            new=validated_data["email_sending_rate_limit"],
         ):
             raise WorkflowStale()
         # The write target is a second read, so `before_update` keeps the pre-write state.

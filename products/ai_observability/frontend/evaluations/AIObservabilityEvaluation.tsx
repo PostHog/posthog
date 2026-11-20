@@ -1,12 +1,12 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { accessLevelSatisfied, toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -15,11 +15,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationFirstResultStatus } from './components/EvaluationFirstResultStatus'
 import { EvaluationLatestReport } from './components/EvaluationLatestReport'
+import { EvaluationReportDrawer } from './components/EvaluationReportDrawer'
 import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
 import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
@@ -38,9 +40,11 @@ import {
     evaluationSupportsRunOutcomes,
     evaluationTypeUsesModelConfiguration,
 } from './evaluationCapabilities'
+import { REPORT_RUN_PARAM } from './evaluationReportDrawerLogic'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { LLMEvaluationLogicProps, hasUnsetConditionRollout, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
+import { ReplacedTaggerBanner } from './ReplacedTaggerBanner'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationFixSuggestionBanner } from './suggestions/EvaluationFixSuggestionBanner'
 
@@ -53,7 +57,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         isReportableEvaluation,
         evaluationBackTarget,
         evaluationLoading,
-        evaluationFormSubmitting,
         hasUnsavedChanges,
         formValid,
         isNewEvaluation,
@@ -67,6 +70,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         numericBoundsRequired,
         usesDecisionModel,
     } = useValues(llmEvaluationLogic)
+    const { props: evaluationLogicProps } = useMountedLogic(llmEvaluationLogic)
     const { searchParams } = useValues(router)
     const { isConfigDirty: reportConfigDirty } = useValues(
         evaluationReportLogic({ evaluationId: isNewEvaluation || !evaluation?.id ? 'new' : evaluation.id })
@@ -224,10 +228,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
                 </LemonBanner>
             )}
 
+            {!isNewEvaluation && <ReplacedTaggerBanner evaluationId={evaluation.id} />}
+
             {typeof searchParams.suggestion === 'string' && (
                 <EvaluationFixSuggestionBanner
                     suggestionId={searchParams.suggestion}
-                    evaluationId={evaluation.id}
+                    evaluationLogicProps={evaluationLogicProps}
                     userAccessLevel={evaluation.user_access_level ?? undefined}
                     hasUnsavedChanges={unsaved}
                 />
@@ -340,10 +346,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 )}
                                 <EvaluationFirstResultStatus />
                                 {evaluationSupportsReportHistory(originalEvaluation) && (
-                                    <EvaluationLatestReport
-                                        evaluationId={evaluation.id}
-                                        onOpenReports={() => setActiveTab('reports')}
-                                    />
+                                    <EvaluationLatestReport evaluationId={evaluation.id} />
                                 )}
                                 {!runsBackfillId && (
                                     <div className="mb-4">
@@ -388,28 +391,51 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         content: (
                             <div className="max-w-6xl mx-auto">
                                 <EvaluationConfigurationForm />
-                                <div className="flex justify-end mt-6">
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.Evaluation}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={evaluation.user_access_level ?? undefined}
-                                    >
-                                        <LemonButton
-                                            type="primary"
-                                            onClick={handleSave}
-                                            disabledReason={saveButtonDisabledReason}
-                                            loading={evaluationFormSubmitting}
-                                            data-attr="llma-evaluation-save-bottom"
-                                        >
-                                            Save changes
-                                        </LemonButton>
-                                    </AccessControlAction>
-                                </div>
                             </div>
                         ),
                     },
                 ]}
             />
+            {evaluationSupportsReportHistory(originalEvaluation) && (
+                <EvaluationReportDrawer
+                    evaluationId={evaluation.id}
+                    generateDisabledReason={
+                        evaluation.user_access_level &&
+                        !accessLevelSatisfied(
+                            AccessControlResourceType.Evaluation,
+                            toAccessControlLevel(evaluation.user_access_level),
+                            AccessControlLevel.Editor
+                        )
+                            ? 'You need edit access to this evaluation to generate reports.'
+                            : isReportableEvaluation
+                              ? undefined
+                              : 'Add a passing rule to generate new reports.'
+                    }
+                    onOpenTrace={(traceId, eventId) =>
+                        router.actions.push(router.values.location.pathname, {
+                            ...router.values.searchParams,
+                            trace: traceId,
+                            step: eventId ?? undefined,
+                        })
+                    }
+                    onShowResults={(periodStart, periodEnd) =>
+                        // One URL change, read back by the logic. A backfill filter would hide the date range.
+                        router.actions.push(router.values.location.pathname, {
+                            ...withoutTraceDrawerParams(router.values.searchParams),
+                            [REPORT_RUN_PARAM]: undefined,
+                            backfill_id: undefined,
+                            evaluation_tab: undefined,
+                            date_from: periodStart,
+                            date_to: periodEnd,
+                        })
+                    }
+                />
+            )}
+            {/* After the report drawer, so a cited trace opens above it. Configuration has its own host for the preview,
+                which steps aside while a report is open, so only one host answers the URL. */}
+            {(activeTab !== 'configuration' || !!searchParams[REPORT_RUN_PARAM]) && (
+                <TraceDrawerHost listId="evaluation-runs" />
+            )}
         </div>
     )
 }

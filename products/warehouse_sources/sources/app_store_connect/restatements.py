@@ -18,7 +18,6 @@ analytics streams added to the catalog later are covered without code changes.
 
 from collections.abc import Mapping
 
-from products.warehouse_sources.sources.app_store_connect.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.app_store_connect.settings import (
     APP_STORE_CONNECT_ENDPOINTS,
     AppStoreConnectEndpointConfig,
@@ -61,8 +60,8 @@ _REPORT_DATE_COLUMN = "date"
 # resolves to the first source's table instead of erroring.
 _TABLE_NAME_PREFIX = f"{ExternalDataSourceType.APPSTORECONNECT.value}_".lower()
 
-# Shown only where the guidance is built without a source in hand (the public docs endpoint and the
-# source caption), so the prefix is unknowable rather than known to be empty.
+# Shown only where the guidance is built without a source in hand (the public docs endpoint), so the
+# prefix is unknowable rather than known to be empty.
 _TABLE_PREFIX_NOTE = (
     "This query names the table as connected without a table name prefix; if you set one, add it "
     "wherever the table name appears."
@@ -260,32 +259,16 @@ def with_restatement_guidance(
 
 def restatement_caption(
     endpoints: Mapping[str, AppStoreConnectEndpointConfig] = APP_STORE_CONNECT_ENDPOINTS,
-    descriptions: Mapping[str, CanonicalEndpoint] = CANONICAL_DESCRIPTIONS,
 ) -> str:
-    """Markdown section for the source caption documenting the analytics restatement dedup.
+    """Short note for the source caption about the restated analytics tables.
 
-    Carries the exact query for the catalog's first analytics stream with a full argMax recipe,
-    so the caption stays true to whatever streams the catalog ships.
+    The deduplicating queries live in the table descriptions, not here: the caption is read at
+    setup time, where a full SQL query looks like a step people must complete before they connect.
     """
-    example: RestatementRecipe | None = None
-    for name in analytics_stream_names(endpoints):
-        entry = descriptions.get(name) or {}
-        recipe = restatement_recipe(endpoints[name], entry.get("columns") or {})
-        if recipe is None:
-            continue
-        if recipe.measures:
-            example = recipe
-            break
-        example = example or recipe
-    if example is None:
+    if not analytics_stream_names(endpoints):
         return ""
     return (
         "Analytics report tables keep every restatement Apple publishes for a report date (about six "
-        "days of revisions), so a raw `SUM` grouped by date overcounts. The raw rows preserve the "
-        "restatement history; to aggregate, keep only the latest restatement per report date and "
-        "dimension combination, for example:\n"
-        "\n"
-        f"```\n{example.sql}\n```\n"
-        "\n"
-        f"{_TABLE_PREFIX_NOTE} Each analytics table's description carries the exact query for that table."
+        "days of revisions), so a raw `SUM` grouped by date overcounts. Each analytics table's "
+        "description has the query that keeps only the latest restatement."
     )

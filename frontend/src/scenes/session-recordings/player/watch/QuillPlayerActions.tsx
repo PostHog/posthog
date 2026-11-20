@@ -8,10 +8,8 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { userLogic } from 'scenes/userLogic'
 
 import { QuillInsertInNotebookPlaylistButton } from './QuillInsertInNotebookPlaylistButton'
-import { QuillInspectDOM } from './QuillInspectDOM'
 import { QuillPlayerActionsMenu } from './QuillPlayerActionsMenu'
 import { QuillPlayerShareMenu } from './QuillPlayerShareMenu'
-import { QuillSetPlaybackSpeed } from './QuillSetPlaybackSpeed'
 import { QuillWindowSelect } from './QuillWindowSelect'
 import { useDebugReplayMenuItems } from './useDebugReplayMenuItems'
 
@@ -38,8 +36,6 @@ export function QuillPlayerActions({
     return (
         <div className={filled ? 'flex items-center gap-2 flex-wrap' : 'flex items-center gap-0.5'}>
             {withWindowSelect && <QuillWindowSelect filled={filled} />}
-            <QuillSetPlaybackSpeed filled={filled} />
-            {debugMode && <QuillInspectDOM filled={filled} />}
             <QuillInsertInNotebookPlaylistButton size={size} />
             <QuillPlayerShareMenu filled={filled} />
             {sessionRecordingId && (

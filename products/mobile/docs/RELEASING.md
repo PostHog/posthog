@@ -115,6 +115,11 @@ Native dependencies and configuration changes require new binaries.
 The request raises the version above the `1.12.0` PR base and submits to TestFlight and Google Play internal testing.
 Public-store promotion remains manual after testing.
 
+Version `1.16.0` requests both native builds through `native-1160`, following the completed `native-1150` release.
+It includes Live on Home, the visitor map, clearer Live states, header pause controls and saved graph series names.
+The request creates a new runtime and submits to TestFlight and Google Play internal testing.
+Test those builds before public-store promotion.
+
 The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
 Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
 

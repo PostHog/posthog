@@ -1,16 +1,19 @@
 //! The lines that mark a spike: an issue or a project that is large against the project's typical day.
 
-/// A median over fewer days follows a new project's first week too closely to call anything a spike.
-const MIN_HISTORY_DAYS: usize = 14;
+/// The ledger keeps this many previous days, so a longer history can never be met.
+pub const MAX_HISTORY_DAYS: usize = 29;
 /// The stream health goal starts at 1,000 exceptions a month, so a smaller typical day is not a baseline.
 const MIN_TYPICAL_DAY: f64 = 1_000.0 / 30.0;
 /// Under this count an hour is over its line by chance on a small project.
 const MIN_ISSUE_HOUR: f64 = 20.0;
 
 /// The median of the days that had exceptions, so that one earlier spike or a silent weekend does not move it.
-pub fn typical_day(previous_days: &[u64]) -> Option<f64> {
+///
+/// A median over few days follows a new project's first days closely, so `min_history_days` sets how many of them
+/// are needed before anything is called a spike.
+pub fn typical_day(previous_days: &[u64], min_history_days: usize) -> Option<Baseline> {
     let mut active: Vec<u64> = previous_days.iter().copied().filter(|n| *n > 0).collect();
-    if active.len() < MIN_HISTORY_DAYS {
+    if active.len() < min_history_days {
         return None;
     }
     active.sort_unstable();
@@ -20,12 +23,23 @@ pub fn typical_day(previous_days: &[u64]) -> Option<f64> {
     } else {
         active[middle] as f64
     };
-    Some(median.max(MIN_TYPICAL_DAY))
+    Some(Baseline {
+        typical_day: median.max(MIN_TYPICAL_DAY),
+        history_days: active.len(),
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Baseline {
+    pub typical_day: f64,
+    /// The days with exceptions behind the median.
+    pub history_days: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Reading {
     pub typical_day: f64,
+    pub history_days: usize,
     pub issue_hour: f64,
     pub issue_day: f64,
     pub project_day: f64,
@@ -83,20 +97,28 @@ mod tests {
 
     #[test]
     fn typical_day_is_the_median_of_the_days_with_exceptions() {
+        let baseline = |typical_day, history_days| {
+            Some(Baseline {
+                typical_day,
+                history_days,
+            })
+        };
         let mut days = vec![0; 15];
         days.extend([240; 13]);
-        assert_eq!(typical_day(&days), None);
+        assert_eq!(typical_day(&days, 14), None);
+        assert_eq!(typical_day(&days, 7), baseline(240.0, 13));
 
         days.push(90_000);
-        assert_eq!(typical_day(&days), Some(240.0));
+        assert_eq!(typical_day(&days, 14), baseline(240.0, 14));
 
-        assert_eq!(typical_day(&[2; 29]), Some(MIN_TYPICAL_DAY));
+        assert_eq!(typical_day(&[2; 29], 14), baseline(MIN_TYPICAL_DAY, 29));
     }
 
     #[test]
     fn an_issue_is_over_its_line_by_the_hour_or_by_the_day() {
         let quiet = Reading {
             typical_day: 240.0,
+            history_days: 14,
             issue_hour: 100.0,
             issue_day: 400.0,
             project_day: 700.0,
@@ -118,6 +140,7 @@ mod tests {
 
         let small_project = Reading {
             typical_day: MIN_TYPICAL_DAY,
+            history_days: 14,
             issue_hour: 19.0,
             issue_day: 19.0,
             project_day: 19.0,

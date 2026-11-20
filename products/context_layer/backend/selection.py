@@ -83,6 +83,11 @@ class SelectionInput:
     prompt: str
     history: str = ""
     runtime_version: str = "unknown"
+    exclude: frozenset[str] = frozenset()
+
+
+def reference_key(kind: str, identifier: str) -> str:
+    return f"{kind}:{identifier}"
 
 
 @frozen
@@ -187,6 +192,7 @@ class ContextSelector:
         self.step_ms: dict[str, int] = {}
         self.source_ms: dict[str, int] = {}
         self.source_errors: dict[str, str] = {}
+        self.excluded_count = 0
         self.actor = actor
         self.selection = selection
         self._authorization = authorization
@@ -419,6 +425,7 @@ class ContextSelector:
                 "error_type": error_type,
                 "gate_probability": None if self.gate_probability is None else round(self.gate_probability, 4),
                 "candidate_count": len(scored),
+                "excluded_count": self.excluded_count,
                 "budget_ms": round(settings.CONTEXT_SELECTION_TIMEOUT_SECONDS * 1000),
                 "duration_ms": self.duration_ms(),
                 "gate_ms": self.step_ms.get("gate"),
@@ -471,6 +478,9 @@ class ContextSelector:
         documents: set[str] = set()
         for candidate, score in sorted(scored, key=lambda pair: (-pair[1], pair[0].kind, pair[0].id)):
             if score < 0.7 or selected_count >= 5 or candidate.document_id and candidate.document_id in documents:
+                continue
+            if reference_key(candidate.kind, candidate.id) in self.selection.exclude:
+                self.excluded_count += 1
                 continue
             block = "\n" + json.dumps(asdict(candidate), ensure_ascii=False).replace("<", "\\u003c").replace(
                 ">", "\\u003e"

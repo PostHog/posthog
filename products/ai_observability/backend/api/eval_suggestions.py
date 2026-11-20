@@ -20,6 +20,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from ..facade import eval_suggestions as facade
 from ..facade.contracts import EvalSuggestionNotFoundError
 from ..models.eval_suggestions import (
+    EvalFixProblem,
     EvalSuggestion,
     EvalSuggestionDismissReason,
     EvalSuggestionKind,
@@ -55,7 +56,9 @@ class EvalSuggestionSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, "
-            "with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results."
+            "with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results. "
+            "fix_prompt: a rule the prompt sets that most sampled calls break, which a prompt change fixes and an "
+            "evaluation cannot; it has no evaluation to accept."
         ),
     )
     status = serializers.ChoiceField(
@@ -77,16 +80,26 @@ class EvalSuggestionSerializer(serializers.Serializer):
     headline = serializers.CharField(
         read_only=True,
         help_text=(
-            "The problem in the project's own terms, with the number that makes it concrete, such as "
-            "'1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured."
+            "A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the "
+            "condition observed on the evaluation. It carries no counts; `observation` does."
         ),
     )
     outcome = serializers.CharField(
         read_only=True,
-        help_text="What adding the evaluation does and what it costs, in one or two plain sentences.",
+        help_text=(
+            "One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval "
+            "and fix_prompt, what was observed and the next step."
+        ),
     )
     reason = serializers.CharField(
-        read_only=True, help_text="How the problem was measured or found, for people who want the detail."
+        read_only=True, help_text="Why the issue matters for the project's users, or empty when nothing supports it."
+    )
+    observation = serializers.CharField(
+        read_only=True,
+        help_text="What the sample showed, such as '9 of 27 sampled generations flagged', or empty when nothing was measured.",
+    )
+    observation_scope = serializers.CharField(
+        read_only=True, help_text="Where the observation came from, such as 'Sampled from the last 7 days'."
     )
     draft = EvalSuggestionDraftField(
         read_only=True,
@@ -94,7 +107,8 @@ class EvalSuggestionSerializer(serializers.Serializer):
             "For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, "
             "evaluation_config, output_type, output_config, target), without conditions, which accept builds from "
             "`filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target "
-            "evaluation, or {} when the evaluation needs a manual fix."
+            "evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and "
+            "description, and prompt_name when one managed prompt holds the rule."
         ),
     )
     filters = EvalSuggestionFilterSerializer(
@@ -108,12 +122,12 @@ class EvalSuggestionSerializer(serializers.Serializer):
     measured_failure_rate = serializers.FloatField(
         read_only=True,
         allow_null=True,
-        help_text="Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.",
+        help_text="Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.",
     )
     sample_size = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="Traces the failure rate was measured on. Null when there is no rate.",
+        help_text="Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.",
     )
     evidence = EvalSuggestionEvidenceSerializer(
         many=True, read_only=True, help_text="Up to 5 example traces, each with a one-line reason."
@@ -139,6 +153,15 @@ class EvalSuggestionSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="Name of the evaluation a fix_eval suggestion repairs.",
+    )
+    fix_problem = serializers.ChoiceField(
+        choices=EvalFixProblem.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it "
+            "returned the same result and reasoning almost every time. Null for other kinds."
+        ),
     )
     similar_evaluation = serializers.UUIDField(
         read_only=True, allow_null=True, help_text="Existing evaluation that may already cover this suggestion."

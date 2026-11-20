@@ -36,6 +36,7 @@ A verdict that says nothing about the PR keeps the label, and the next push retr
 A label can request at most one review per PR every 10 minutes.
 A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
 `WAIT` means a reviewer bot still had a review in flight, or a check named in the policy's `attestations`, such as `Migration risk`, had not reported yet.
+Stamphog checks again every two minutes for up to an hour, and reviews the PR again once that check has reported.
 `ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
 A transient failure must not silently drop labels across every queued PR.
 
@@ -43,14 +44,15 @@ Each run is stored as a `ReviewRun` row with its evidence bundle.
 Runs are listed in the Stamphog runs page in the PostHog app (`/stamphog/runs`), and the same data is available through the stamphog API and its MCP tools (review runs, repo configs, digest runs).
 Retrieving one run also returns the reviewer's reasoning, the same text stamphog posts on GitHub.
 
-A project member can also ask for a review directly, by creating a review run (`POST review_runs/`, or the `stamphog-review-runs-create` MCP tool), and then poll the run for its verdict.
+A project member can also ask for a review directly, by creating a review run (`POST code_review/approvals/runs/`, or the `code-review-approvals-runs-create` MCP tool), and then poll the run for its verdict.
 The request replaces the trigger label, so it works in label mode.
 Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
+A bot-authored PR is reviewed only when the repository names that bot under `bot_authors` in its policy, and then only when a pinned attestation vouches for every file in it.
 
 A repository can also let a clean PostHog Review run start a review, with the `review_on_clean_external_review` switch on the repo config API (off by default, `manager` level to change, reset when a placeholder row binds).
 The switch only makes sense in label mode, and only in a repository where PostHog Review runs automatic reviews when a PR opens or is marked ready.
 The API refuses it in `all` mode, because every PR gets a visible review there already, and a save that sets `review_mode` to `all` turns it off.
-Agents change it, and the other repo settings, with the `stamphog-repo-configs-update` MCP tool (`PATCH repo_configs/{id}/`). For reviewers only when stamphog does not approve, turn the switch on before setting `routing_mode` to `fallback`.
+Agents change it, and the other repo settings, with the `code-review-approvals-repositories-update` MCP tool (`PATCH code_review/approvals/repositories/{id}/`). For reviewers only when stamphog does not approve, turn the switch on before setting `routing_mode` to `fallback`.
 Such a run is silent: it has the `reviewhog_clean` trigger, and only an approval reaches the PR.
 Any other verdict, and a failure, is stored on the run and nothing is written to GitHub: no review, no label change, no failure notice, no 👀.
 A stored verdict that was not posted has an empty `verdict_posted_at`.
@@ -68,7 +70,7 @@ The `stamphog_review_timings` event marks a reused verdict with `stamphog_verdic
 
 1. Install the Stamphog GitHub App on your GitHub organization.
 2. Open Stamphog in the PostHog app and connect GitHub. The callback records the repositories you can reach with your own GitHub account. It adds none of them yet.
-3. Add each repository you want reviewed from the **Add a repository** search (`POST repo_configs/add_repository`). Adding a repository turns its reviews on in label-triggered mode. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
+3. Add each repository you want reviewed from the **Add a repository** search (`POST code_review/approvals/repositories/add_repository`). Adding a repository turns its reviews on in label-triggered mode. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
 4. Expand the repository's row to change the **review mode**: "Label-triggered" (the default) reviews only PRs carrying the trigger label, "All PRs" reviews every pull request. Set the trigger label name next to the mode.
 5. Turn on **Include in the digest** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
@@ -77,7 +79,7 @@ Each member who connects adds the repositories they can reach, and connecting ag
 Repositories removed from the installation on GitHub leave the list on their own.
 A repository added to the installation later shows up after a member connects again, because only a member's own GitHub account can prove they can reach it.
 
-Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `stamphog` resource.
+Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `code_review_approval` resource.
 Turning reviews off, removing a repository, and changing the review mode or trigger label need `manager`.
 So an editor can turn reviews back on for a repository a manager paused.
 New repositories start in label-triggered mode, so an editor can turn reviews on without a manager, and widening them to every PR stays a manager decision.
@@ -162,6 +164,19 @@ Title scrutiny, other categories, prerequisites, and size gates remain active.
 Unknown categories or fields, malformed selectors, and any `stamphog_policy` exception fail the run closed.
 Exception files use the same default-branch trust boundary as the rest of `policy.yml`, so editing them requires human review.
 
+### Bot authors
+
+A repository may list under `bot_authors` the bots whose PRs stamphog reviews, each as a `name`, the bot's `login` and its numeric account `id`.
+A matching PR skips the bot-author refusal, the review mode and the write-permission check, because the policy entry replaces them.
+Every other gate stays, and one more applies.
+An attestation that pins its publisher must vouch for every file in the PR, so a bot can only land the kinds of change a pinned check proves.
+An entry pins its publisher through an `issuer` manifest, the file in which the publisher lists the default-branch paths it runs from, or through a `publisher_files` list in the policy.
+A check that pins neither proves nothing for a bot, because its marker does not name the PR it proved.
+That proof is also the PR's independent assurance, because a bot has no reviewer and no owning team.
+Name a bot only when each such check is published by a dedicated GitHub App whose key the default branch alone can use, for example through an Environment restricted to that branch.
+Anyone who can post a check run as that App can approve the bot's PRs.
+The list is read from the default branch, like the rest of the policy.
+
 ### The `digest:` key
 
 `policy.yml` may also carry a `digest:` section.
@@ -201,7 +216,12 @@ A comment names the cut owners and why.
 
 - `off` (the default): never.
 - `always`: when a PR opens ready for review or is marked ready. It never reads or waits for a verdict, and it routes bot and fork PRs too. Each head routes once, so a draft marked ready right after it opened is not routed twice.
-- `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, bot or untrusted author, or label mode without the trigger label and with the clean-review switch off), routing runs at once, like `always`. Otherwise the head waits for the verdict:
+  - When every changed path, the old path of a rename included, matches the `paths` of a policy `attestations` entry that pins its publisher, the head waits for the checks of those entries instead. A Celery task polls the checks every 2 minutes, and the safety net routes the head in full after 30 minutes.
+  - When every check has reported, the engine verifies the proof with its own rules (`review_local.py --attestation-proof`). If the proof covers every changed path and the PR keeps a reviewer, the run has scope `attested`: it requests only the pinned owners (sensitive paths and owners of additions), skips the cut step, posts no comment, and logs every other owner as `not_requested` with reason `attested`. The PR keeps a reviewer when it has a pending review request that no routing made (for example one the author's bot made), or a stamphog approval that stands over the head. A proven PR with neither keeps polling while stamphog's review of the head can still approve it, because stamphog reviews an admitted bot's PR again only after its proof reports.
+  - Anything else routes in full: a failed or neutral check, a check with no proof ("Nothing to attest"), a proof that leaves a path out, a stale publisher, partial ownership data, or the safety net. A check that succeeds after the head was routed removes no request.
+  - A proof covers only the head and base it names. A push to a PR that waits for its checks or that had an attested run makes the new head wait for its own checks the same way, with a new poll and safety net, whether or not the push dismissed an approval. A pushed head that no attestation covers routes in full. A base retarget routes an attested head in full when the proof no longer covers the retargeted diff.
+  - After an attested run, a verdict on the live head that is not an approval and that stamphog does not review again, or an approval retraction on the same head that starts no review, routes the live head in full unless the PR still keeps a reviewer.
+- `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, a bot the policy does not name, an untrusted author, or label mode without the trigger label and with the clean-review switch off), routing runs at once, like `always`. Otherwise the head waits for the verdict:
   - An approval requests only the pinned owners of that head that no earlier routing of the PR requested, and says so in the comment. When there are none, it requests nobody. The cut step still judges every owner, so the run log shows who full routing would have asked: an owner the model kept is `not_requested`, an owner it cut is `cut` with the reason. The comment names no cuts.
   - With the clean-review switch on, a head waits for the silent review that a clean PostHog Review run starts. A verdict the silent review withholds from the PR still routes, like a visible one, and the routing comment never names the verdict. A withheld WAIT routes in full, because nothing reviews the head again.
   - When PostHog Review finds something, fails, or starts no automatic review of the head, it tells stamphog (`facade/tasks.py::queue_routing_after_external_review`). A PR that still waits on that head then routes in full with the `external_review` trigger, unless the live head has a stamphog review or the trigger label. When the author pushed since, before or after the opening event, the live head routes, because a push starts no silent review. A silent review that a gate refuses (author below write, untrusted author, a moved head, and so on) reports the same way. The report can arrive before the opening event saves its waiting record, so a report that finds no record tries again a minute later, like a routing task that finds another task's claim.
@@ -217,25 +237,25 @@ A comment names the cut owners and why.
 `routing_fork_labels` maps a team slug to a label name. On a fork PR, a kept team with an entry gets that label instead of a review request, so an outside author cannot ping it.
 
 `routing_mode` is set under "Reviewer requests" in the repository's row on the Stamphog page, or with `routing_mode` on the repo config API. Both directions take the `manager` level, like `review_mode`. A placeholder row resets it to `off` when it binds to an installation, like the other review policy fields.
-The page offers the setting only when the default branch has a root `owners.yaml` (`GET repo_configs/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
-Set `routing_fork_labels` with `routing_fork_labels` on the repo config API, for example `PATCH repo_configs/{id}/` with `{"routing_fork_labels": {"team-alpha": "team/alpha"}}`. The value replaces the whole map, and `{}` removes every label. It takes the `manager` level like `routing_mode`, because it decides who gets asked on a fork PR, and a placeholder row resets it to `{}` when it binds.
+The page offers the setting only when the default branch has a root `owners.yaml` (`GET code_review/approvals/repositories/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
+Set `routing_fork_labels` with `routing_fork_labels` on the repo config API, for example `PATCH code_review/approvals/repositories/{id}/` with `{"routing_fork_labels": {"team-alpha": "team/alpha"}}`. The value replaces the whole map, and `{}` removes every label. It takes the `manager` level like `routing_mode`, because it decides who gets asked on a fork PR, and a placeholder row resets it to `{}` when it binds.
 
 Routing only adds review requests, so a second assigner that requests every owner leaves the cut nothing to remove.
 In PostHog/posthog, `.github/workflows/auto-assign-reviewers.yml` stops when the repository variable `AUTO_ASSIGN_REVIEWERS_PAUSED` is `true`.
 Turn routing on first, then set the variable. To roll back, delete the variable first, then turn routing off.
 
-The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>`, `external_review`, `approval_retracted` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
+The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>`, `external_review`, `approval_retracted`, `attestation` or `safety_net`), scope (`full`, `pinned` or `attested`) and status (`waiting`, `routing`, `requested` or `done`).
 `full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
 Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
-`GET pull_requests/` and `stamphog-pull-requests-list` return an allowlist of that record as `routing` (status, head, mode, trigger, scope, timestamps, the routed heads, and `claim_expired`), next to the repository's `routing_mode` now. The plan, the pins and the pending comment stay internal.
+`GET code_review/approvals/pull_requests/` and `code-review-approvals-pull-requests-list` return an allowlist of that record as `routing` (status, head, mode, trigger, scope, timestamps, the routed heads, and `claim_expired`), next to the repository's `routing_mode` now. The plan, the pins and the pending comment stay internal.
 
 Each run that makes its requests is also recorded, append-only, in `RoutingRun` with one `RoutingRunOwner` row per owner: what the run did with the owner (`outcome`), why (`reason`), the model's one-line reason when it proposed a cut, also when a guard kept the owner, and every changed file the owner owns, without patches.
 owners.yaml and the pull request both change after the run, so the run keeps its own copy of the file list, and `owners_sha` names the default-branch commit whose owners.yaml files decided the owners.
 Each file also keeps `owners_source`, the ownership file whose `owners` list named the owner for it. An owner that only an additions declaration made a candidate has none, because additions collect from every file on the walk.
 The plan decides each owner's outcome and reason. The rows are written after the `requested` record is saved, so a failed log write only logs and never makes the task request again.
-Read them with `GET routing_runs/` (filters `repository`, `pr_number`, `owner`, `outcome`, `reason`, `head_sha`, `created_after`, `created_before`) or the `stamphog-routing-runs-list` MCP tool.
+Read them with `GET code_review/approvals/reviewer_routing/` (filters `repository`, `pr_number`, `owner`, `outcome`, `reason`, `head_sha`, `created_after`, `created_before`) or the `code-review-approvals-reviewer-routing-list` MCP tool.
 `outcome` and `reason` match the same owner as `owner`, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
-The list leaves out the file lists, because a large pull request gives every owner a long one. `GET routing_runs/{id}/` and `stamphog-routing-runs-get` return them. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
+The list leaves out the file lists, because a large pull request gives every owner a long one. `GET code_review/approvals/reviewer_routing/{id}/` and `code-review-approvals-reviewer-routing-get` return them. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
 
 Every routing run (event, verdict or safety net) takes the same steps:
 
@@ -278,7 +298,7 @@ How the engine handles a stacked checkout: [`packages/pr-approval-agent/README.m
 
 **Self-driving inbox PRs** are the one non-webhook entry.
 When a self-driving Inbox implementation run opens its bot-authored draft PR, review_hog's inbox receiver calls the `queue_inbox_pr_review` facade, gated by the assigned reviewers' per-user `stamphog_review_inbox_prs` toggles, and the initial review runs while the PR is still a draft so the verdict is ready at Inbox triage time.
-Later pushes re-review through the normal webhook path via a positively identified carve-out, and every other bot author stays refused at every layer.
+Later pushes re-review through the normal webhook path via a positively identified carve-out, and every other bot author stays refused at every layer unless the policy names it under `bot_authors`.
 See [AGENTS.md](AGENTS.md) for the carve-out's invariants.
 
 ## Security model

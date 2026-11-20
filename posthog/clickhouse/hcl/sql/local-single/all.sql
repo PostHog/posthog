@@ -44,13 +44,6 @@ CREATE TABLE posthog.clickhouse_cleanup_revived_persons (
   person_id UUID,
   created_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons', '{replica}-{shard}', created_at) ORDER BY (run_id, team_id, person_id) PARTITION BY run_id TTL created_at + toIntervalDay(14) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
-CREATE TABLE posthog.cohort_membership (
-  team_id Int64,
-  cohort_id Int64,
-  person_id UUID,
-  status Enum8('entered'=1, 'left'=2),
-  last_updated DateTime64(6) DEFAULT now64()
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.cohort_membership', '{replica}-{shard}', last_updated) ORDER BY (team_id, cohort_id, person_id) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.cohortpeople (
   person_id UUID,
   cohort_id Int64,
@@ -346,13 +339,6 @@ CREATE TABLE posthog.kafka_billing_usage_records (
   timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC')
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS date_time_input_format = 'best_effort', kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_billing_usage_records', kafka_topic_list = 'clickhouse_billing_usage_records';
-CREATE TABLE posthog.kafka_cohort_membership (
-  team_id Int64,
-  cohort_id Int64,
-  person_id UUID,
-  status Enum8('entered'=1, 'left'=2, 'member'=3, 'not_member'=4),
-  last_updated DateTime64(6)
-) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_cohort_membership_changed', kafka_topic_list = 'cohort_membership_changed';
 CREATE TABLE posthog.kafka_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -427,6 +413,14 @@ CREATE TABLE posthog.kafka_error_tracking_issue_fingerprint_overrides (
   is_deleted Int8,
   version Int64
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-error-tracking-issue-fingerprint-overrides', kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint';
+CREATE TABLE posthog.kafka_error_tracking_issue_tags (
+  team_id Int64,
+  issue_id UUID,
+  key String,
+  value Nullable(Int8),
+  is_deleted Int8,
+  version Int64
+) ENGINE = Kafka(warpstream_shared) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_error_tracking_issue_tags', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_error_tracking_issue_tags';
 CREATE TABLE posthog.kafka_events_dead_letter_queue (
   id UUID,
   event_uuid UUID,
@@ -845,80 +839,8 @@ CREATE TABLE posthog.kafka_session_replay_events (
   is_deleted UInt8,
   ai_tags_fixed Array(String),
   ai_tags_freeform Array(String),
-  ai_highlighted UInt8,
-  surfacing_score Nullable(Float32)
+  ai_highlighted UInt8
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_session_replay_events';
-CREATE TABLE posthog.kafka_session_replay_features (
-  session_id String,
-  team_id Int64,
-  distinct_id String,
-  batch_id String,
-  first_timestamp DateTime64(6, 'UTC'),
-  last_timestamp DateTime64(6, 'UTC'),
-  event_count Int64,
-  mouse_position_count Int64,
-  mouse_sum_x Float64,
-  mouse_sum_x_squared Float64,
-  mouse_sum_y Float64,
-  mouse_sum_y_squared Float64,
-  mouse_distance_traveled Float64,
-  mouse_direction_change_count Int64,
-  mouse_velocity_sum Float64,
-  mouse_velocity_sum_of_squares Float64,
-  mouse_velocity_count Int64,
-  scroll_event_count Int64,
-  total_scroll_magnitude Float64,
-  scroll_direction_reversal_count Int64,
-  rapid_scroll_reversal_count Int64,
-  scroll_to_top_count Int64,
-  click_count Int64,
-  keypress_count Int64,
-  mouse_activity_count Int64,
-  rage_click_count Int64,
-  dead_click_count Int64,
-  backspace_count Int64,
-  inter_action_gap_count Int64,
-  inter_action_gap_sum_ms Float64,
-  inter_action_gap_sum_of_squares_ms Float64,
-  max_idle_gap_ms Float64,
-  long_idle_gap_count Int64,
-  quick_back_count Int64,
-  page_visit_count Int64,
-  visited_urls Array(String),
-  login_path_visit_count Int64,
-  signup_path_visit_count Int64,
-  checkout_path_visit_count Int64,
-  cart_path_visit_count Int64,
-  billing_path_visit_count Int64,
-  settings_path_visit_count Int64,
-  account_path_visit_count Int64,
-  error_path_visit_count Int64,
-  not_found_path_visit_count Int64,
-  admin_path_visit_count Int64,
-  dashboard_path_visit_count Int64,
-  onboarding_path_visit_count Int64,
-  cancel_path_visit_count Int64,
-  refund_path_visit_count Int64,
-  console_error_count Int64,
-  console_error_after_click_count Int64,
-  console_warn_count Int64,
-  network_request_count Int64,
-  network_failed_request_count Int64,
-  network_4xx_count Int64,
-  network_5xx_count Int64,
-  network_request_duration_sum Float64,
-  network_request_duration_sum_of_squares Float64,
-  network_request_duration_count Int64,
-  mutation_count Int64,
-  viewport_resize_count Int64,
-  touch_event_count Int64,
-  max_scroll_y Float64,
-  click_target_ids Array(Int64),
-  form_field_ids Array(Int64),
-  text_selection_count Int64,
-  selection_copy_count Int64,
-  is_deleted UInt8
-) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'group1', kafka_topic_list = 'clickhouse_session_replay_features';
 CREATE TABLE posthog.kafka_tophog (
   timestamp DateTime64(6, 'UTC'),
   metric LowCardinality(String),
@@ -1855,6 +1777,18 @@ CREATE TABLE posthog.raw_error_tracking_fingerprint_issue_state (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_raw_error_tracking_fingerprint_issue_state _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.raw_error_tracking_fingerprint_issue_state', '{replica}-{shard}', version) ORDER BY (team_id, fingerprint) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.raw_error_tracking_issue_tags (
+  team_id Int64,
+  issue_id UUID,
+  key String,
+  value Nullable(Int8),
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64,
+  INDEX kafka_timestamp_minmax_raw_error_tracking_issue_tags _timestamp TYPE minmax GRANULARITY 3
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.raw_error_tracking_issue_tags', '{replica}-{shard}', version) ORDER BY (team_id, key, issue_id) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.sharded_ai_events (
   uuid UUID,
   event LowCardinality(String),
@@ -2095,7 +2029,7 @@ CREATE TABLE posthog.sharded_events (
 CREATE TABLE posthog.sharded_events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32) TTL toDateTime(inserted_at) + toIntervalDay(60),
   properties_null_keys Array(LowCardinality(String)),
   temporary_properties_null_keys Array(LowCardinality(String)) TTL toDateTime(inserted_at) + toIntervalDay(60),
@@ -2182,7 +2116,10 @@ CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   exposure_session_id String,
   breakdown_value Array(String),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at Date DEFAULT today() + toIntervalDay(7)
+  expires_at Date DEFAULT today() + toIntervalDay(7),
+  timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+  uuid UUID ALIAS exposure_event_uuid,
+  inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated', '{replica}', computed_at) ORDER BY (team_id, job_id, entity_id, breakdown_value) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_experiment_metric_events_preaggregated (
   team_id Int64,
@@ -2196,7 +2133,9 @@ CREATE TABLE posthog.sharded_experiment_metric_events_preaggregated (
   numeric_value Float64 DEFAULT 0,
   steps Array(UInt8) DEFAULT [],
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at Date DEFAULT today() + toIntervalDay(7)
+  expires_at Date DEFAULT today() + toIntervalDay(7),
+  uuid UUID ALIAS event_uuid,
+  inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.experiment_metric_events_preaggregated', '{replica}-{shard}', computed_at) ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid) PARTITION BY toYYYYMMDD(expires_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_flag_evaluations (
   uuid UUID,
@@ -2779,79 +2718,8 @@ CREATE TABLE posthog.sharded_session_replay_events (
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-  surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.session_replay_events', '{replica}') ORDER BY (toDate(min_first_timestamp), team_id, session_id) PARTITION BY toYYYYMM(min_first_timestamp) SETTINGS index_granularity = 512;
-CREATE TABLE posthog.sharded_session_replay_features (
-  session_id String,
-  team_id Int64,
-  distinct_id String,
-  min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-  max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-  event_count SimpleAggregateFunction(sum, Int64),
-  mouse_position_count SimpleAggregateFunction(sum, Int64),
-  mouse_sum_x SimpleAggregateFunction(sum, Float64),
-  mouse_sum_x_squared SimpleAggregateFunction(sum, Float64),
-  mouse_sum_y SimpleAggregateFunction(sum, Float64),
-  mouse_sum_y_squared SimpleAggregateFunction(sum, Float64),
-  mouse_distance_traveled SimpleAggregateFunction(sum, Float64),
-  mouse_direction_change_count SimpleAggregateFunction(sum, Int64),
-  mouse_velocity_sum SimpleAggregateFunction(sum, Float64),
-  mouse_velocity_sum_of_squares SimpleAggregateFunction(sum, Float64),
-  mouse_velocity_count SimpleAggregateFunction(sum, Int64),
-  scroll_event_count SimpleAggregateFunction(sum, Int64),
-  total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
-  scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
-  rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
-  scroll_to_top_count SimpleAggregateFunction(sum, Int64),
-  click_count SimpleAggregateFunction(sum, Int64),
-  keypress_count SimpleAggregateFunction(sum, Int64),
-  mouse_activity_count SimpleAggregateFunction(sum, Int64),
-  rage_click_count SimpleAggregateFunction(sum, Int64),
-  dead_click_count SimpleAggregateFunction(sum, Int64),
-  backspace_count SimpleAggregateFunction(sum, Int64),
-  inter_action_gap_count SimpleAggregateFunction(sum, Int64),
-  inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
-  inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
-  max_idle_gap_ms SimpleAggregateFunction(max, Float64),
-  long_idle_gap_count SimpleAggregateFunction(sum, Int64),
-  quick_back_count SimpleAggregateFunction(sum, Int64),
-  page_visit_count SimpleAggregateFunction(sum, Int64),
-  unique_url_count AggregateFunction(uniqCombined(12), String),
-  login_path_visit_count SimpleAggregateFunction(sum, Int64),
-  signup_path_visit_count SimpleAggregateFunction(sum, Int64),
-  checkout_path_visit_count SimpleAggregateFunction(sum, Int64),
-  cart_path_visit_count SimpleAggregateFunction(sum, Int64),
-  billing_path_visit_count SimpleAggregateFunction(sum, Int64),
-  settings_path_visit_count SimpleAggregateFunction(sum, Int64),
-  account_path_visit_count SimpleAggregateFunction(sum, Int64),
-  error_path_visit_count SimpleAggregateFunction(sum, Int64),
-  not_found_path_visit_count SimpleAggregateFunction(sum, Int64),
-  admin_path_visit_count SimpleAggregateFunction(sum, Int64),
-  dashboard_path_visit_count SimpleAggregateFunction(sum, Int64),
-  onboarding_path_visit_count SimpleAggregateFunction(sum, Int64),
-  cancel_path_visit_count SimpleAggregateFunction(sum, Int64),
-  refund_path_visit_count SimpleAggregateFunction(sum, Int64),
-  console_error_count SimpleAggregateFunction(sum, Int64),
-  console_error_after_click_count SimpleAggregateFunction(sum, Int64),
-  console_warn_count SimpleAggregateFunction(sum, Int64),
-  network_request_count SimpleAggregateFunction(sum, Int64),
-  network_failed_request_count SimpleAggregateFunction(sum, Int64),
-  network_4xx_count SimpleAggregateFunction(sum, Int64),
-  network_5xx_count SimpleAggregateFunction(sum, Int64),
-  network_request_duration_sum SimpleAggregateFunction(sum, Float64),
-  network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
-  network_request_duration_count SimpleAggregateFunction(sum, Int64),
-  mutation_count SimpleAggregateFunction(sum, Int64),
-  viewport_resize_count SimpleAggregateFunction(sum, Int64),
-  touch_event_count SimpleAggregateFunction(sum, Int64),
-  max_scroll_y SimpleAggregateFunction(max, Float64),
-  unique_click_target_count AggregateFunction(uniqCombined(12), Int64),
-  unique_form_field_count AggregateFunction(uniqCombined(12), Int64),
-  text_selection_count SimpleAggregateFunction(sum, Int64),
-  selection_copy_count SimpleAggregateFunction(sum, Int64),
-  is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.session_replay_features', '{replica}') ORDER BY (team_id, session_id) PARTITION BY toYYYYMM(min_first_timestamp) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.sharded_sessions (
   session_id String,
   team_id Int64,
@@ -3684,13 +3552,6 @@ CREATE TABLE posthog.writable_billing_usage_records (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
-CREATE TABLE posthog.writable_cohort_membership (
-  team_id Int64,
-  cohort_id Int64,
-  person_id UUID,
-  status Enum8('entered'=1, 'left'=2),
-  last_updated DateTime64(6) DEFAULT now64()
-) ENGINE = Distributed('posthog_single_shard', 'posthog', 'cohort_membership');
 CREATE TABLE posthog.writable_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -3756,6 +3617,17 @@ CREATE TABLE posthog.writable_error_tracking_issue_fingerprint_overrides (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'error_tracking_issue_fingerprint_overrides');
+CREATE TABLE posthog.writable_error_tracking_issue_tags (
+  team_id Int64,
+  issue_id UUID,
+  key String,
+  value Nullable(Int8),
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'raw_error_tracking_issue_tags');
 CREATE TABLE posthog.writable_events (
   uuid UUID,
   event String,
@@ -3817,7 +3689,7 @@ CREATE TABLE posthog.writable_events_dead_letter_queue (
 CREATE TABLE posthog.writable_events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32),
   properties_null_keys Array(LowCardinality(String)),
   temporary_properties_null_keys Array(LowCardinality(String)),
@@ -4340,79 +4212,8 @@ CREATE TABLE posthog.writable_session_replay_events (
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-  ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-  surfacing_score SimpleAggregateFunction(max, Nullable(Float32))
+  ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
-CREATE TABLE posthog.writable_session_replay_features (
-  session_id String,
-  team_id Int64,
-  distinct_id String,
-  min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-  max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-  event_count SimpleAggregateFunction(sum, Int64),
-  mouse_position_count SimpleAggregateFunction(sum, Int64),
-  mouse_sum_x SimpleAggregateFunction(sum, Float64),
-  mouse_sum_x_squared SimpleAggregateFunction(sum, Float64),
-  mouse_sum_y SimpleAggregateFunction(sum, Float64),
-  mouse_sum_y_squared SimpleAggregateFunction(sum, Float64),
-  mouse_distance_traveled SimpleAggregateFunction(sum, Float64),
-  mouse_direction_change_count SimpleAggregateFunction(sum, Int64),
-  mouse_velocity_sum SimpleAggregateFunction(sum, Float64),
-  mouse_velocity_sum_of_squares SimpleAggregateFunction(sum, Float64),
-  mouse_velocity_count SimpleAggregateFunction(sum, Int64),
-  scroll_event_count SimpleAggregateFunction(sum, Int64),
-  total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
-  scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
-  rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
-  scroll_to_top_count SimpleAggregateFunction(sum, Int64),
-  click_count SimpleAggregateFunction(sum, Int64),
-  keypress_count SimpleAggregateFunction(sum, Int64),
-  mouse_activity_count SimpleAggregateFunction(sum, Int64),
-  rage_click_count SimpleAggregateFunction(sum, Int64),
-  dead_click_count SimpleAggregateFunction(sum, Int64),
-  backspace_count SimpleAggregateFunction(sum, Int64),
-  inter_action_gap_count SimpleAggregateFunction(sum, Int64),
-  inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
-  inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
-  max_idle_gap_ms SimpleAggregateFunction(max, Float64),
-  long_idle_gap_count SimpleAggregateFunction(sum, Int64),
-  quick_back_count SimpleAggregateFunction(sum, Int64),
-  page_visit_count SimpleAggregateFunction(sum, Int64),
-  unique_url_count AggregateFunction(uniqCombined(12), String),
-  login_path_visit_count SimpleAggregateFunction(sum, Int64),
-  signup_path_visit_count SimpleAggregateFunction(sum, Int64),
-  checkout_path_visit_count SimpleAggregateFunction(sum, Int64),
-  cart_path_visit_count SimpleAggregateFunction(sum, Int64),
-  billing_path_visit_count SimpleAggregateFunction(sum, Int64),
-  settings_path_visit_count SimpleAggregateFunction(sum, Int64),
-  account_path_visit_count SimpleAggregateFunction(sum, Int64),
-  error_path_visit_count SimpleAggregateFunction(sum, Int64),
-  not_found_path_visit_count SimpleAggregateFunction(sum, Int64),
-  admin_path_visit_count SimpleAggregateFunction(sum, Int64),
-  dashboard_path_visit_count SimpleAggregateFunction(sum, Int64),
-  onboarding_path_visit_count SimpleAggregateFunction(sum, Int64),
-  cancel_path_visit_count SimpleAggregateFunction(sum, Int64),
-  refund_path_visit_count SimpleAggregateFunction(sum, Int64),
-  console_error_count SimpleAggregateFunction(sum, Int64),
-  console_error_after_click_count SimpleAggregateFunction(sum, Int64),
-  console_warn_count SimpleAggregateFunction(sum, Int64),
-  network_request_count SimpleAggregateFunction(sum, Int64),
-  network_failed_request_count SimpleAggregateFunction(sum, Int64),
-  network_4xx_count SimpleAggregateFunction(sum, Int64),
-  network_5xx_count SimpleAggregateFunction(sum, Int64),
-  network_request_duration_sum SimpleAggregateFunction(sum, Float64),
-  network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
-  network_request_duration_count SimpleAggregateFunction(sum, Int64),
-  mutation_count SimpleAggregateFunction(sum, Int64),
-  viewport_resize_count SimpleAggregateFunction(sum, Int64),
-  touch_event_count SimpleAggregateFunction(sum, Int64),
-  max_scroll_y SimpleAggregateFunction(max, Float64),
-  unique_click_target_count AggregateFunction(uniqCombined(12), Int64),
-  unique_form_field_count AggregateFunction(uniqCombined(12), Int64),
-  text_selection_count SimpleAggregateFunction(sum, Int64),
-  selection_copy_count SimpleAggregateFunction(sum, Int64),
-  is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
-) ENGINE = Distributed('aux', 'posthog', 'sharded_session_replay_features', sipHash64(session_id));
 CREATE TABLE posthog.writable_sessions (
   session_id String,
   team_id Int64,
@@ -4577,13 +4378,6 @@ CREATE MATERIALIZED VIEW posthog.billing_usage_records_mv TO posthog.writable_bi
   _offset,
   _partition
 FROM posthog.kafka_billing_usage_records;
-CREATE MATERIALIZED VIEW posthog.cohort_membership_mv TO posthog.writable_cohort_membership (team_id Int64, cohort_id Int64, person_id UUID, status String, last_updated DateTime64(6)) AS SELECT
-  team_id,
-  cohort_id,
-  person_id,
-  multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status,
-  last_updated
-FROM posthog.kafka_cohort_membership;
 CREATE MATERIALIZED VIEW posthog.distinct_id_usage_mv TO posthog.writable_distinct_id_usage (team_id Int64, distinct_id String, minute DateTime('UTC'), event_count UInt8) AS SELECT team_id, distinct_id, toStartOfMinute(timestamp) AS minute, 1 AS event_count
 FROM posthog.kafka_distinct_id_usage;
 CREATE MATERIALIZED VIEW posthog.duplicate_events_mv TO posthog.writable_duplicate_events (team_id Int64, distinct_id String, event String, source_uuid UUID, duplicate_uuid UUID, similarity_score Float64, dedup_type LowCardinality(String), is_confirmed UInt8, reason Nullable(String), version String, different_property_count UInt32, properties_similarity Float64, source_message String, duplicate_message String, distinct_fields Array(Tuple(field_name String, original_value String, new_value String)), inserted_at DateTime64(3, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
@@ -4678,6 +4472,17 @@ CREATE MATERIALIZED VIEW posthog.error_tracking_issue_fingerprint_overrides_mv T
   _partition
 FROM posthog.kafka_error_tracking_issue_fingerprint_overrides
 WHERE version > 0;
+CREATE MATERIALIZED VIEW posthog.error_tracking_issue_tags_mv TO posthog.writable_error_tracking_issue_tags (team_id Int64, issue_id UUID, key String, value Nullable(Int8), is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  issue_id,
+  key,
+  value,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_error_tracking_issue_tags;
 CREATE MATERIALIZED VIEW posthog.events_dead_letter_queue_mv TO posthog.writable_events_dead_letter_queue (id UUID, event_uuid UUID, event String, properties String, distinct_id String, team_id Int64, elements_chain String, created_at DateTime64(6, 'UTC'), ip String, site_url String, now DateTime64(6, 'UTC'), raw_payload String, error_timestamp DateTime64(6, 'UTC'), error_location String, error String, tags Array(String), _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
   id,
   event_uuid,
@@ -5972,7 +5777,7 @@ AND
   ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) >= (min_first_timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) <= (min_first_timestamp + toIntervalDay(31))))
 AND
   true;
-CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8)) AS SELECT
   session_id,
   team_id,
   any(distinct_id) AS distinct_id,
@@ -6001,81 +5806,8 @@ CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_se
   groupUniqArrayArray(ai_tags_fixed) AS ai_tags_fixed,
   groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
   max(ai_highlighted) AS ai_highlighted,
-  max(surfacing_score) AS surfacing_score,
   argMinState(replay.snapshot_mode, first_timestamp) AS snapshot_mode_v2
 FROM posthog.kafka_session_replay_events AS replay
-GROUP BY
-  session_id, team_id;
-CREATE MATERIALIZED VIEW posthog.session_replay_features_mv TO posthog.writable_session_replay_features (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), event_count Int64, mouse_position_count Int64, mouse_sum_x Float64, mouse_sum_x_squared Float64, mouse_sum_y Float64, mouse_sum_y_squared Float64, mouse_distance_traveled Float64, mouse_direction_change_count Int64, mouse_velocity_sum Float64, mouse_velocity_sum_of_squares Float64, mouse_velocity_count Int64, scroll_event_count Int64, total_scroll_magnitude Float64, scroll_direction_reversal_count Int64, rapid_scroll_reversal_count Int64, scroll_to_top_count Int64, click_count Int64, keypress_count Int64, mouse_activity_count Int64, rage_click_count Int64, dead_click_count Int64, backspace_count Int64, inter_action_gap_count Int64, inter_action_gap_sum_ms Float64, inter_action_gap_sum_of_squares_ms Float64, max_idle_gap_ms Float64, long_idle_gap_count Int64, quick_back_count Int64, page_visit_count Int64, unique_url_count AggregateFunction(uniqCombinedArray(12), Array(String)), login_path_visit_count Int64, signup_path_visit_count Int64, checkout_path_visit_count Int64, cart_path_visit_count Int64, billing_path_visit_count Int64, settings_path_visit_count Int64, account_path_visit_count Int64, error_path_visit_count Int64, not_found_path_visit_count Int64, admin_path_visit_count Int64, dashboard_path_visit_count Int64, onboarding_path_visit_count Int64, cancel_path_visit_count Int64, refund_path_visit_count Int64, console_error_count Int64, console_error_after_click_count Int64, console_warn_count Int64, network_request_count Int64, network_failed_request_count Int64, network_4xx_count Int64, network_5xx_count Int64, network_request_duration_sum Float64, network_request_duration_sum_of_squares Float64, network_request_duration_count Int64, mutation_count Int64, viewport_resize_count Int64, touch_event_count Int64, max_scroll_y Float64, unique_click_target_count AggregateFunction(uniqCombinedArray(12), Array(Int64)), unique_form_field_count AggregateFunction(uniqCombinedArray(12), Array(Int64)), text_selection_count Int64, selection_copy_count Int64, is_deleted UInt8) AS SELECT
-  session_id,
-  team_id,
-  any(distinct_id) AS distinct_id,
-  min(first_timestamp) AS min_first_timestamp,
-  max(last_timestamp) AS max_last_timestamp,
-  sum(event_count) AS event_count,
-  sum(mouse_position_count) AS mouse_position_count,
-  sum(mouse_sum_x) AS mouse_sum_x,
-  sum(mouse_sum_x_squared) AS mouse_sum_x_squared,
-  sum(mouse_sum_y) AS mouse_sum_y,
-  sum(mouse_sum_y_squared) AS mouse_sum_y_squared,
-  sum(mouse_distance_traveled) AS mouse_distance_traveled,
-  sum(mouse_direction_change_count) AS mouse_direction_change_count,
-  sum(mouse_velocity_sum) AS mouse_velocity_sum,
-  sum(mouse_velocity_sum_of_squares) AS mouse_velocity_sum_of_squares,
-  sum(mouse_velocity_count) AS mouse_velocity_count,
-  sum(scroll_event_count) AS scroll_event_count,
-  sum(total_scroll_magnitude) AS total_scroll_magnitude,
-  sum(scroll_direction_reversal_count) AS scroll_direction_reversal_count,
-  sum(rapid_scroll_reversal_count) AS rapid_scroll_reversal_count,
-  sum(scroll_to_top_count) AS scroll_to_top_count,
-  sum(click_count) AS click_count,
-  sum(keypress_count) AS keypress_count,
-  sum(mouse_activity_count) AS mouse_activity_count,
-  sum(rage_click_count) AS rage_click_count,
-  sum(dead_click_count) AS dead_click_count,
-  sum(backspace_count) AS backspace_count,
-  sum(inter_action_gap_count) AS inter_action_gap_count,
-  sum(inter_action_gap_sum_ms) AS inter_action_gap_sum_ms,
-  sum(inter_action_gap_sum_of_squares_ms) AS inter_action_gap_sum_of_squares_ms,
-  max(max_idle_gap_ms) AS max_idle_gap_ms,
-  sum(long_idle_gap_count) AS long_idle_gap_count,
-  sum(quick_back_count) AS quick_back_count,
-  sum(page_visit_count) AS page_visit_count,
-  uniqCombinedArrayState(12)(visited_urls) AS unique_url_count,
-  sum(login_path_visit_count) AS login_path_visit_count,
-  sum(signup_path_visit_count) AS signup_path_visit_count,
-  sum(checkout_path_visit_count) AS checkout_path_visit_count,
-  sum(cart_path_visit_count) AS cart_path_visit_count,
-  sum(billing_path_visit_count) AS billing_path_visit_count,
-  sum(settings_path_visit_count) AS settings_path_visit_count,
-  sum(account_path_visit_count) AS account_path_visit_count,
-  sum(error_path_visit_count) AS error_path_visit_count,
-  sum(not_found_path_visit_count) AS not_found_path_visit_count,
-  sum(admin_path_visit_count) AS admin_path_visit_count,
-  sum(dashboard_path_visit_count) AS dashboard_path_visit_count,
-  sum(onboarding_path_visit_count) AS onboarding_path_visit_count,
-  sum(cancel_path_visit_count) AS cancel_path_visit_count,
-  sum(refund_path_visit_count) AS refund_path_visit_count,
-  sum(console_error_count) AS console_error_count,
-  sum(console_error_after_click_count) AS console_error_after_click_count,
-  sum(console_warn_count) AS console_warn_count,
-  sum(network_request_count) AS network_request_count,
-  sum(network_failed_request_count) AS network_failed_request_count,
-  sum(network_4xx_count) AS network_4xx_count,
-  sum(network_5xx_count) AS network_5xx_count,
-  sum(network_request_duration_sum) AS network_request_duration_sum,
-  sum(network_request_duration_sum_of_squares) AS network_request_duration_sum_of_squares,
-  sum(network_request_duration_count) AS network_request_duration_count,
-  sum(mutation_count) AS mutation_count,
-  sum(viewport_resize_count) AS viewport_resize_count,
-  sum(touch_event_count) AS touch_event_count,
-  max(max_scroll_y) AS max_scroll_y,
-  uniqCombinedArrayState(12)(click_target_ids) AS unique_click_target_count,
-  uniqCombinedArrayState(12)(form_field_ids) AS unique_form_field_count,
-  sum(text_selection_count) AS text_selection_count,
-  sum(selection_copy_count) AS selection_copy_count,
-  max(is_deleted) AS is_deleted
-FROM posthog.kafka_session_replay_features
 GROUP BY
   session_id, team_id;
 CREATE MATERIALIZED VIEW posthog.sessions_mv TO posthog.writable_sessions (session_id String, team_id Int64, distinct_id String, min_timestamp DateTime64(6, 'UTC'), max_timestamp DateTime64(6, 'UTC'), urls Array(String), entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')), exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')), initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_dclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_gbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_wbraid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_fbclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_msclkid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_twclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_li_fat_id AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')), event_count_map Map(String, UInt64), pageview_count UInt64, autocapture_count UInt64) AS SELECT
@@ -6448,7 +6180,10 @@ CREATE VIEW posthog.metrics4_view AS SELECT
   instrumentation_scope
 FROM
   posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
-WHERE time_bucket >= toDateTime('2026-09-14 00:00:00');
+WHERE
+  (time_bucket >= toDateTime('2026-09-14 00:00:00'))
+AND
+  (reinterpretAsUInt64(point_value) != 9218868437227405314);
 CREATE VIEW posthog.persons_batch_export AS WITH
   new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING (_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64})),
   new_distinct_ids AS (SELECT argMax(person_id, person_distinct_id2.version) AS person_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (distinct_id IN (SELECT distinct_id FROM posthog.person_distinct_id2 WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY distinct_id HAVING (argMax(_timestamp, person_distinct_id2.version) >= {interval_start: DateTime64}) AND (argMax(_timestamp, person_distinct_id2.version) < {interval_end: DateTime64})),
@@ -6766,6 +6501,17 @@ CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'raw_error_tracking_fingerprint_issue_state');
+CREATE TABLE posthog.error_tracking_issue_tags (
+  team_id Int64,
+  issue_id UUID,
+  key String,
+  value Nullable(Int8),
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'raw_error_tracking_issue_tags');
 CREATE TABLE posthog.events (
   uuid UUID,
   event String,
@@ -6830,7 +6576,7 @@ CREATE TABLE posthog.events (
 CREATE TABLE posthog.events_json (
   uuid UUID,
   event String,
-  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$exception_functions` Array(String), `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$mcp_listed_tool_names` Array(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
+  properties JSON(`$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_version` LowCardinality(String), `$config_defaults` LowCardinality(String), `$current_url` String, `$device_type` LowCardinality(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$host` String, `$lib` LowCardinality(String), `$lib_version` LowCardinality(String), `$os` LowCardinality(String), `$os_version` LowCardinality(String), `$pathname` String, `$session_id` String, `$timezone` LowCardinality(String), `$window_id` String),
   temporary_properties JSON(max_dynamic_paths=32),
   properties_null_keys Array(LowCardinality(String)),
   temporary_properties_null_keys Array(LowCardinality(String)),
@@ -6908,7 +6654,10 @@ CREATE TABLE posthog.experiment_exposures_preaggregated (
   exposure_session_id String,
   breakdown_value Array(String),
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at Date DEFAULT today() + toIntervalDay(7)
+  expires_at Date DEFAULT today() + toIntervalDay(7),
+  timestamp DateTime64(6, 'UTC') ALIAS first_exposure_time,
+  uuid UUID ALIAS exposure_event_uuid,
+  inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_experiment_exposures_preaggregated', cityHash64(entity_id));
 CREATE TABLE posthog.experiment_metric_events_preaggregated (
   team_id Int64,
@@ -6922,7 +6671,9 @@ CREATE TABLE posthog.experiment_metric_events_preaggregated (
   numeric_value Float64 DEFAULT 0,
   steps Array(UInt8) DEFAULT [],
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
-  expires_at Date DEFAULT today() + toIntervalDay(7)
+  expires_at Date DEFAULT today() + toIntervalDay(7),
+  uuid UUID ALIAS event_uuid,
+  inserted_at Nullable(DateTime64(6, 'UTC')) ALIAS NULL
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_experiment_metric_events_preaggregated', cityHash64(entity_id));
 CREATE TABLE posthog.flag_evaluations (
   uuid UUID,
@@ -7699,79 +7450,8 @@ CREATE TABLE posthog.session_replay_events (
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-  surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
-CREATE TABLE posthog.session_replay_features (
-  session_id String,
-  team_id Int64,
-  distinct_id String,
-  min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-  max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-  event_count SimpleAggregateFunction(sum, Int64),
-  mouse_position_count SimpleAggregateFunction(sum, Int64),
-  mouse_sum_x SimpleAggregateFunction(sum, Float64),
-  mouse_sum_x_squared SimpleAggregateFunction(sum, Float64),
-  mouse_sum_y SimpleAggregateFunction(sum, Float64),
-  mouse_sum_y_squared SimpleAggregateFunction(sum, Float64),
-  mouse_distance_traveled SimpleAggregateFunction(sum, Float64),
-  mouse_direction_change_count SimpleAggregateFunction(sum, Int64),
-  mouse_velocity_sum SimpleAggregateFunction(sum, Float64),
-  mouse_velocity_sum_of_squares SimpleAggregateFunction(sum, Float64),
-  mouse_velocity_count SimpleAggregateFunction(sum, Int64),
-  scroll_event_count SimpleAggregateFunction(sum, Int64),
-  total_scroll_magnitude SimpleAggregateFunction(sum, Float64),
-  scroll_direction_reversal_count SimpleAggregateFunction(sum, Int64),
-  rapid_scroll_reversal_count SimpleAggregateFunction(sum, Int64),
-  scroll_to_top_count SimpleAggregateFunction(sum, Int64),
-  click_count SimpleAggregateFunction(sum, Int64),
-  keypress_count SimpleAggregateFunction(sum, Int64),
-  mouse_activity_count SimpleAggregateFunction(sum, Int64),
-  rage_click_count SimpleAggregateFunction(sum, Int64),
-  dead_click_count SimpleAggregateFunction(sum, Int64),
-  backspace_count SimpleAggregateFunction(sum, Int64),
-  inter_action_gap_count SimpleAggregateFunction(sum, Int64),
-  inter_action_gap_sum_ms SimpleAggregateFunction(sum, Float64),
-  inter_action_gap_sum_of_squares_ms SimpleAggregateFunction(sum, Float64),
-  max_idle_gap_ms SimpleAggregateFunction(max, Float64),
-  long_idle_gap_count SimpleAggregateFunction(sum, Int64),
-  quick_back_count SimpleAggregateFunction(sum, Int64),
-  page_visit_count SimpleAggregateFunction(sum, Int64),
-  unique_url_count AggregateFunction(uniqCombined(12), String),
-  login_path_visit_count SimpleAggregateFunction(sum, Int64),
-  signup_path_visit_count SimpleAggregateFunction(sum, Int64),
-  checkout_path_visit_count SimpleAggregateFunction(sum, Int64),
-  cart_path_visit_count SimpleAggregateFunction(sum, Int64),
-  billing_path_visit_count SimpleAggregateFunction(sum, Int64),
-  settings_path_visit_count SimpleAggregateFunction(sum, Int64),
-  account_path_visit_count SimpleAggregateFunction(sum, Int64),
-  error_path_visit_count SimpleAggregateFunction(sum, Int64),
-  not_found_path_visit_count SimpleAggregateFunction(sum, Int64),
-  admin_path_visit_count SimpleAggregateFunction(sum, Int64),
-  dashboard_path_visit_count SimpleAggregateFunction(sum, Int64),
-  onboarding_path_visit_count SimpleAggregateFunction(sum, Int64),
-  cancel_path_visit_count SimpleAggregateFunction(sum, Int64),
-  refund_path_visit_count SimpleAggregateFunction(sum, Int64),
-  console_error_count SimpleAggregateFunction(sum, Int64),
-  console_error_after_click_count SimpleAggregateFunction(sum, Int64),
-  console_warn_count SimpleAggregateFunction(sum, Int64),
-  network_request_count SimpleAggregateFunction(sum, Int64),
-  network_failed_request_count SimpleAggregateFunction(sum, Int64),
-  network_4xx_count SimpleAggregateFunction(sum, Int64),
-  network_5xx_count SimpleAggregateFunction(sum, Int64),
-  network_request_duration_sum SimpleAggregateFunction(sum, Float64),
-  network_request_duration_sum_of_squares SimpleAggregateFunction(sum, Float64),
-  network_request_duration_count SimpleAggregateFunction(sum, Int64),
-  mutation_count SimpleAggregateFunction(sum, Int64),
-  viewport_resize_count SimpleAggregateFunction(sum, Int64),
-  touch_event_count SimpleAggregateFunction(sum, Int64),
-  max_scroll_y SimpleAggregateFunction(max, Float64),
-  unique_click_target_count AggregateFunction(uniqCombined(12), Int64),
-  unique_form_field_count AggregateFunction(uniqCombined(12), Int64),
-  text_selection_count SimpleAggregateFunction(sum, Int64),
-  selection_copy_count SimpleAggregateFunction(sum, Int64),
-  is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0
-) ENGINE = Distributed('aux', 'posthog', 'sharded_session_replay_features', sipHash64(session_id));
 CREATE TABLE posthog.sessions (
   session_id String,
   team_id Int64,

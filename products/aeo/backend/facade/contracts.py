@@ -75,6 +75,8 @@ class CheckFrequency(LabeledStrEnum):
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
+# The window the page opens on, and so the one the stored results are kept ready for.
+DEFAULT_STATS_DAYS = 30
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
 MAX_RANKED_DOMAINS = 20
@@ -131,6 +133,17 @@ class PromptTopic:
 
 
 @frozen
+class BrandSentimentSentence:
+    """One sentence of an answer that names the brand, with its own sentiment."""
+
+    # Offsets into the answer text, in Unicode code points.
+    start: int
+    end: int
+    label: str
+    score: float
+
+
+@frozen
 class PromptCheck:
     """One run of a prompt against one answer engine. Text fields come from the engine: treat them as data."""
 
@@ -153,6 +166,18 @@ class PromptCheck:
     # Sentiment of the sentences that name the brand. None until scored, and when the brand is not named.
     brand_sentiment: str | None = None
     brand_sentiment_score: float | None = None
+    # Empty until scored, when the brand is not named, and on checks scored before sentences were stored.
+    brand_sentiment_sentences: tuple[BrandSentimentSentence, ...] = ()
+
+
+@frozen
+class PromptCitation(PromptCheck):
+    """An answered web-search check that cited a page or site, or ran a search, with the prompt as it ran."""
+
+    prompt_id: str
+    prompt_text: str
+    prompt_topic: str
+    mentioned: bool
 
 
 @frozen
@@ -312,6 +337,8 @@ class PromptSetOverview:
     target_domains: tuple[str, ...]
     brand_names: tuple[str, ...]
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     current: PromptSetCounts
     previous: PromptSetCounts
     # Answered checks in the current window on each side of the split, whatever `branded` selects.
@@ -380,6 +407,7 @@ BRAND_NAME_MAX_LENGTH = 200
 KEYWORD_MAX_LENGTH = 100
 MAX_KEYWORDS_PER_TEAM = 200
 BRAND_DOMAIN_MAX_LENGTH = 253
+COMPETITOR_CANDIDATE_DAYS = 7
 
 
 class BrandKind(LabeledStrEnum):
@@ -413,6 +441,17 @@ class Brand:
     aliases: tuple[str, ...]
     created_at: dt.datetime
     updated_at: dt.datetime | None
+
+
+@frozen
+class CompetitorCandidate:
+    """A suggested brand that answers to non-branded prompts both name and cite, so likely a competitor."""
+
+    brand_id: str
+    name: str
+    domain: str
+    answers_naming: int
+    answers_citing: int
 
 
 @frozen
@@ -596,6 +635,8 @@ class PromptSetRankings:
     window_from: dt.date
     window_to: dt.date
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     answers: int
     competitors_confirmed: bool
     brands: tuple[RankedBrand, ...]
@@ -744,3 +785,113 @@ class VisibilityDashboard:
 
     id: int
     name: str
+
+
+SETUP_PROMPT_COUNT = 20
+SETUP_KEYWORD_COUNT = 20
+# A project that already has this many active prompts or keywords keeps its own list, and setup skips the step.
+SETUP_ENOUGH_PROMPTS = 10
+SETUP_ENOUGH_KEYWORDS = 10
+SETUP_WEBSITE_DAYS = 7
+MAX_SETUP_WEBSITES = 5
+
+
+class WebsiteSource(LabeledStrEnum):
+    """Where PostHog found a website the project may be about."""
+
+    OWN_BRAND = "own_brand"
+    APP_URLS = "app_urls"
+    RECORDING_DOMAINS = "recording_domains"
+    PAGEVIEWS = "pageviews"
+
+
+@frozen
+class WebsiteCandidate:
+    domain: str
+    source: WebsiteSource
+    # Pageviews on the domain over the last SETUP_WEBSITE_DAYS days, only for the pageviews source.
+    pageviews: int | None = None
+
+
+@frozen
+class SetupContext:
+    """What PostHog already knows about the project, so setup can start from it."""
+
+    websites: tuple[WebsiteCandidate, ...]
+    own_domains: tuple[str, ...]
+    active_prompts: int
+    # Unarchived prompts that are turned off, which no run checks.
+    paused_prompts: int
+    keywords: int
+    has_checks: bool
+    ai_data_processing_approved: bool
+    first_run_available: bool
+    # The engines as the project runs them now, defaults included, for choosing which ones to track.
+    engines: tuple[EngineSetting, ...]
+    # How many prompts setup asks for, so a client can show how many checks one run makes.
+    prompt_target: int
+    # The window, in days, of the pageview hosts among the websites.
+    website_days: int
+
+
+class SetupStep(LabeledStrEnum):
+    BRAND = "brand"
+    PROMPTS = "prompts"
+    KEYWORDS = "keywords"
+    FIRST_RUN = "first_run"
+
+
+class SetupStepStatus(LabeledStrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+@frozen
+class SetupStepState:
+    step: SetupStep
+    status: SetupStepStatus
+    # How many prompts or keywords the step added.
+    added: int = 0
+    detail: str = ""
+
+
+@frozen
+class SetupRequest:
+    domain: str
+    brand: str = ""
+    description: str = ""
+    # Each check is a paid call to every enabled engine, so the first run is queued only when asked for.
+    run_first_check: bool = False
+    # The engines to track. Every other engine is turned off. None keeps the current settings.
+    engines: tuple[str, ...] | None = None
+    # Queue the first run and nothing else: no brand, prompts or keywords, and no engine change.
+    only_first_run: bool = False
+    # With only_first_run, turn on every paused prompt first, such as the ones a configure-only setup saved.
+    activate_paused_prompts: bool = False
+
+
+@frozen
+class SetupJob:
+    id: str
+    status: SuggestionJobStatus
+    steps: tuple[SetupStepState, ...] = ()
+    error: str = ""
+
+
+class SetupJobNotFoundError(Exception):
+    pass
+
+
+class SetupAlreadyRunningError(Exception):
+    """The team already has a setup job pending. `job_id` is that job, so a client can follow it instead."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__(job_id)
+        self.job_id = job_id
+
+
+class SetupRequestError(Exception):
+    """The setup request cannot start. The message is safe to show the user."""

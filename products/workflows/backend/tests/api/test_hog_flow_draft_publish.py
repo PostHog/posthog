@@ -278,6 +278,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
             {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
         )
         assert confirm.status_code == 400, confirm.json()
+        assert confirm.json()["detail"].startswith("Can't publish these changes. Step 'action_1': "), confirm.json()
         # The failed publish must leave both the live config and the draft untouched.
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.draft is not None

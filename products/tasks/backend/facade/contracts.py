@@ -279,7 +279,7 @@ class TaskSlackUnfurlDTO:
     id: UUID
     title: str
     created_by_id: int | None
-    latest_run_status: str | None
+    status: str | None
 
 
 @dataclass(frozen=True)
@@ -351,6 +351,9 @@ class TaskDetailDTO:
     last_client: str | None = None
     last_client_at: datetime | None = None
     repository_integration: int | None = None
+    status: str | None = None
+    status_reason: str | None = None
+    status_detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -587,6 +590,8 @@ class TaskSummaryDTO:
     updated_at: datetime
     origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+    status: str | None = None
+    status_reason: str | None = None
 
 
 class TaskAnalysisError(Exception):
@@ -1094,14 +1099,6 @@ class SandboxSnapshotDTO:
 
 
 @dataclass(frozen=True)
-class SignalReportPrUrlDTO:
-    """The PR URL produced by the latest task run for a signal report."""
-
-    report_id: str
-    pr_url: str
-
-
-@dataclass(frozen=True)
 class WarmTaskDTO:
     """The draft Task + warm Run birthed by a Code-app warm request."""
 
@@ -1147,6 +1144,7 @@ class ComputeQuotaDenialReason(StrEnum):
 class TaskPullRequest:
     url: str
     state: str
+    run_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1199,3 +1197,17 @@ class TaskRunLogLink:
 
     url: str | None
     unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEgressRegistrationDTO:
+    run_id: UUID
+    team_id: int
+    execution_id: UUID
+    actor_id: int
+    actor_epoch: int
+    relay_key_sha256: str
+    authority: str
+    region: str
+    lease_expires_at: datetime
+    revoked: bool

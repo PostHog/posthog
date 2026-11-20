@@ -207,6 +207,9 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE", default = "3")]
     pub adaptive_ingestion_project_day_multiple: f64,
 
+    #[envconfig(from = "ADAPTIVE_INGESTION_MIN_HISTORY_DAYS", default = "7")]
+    pub adaptive_ingestion_min_history_days: usize,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
@@ -215,6 +218,10 @@ pub struct ProcessingConfig {
     // Teams whose frame code variables are dropped, for old SDK senders we cannot upgrade.
     #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
     pub drop_code_variables_team_ids: String,
+
+    // Retention must be deployed before enabling writes for all teams.
+    #[envconfig(from = "ERROR_TRACKING_ISSUE_CHANGE_LOG_ENABLED", default = "false")]
+    pub issue_change_log_enabled: bool,
 
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).

@@ -61,17 +61,18 @@ export function QuillPlayerShareMenu({ filled = false }: { filled?: boolean }): 
             <DropdownMenuTrigger
                 render={
                     <Button
-                        size={filled ? 'icon' : 'icon-sm'}
+                        size={filled ? 'default' : 'icon-sm'}
                         variant={filled ? 'secondary' : 'default'}
-                        tooltip="Share"
+                        tooltip={filled ? undefined : 'Share'}
                         aria-label="Share"
                         data-attr="session-recording-share-button"
                     />
                 }
             >
                 <IconShare />
+                {filled && 'Share'}
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" container={floatingContainer}>
+            <DropdownMenuContent align="end" container={floatingContainer ?? undefined}>
                 <QuillMenuItems
                     items={[
                         {

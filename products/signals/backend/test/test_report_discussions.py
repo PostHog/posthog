@@ -10,10 +10,11 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.organization import Organization
+from posthog.models.integration import Integration
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.signals.backend.models import SignalReport
@@ -23,6 +24,8 @@ from products.signals.backend.task_run_artefacts import (
     append_task_run_artefact,
 )
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
+from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.facade.api import link_slack_task_to_report
 from products.tasks.backend.models import Channel, Task, TaskRun
 
 
@@ -64,6 +67,9 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
         )
         return task
 
+    def _identity(self, user: User) -> dict:
+        return {"user_uuid": str(user.uuid), "first_name": user.first_name, "last_name": user.last_name}
+
     def _list(self) -> list[dict]:
         _authenticate_as_scout(self, sandbox_task_id=self.scout_run.task_run.task_id)
         response = self.client.get(self.url)
@@ -82,7 +88,9 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
         assert set(rows) == {str(authored_task.id), str(edited_task.id)}
         assert rows[str(authored_task.id)]["involvement"] == "authored"
         assert rows[str(authored_task.id)]["task_summary"] == "Intended behavior."
-        assert "question" not in rows[str(authored_task.id)]
+        assert rows[str(authored_task.id)]["source"] == "inbox"
+        assert rows[str(authored_task.id)]["question"] is None
+        assert rows[str(authored_task.id)]["started_by"] == self._identity(self.user)
         assert rows[str(edited_task.id)]["involvement"] == "edited"
 
     @parameterized.expand(
@@ -113,6 +121,88 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
 
         assert row["task_id"] == str(task.id)
         assert row["task_summary"] == expected
+
+    @parameterized.expand(
+        [
+            ("public_channel", SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL, False, True),
+            ("private_channel", SlackThreadTaskMapping.ConversationType.PRIVATE_CHANNEL, False, False),
+            ("direct_message", SlackThreadTaskMapping.ConversationType.IM, False, False),
+            ("group_direct_message", SlackThreadTaskMapping.ConversationType.MPIM, False, False),
+            ("unclassified_thread", None, False, False),
+            ("lookup_failed", SlackThreadTaskMapping.ConversationType.UNKNOWN, False, False),
+            ("creator_cannot_steer_scouts", SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL, True, True),
+        ]
+    )
+    def test_slack_discussion_is_returned_only_from_a_public_channel(
+        self, _name: str, conversation_type: str | None, outsider: bool, returned: bool
+    ) -> None:
+        creator = (
+            User.objects.create_and_join(Organization.objects.create(name="Elsewhere"), "outsider@example.com", None)
+            if outsider
+            else self.user
+        )
+        task = Task.objects.create(
+            team=self.team,
+            title="Is this expected?",
+            description="Rewritten through the tasks API after the thread linked it.",
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=creator,
+            channel=self.channel,
+        )
+        task_run = TaskRun.objects.create(task=task, team=self.team, state={"task_summary": "Intended behavior."})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={}),
+            slack_workspace_id="T_SLACK",
+            channel="C001",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=task_run,
+            mentioning_slack_user_id="U_MENTIONER",
+            conversation_type=conversation_type,
+        )
+        link_slack_task_to_report(
+            team_id=self.team.id,
+            task_id=str(task.id),
+            report_id=str(self.authored.id),
+            user_id=creator.id,
+            question="Is this expected?",
+        )
+
+        rows = self._list()
+
+        if not returned:
+            assert rows == []
+            return
+        [row] = rows
+        assert row["source"] == "slack"
+        assert row["task_summary"] == (None if outsider else "Intended behavior.")
+        assert row["question"] == (None if outsider else "Is this expected?")
+        assert row["started_by"] == (None if outsider else self._identity(self.user))
+
+    @parameterized.expand([("member_who_may_not_steer",), ("former_member",), ("no_creator",)])
+    def test_started_by_follows_the_row_not_the_steering_gate(self, case: str) -> None:
+        member = User.objects.create_and_join(self.organization, "member@example.com", None, first_name="Mira")
+        task = self._discussion(self.authored, state={"task_summary": "Intended behavior."}, created_by=member)
+        if case == "former_member":
+            OrganizationMembership.objects.filter(user=member, organization=self.organization).delete()
+        elif case == "no_creator":
+            Task.objects.filter(id=task.id).update(created_by=None)
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            return False if resource == "llm_skill" else real_check(access, resource, required_level)
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=deny_llm_skill
+        ):
+            [row] = self._list()
+
+        assert row["task_summary"] is None
+        assert row["started_by"] == (self._identity(member) if case == "member_who_may_not_steer" else None)
 
     def test_since_keeps_a_discussion_that_concluded_after_it(self) -> None:
         three_days_ago = timezone.now() - timedelta(days=3)

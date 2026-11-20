@@ -26,7 +26,7 @@ The inbox ranking model predicts outcomes for each report. Each row of `inbox-re
 - `readable: false` means the training run could not measure the holdout AUC of that outcome.
   Rank and filter on that outcome with caution.
 - `status` is `scored`, `stale` (the title or summary changed after scoring, so the predictions
-  describe the old text), `unscored` (no score yet, which is not a low score), or `not_available`
+  describe the old text, but sorts and filters still use them), `unscored` (no score yet, which is not a low score), or `not_available`
   (the user cannot see the ranking model, so ordering and filtering by it return 400).
 - `inbox-reports-retrieve` also names the `model` that made the predictions. Predictions from
   different models do not compare.
@@ -40,7 +40,7 @@ Recipes:
 - Add `search` or `source_product` to any recipe to narrow it to a topic.
 
 `ranking_min_lift` and `ranking_min_probability` take comma-separated `<outcome>:<value>` pairs,
-and a report must meet every pair. Unscored and stale reports never match.
+and a report must meet every pair. A stale report matches on its last score. Unscored reports never match.
 
 Caveats:
 

@@ -90,6 +90,8 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                                 valueFormatter={valueLabelFormatter}
                                 position={props.chartSettings.valueLabelPosition}
                                 background={props.chartSettings.valueLabelBackground}
+                                color={props.chartSettings.valueLabelColor}
+                                backgroundColor={props.chartSettings.valueLabelBackgroundColor}
                                 fontSize={props.chartSettings.valueLabelFontSize}
                                 rotation={props.chartSettings.valueLabelRotation}
                             />

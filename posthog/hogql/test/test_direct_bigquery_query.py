@@ -1,4 +1,5 @@
 import json
+from concurrent import futures
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ from google.api_core import exceptions as google_api_exceptions
 from google.cloud.bigquery.table import Row
 from parameterized import parameterized
 
+from posthog.hogql.direct_sql.adapter import DirectQueryTimeoutError, DirectQueryUnavailableError
 from posthog.hogql.direct_sql.bigquery_adapter import bigquery_error_to_message, bigquery_field_to_clickhouse_type
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
@@ -143,6 +145,58 @@ class TestDirectBigQueryQuery(APIBaseTest):
         with patch("posthog.hogql.direct_sql.bigquery_adapter.DIRECT_BIGQUERY_MAX_ROWS", 3):
             with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
                 self._patched_execute(executor, client)
+
+    @parameterized.expand(
+        [
+            ("client_timeout", futures.TimeoutError(), DirectQueryTimeoutError),
+            ("api_deadline", google_api_exceptions.DeadlineExceeded("Deadline exceeded"), DirectQueryTimeoutError),
+            (
+                "job_timeout_cancels_the_job",
+                # The response of a real project to job_timeout_ms: a 499 with this one error.
+                google_api_exceptions.Cancelled(
+                    "Job execution was cancelled: Job timed out after 600 sec",
+                    errors=[
+                        {
+                            "message": "Job execution was cancelled: Job timed out after 600 sec",
+                            "domain": "global",
+                            "reason": "stopped",
+                        }
+                    ],
+                ),
+                DirectQueryTimeoutError,
+            ),
+            ("outage", google_api_exceptions.ServiceUnavailable("backendError"), DirectQueryUnavailableError),
+            ("api_rate_limit", google_api_exceptions.TooManyRequests("rateLimitExceeded"), DirectQueryUnavailableError),
+            (
+                "job_rate_limit",
+                google_api_exceptions.Forbidden("Exceeded rate limits", errors=[{"reason": "rateLimitExceeded"}]),
+                DirectQueryUnavailableError,
+            ),
+            (
+                "quota",
+                google_api_exceptions.Forbidden("Quota exceeded", errors=[{"reason": "quotaExceeded"}]),
+                ExposedHogQLError,
+            ),
+            ("bad_sql", google_api_exceptions.BadRequest("Syntax error"), ExposedHogQLError),
+        ]
+    )
+    def test_execute_keeps_warehouse_side_failures_apart_from_query_errors(
+        self, _name: str, error: Exception, expected: type[ExposedHogQLError]
+    ):
+        source = self._create_source()
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM `acme-project.analytics.orders`",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+        client = self._mock_bigquery_client(rows=[], schema_fields=[])
+        client.query.return_value.result.side_effect = error
+
+        with self.assertRaises(ExposedHogQLError) as raised:
+            self._patched_execute(executor, client)
+
+        self.assertIs(type(raised.exception), expected)
 
     def test_raw_query_rejected_when_flag_off(self):
         # The flag is the kill switch: turning it off must stop queries on already-created

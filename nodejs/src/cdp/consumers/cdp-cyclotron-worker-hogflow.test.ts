@@ -40,8 +40,6 @@ function toInternalPerson(p: TestPerson): InternalPerson {
         uuid: p.uuid,
         team_id: p.teamId,
         properties: p.properties,
-        properties_last_updated_at: {},
-        properties_last_operation: null,
         created_at: TIMESTAMP,
         version: 1,
         is_identified: true,
@@ -589,7 +587,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
         })
 
-        it('runs a flow the replica does not have yet, and fails one missing from both', async () => {
+        it('runs a flow the replica does not have yet, and fails one missing from both or with no readable state', async () => {
             const [lateFlow, missingFlow] = ['Flow only the primary has', 'Flow neither database has'].map((name) =>
                 new FixtureHogFlowBuilder()
                     .withName(name)
@@ -606,13 +604,36 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 })
             )
 
-            const results = await processor.processInvocations([lateInvocation, missingInvocation])
+            const unreadableInvocation = {
+                ...lateInvocation,
+                id: new UUIDT().toString(),
+                stateUnreadable: true as const,
+            }
 
-            expect(results).toHaveLength(1)
-            expect(results[0]).toMatchObject({
-                finished: true,
-                invocation: { hogFlow: { id: lateFlow.id } },
-            })
+            const results = await processor.processInvocations([
+                lateInvocation,
+                missingInvocation,
+                unreadableInvocation,
+            ])
+
+            expect(results).toHaveLength(2)
+            expect(results).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        finished: true,
+                        invocation: expect.objectContaining({ id: lateInvocation.id }),
+                    }),
+                    expect.objectContaining({
+                        finished: true,
+                        error: 'The run state could not be decrypted',
+                        invocation: expect.objectContaining({
+                            id: unreadableInvocation.id,
+                            hogFlow: expect.objectContaining({ id: lateFlow.id }),
+                            state: expect.objectContaining({ sensitive: true }),
+                        }),
+                    }),
+                ])
+            )
             expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
         })
 

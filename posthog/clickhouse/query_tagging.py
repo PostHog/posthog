@@ -280,7 +280,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.TRACE_QUERY
             | NodeKind.TRACES_QUERY
             | NodeKind.SESSION_QUERY
-            | NodeKind.TRACE_NEIGHBORS_QUERY
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
             | NodeKind.TRACE_SPANS_TREE_QUERY
@@ -449,6 +448,7 @@ class QueryTags(BaseModel):
 
     rate_limit_bypass: Optional[int] = None
     rate_limit_wait_ms: Optional[int] = None
+    queue_wait_ms: Optional[int] = None
     kill_switch: Optional[str] = None
 
     route_id: Optional[str] = None

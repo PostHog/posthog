@@ -1,15 +1,20 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from unittest.mock import patch
 
 from products.warehouse_sources.sources.apify_dataset import apify_dataset
 from products.warehouse_sources.sources.apify_dataset._config import ApifyDatasetSourceConfig
 from products.warehouse_sources.sources.apify_dataset.apify_dataset import ApifyResumeConfig, validate_credentials
 from products.warehouse_sources.sources.apify_dataset.settings import (
+    ACTOR_BUILDS_ENDPOINT,
     ACTOR_RUNS_ENDPOINT,
+    ACTOR_TASKS_ENDPOINT,
     ACTORS_ENDPOINT,
     DATASET_ITEMS_ENDPOINT,
+    DATASET_STATISTICS_ENDPOINT,
+    REQUEST_QUEUES_ENDPOINT,
     USAGE_MONTHLY_ENDPOINT,
 )
 from products.warehouse_sources.sources.apify_dataset.source import ApifyDatasetSource
@@ -137,4 +142,60 @@ class TestPlatformEndpoints:
         assert result.rows[0]["totalUsageCreditsUsdAfterVolumeDiscount"] == 2.0
         # A single object endpoint has no cursor, so nothing is checkpointed.
         assert len(result.requests) == 1
+        assert result.saved_states == []
+
+    @pytest.mark.parametrize(
+        "endpoint, path, unnamed",
+        [
+            (ACTOR_TASKS_ENDPOINT, "/v2/actor-tasks", None),
+            (ACTOR_BUILDS_ENDPOINT, "/v2/actor-builds", None),
+            # Without `unnamed`, the default queues that runs crawl from are left out.
+            (REQUEST_QUEUES_ENDPOINT, "/v2/request-queues", "true"),
+        ],
+    )
+    @patch.object(apify_dataset, "PAGE_SIZE", 2)
+    def test_account_lists_page_as_full_refresh(self, endpoint: str, path: str, unnamed: str | None) -> None:
+        result = _driver().run(
+            endpoint,
+            [_platform_page([{"id": "a"}, {"id": "b"}], total=3), _platform_page([{"id": "c"}], total=3)],
+            incremental_field="createdAt",
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+        )
+
+        assert [row["id"] for row in result.rows] == ["a", "b", "c"]
+        assert result.paths == [path, path]
+        assert result.params("offset") == ["0", "2"]
+        assert result.params("unnamed") == [unnamed, unnamed]
+        # No server-side time filter exists, so a stored watermark must not leak into the request.
+        assert all(set(query) <= {"offset", "limit", "unnamed"} for query in result.queries)
+        assert result.saved_states == [ApifyResumeConfig(offset=2)]
+
+    @pytest.mark.parametrize(
+        "field_statistics, expected_rows",
+        [
+            (
+                {"price": {"min": 59, "max": 89, "nullCount": 0, "emptyCount": 1}, "name": {"nullCount": 122}},
+                [
+                    {"field": "price", "min": 59, "max": 89, "nullCount": 0, "emptyCount": 1},
+                    {"field": "name", "nullCount": 122},
+                ],
+            ),
+            # The Actor declares no fields schema.
+            (None, []),
+            ({}, []),
+            ({"broken": None, "ok": {"min": 1}}, [{"field": "ok", "min": 1}]),
+        ],
+    )
+    def test_dataset_statistics_becomes_one_row_per_field(
+        self, field_statistics: dict[str, Any] | None, expected_rows: list[dict[str, Any]]
+    ) -> None:
+        driver = SourceDriver(ApifyDatasetSource(), ApifyDatasetSourceConfig(api_token="tok", dataset_id="me~my/ds"))
+        result = driver.run(
+            DATASET_STATISTICS_ENDPOINT, [ScriptedResponse(json={"data": {"fieldStatistics": field_statistics}})]
+        )
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        # The dataset id stays one path segment, as for dataset_items.
+        assert result.paths == ["/v2/datasets/me~my%2Fds/statistics"]
         assert result.saved_states == []

@@ -1,6 +1,6 @@
 """The status of one transactional email, read from the email_status table that the email path writes.
 
-The send API writes `queued`, the email worker `sent` or `failed`, and the SES webhook `delivered`, `bounced` or
+The send API writes `queued`, or `scheduled` for a send that waits for its time, the email worker `sent` or `failed`, and the SES webhook `delivered`, `bounced` or
 `complained`. A row's version only grows as an email moves forward, so the row with the highest version is the status.
 """
 
@@ -8,11 +8,14 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.event.new_events_schema import events_route_scope
 
-from products.messaging.backend.facade.contracts import EmailDeliveryStatus, EmailStatus
+from products.messaging.backend.facade.contracts import EmailSendStatus, EmailStatus
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETENTION_DAYS, EMAIL_STATUS_TABLE
 
 # The Node API stamps the send's ID with its own clock, which can run ahead of this one.
@@ -52,6 +55,8 @@ def is_keyed_message_id(message_id: UUID) -> bool:
     return message_id.version == 5
 
 
+# The events cluster has no email_status table, so a project that reads events_json still looks a send up here.
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def message_created_at(
     team_id: int, message_id: UUID, workload: Workload, lag_fallback_table: str | None = None
 ) -> datetime | None:
@@ -98,6 +103,7 @@ def queued_at(message_id: UUID) -> datetime | None:
     return datetime.fromtimestamp(queued_ms / 1000, tz=UTC)
 
 
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     """The send's status, or None when no send of this team has this ID or its first status has not arrived."""
     created_at = message_created_at(team_id, message_id, Workload.OFFLINE)
@@ -122,11 +128,11 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     if not rows:
         return None
     status, status_at, reason = rows[0]
-    if status not in EmailDeliveryStatus.values:
+    if status not in EmailSendStatus.values:
         return None
     return EmailStatus(
         message_id=str(message_id),
-        status=EmailDeliveryStatus(status),
+        status=EmailSendStatus(status),
         created_at=created_at,
         status_at=status_at,
         reason=reason or None,

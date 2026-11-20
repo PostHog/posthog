@@ -549,6 +549,9 @@ mod tests {
         "REPEATED group surfacing_form_field_ids.list",
         "REQUIRED INT64 surfacing_form_field_ids.list.element",
         "OPTIONAL BYTE_ARRAY unread_reason UTF8",
+        "OPTIONAL group image_ref_sketch LIST",
+        "REPEATED group image_ref_sketch.list",
+        "REQUIRED INT32 image_ref_sketch.list.element",
     ];
 
     fn describe(schema: &SchemaType, path: &mut Vec<String>, out: &mut Vec<String>) {

@@ -1,5 +1,15 @@
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { isUUIDLike } from 'lib/utils/guards'
+
+/**
+ * The backend's request UUID from a response's `X-Request-ID` header, lowercased so it equals the
+ * `request_id` on that request's backend log lines. Null when the header is missing or not a UUID.
+ */
+export function requestIdFromHeaders(headers: Headers | undefined): string | null {
+    const requestId = headers?.get('X-Request-ID')
+    return requestId && isUUIDLike(requestId) ? requestId.toLowerCase() : null
+}
 
 /** A 403 with DRF's `permission_denied` code — the user lacks access to the resource itself. */
 export function isAccessDeniedError(error: { status?: number; code?: string | null }): boolean {
@@ -293,6 +303,9 @@ export class ApiError extends Error {
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
 
+    /** Backend request UUID, which joins this failure to the request's backend logs. */
+    readonly requestId: string | null
+
     constructor(
         message?: string,
         public status?: number,
@@ -306,6 +319,7 @@ export class ApiError extends Error {
         this.code = data?.code || null
         this.link = data?.link || null
         this.attr = data?.attr || null
+        this.requestId = requestIdFromHeaders(headers)
         const retryAfter = status === 503 ? headers?.get('Retry-After') : null
         const seconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : NaN
         this.retryAfterSeconds = Number.isSafeInteger(seconds) ? seconds : null

@@ -28,7 +28,6 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDestination,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 WEBHOOK_URL = "https://example.com/hooks/secret-path"
@@ -49,13 +48,12 @@ class TestAlertDestinations(BaseTest):
         super().setUp()
         self.configuration = self._configuration()
 
-    def _configuration(self, destinations_owner: str = PlatformAlertOwner.PLATFORM) -> PlatformAlertConfiguration:
+    def _configuration(self) -> PlatformAlertConfiguration:
         return PlatformAlertConfiguration.objects.for_team(self.team.id).create(
             team=self.team,
             name="API errors",
             source_kind=SourceKind.LOGS,
             check_interval_minutes=5,
-            destinations_owner=destinations_owner,
         )
 
     def _create(self, *destinations: NewAlertDestination, configuration: Any = None) -> Any:
@@ -156,15 +154,6 @@ class TestAlertDestinations(BaseTest):
             in_app_resource_id="abc123",
         )
 
-    def test_an_alert_whose_product_keeps_hog_functions_takes_rows_beside_them(self) -> None:
-        configuration = self._configuration(destinations_owner=PlatformAlertOwner.SOURCE)
-
-        self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING), configuration=configuration)
-
-        assert [d.data for d in list_alert_destinations(team_id=self.team.id, configuration_id=configuration.id)] == [
-            WEBHOOK
-        ]
-
     @parameterized.expand(
         [
             ("same_webhook", WEBHOOK, dict(WEBHOOK)),
@@ -207,7 +196,7 @@ class TestAlertDestinations(BaseTest):
             team_id=self.team.id, configuration_id=self.configuration.id, destination_ids=[mine.id, theirs.id]
         )
 
-        assert deleted == 1
+        assert deleted == {mine.id: WEBHOOK["type"]}
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
         assert list_alert_destinations(team_id=self.team.id, configuration_id=other.id) == (theirs,)
 
@@ -221,7 +210,6 @@ class TestSourceDestinations(BaseTest):
             name="API errors",
             source_kind=SourceKind.LOGS,
             check_interval_minutes=5,
-            destinations_owner=PlatformAlertOwner.SOURCE,
             legacy_configuration_id=self.legacy_id,
         )
         self.groups: list[AlertDestinationGroup] = []
@@ -276,9 +264,19 @@ class TestSourceDestinations(BaseTest):
 
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
 
+    def test_a_row_behind_edited_hog_functions_does_not_block_its_old_address(self) -> None:
+        hog_function_ids = self._hog_functions(SLACK)
+        self._record(SLACK, hog_function_ids)
+        self.groups[0] = AlertDestinationGroup(hog_function_ids=hog_function_ids, data=EDITED_SLACK, fully_enabled=True)
+
+        added = self._record(SLACK, ())
+
+        assert added.data == SLACK
+
     def test_the_list_keeps_groups_no_row_copies_and_rows_whose_hog_functions_are_gone(self) -> None:
         older = self._hog_functions(WEBHOOK)
-        orphan = self._record(SLACK, (uuid4(),))
+        retired = (uuid4(),)
+        orphan = self._record(SLACK, retired)
         set_subscriber_destinations(
             team_id=self.team.id,
             public_id=self.legacy_id,
@@ -290,35 +288,40 @@ class TestSourceDestinations(BaseTest):
 
         assert self._listed() == (
             SourceDestination(destination_id=None, hog_function_ids=older, data=WEBHOOK, enabled=True),
-            SourceDestination(destination_id=orphan.id, hog_function_ids=(), data=SLACK, enabled=True),
+            SourceDestination(
+                destination_id=orphan.id,
+                hog_function_ids=(),
+                data=SLACK,
+                enabled=True,
+                retired_hog_function_ids=retired,
+            ),
         )
 
-    def test_a_delete_by_hog_function_or_row_id_returns_the_hog_functions_the_rows_copied(self) -> None:
+    def test_a_delete_returns_only_the_hog_functions_of_rows_named_by_id(self) -> None:
         slack = self._hog_functions(SLACK)
         self._record(SLACK, slack)
         webhook = self._hog_functions(WEBHOOK)
         by_id = self._record(WEBHOOK, webhook)
 
-        copied = delete_source_destination_rows(
+        deleted = delete_source_destination_rows(
             team_id=self.team.id, public_id=self.legacy_id, destination_ids=[by_id.id], hog_function_ids=slack[:1]
         )
 
-        assert copied == frozenset({*slack, *webhook})
+        assert deleted.copied_hog_function_ids == frozenset(webhook)
+        assert set(deleted.row_types.values()) == {DestinationType.SLACK, DestinationType.WEBHOOK}
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
 
-    @parameterized.expand(
-        [
-            ("no_platform_copy", PlatformAlertOwner.SOURCE, True),
-            ("platform_keeps_the_destinations", PlatformAlertOwner.PLATFORM, False),
-        ]
-    )
-    def test_no_row_is_written_beside_the_hog_functions(self, _name: str, owner: str, unknown_alert: bool) -> None:
-        self.configuration.destinations_owner = owner
-        self.configuration.save()
+    def test_a_row_keeps_only_the_fields_of_its_type(self) -> None:
+        defaults = {"pagerduty_severity": "critical", "pagerduty_region": "us", "webhook_url": "https://x.example.com"}
 
+        created = self._record(cast(AlertDestinationData, {**SLACK, **defaults}), self._hog_functions(SLACK))
+
+        assert created.data == SLACK
+
+    def test_no_row_is_written_for_an_alert_the_platform_does_not_have(self) -> None:
         created = record_source_destination(
             team_id=self.team.id,
-            public_id=uuid4() if unknown_alert else self.legacy_id,
+            public_id=uuid4(),
             data=SLACK,
             event_kinds=FIRING,
             hog_function_ids=(uuid4(),),

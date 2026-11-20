@@ -90,6 +90,12 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
 class TeamsTransport(WebhookUrlTransport):
     provider = PROVIDER
     display_name = "Microsoft Teams"
+    # 401 is a bad `sig` and 404 a deleted flow. Teams answers both a card it rejects and a flow its
+    # owner turned off with 400, and only the error code in the body tells them apart. A rejected card
+    # is PostHog's to fix, so it stays a reported, retried failure.
+    owner_refusals = {400: b"workflowtriggerisnotenabled", 401: None, 403: None, 404: None}
+    # An uncompressed answer, so the refusal check can read the error code.
+    headers = {"Accept-Encoding": "identity"}
 
     def check_url(self, url: str) -> None:
         if not is_microsoft_teams_webhook_url(url):

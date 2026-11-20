@@ -12,11 +12,12 @@ import {
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { describeGithubSetupError, getGithubSetupErrorCode } from 'lib/integrations/githubSetupErrors'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -98,6 +99,11 @@ function takeGithubConnectMarker(teamId: number | null): boolean {
     }
 }
 
+// The agent route keeps GitHub setup outside the app layout, so its activation must not move the person into the inbox.
+function quickSetupRoute(): string {
+    return router.values.location.pathname.endsWith(urls.inboxActivate()) ? urls.inboxActivate() : urls.inbox()
+}
+
 /** A first-report state the progress card still shows. A created report shows as a row in the report list instead. */
 export interface FirstReportProgressState extends FirstReportStateApi {
     status: Exclude<FirstReportStateApi['status'], 'report_created'>
@@ -143,9 +149,11 @@ export interface inboxSetupLogicValues {
     isFinalStep: boolean
     isGithubOptionalSetup: boolean
     isQuickSetup: boolean
+    onboardingOrigin: NonNullable<InboxOnboardingDraftApi['onboarding_origin']>
     pendingQuickActivation: 'button' | 'github_return' | 'retry' | null
     quickActivationPending: boolean
     quickSetupDraft: InboxOnboardingDraftApi | null
+    quickSetupGithubReturnUrl: string
     quickSetupReady: boolean
     ready: boolean
     refreshingSources: boolean
@@ -286,6 +294,21 @@ export interface inboxSetupLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         trial: (arg: SelfDrivingTrialStatusApi | null) => SelfDrivingTrialStatusApi | null
+        onboardingOrigin: (
+            searchParams: Record<string, any>,
+            draft: InboxOnboardingDraftApi,
+            savedState: InboxOnboardingStateApi | null,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            }
+        ) => NonNullable<InboxOnboardingDraftApi['onboarding_origin']>
+        quickSetupGithubReturnUrl: (
+            onboardingOrigin: NonNullable<
+                import('../../generated/api.schemas').InboxOnboardingOriginEnumApi | undefined
+            >
+        ) => string
         isGithubOptionalSetup: (savedState: InboxOnboardingStateApi | null) => boolean
         isQuickSetup: (searchParams: Record<string, any>, savedState: InboxOnboardingStateApi | null) => boolean
         shouldResumeQuickSetup: (
@@ -361,11 +384,6 @@ export interface inboxSetupLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
         ) => ScoutSuggestionItemApi[]
-        scoutLimit: (
-            trial: SelfDrivingTrialStatusApi | null,
-            scoutConfigs: SignalScoutConfigApi[] | null,
-            draft: InboxOnboardingDraftApi
-        ) => InboxSetupScoutLimit
         scoutChoices: (
             suggestions: ScoutSuggestionItemApi[],
             defaultScouts: ScoutSuggestionItemApi[],
@@ -512,6 +530,28 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                         ?.selectors.trial(state) ?? null,
             ],
             (trial: SelfDrivingTrialStatusApi | null): SelfDrivingTrialStatusApi | null => trial,
+        ],
+        onboardingOrigin: [
+            (s) => [s.searchParams, s.draft, s.savedState, router.selectors.location],
+            (
+                params: Record<string, any>,
+                draft: InboxOnboardingDraftApi,
+                state: InboxOnboardingStateApi | null,
+                location: { pathname: string }
+            ): NonNullable<InboxOnboardingDraftApi['onboarding_origin']> =>
+                location.pathname.endsWith(urls.inboxActivate()) ||
+                location.pathname.endsWith(urls.inboxActivateWithoutGithub()) ||
+                ['return', 'without_github', 'complete'].includes(params.agent_setup)
+                    ? 'agent'
+                    : (draft.onboarding_origin ?? state?.draft?.onboarding_origin ?? 'app'),
+        ],
+        quickSetupGithubReturnUrl: [
+            (s) => [s.onboardingOrigin],
+            (origin: NonNullable<InboxOnboardingDraftApi['onboarding_origin']>): string =>
+                combineUrl(urls.inbox(), {
+                    onboarding_step: 'quick',
+                    ...(origin === 'agent' ? { agent_setup: 'return' } : {}),
+                }).url,
         ],
         isGithubOptionalSetup: [
             (s) => [s.savedState],
@@ -691,14 +731,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             ): ScoutSuggestionItemApi[] =>
                 inboxSetupDefaultScouts(configs ?? [], sources, !!team?.ingested_event, statuses),
         ],
-        scoutLimit: [
-            (s) => [s.trial, s.scoutConfigs, s.draft],
-            (
-                trial: SelfDrivingTrialStatusApi | null,
-                configs: SignalScoutConfigApi[] | null,
-                draft: InboxOnboardingDraftApi
-            ): InboxSetupScoutLimit => inboxSetupScoutLimit(trial, configs ?? [], draft),
-        ],
+        scoutLimit: [() => [], (): InboxSetupScoutLimit => inboxSetupScoutLimit()],
         scoutChoices: [
             (s) => [s.suggestions, s.defaultScouts, s.draft],
             (
@@ -756,6 +789,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 project_id: values.currentTeamId,
                 flow_version: 'ui-first-v1',
                 inbox_client: 'cloud',
+                onboarding_origin: values.onboardingOrigin,
                 setup_mode: values.isQuickSetup ? 'quick' : 'guided',
                 self_driving_ubp: values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] ?? null,
                 automatic_implementation: values.isQuickSetup
@@ -775,7 +809,11 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             const save = async (): Promise<void> => {
                 while (!values.completed) {
                     const step = requestedStep
-                    const draft = step ? { ...values.draft, step } : values.draft
+                    const draft = {
+                        ...values.draft,
+                        onboarding_origin: values.onboardingOrigin,
+                        ...(step ? { step } : {}),
+                    }
                     if (!values.savedState?.draft && draft.step === 'signals') {
                         return
                     }
@@ -830,7 +868,9 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 }
                 cache.exposedTeamId = values.currentTeamId
                 try {
-                    await signalsOnboardingExposeCreate(String(values.currentTeamId))
+                    await signalsOnboardingExposeCreate(String(values.currentTeamId), {
+                        onboarding_origin: values.onboardingOrigin,
+                    })
                 } catch (error) {
                     cache.exposedTeamId = undefined
                     posthog.captureException(error)
@@ -838,7 +878,10 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             },
             openSetup: () => {
                 actions.reportInteraction()
-                router.actions.push(urls.inbox(), { onboarding_step: values.draft.step })
+                router.actions.push(urls.inbox(), {
+                    onboarding_step: values.draft.step,
+                    ...(values.onboardingOrigin === 'agent' ? { agent_setup: 'return' } : {}),
+                })
             },
             startSetup: () => {
                 actions.setError(null)
@@ -1082,6 +1125,12 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 }
             },
             resumeQuickSetup: () => {
+                const githubError = getGithubSetupErrorCode(values.searchParams)
+                if (values.searchParams.agent_setup === 'return' && githubError) {
+                    takeGithubConnectMarker(values.currentTeamId)
+                    actions.setError(describeGithubSetupError(githubError), 'other', 'github_redirect_failed')
+                    return
+                }
                 if (values.shouldResumeQuickSetup && takeGithubConnectMarker(values.currentTeamId)) {
                     actions.activateQuickSetup('github_return')
                 }
@@ -1096,7 +1145,13 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.startSetup()
                     return
                 }
-                router.actions.replace(urls.inbox(), { onboarding_step: 'quick' })
+                router.actions.replace(quickSetupRoute(), {
+                    onboarding_step: 'quick',
+                    ...(values.searchParams.agent_setup === 'return' ||
+                    values.searchParams.agent_setup === 'without_github'
+                        ? { agent_setup: values.searchParams.agent_setup }
+                        : {}),
+                })
                 actions.setEditedDraft(values.quickSetupDraft!)
                 actions.activate(activationSource)
             },
@@ -1112,13 +1167,17 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 cache.activating = true
                 actions.setSaving(true)
                 actions.setError(null)
-                let draft = values.draft
+                let draft = { ...values.draft, onboarding_origin: values.onboardingOrigin }
                 const projectId = String(values.currentTeamId)
+                const completionParams =
+                    values.searchParams.agent_setup === 'return' || values.searchParams.agent_setup === 'without_github'
+                        ? { agent_setup: 'complete' }
+                        : undefined
                 try {
                     await saveDraft()
                     actions.setSavedState(await signalsOnboardingList(projectId))
                     if (values.completed) {
-                        router.actions.replace(urls.inbox())
+                        router.actions.replace(quickSetupRoute(), completionParams)
                         return
                     }
                     let scanners: ReplayScannerApi[] = []
@@ -1137,7 +1196,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                             throw error
                         }
                     }
-                    draft = values.draft
+                    draft = { ...values.draft, onboarding_origin: values.onboardingOrigin }
                     await saveDraft()
                     const currentScouts =
                         draft.suggestions.length || draft.activation_scouts?.length
@@ -1253,7 +1312,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     actions.loadSourceConfigs()
                     actions.loadVisionScanners()
                     actions.loadScoutConfigs()
-                    router.actions.replace(urls.inbox())
+                    router.actions.replace(quickSetupRoute(), completionParams)
                 } catch (error) {
                     const message =
                         (error instanceof ApiError && error.detail?.trim()) ||

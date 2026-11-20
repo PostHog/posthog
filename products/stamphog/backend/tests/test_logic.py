@@ -23,10 +23,12 @@ from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import decision_fingerprint
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
+from products.stamphog.backend.logic.engine_pregate import EnginePregateError, run_engine_attestation_proof
 from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
     CommitComparison,
+    GitObjectId,
     RepoPathEntry,
     StamphogGitHubClient,
     StamphogGitHubError,
@@ -220,6 +222,8 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
         assert context_for()["review_trigger"] == ""
         assert context_for()["self_driving_review"] is False
+        assert context_for()["admitted_bot"] == ""
+        assert context_for(admitted_bot="renovate[bot]")["admitted_bot"] == "renovate[bot]"
 
 
 def _graphql_commit(oid: str, login: str | None) -> dict:
@@ -375,6 +379,18 @@ class ReviewTriggerTests(SimpleTestCase):
             ("no_output", None, ReviewMode.ALL, "all"),
             ("empty_output", {}, ReviewMode.LABEL, "label"),
             ("inbox_only", {"inbox_review": {"trigger": "inbox"}}, ReviewMode.ALL, "self_driving"),
+            (
+                "bot_admission_beats_label_mode",
+                {"bot_admission": {"login": "renovate[bot]"}},
+                ReviewMode.LABEL,
+                "bot_admission",
+            ),
+            (
+                "inbox_beats_bot_admission",
+                {"inbox_review": {"trigger": "inbox"}, "bot_admission": {"login": "renovate[bot]"}},
+                ReviewMode.ALL,
+                "self_driving",
+            ),
         ]
     )
     def test_an_unstamped_run_derives_live(
@@ -811,18 +827,70 @@ class CommitGraphqlTests(SimpleTestCase):
     def _blame(self, response: fakes.FakeResponse) -> list[dict]:
         return self._call(response, lambda c: c.get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5))
 
-    def test_default_branch_blobs_read_a_missing_path_as_absent(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "file",
+                {"text": "paths:\n  - tools/proof/\n", "isBinary": False, "isTruncated": False},
+                "paths:\n  - tools/proof/\n",
+            ),
+            (
+                "symlink_reads_its_link_text",
+                {"text": "../docs/x.yml", "isBinary": False, "isTruncated": False},
+                "../docs/x.yml",
+            ),
+            ("missing", None, None),
+            ("directory", {}, None),
+            ("binary", {"text": None, "isBinary": True, "isTruncated": False}, None),
+            ("truncated", {"text": "paths:", "isBinary": False, "isTruncated": True}, None),
+        ]
+    )
+    def test_default_branch_blob_text_reads_the_blob_at_the_path(
+        self, _name: str, blob: dict | None, expected: str | None
+    ) -> None:
+        # The contents API follows an in-repo symlink, so an issuer manifest read through it would
+        # take the target's text, which neither self-governance nor the pins cover.
+        response = fakes.FakeResponse(200, json_data={"data": {"repository": {"object": blob}}})
+
+        text = self._call(response, lambda c: c.get_default_branch_blob_text("acme/widgets", "tools/proof/issuer.yml"))
+
+        assert text == expected
+        assert self.graphql_variables == {
+            "owner": "acme",
+            "name": "widgets",
+            "expression": "HEAD:tools/proof/issuer.yml",
+        }
+
+    def test_default_branch_objects_read_a_missing_path_as_absent(self) -> None:
         # One failed read would mark every proof stale, so a missing path must not fail the request.
-        response = fakes.FakeResponse(200, json_data={"data": {"repository": {"p0": {"oid": "a" * 40}, "p1": None}}})
+        response = fakes.FakeResponse(
+            200,
+            json_data={
+                "data": {
+                    "repository": {
+                        "p0": {"__typename": "Blob", "oid": "a" * 40},
+                        "p1": None,
+                        "p2": {"__typename": "Tree", "oid": "b" * 40},
+                    }
+                }
+            },
+        )
 
-        blobs = self._call(response, lambda c: c.get_default_branch_blob_shas("acme/widgets", ["prover.py", ".npmrc"]))
+        objects = self._call(
+            response, lambda c: c.get_default_branch_objects("acme/widgets", ["prover.py", ".npmrc", "tools/proof/"])
+        )
 
-        assert blobs == {"prover.py": "a" * 40, ".npmrc": None}
+        assert objects == {
+            "prover.py": GitObjectId(kind="Blob", oid="a" * 40),
+            ".npmrc": None,
+            "tools/proof/": GitObjectId(kind="Tree", oid="b" * 40),
+        }
         assert self.graphql_variables == {
             "owner": "acme",
             "name": "widgets",
             "p0": "HEAD:prover.py",
             "p1": "HEAD:.npmrc",
+            "p2": "HEAD:tools/proof",
         }
 
     @parameterized.expand(
@@ -839,7 +907,7 @@ class CommitGraphqlTests(SimpleTestCase):
 
 
 class _PinClient:
-    def __init__(self, check_runs: list[dict], default_branch: dict[str, str | None]) -> None:
+    def __init__(self, check_runs: list[dict], default_branch: dict[str, GitObjectId]) -> None:
         self.check_runs = check_runs
         self.default_branch = default_branch
         self.blob_reads = 0
@@ -847,7 +915,7 @@ class _PinClient:
     def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
         return self.check_runs
 
-    def get_default_branch_blob_shas(self, repo: str, paths: list[str]) -> dict[str, str | None]:
+    def get_default_branch_objects(self, repo: str, paths: list[str]) -> dict[str, GitObjectId | None]:
         self.blob_reads += 1
         return {path: self.default_branch.get(path) for path in paths}
 
@@ -863,11 +931,20 @@ def _pinning_check_run(blobs: object, name: str = "Proof", run_id: int = 1) -> d
 
 
 class AttestationPinTests(SimpleTestCase):
-    _DEFAULT_BRANCH: dict[str, str | None] = {"prover.py": "a" * 40, ".npmrc": "b" * 40}
+    _DEFAULT_BRANCH: dict[str, GitObjectId] = {
+        "prover.py": GitObjectId(kind="Blob", oid="a" * 40),
+        ".npmrc": GitObjectId(kind="Blob", oid="b" * 40),
+        "tools/proof/": GitObjectId(kind="Tree", oid="d" * 40),
+        "tools/proof": GitObjectId(kind="Tree", oid="d" * 40),
+    }
 
     @parameterized.expand(
         [
             ("every_pin_holds", {"prover.py": "a" * 40, ".npmrc": "b" * 40}, True),
+            ("a_directory_pin_holds", {"tools/proof/": "d" * 40, "prover.py": "a" * 40}, True),
+            ("a_directory_changed", {"tools/proof/": "e" * 40}, False),
+            ("a_directory_pinned_as_a_file", {"tools/proof": "d" * 40}, False),
+            ("a_file_pinned_as_a_directory", {"prover.py/": "a" * 40}, False),
             ("an_absent_file_stays_absent", {"prover.py": "a" * 40, "frontend/.npmrc": None}, True),
             ("a_pinned_file_changed", {"prover.py": "c" * 40}, False),
             ("a_file_absent_at_the_proof_now_exists", {".npmrc": None}, False),
@@ -1381,3 +1458,20 @@ class TestDecisionFingerprint(SimpleTestCase):
         before = fingerprint(context)
         change(context)
         assert (before == fingerprint(context)) is expect_same
+
+
+class EngineAttestationProofParsingTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_app_id", {"check": "Dependency proof"}),
+            ("null_app_id", {"check": "Dependency proof", "app_id": None}),
+            ("text_app_id", {"check": "Dependency proof", "app_id": "not-a-number"}),
+            ("missing_check", {"app_id": 4242}),
+            ("not_an_object", "Dependency proof"),
+        ]
+    )
+    def test_a_malformed_check_is_an_engine_failure(self, _name: str, entry: object) -> None:
+        stdout = json.dumps({"checks": [entry], "proven": True})
+        with patch("products.stamphog.backend.logic.engine_pregate._run_engine_gates_only", return_value=stdout):
+            with self.assertRaises(EnginePregateError):
+                run_engine_attestation_proof({}, {})

@@ -11,6 +11,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import type { CdpOutput } from '../../cdp-services'
+import { HIDDEN_OUTPUT_MESSAGE, hidesInvocationOutput } from '../../read-guarded-internal-events'
 import { RerunFilter, RerunFunctionKind, rerunWrapperKindFor } from '../../rerun/rerun-job.types'
 import {
     CyclotronJobInvocation,
@@ -370,11 +371,30 @@ export class HogInvocationResultsService {
             finishedAt?: Date
         } = {}
     ): void {
+        this.queuePreparedRow(this.prepareLifecycleRow(invocation, status, opts))
+    }
+
+    /** Takes the row's version and 'running' stamp now, so a caller can queue it later yet keep the earlier version. */
+    prepareLifecycleRow(
+        invocation: CyclotronJobInvocation,
+        status: HogInvocationResultStatus,
+        opts: {
+            error?: unknown
+            errorKind?: string
+            startedAt?: Date
+            finishedAt?: Date
+        } = {}
+    ): HogInvocationResultRow | null {
         if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            return null
+        }
+        return this.buildLifecycleRow(invocation, status, opts)
+    }
+
+    queuePreparedRow(row: HogInvocationResultRow | null): void {
+        if (!row) {
             return
         }
-
-        const row = this.buildLifecycleRow(invocation, status, opts)
         counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
         this.queuedRows.push(row)
         hogInvocationResultsPendingMessages.set(this.queuedRows.length)
@@ -452,7 +472,7 @@ export class HogInvocationResultsService {
             finished_at: finishedAt ? isoMicroseconds(finishedAt) : null,
             duration_ms: durationMs,
             error_kind: errorKind,
-            error_message: errorMessage,
+            error_message: hidesInvocationOutput(invocation) ? HIDDEN_OUTPUT_MESSAGE : errorMessage,
             event_uuid: trigger.event_uuid,
             distinct_id: trigger.distinct_id,
             person_id: trigger.person_id,

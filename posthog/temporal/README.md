@@ -313,6 +313,7 @@ By default, the logger you get from `structlog.get_logger` is configured to do b
 >
 > - A `team_id` must be set somewhere in the context.
 > - The function `resolve_log_source` in `posthog/temporal/common/logger.py` must be configured to resolve a `log_source` from your workflow's ID and type.
+>   Without a branch, your logs fall back to the `temporal_workflow` source, which no product UI reads.
 >   That being said, we want logging to be there when you need it, but otherwise get out of the way. For this reason, writing logs to stdout will always work, regardless of whether the requirements for log production are met or not. Moreover, if the requirements for log production are not met, log production will not crash your workflows.
 
 > [!TIP]
@@ -401,39 +402,24 @@ Once your workflow and activities have been written, it's time to decide which w
 
 Since each product has its own requirements when it comes to worker resources and behavior, each product has its own set of workers, and the product team manages the deployment of said workers. For in-development workflows and activities, there exists a set of workers listening on a shared task queue (called `general-purpose-task-queue`). Anybody may use this general task queue, so you can assign your workflows to it while they are still in development. Once your workflows have moved past the prototyping stage, I recommend looking in the [charts](https://github.com/PostHog/charts) repository for the `temporal-worker` package you can use to create your own deployment. With your own set of workers, you can define resource limits of your own, and avoid conflicts with other workflows running in the shared task queue.
 
-Regardless of which task queue and workers are chosen to run your workflows, all workers are configured right here in the code. So, you need to get your workflow classes and your activity functions in the worker configuration based on the task queue you have chosen. This is done by adding your workflows and activities to mappings in the `posthog/management/command/start_temporal_worker.py` script. I recommend that you group all your workflows and activities in a single collection at the top level `__init__.py` of your product package, so that then they can be imported in `start_temporal_worker.py` and added to the mappings.
+Regardless of which task queue and workers are chosen to run your workflows, the worker learns about them from code in this repository.
 
-For example, let's say I have implemented a product in `products/travelling_salesman_solver/` my `products/travelling_salesman_solver/__init__.py` looks like:
-
-```python
-from products.travelling_salesman_solver.temporal.workflows import MyWorkflow
-from products.travelling_salesman_solver.temporal.activity import my_first_activity, my_second_activity
-
-WORKFLOWS = [MyWorkflow]
-ACTIVITIES = [my_first_activity, my_second_activity]
-```
-
-Then, I can import these in `start_temporal_worker.py` and add them to `WORKFLOWS_DICT` and `ACTIVITIES_DICT`:
+A product declares its workflows, activities, schedules, interceptors and metric buckets in one value, `TEMPORAL`, in `products/<product>/backend/facade/temporal.py`. Core finds every declaration, validates it, and adds it to the worker of each queue the declaration binds to. Do not add product code to `start_temporal_worker.py` or `schedule.py`. See `products/architecture.md` § Temporal for the rules, and `products/review_hog/backend/facade/temporal.py` for a small example:
 
 ```python
-from products.travelling_salesman_solver import WORKFLOWS as TS_WORKFLOWS, ACTIVITIES as TS_ACTIVITIES
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
 
-...
+from products.travelling_salesman_solver.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.travelling_salesman_solver.backend.temporal.schedule import create_solver_schedule
 
-WORKFLOWS_DICT = {
-    ...
-    # Or, use a product-specific task queue if it already has its own deployment!
-    GENERAL_PURPOSE_TASK_QUEUE: TS_WORKFLOWS
-    + ...
-}
-
-ACTIVITIES_DICT = {
-    ...
-    # Or, use a product-specific task queue if it already has its own deployment!
-    GENERAL_PURPOSE_TASK_QUEUE: TS_ACTIVITIES
-    + ...
-}
+TEMPORAL = TemporalRegistration(
+    # Use a product-specific task queue if it already has its own deployment.
+    queues=(QueueBinding(queue_setting="GENERAL_PURPOSE_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(ACTIVITIES)),),
+    schedules=(create_solver_schedule,),
+)
 ```
+
+Workflows whose domain is core live under `posthog/temporal/` and go into `_task_queue_specs` in `posthog/management/commands/start_temporal_worker.py`.
 
 Once the workers are deployed, they will be able to run your workflows and activities.
 
