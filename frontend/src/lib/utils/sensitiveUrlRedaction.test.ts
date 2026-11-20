@@ -38,6 +38,17 @@ describe('redactSensitiveUrl', () => {
             `/login/google-oauth2/?next=%2Freset_2fa%2F${USER}%2F${TOKEN}`,
             `/login/google-oauth2/?next=%2Freset_2fa%2F${USER}%2F:token`,
         ],
+        ['a social login link from an invite', `/login/github/?invite_id=${INVITE}`, '/login/github/?invite_id=:id'],
+        [
+            'an encoded redirect to a social login link from an invite',
+            `/login?next=%2Flogin%2Fsaml%2F%3Fidp%3Dposthog_custom%26invite_id%3D${INVITE}`,
+            '/login?next=%2Flogin%2Fsaml%2F%3Fidp%3Dposthog_custom%26invite_id%3D:id',
+        ],
+        [
+            'an autocaptured social login link from an invite',
+            `a.block:attr__class="block ph-replay-block"attr__href="/login/google-oauth2/?invite_id=${INVITE}"`,
+            'a.block:attr__class="block ph-replay-block"attr__href="/login/google-oauth2/?invite_id=:id"',
+        ],
         [
             'an element chain',
             `a:attr__href="/signup/${INVITE}"href="/signup/${INVITE}"nth-child="1"`,
@@ -79,6 +90,10 @@ describe('replayBlockClassFor', () => {
         expect(replayBlockClassFor(`/login/google-oauth2/?next=%2Freset_2fa%2F${USER}%2F${TOKEN}`)).toBe(
             'ph-replay-block'
         )
+    })
+
+    it('blocks a social login link from an invite', () => {
+        expect(replayBlockClassFor(`/login/google-oauth2/?invite_id=${INVITE}`)).toBe('ph-replay-block')
     })
 
     it('leaves other links in replay', () => {

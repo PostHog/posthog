@@ -20,8 +20,10 @@ const SENSITIVE_SEGMENTS: [RegExp, string][] = [
         '$1:token',
     ],
     [new RegExp(`(${SEPARATOR}signup${SEPARATOR})${UUID}(?![0-9a-f])`, 'gi'), '$1:id'],
+    // Invite signup passes the invite id to social login in the query.
+    [new RegExp(`((?:\\?|&|%3F|%26)invite_id(?:=|%3D))${UUID}(?![0-9a-f])`, 'gi'), '$1:id'],
 ]
-const MAY_HOLD_SECRET = /reset|verify_email|signup/i
+const MAY_HOLD_SECRET = /reset|verify_email|signup|invite_id/i
 const NETWORK_PLUGIN = 'rrweb/network@1'
 // The bodies of these requests hold invite ids without a URL around them.
 const INVITE_REQUEST = new RegExp(`/api/(?:signup/${UUID}|organizations/[^/?#]+/invites)(?:[/?#]|$)`, 'i')

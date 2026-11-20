@@ -368,6 +368,7 @@ class TestSensitiveUrlRedaction(SimpleTestCase):
                 "$request_path": f"/api/signup/{INVITE_ID}/",
                 "http_referer": f"https://us.posthog.com/reset/{USER_UUID}/{RESET_TOKEN}",
                 "nested": {"urls": [f"/api/reset_2fa/{USER_UUID}/?token={RESET_TOKEN}"]},
+                "social_login": f"/login/google-oauth2/?invite_id={INVITE_ID}",
                 "kept": 1,
             },
         }
@@ -382,6 +383,7 @@ class TestSensitiveUrlRedaction(SimpleTestCase):
                 "$request_path": "/api/signup/:id/",
                 "http_referer": f"https://us.posthog.com/reset/{USER_UUID}/:token",
                 "nested": {"urls": [f"/api/reset_2fa/{USER_UUID}/?token=:token"]},
+                "social_login": "/login/google-oauth2/?invite_id=:id",
                 "kept": 1,
             },
         )

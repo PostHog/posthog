@@ -113,8 +113,10 @@ _SENSITIVE_URL_SEGMENTS = (
         r"\1:token",
     ),
     (re.compile(rf"({_URL_SEPARATOR}signup{_URL_SEPARATOR}){_UUID}(?![0-9a-f])", re.IGNORECASE), r"\1:id"),
+    # Invite signup passes the invite id to social login in the query.
+    (re.compile(rf"((?:\?|&|%3F|%26)invite_id(?:=|%3D)){_UUID}(?![0-9a-f])", re.IGNORECASE), r"\1:id"),
 )
-_MAY_HOLD_SENSITIVE_URL = re.compile(r"reset|verify_email|signup", re.IGNORECASE)
+_MAY_HOLD_SENSITIVE_URL = re.compile(r"reset|verify_email|signup|invite_id", re.IGNORECASE)
 
 
 def _redact_sensitive_urls(value: Any) -> Any:
