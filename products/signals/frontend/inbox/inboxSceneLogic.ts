@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
@@ -1432,6 +1433,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 const redirectPath = inboxTabRedirectPath(tab, searchParams)
                 if (redirectPath) {
                     router.actions.replace(redirectPath, searchParams, hashParams)
+                    return
+                }
+                if (tab === 'monitoring' && !values.featureFlags[FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]) {
+                    router.actions.replace(urls.inbox('reports'), searchParams, hashParams)
                     return
                 }
                 // A bare report deep-link `/inbox/<reportId>` is redirected to report form. Mark the list
