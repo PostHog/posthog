@@ -183,6 +183,7 @@ class TestSignalsProductModuleIntegrity:
             "run_agentic_report_activity",
             "run_signal_semantic_search_activity",
             "report_safety_judge_activity",
+            "research_prose_safety_judge_activity",
             "safety_filter_activity",
             "select_repository_activity",
             "github_optional_pilot_activity",

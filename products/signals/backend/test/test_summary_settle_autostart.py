@@ -30,11 +30,16 @@ from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     SignalReportInboxNotificationWorkflow,
 )
-from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
+from products.signals.backend.temporal.report_safety_judge import (
+    ResearchProseSafetyJudgeInput,
+    SafetyJudgeInput,
+    SafetyJudgeOutput,
+)
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
     CheckReportQuotaGateInput,
     ImplementationBufferInput,
+    MarkReportFailedInput,
     MarkReportInProgressInput,
     MarkReportReadyInput,
     MaybeAutostartImplementationInput,
@@ -149,6 +154,9 @@ class _Recorder:
         self.work_owners: list[str | None] = []
         self.candidate_checks = 0
         self.ready_result: bool | None = False
+        self.ready_marks = 0
+        self.prose_safe = True
+        self.failure_reasons: list[str | None] = []
         self.publications = 0
         # Auto-starts completed by the time the notification child made its first state check. The
         # child only waits for the implementation PR if the task already exists then, so a 0 here
@@ -211,6 +219,14 @@ async def _run_summary_workflow(
         recorder.work_owners.append(input.signal_id)
         return SafetyJudgeOutput(safe=True, explanation="ok")
 
+    @activity.defn(name="research_prose_safety_judge_activity")
+    async def fake_prose_safety(input: ResearchProseSafetyJudgeInput) -> SafetyJudgeOutput:
+        return SafetyJudgeOutput(safe=recorder.prose_safe, explanation=None if recorder.prose_safe else "unsafe")
+
+    @activity.defn(name="mark_report_failed_activity")
+    async def fake_failed(input: MarkReportFailedInput) -> None:
+        recorder.failure_reasons.append(input.failure_reason)
+
     @activity.defn(name="select_repository_activity")
     async def fake_select_repo(input: SelectRepositoryInput) -> RepoSelectionResult:
         recorder.work_owners.append(input.signal_id)
@@ -236,6 +252,7 @@ async def _run_summary_workflow(
 
     @activity.defn(name="mark_report_ready_activity")
     async def fake_mark_ready(input: MarkReportReadyInput) -> bool | None:
+        recorder.ready_marks += 1
         # No new signals arrived during the run itself; the buffer is what catches late signals.
         return recorder.ready_result
 
@@ -282,6 +299,8 @@ async def _run_summary_workflow(
                 fake_mark_in_progress,
                 fake_spend_owner,
                 fake_safety,
+                fake_prose_safety,
+                fake_failed,
                 fake_select_repo,
                 fake_research_access,
                 fake_research,
@@ -312,7 +331,7 @@ async def _run_summary_workflow(
             )
             # The notification child is detached (ABANDON), so it can outlive the parent; wait for
             # it before asserting on what it saw.
-            if recorder.ready_result is not None:
+            if recorder.ready_result is not None and recorder.ready_marks:
                 await asyncio.wait_for(
                     env.client.get_workflow_handle(
                         SignalReportInboxNotificationWorkflow.workflow_id_for(1, report_id)
@@ -330,6 +349,17 @@ async def test_skipped_ready_does_not_settle():
     assert recorder.publications == 0
     assert recorder.autostarts == 0
     assert recorder.autostarts_at_notification == []
+
+
+@pytest.mark.asyncio
+async def test_unsafe_research_prose_never_autostarts():
+    recorder = _Recorder(buffer_seconds=0, candidate_on_first_check=False)
+    recorder.prose_safe = False
+    await _run_summary_workflow(recorder)
+    assert recorder.failure_reasons == ["research_safety_judge_rejected"]
+    assert recorder.ready_marks == 0
+    assert recorder.autostarts == 0
+    assert recorder.publications == 0
 
 
 @pytest.mark.asyncio
