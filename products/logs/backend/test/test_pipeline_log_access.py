@@ -290,7 +290,10 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
-    def test_restricted_member_renames_a_pipeline_platform_alert_with_its_config_unchanged(self) -> None:
+    @parameterized.expand([("rename", {"name": "Renamed"}, 200), ("route", {"labels": {"team": "payments"}}, 403)])
+    def test_restricted_member_edits_a_pipeline_platform_alert_with_its_config_unchanged(
+        self, _name: str, change: dict, expected: int
+    ) -> None:
         config = {
             "filters": {"serviceNames": [_PIPELINE]},
             "condition": {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5},
@@ -306,11 +309,11 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
             response = self.client.patch(
                 f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/",
-                {"name": "Renamed", "source_config": stored["source_config"]},
+                {**change, "source_config": stored["source_config"]},
                 format="json",
             )
 
-        assert response.status_code == 200, response.json()
+        assert response.status_code == expected, response.json()
 
     @parameterized.expand(
         [
