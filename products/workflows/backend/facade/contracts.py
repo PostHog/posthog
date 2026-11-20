@@ -207,7 +207,7 @@ class WorkflowReplayTarget:
     status: str
     # Templates of the workflow's function steps, so template filters can match a workflow.
     template_ids: tuple[str, ...]
-    # The rerun worker skips runs of these workflows, because their message data was not stored.
+    # The rerun worker skips runs of these workflows, because their message data was not stored. Push counts too.
     sends_sensitive_email: bool
 
 
@@ -808,6 +808,35 @@ class TransactionalEmailSenderRequired(Exception):
 
 class TransactionalEmailContentInvalid(Exception):
     """The content has no subject or no body, so the workflow could not send it."""
+
+
+TRANSACTIONAL_PUSH_ACTION_ID: Final[str] = "transactional_push"
+
+
+@frozen
+class TransactionalPushContent:
+    """What a transactional push's workflow sends, taken from the message template it was made from."""
+
+    message_template_id: UUID
+    name: str
+    title: str
+    body: str
+    # The Firebase and APNs integrations the push goes out through.
+    channel_ids: tuple[int, ...]
+    message_category_id: UUID | None
+    image: str = ""
+    link: str = ""
+    data: Mapping[str, str] = field(default_factory=dict)
+    # Sends keep a placeholder instead of the title and body.
+    sensitive: bool = False
+
+
+class TransactionalPushContentInvalid(Exception):
+    """The content has no title or body, or no push channel, so the workflow could not send it."""
+
+
+class TransactionalPushChannelUnavailable(Exception):
+    """A push channel is not a Firebase or APNs integration of this project."""
 
 
 class WorkflowNotFound(Exception):

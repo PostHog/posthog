@@ -107,9 +107,9 @@ tools:
             does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when
             `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range)
             is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first; pass `order:
-            recent` for the series flagged the fewest buckets ago first, so an hourly series flagged in the latest hour
-            ties a daily series flagged in the latest day. Pass `search` to keep only insights whose name contains the
-            text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. When
+            recent` for the series whose newest flagged bucket ended last first, so an hourly series flagged a few hours
+            ago sorts above a daily series flagged yesterday. Pass `search` to keep only insights whose name contains
+            the text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. When
             `series_capped` is true, the project has more scored series than one search reads, so some matching series
             are missing from every page: narrow the date range, or pass `insight_id`, `dashboard_id` or `search`. A 404
             means anomaly search is not available for this project.
@@ -1819,10 +1819,12 @@ tools:
             Return scratchpad entries for this project, newest first. The keyspace is shared by every agent that runs
             here, the scouts and the report pipeline's research and implementation stages, so search the identity of the
             thing you care about (an error id, a flag key, a page path, a file path, an event name) and not only your
-            own key prefix. Each result carries `created_by_skill`, naming the entry's original creator: a scout's skill
-            name or a pipeline stage (`pipeline:report-research`, `pipeline:implementation`). An upsert keeps the
-            creator, so the last writer can differ. Expired entries are hidden by default, and a daily janitor
-            hard-deletes them once their expiry is more than two weeks in the past.
+            own key prefix. Pass `key_prefix` to read one family of keys (`followup:<skill-name>:`, `report:`), and
+            `text` to find an entity named anywhere in a key or body. Each result carries `created_by_skill`, naming the
+            entry's original creator: a scout's skill name or a pipeline stage (`pipeline:report-research`,
+            `pipeline:implementation`). An upsert keeps the creator, so the last writer can differ. Expired entries are
+            hidden by default, and a daily janitor hard-deletes them once their expiry is more than two weeks in the
+            past.
     scout-trial-archive:
         operation: signals_scout_config_trial_comparison_archive
         enabled: true

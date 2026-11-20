@@ -90,9 +90,10 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         default=AnomalyOrder.UNUSUAL,
         help_text=(
             "`unusual` puts the series that flagged most above its usual rate first. `recent` puts the series whose "
-            "newest flag is the fewest buckets ago first, so a flag in the latest hour ties a flag in the latest day, "
-            "then sorts as `unusual`. `rate` puts the highest `anomaly_rate` in the range first, then sorts as "
-            "`unusual`. With `group_by: insight`, each insight sorts by its first series."
+            "newest flagged bucket ended last first, whatever its interval, so an hour flagged this morning sorts "
+            "above a day flagged yesterday. Series whose flagged buckets ended at the same time sort as `unusual`. "
+            "`rate` puts the highest `anomaly_rate` in the range first, then sorts as `unusual`. With "
+            "`group_by: insight`, each insight sorts by its first series."
         ),
     )
     search = serializers.CharField(
@@ -112,7 +113,7 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
         default=False,
         help_text=(
             "Add `points` to each series row: its scored buckets in the chart window of its interval, oldest first. "
-            "The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 30 days for "
+            "The chart window ends at `date_to` and does not follow `date_from`: 7 days for `hour`, 14 days for "
             "`day`, 26 weeks for `week` and 24 months for `month`. Costs one more query. Has no effect with "
             "`group_by: insight`."
         ),
@@ -182,7 +183,7 @@ class AnomalySeriesPointsSerializer(serializers.Serializer):
     )
     date_from = ProjectDateTimeField(
         help_text=(
-            "The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 30 days for "
+            "The start of the chart window, in the project timezone: 7 days before `date_to` for `hour`, 14 days for "
             "`day`, 26 weeks for `week` and 24 months for `month`."
         )
     )

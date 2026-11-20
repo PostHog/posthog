@@ -129,7 +129,6 @@ import {
     EvaluationContextSuggestions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
-    FlagsSecureApiKeys,
     RequireEvaluationContexts,
     RequireFeatureFlagTags,
 } from './environment/FeatureFlagSettings'
@@ -1210,15 +1209,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <EvaluationContextSuggestions />,
                 keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
             },
-            {
-                id: 'feature-flag-secure-api-key',
-                title: 'Feature flags secure API key',
-                description:
-                    'Deprecated. This key is still usable for local evaluation of feature flags or remote config settings, but new integrations should use a project secret API key with the feature_flag:read scope instead.',
-                docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
-                component: <FlagsSecureApiKeys />,
-                keywords: ['api key', 'secret', 'local evaluation', 'remote config'],
-            },
         ],
     },
     {
@@ -1369,6 +1359,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Drop matching log lines before storage using ordered rules. Rules run in ingestion order (after optional scrub and JSON parse).',
                 component: <LogsSamplingSection />,
+                // This setting and logs-metric-rules load logs-scoped rules on mount. Hide both from a
+                // member without logs access, because the request returns a 403 for that member.
+                allowForTeam: () => userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer),
                 keywords: ['drop', 'exclude', 'filter', 'rules', 'path', 'attribute', 'volume', 'noise'],
             },
             {
@@ -1378,6 +1371,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
                 flag: 'METRICS',
+                allowForTeam: () => userHasAccess(AccessControlResourceType.Logs, AccessControlLevel.Viewer),
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {

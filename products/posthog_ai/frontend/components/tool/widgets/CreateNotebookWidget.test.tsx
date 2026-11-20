@@ -25,6 +25,8 @@ describe('CreateNotebookWidget', () => {
         'notebook-edit',
         'notebooks-create-markdown',
         'notebooks-get',
+        'notebooks-app-get',
+        'notebooks-app-update',
     ])('resolves %s to the notebook widget', (key) => {
         expect(toolRegistry.lookup(key)?.displayName).toBe('Notebook')
         // The notebook widget is gated on a trusted PostHog-exec origin, so pass `fromPostHogExec`.

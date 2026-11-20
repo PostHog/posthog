@@ -116,31 +116,76 @@ class TestAnomalyRanking(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "latest_hour_ties_latest_day_and_lift_breaks_the_tie",
+                "hourly_flag_hours_ago_beats_a_daily_flag_that_ended_earlier",
                 [
+                    _summary("daily_burst", scored=10, flagged=4, last_flagged=_day(22)),
                     _summary(
                         "hourly_blip",
                         scored=24,
                         flagged=1,
-                        last_flagged=NOW - datetime.timedelta(hours=1),
+                        last_flagged=NOW - datetime.timedelta(hours=4),
                         interval=IntervalType.HOUR,
                         newest_bucket=NOW - datetime.timedelta(hours=1),
                     ),
-                    _summary("daily_burst", scored=10, flagged=4, last_flagged=_day(22)),
                 ],
-                ["daily_burst", "hourly_blip"],
+                ["hourly_blip", "daily_burst"],
             ),
             (
-                "stopped_series_does_not_keep_its_last_flag_current",
+                "compares_bucket_ends_not_starts",
                 [
-                    _summary("stopped", scored=4, flagged=3, last_flagged=_day(18), newest_bucket=_day(18)),
-                    _summary("live", scored=10, flagged=1, last_flagged=_day(21)),
+                    _summary(
+                        "hourly_burst",
+                        scored=24,
+                        flagged=4,
+                        last_flagged=_day(22) + datetime.timedelta(hours=22),
+                        interval=IntervalType.HOUR,
+                        newest_bucket=NOW - datetime.timedelta(hours=1),
+                    ),
+                    _summary("daily_blip", scored=10, flagged=1, last_flagged=_day(22)),
                 ],
-                ["live", "stopped"],
+                ["daily_blip", "hourly_burst"],
+            ),
+            (
+                "weekly_flag_that_ended_days_ago_sorts_below_flags_today",
+                [
+                    _summary(
+                        "weekly",
+                        scored=1,
+                        flagged=1,
+                        last_flagged=_day(12),
+                        interval=IntervalType.WEEK,
+                        newest_bucket=_day(12),
+                    ),
+                    _summary("daily", scored=10, flagged=1, last_flagged=_day(22)),
+                    _summary(
+                        "hourly",
+                        scored=24,
+                        flagged=1,
+                        last_flagged=NOW - datetime.timedelta(hours=2),
+                        interval=IntervalType.HOUR,
+                        newest_bucket=NOW - datetime.timedelta(hours=1),
+                    ),
+                ],
+                ["hourly", "daily", "weekly"],
+            ),
+            (
+                "same_end_falls_back_to_lift",
+                [
+                    _summary("daily", scored=10, flagged=1, last_flagged=_day(22)),
+                    _summary(
+                        "weekly",
+                        scored=2,
+                        flagged=2,
+                        last_flagged=_day(16),
+                        interval=IntervalType.WEEK,
+                        newest_bucket=_day(16),
+                    ),
+                ],
+                ["weekly", "daily"],
             ),
         ]
     )
-    def test_recent_order_counts_buckets_since_the_newest_flag(
+    def test_recent_order_sorts_by_when_the_newest_flag_ended(
         self, _name: str, series: list[SeriesSummary], expected: list[str]
     ) -> None:
         ranked = rank_series(series, prior=prior_rate(series), importance={}, recent_first=True)
@@ -276,7 +321,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("every_scored_bucket", 400, ["2026-10-01", "2026-10-19", "2026-10-22"]),
+            ("every_scored_bucket", 400, ["2026-10-10", "2026-10-19", "2026-10-22"]),
             ("capped_to_the_newest", 1, ["2026-10-22"]),
         ]
     )
@@ -284,9 +329,9 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, cap: int, expected_days: list[str]
     ) -> None:
         self._score_history()
-        # Before the range but inside the 30-day daily chart window, then before the chart window.
-        self._score(_day(1), score=0.20, flag=0)
-        self._score(datetime.datetime(2026, 9, 20, tzinfo=datetime.UTC), score=0.20, flag=0)
+        # Before the range but inside the 14-day daily chart window, then before the chart window.
+        self._score(_day(10), score=0.20, flag=0)
+        self._score(_day(9), score=0.20, flag=0)
 
         with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES_POINTS", cap):
             body = self._get("search", date_from="2026-10-19", include_points=True).json()
@@ -316,7 +361,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_insight = Insight.objects.create(team=other_team, name="Other", saved=True)
         self._score(_day(22), score=0.98, flag=1)
-        self._score(_day(1), score=0.20, flag=0)
+        self._score(_day(10), score=0.20, flag=0)
         self._score(NOW - datetime.timedelta(hours=1), score=0.97, flag=1, series_key="logins", interval="hour")
         # Inside the daily window that the scan covers, but before the 7-day hourly window.
         self._score(NOW - datetime.timedelta(days=10), score=0.10, flag=0, series_key="logins", interval="hour")
@@ -335,8 +380,8 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         ] == [
             (
                 "signups",
-                "2026-09-23T12:00:00+00:00",
-                [("2026-10-01T00:00:00+00:00", False), ("2026-10-22T00:00:00+00:00", True)],
+                "2026-10-09T12:00:00+00:00",
+                [("2026-10-10T00:00:00+00:00", False), ("2026-10-22T00:00:00+00:00", True)],
             ),
             ("logins", "2026-10-16T12:00:00+00:00", [("2026-10-23T11:00:00+00:00", True)]),
         ]
@@ -421,10 +466,11 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def test_search_recent_order_mixes_intervals_on_the_first_page(self) -> None:
         for hours_ago in range(1, 25):
             hour = NOW - datetime.timedelta(hours=hours_ago)
-            self._score(hour, score=0.5, flag=int(hours_ago == 1), series_key="hourly", interval="hour")
+            self._score(hour, score=0.5, flag=int(hours_ago == 4), series_key="hourly", interval="hour")
         for series_key, days in {"daily": {21, 22}, "older": {19}}.items():
             for day in range(15, 23):
                 self._score(_day(day), score=0.5, flag=int(day in days), series_key=series_key)
+        self._score(_day(15), score=0.5, flag=1, series_key="weekly", interval="week")
 
         pages = [
             self._get("search", date_from="2026-10-15", order="recent", limit=2, offset=offset).json()
@@ -432,8 +478,8 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         ]
 
         assert [[(row["series_key"], row["interval"]) for row in page["series"]] for page in pages] == [
-            [("daily", "day"), ("hourly", "hour")],
-            [("older", "day")],
+            [("hourly", "hour"), ("daily", "day")],
+            [("weekly", "week"), ("older", "day")],
         ]
 
     @parameterized.expand(
