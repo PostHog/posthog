@@ -24,6 +24,8 @@ It revokes the refresh token when the user disconnects.
 
 Cache failures before token exchange retry the task up to three times, after the 60-second polling reservation expires. These retries keep the original login deadline. No task retry occurs after token exchange starts. The final access retry holds the user lock for five extra seconds, so cancellation and token issuance for that user wait. This keeps the refreshed tokens and access check in one transaction; cancellation can then remove only the credentials from that attempt.
 
+After tokens commit, cache status publication has three attempts, two seconds apart. These retries run outside the token transaction and do not repeat token exchange. A publication failure does not mark the committed connection as failed.
+
 ## Rate-limit headers
 
 None documented, so the domain declares no gauges.

@@ -250,7 +250,15 @@ def complete_codex_login(self: Task, user_id: int, login_id: str) -> None:
             )(lambda: ensure_codex_connect_enabled(User.objects.get(id=user_id, is_active=True)))
             if time.time() >= login["expires_at"]:
                 raise TimeoutError("Device login expired")
-            transaction.on_commit(lambda: update_login(user_id, login_id, "connected"))
+            transaction.on_commit(
+                lambda: Retrying(
+                    retry=retry_if_exception_type(RedisError),
+                    stop=stop_after_attempt(3),
+                    wait=wait_fixed(2),
+                    reraise=True,
+                )(update_login, user_id, login_id, "connected"),
+                robust=True,
+            )
             transaction.on_commit(lambda: capture_login_result(user, "connected"))
     except Exception as error:
         if isinstance(error, RedisError) and not exchange_started:
