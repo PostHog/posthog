@@ -1,13 +1,21 @@
 from uuid import uuid4
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.contrib.sessions.backends.signed_cookies import SessionStore
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.helpers.two_factor_session import NO_EMAIL_HTTP_SERVICE, CodeBasedVerifier
+from posthog.helpers.two_factor_session import (
+    CODE_BASED_VERIFICATION_IDENTITY_SESSION_KEY,
+    CODE_TTL_SECONDS,
+    NO_EMAIL_HTTP_SERVICE,
+    CodeBasedVerifier,
+)
+from posthog.redis import TEST_clear_clients, get_client
 
 
 @pytest.mark.disable_mock_code_based_verifier
@@ -51,3 +59,28 @@ class TestCodeBasedVerifierEmailTransport(SimpleTestCase):
             CodeBasedVerifier().should_send_code_based_verification(self.mock_user)
 
         self.assertEqual(mock_capture_exception.called, on_cloud)
+
+
+@pytest.mark.disable_mock_code_based_verifier
+class TestCodeBasedVerifierAttempts(SimpleTestCase):
+    @parameterized.expand([("new", False), ("interrupted_expiry", True)])
+    def test_idp_attempts_expire_without_renewing_the_window(self, _name: str, missing_expiry: bool) -> None:
+        TEST_clear_clients()
+        self.addCleanup(TEST_clear_clients)
+        verifier = CodeBasedVerifier()
+        request = RequestFactory().post("/")
+        request.session = SessionStore()
+        request.session.update(
+            {
+                "code_based_verification_pending_user_id": 123,
+                CODE_BASED_VERIFICATION_IDENTITY_SESSION_KEY: "example-subject",
+            }
+        )
+        with time_machine.travel("2026-01-10T12:00:00Z", tick=False) as clock:
+            if missing_expiry:
+                get_client().set(verifier._attempts_redis_key("idp:example-subject"), 1)
+            self.assertEqual(verifier.reserve_attempt(request), 2 if missing_expiry else 1)
+            clock.shift(CODE_TTL_SECONDS - 1)
+            self.assertEqual(verifier.reserve_attempt(request), 3 if missing_expiry else 2)
+            clock.shift(2)
+            self.assertEqual(verifier.reserve_attempt(request), 1)

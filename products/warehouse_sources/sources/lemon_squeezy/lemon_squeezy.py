@@ -28,6 +28,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookDeletionResult,
     WebhookSourceManager,
     WebhookSyncResult,
+    flatten_jsonapi,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -73,10 +74,9 @@ def _flatten_json_api_item(item: dict[str, Any]) -> dict[str, Any]:
     resource id. `relationships`/`links` are dropped — attributes already carry the foreign
     keys (`store_id`, `order_id`, ...) as plain columns.
     """
-    attributes = item.get("attributes")
-    if not isinstance(attributes, dict):
-        return {"id": item.get("id")}
-    return {"id": item.get("id"), **attributes}
+    return flatten_jsonapi(
+        {"id": item.get("id"), "attributes": item.get("attributes")}, relationships_as_ids=False, on_clash="nested"
+    )
 
 
 class LemonSqueezyPaginator(JSONResponsePaginator):

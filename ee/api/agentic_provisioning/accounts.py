@@ -27,6 +27,7 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import OnboardingSkippedReason, User
 from posthog.scopes.ceilings import scopes_within_ceiling
 from posthog.tasks.email import send_provisioning_welcome
+from posthog.tasks.workos_radar import report_attempt_success
 from posthog.workos_radar import RadarAction, RadarAuthMethod, SuspiciousAttemptBlocked, evaluate_auth_attempt
 
 from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
@@ -381,6 +382,7 @@ def handle_new_user(
         capture_provisioning_event("account_request", "wildcard_dns_email_blocked", partner=partner, region=region)
         raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
+    radar_attempt = None
     if partner.is_verified:
         # Radar scores the request IP and user agent, which belong to the partner server, not the
         # end user. A busy partner therefore looks like a bot. PostHog staff vouch for a verified
@@ -390,7 +392,7 @@ def handle_new_user(
             raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
     else:
         try:
-            evaluate_auth_attempt(
+            radar_attempt = evaluate_auth_attempt(
                 request,
                 email,
                 RadarAction.SIGNUP,
@@ -444,6 +446,7 @@ def handle_new_user(
         region=region,
         team_id=team.id,
     )
+    report_attempt_success(radar_attempt)
 
     apply_provisioned_onboarding_flags(user, team)
 

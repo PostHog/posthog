@@ -103,6 +103,20 @@ class TestScoutTrialAPI(APIBaseTest):
         assert self.client.get(self.memory_url).json() == []
         assert SignalScratchpad.objects.filter(pk=original.pk).exists()
 
+    def test_private_memory_write_with_a_stale_if_updated_at_conflicts(self) -> None:
+        self._as_trial()
+        created = self.client.post(self.memory_url, {"key": "finding:private", "content": "v1"}).json()["updated_at"]
+
+        first = self.client.post(self.memory_url, {"key": "finding:private", "content": "v2", "if_updated_at": created})
+        second = self.client.post(
+            self.memory_url, {"key": "finding:private", "content": "v3", "if_updated_at": created}
+        )
+
+        assert first.status_code == 200, first.data
+        assert second.status_code == 409, second.data
+        assert second.json()["updated_at"] == first.json()["updated_at"]
+        assert ScoutTrialStore(self.trial_run).search_memory(key="finding:private")[0].content == "v2"
+
     def test_memory_search_filters_private_entries_by_creating_skill(self) -> None:
         self._as_trial()
         response = self.client.post(self.memory_url, {"key": "finding:private", "content": "Private value"})

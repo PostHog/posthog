@@ -16,7 +16,7 @@ Signals ingestion uses a three-stage pipeline: **emitter → buffer → grouping
 
 The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but is no longer started by `emit_signal()`. Its shared activities and `_process_signal_batch()` implementation are still actively used by v2.
 
-Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by `posthog/management/commands/start_temporal_worker.py`.
+Signals workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker (the `temporal-worker-video-export` fleet) by the `TEMPORAL` declaration in `backend/facade/temporal.py`.
 The inbox ranking scoring sweep is the one exception. `SELF_DRIVING_WORKFLOWS` and `SELF_DRIVING_ACTIVITIES` register it only on `SELF_DRIVING_TASK_QUEUE`, which the `temporal-worker-self-driving` fleet polls. See the [self-driving Temporal worker runbook](../../docs/internal/self-driving-temporal-worker-runbook.md) for the fleet, its schedule, and its checks.
 If you add or remove a Signals workflow/activity from `backend/temporal/__init__.py`, you also need to update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`). That test intentionally snapshots the registered workflow/activity lists and will fail until its expected names are updated.
 
@@ -383,7 +383,8 @@ note, and drops its oldest fire when full. Every other rejection (pause, enrolme
 missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
 hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
 allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
-per lane that passes the same gates a live fire does. Only ids travel through Temporal: the run claims
+per lane that passes the gates a live fire does, except the cooldown, which is one tick long, so a
+queued fire does not wait for both the cooldown and the next tick. Only ids travel through Temporal: the run claims
 (locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
 leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
 
@@ -585,12 +586,15 @@ Claim content stores a server-generated `display_name`: a phase label for intern
 Unknown clients use "Alex's agent". The label is fixed at claim time and does not participate in ownership checks; older claims can omit it.
 
 **Claims and task association.** Agents use the claim endpoint to start or resume work, attach `pull_requests`, and release ownership.
-The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another actor's claim requires explicit `takeover=true`.
+The returned `claim_id` identifies the work attempt; stale or foreign claims are rejected, and taking another person's claim or a task claim requires explicit `takeover=true`.
+A person's claim, direct or through an external agent, covers all of their actors: the person, each of their agents, and tasks they started. Any of them resumes it without takeover, adds work to it, and can release it.
+On an API request the `X-PostHog-Task-Id` header is caller-supplied, so a task counts as its creator only when the creator authenticates the request, even when the task is already associated with the claim.
 The shared ownership helper derives the active owner from the latest `work_claim` artefact and its `work_release` entries.
 Internal task agents automatically receive a `task_run` association on claim; clients do not write task associations separately.
 When a person holds the claim and starts an implementation task themselves, the task works under that claim instead of replacing it, so the person stays the owner while the agent writes the PR.
+The task id header is caller-supplied, so a task counts as its creator only on requests the creator authenticates.
 A task started by anyone else is refused while a person holds the claim.
-That task can resume the person's claim and add pull requests and notes to it, but only the person can release it.
+An explicit takeover by another actor of the same person still moves the claim, for example when a person turns their agent's claim into their own.
 A takeover can name the claim it expects to replace in `takeover_claim_id`, and the server refuses it when a different claim is active.
 In the Inbox, a suggested reviewer claims a report from their own row, and the report shows who works on it under the title. Agent and task claims are not shown there, because a person still has to review the agent's work.
 Notes, commits, and PR links can reference the claim without mixing that context into actor attribution.
@@ -1041,6 +1045,8 @@ Source filters (`config.hogql_filter`) share one rollout gate, `source_filters.w
 `filter_preview` (`source_filter_preview.py`) reads the records created in the last 7 days with emission's own window field, built-in conditions and saved scope allowlist, and binds the expression to the active catalog version the save would pin.
 Unlike emission, it runs as the requester under warehouse access control, so a user without access to the source table gets `access_denied` and no rows.
 It creates no signals, calls no AI, and moves no sync cursor.
+A source config with a saved filter also returns a read-only `filter_status`, built from its `SignalSourceFilterState` rows: `failing` while a fetch failed and no later fetch succeeded, with the error, the time it failed, and the earliest window still to read again.
+It counts only results recorded for the filter saved now (each state row stores a fingerprint of the filter that produced it), on warehouse schemas that this environment owns and that are not deleted.
 
 #### `SignalTeamConfigViewSet`
 
@@ -1247,7 +1253,7 @@ All events use `distinct_id = team.uuid` and `groups(organization, team)`. Per-s
 - `signals_repo_research_started` / `signals_repo_research_completed` — repo selection stage (+ `report_id`, `result`: `reused` | `selected` | `no_repo` | `failed`, optional `failure_reason`: `no_github_integration` | `agentic_activity_error`)
 - `signal_report_completed` — terminal per run (+ `result`: `ready` | `failed` | `pending_input` | `not_actionable`, optional `failure_reason`)
 - `signals_autostart_steering_attached` — an implementation task was created (+ `report_id`, `task_id`, `notes_attached`, `scratchpad_available`, `memory_protocol`, `nudge_rendered`). Fires on every auto-start, so the share carrying fleet steering is readable. See Auto-Start Flow
-- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
+- `signals_autostart_skipped` — an auto-start evaluation started nothing (+ `report_id`, `skip_reason`: `not_actionable` | `requires_human_input` | `already_addressed` | `no_priority` | `autostart_disabled` | `quota_exhausted` | `no_runner` | `free_trial` | `duplicate_of` | `blocked_by_dependency` | `plan_parent`, `linked_report_id` nullable, `source_products`: the report's distinct signal source products, empty when the lookup fails). The idempotent "a task already exists" skip is deliberately not counted, because it fires on every re-evaluation of a report whose run already started. See Auto-Start Flow
 - `signals_report_linked` — a typed `report_link` was written (+ `report_id`, `linked_report_id`, `kind`, `has_reason`, `actor_kind`, `actor_agent`). Fired from the one write path every producer shares, so links get a denominator they do not otherwise have. See Typed report links
 
 **Tracing one signal:** filter on `properties.source_id = <id>` to follow it through the funnel, then pivot to `properties.report_id` from `signal_assigned_to_report` to see the report's lifecycle.
@@ -1396,7 +1402,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 **Guard clause** — all must pass:
 
 - Report actionability is `immediately_actionable`
-- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
+- Report is not `already_addressed` — which covers both a fix that has landed and one already in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). The issues a report was filed from never count: research lists them from GitHub issue signals and `source_issue` artefacts, so a requester who assigns their own issue does not block the work. Research is instructed to check for in-flight work and set the flag, so this gate is what keeps us off work a human or another agent already has going; the implementation prompt repeats the check as a pre-flight
 - Report has a `priority_judgment`
 - Report has suggested reviewers
 - No legacy `SignalReportTask` implementation row exists for the report (checked inside a `select_for_update` on the report row, so concurrent evaluations can't double-start)

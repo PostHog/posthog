@@ -1,3 +1,4 @@
+import functools
 from dataclasses import replace
 from typing import Any, cast
 from urllib.parse import quote
@@ -14,6 +15,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceInputs,
     SourceResponse,
     build_dependent_resource,
+    flatten_jsonapi,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -58,11 +60,6 @@ def probe_credentials(config: KajabiSourceConfig, schema_name: str | None) -> in
         return session.get(
             f"{BASE_URL}/{path}", params=params, auth=auth, timeout=(10, 30), allow_redirects=False
         ).status_code
-
-
-def flatten_resource(row: dict[str, Any]) -> dict[str, Any]:
-    attributes = row.get("attributes") or {}
-    return {**attributes, **{key: value for key, value in row.items() if key != "attributes"}}
 
 
 def encode_contact_id(row: dict[str, Any]) -> dict[str, Any]:
@@ -137,7 +134,7 @@ def kajabi_source(
                     },
                     "write_disposition": "replace",
                     "table_format": "delta",
-                    "data_map": flatten_resource,
+                    "data_map": functools.partial(flatten_jsonapi, relationships_as_ids=False),
                 }
             ],
         }

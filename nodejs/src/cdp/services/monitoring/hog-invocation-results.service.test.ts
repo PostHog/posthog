@@ -207,12 +207,13 @@ describe('HogInvocationResultsService', () => {
                 const invocation = createExampleHogFlowInvocation(hogFlow, {
                     variables: { code: '482913' },
                     send,
-                    idempotencyKey,
                 })
                 // A step paused for a provider retry keeps the rendered message on its VM stack.
                 const vmState = { stack: [{ title: 'Your code is 482913' }] }
                 const person = { id: 'person-1', properties: { code: '482913' } }
+                // Jobs queued before the Valkey keys were removed still carry their key record.
                 Object.assign(invocation.state, state, {
+                    idempotencyKey,
                     event: { ...invocation.state.event, ...(state as any).event },
                     currentAction: {
                         id: 'message',
