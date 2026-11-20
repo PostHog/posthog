@@ -80,6 +80,23 @@ export function configurationStatus(configuration: PlatformAlertConfigurationApi
     return STATE_PRIORITY.find((state) => states.has(state)) ?? 'not_checked'
 }
 
+export interface PlatformAlertStateCount {
+    status: PlatformAlertConfigurationStatus
+    count: number
+}
+
+// One entry for each state the configuration's groups are in, most urgent first.
+export function configurationStateCounts(configuration: PlatformAlertConfigurationApi): PlatformAlertStateCount[] {
+    if (!configuration.enabled) {
+        return [{ status: 'disabled', count: configuration.alerts.length }]
+    }
+    const counts = STATE_PRIORITY.map((status) => ({
+        status,
+        count: configuration.alerts.filter((alert) => alert.state === status).length,
+    })).filter(({ count }) => count > 0)
+    return counts.length ? counts : [{ status: 'not_checked', count: 0 }]
+}
+
 // Each source keeps its bound under `source_config.condition` in its own shape. Only the logs shape
 // reads as one line, so other sources fall back to the raw settings on the detail page.
 export function describeCondition(configuration: PlatformAlertConfigurationApi): string {

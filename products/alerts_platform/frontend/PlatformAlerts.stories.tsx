@@ -222,10 +222,10 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/platform_alerts/': {
-                    count: 2,
+                    count: 3,
                     next: null,
                     previous: null,
-                    results: [CONFIGURATION, DISABLED_CONFIGURATION],
+                    results: [CONFIGURATION, DISABLED_CONFIGURATION, GROUPED_CONFIGURATION],
                 },
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
