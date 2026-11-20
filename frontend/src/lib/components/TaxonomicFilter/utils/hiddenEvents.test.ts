@@ -15,7 +15,7 @@ describe('events hidden from query builders', () => {
     // hidden_in_query_builders fails this test until it gets its own gate.
     it.each([
         ['reads flag evaluations', FlagEvaluationsModeEnumApi.Number1],
-        ['writes only flag evaluations', FlagEvaluationsModeEnumApi.Number3],
+        ['writes only flag evaluations', FlagEvaluationsModeEnumApi.Number2],
     ])('hides $feature_flag_called for a team that %s', (_label, mode) => {
         expect(hiddenEventNames(mode)).toEqual(['$feature_flag_called'])
     })
@@ -30,7 +30,7 @@ describe('events hidden from query builders', () => {
     })
 
     it('hides the event behind its stand-in even when the picker includes hidden events', () => {
-        expect(hiddenEventNames(FlagEvaluationsModeEnumApi.Number3, true, true)).toEqual(['$feature_flag_called'])
+        expect(hiddenEventNames(FlagEvaluationsModeEnumApi.Number2, true, true)).toEqual(['$feature_flag_called'])
     })
 
     it.each([

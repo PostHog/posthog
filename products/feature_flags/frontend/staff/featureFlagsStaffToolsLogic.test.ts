@@ -480,7 +480,7 @@ describe('featureFlagsStaffToolsLogic', () => {
 
         it('previews the request as a dry run, then applies the same request', async () => {
             const bodies: StaffFlagEvaluationsModeMutationApi[] = []
-            // Four organizations move, one of them down from mode 3. One stays above the mode on mode 3,
+            // Four organizations move, one of them down from mode 2. One stays above the mode on mode 2,
             // and one is already on it. A summary that reads the wrong field, or counts every unchanged
             // organization as left above or lowered, or counts an unchanged organization's experiments, fails.
             const organizations: StaffOrganizationModeChangeApi[] = (
@@ -488,8 +488,8 @@ describe('featureFlagsStaffToolsLogic', () => {
                     [0, true, false, 2],
                     [0, true, false, 0],
                     [0, true, false, 0],
-                    [3, true, false, 0],
-                    [3, false, true, 3],
+                    [2, true, false, 0],
+                    [2, false, true, 3],
                     [1, false, false, 0],
                 ] as const
             ).map(([currentMode, changed, leftAboveMode, experimentsNeedingFlagCalls], index) => ({
@@ -522,9 +522,9 @@ describe('featureFlagsStaffToolsLogic', () => {
 
             logic.actions.openFlagEvaluationsModeModal()
             await expectLogic(logic).toDispatchActions(['loadFlagEvaluationsModePreviewSuccess'])
-            // Only a move to mode 3 stops these experiments, so the mode 1 preview warns about none.
+            // Only a move to mode 2 stops these experiments, so the mode 1 preview warns about none.
             expect(logic.values.flagEvaluationsModePreviewSummary?.experimentsNeedingFlagCallsInEvents).toBe(0)
-            logic.actions.setFlagEvaluationsModeRequest({ mode: 3 })
+            logic.actions.setFlagEvaluationsModeRequest({ mode: 2 })
             // A preview of the previous request must not stay on screen next to an Apply button
             // that sends the new one.
             expect(logic.values.flagEvaluationsModePreview).toBeNull()
@@ -543,7 +543,7 @@ describe('featureFlagsStaffToolsLogic', () => {
 
             // The preview fires on every form change, so a preview without dry_run would write the
             // mode while staff are still choosing it.
-            const request = { flag_evaluations_mode: 3, allow_downgrade: false, team_ids: [5, 99] }
+            const request = { flag_evaluations_mode: 2, allow_downgrade: false, team_ids: [5, 99] }
             expect(bodies).toEqual([
                 { flag_evaluations_mode: 1, allow_downgrade: false, team_ids: [5, 99], dry_run: true },
                 { ...request, dry_run: true },

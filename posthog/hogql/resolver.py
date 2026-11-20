@@ -1474,7 +1474,7 @@ class Resolver(CloningVisitor):
 
     def _copy(self, node: _T_AST, clear_types: bool = False) -> _T_AST:
         # :TRICKY: Copy input subtrees with this, not clone_expr. A join copied without it has no source in
-        # join_sources, and the flag call transform then refuses the query on modes 2 and 3.
+        # join_sources, and the flag call transform then refuses the query on mode 2.
         copy = clone_expr(node, clear_types=clear_types)
         if self.join_sources is not None:
             self.join_sources.record_copied_tree(copy, node)

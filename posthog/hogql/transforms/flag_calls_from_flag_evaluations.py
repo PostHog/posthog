@@ -1,7 +1,7 @@
 """Read flag calls from `posthog.flag_evaluations` when a query asks `events` for them.
 
-On flag_evaluations mode 3, ingestion stops writing `$feature_flag_called` to `events`. The native JSON events table
-holds no flag calls on any mode, so a query that reads it reads flag calls as modes 2 and 3 do. This transform swaps a
+On flag_evaluations mode 2, ingestion stops writing `$feature_flag_called` to `events`. The native JSON events table
+holds no flag calls on any mode, so a query that reads it reads flag calls as mode 2 does. This transform swaps a
 query's `events` scan for `posthog.flag_evaluations` when `flag_evaluations` holds every row the scan selects, so
 saved queries keep returning flag calls without a change. A scan spelled `posthog.events` reads the same table and
 swaps the same way.
@@ -214,7 +214,7 @@ def swap_flag_calls(
     This returns the changed query only when it resolves, every name in it binds as it does in the original, and
     every field in it that starts with `posthog.events` reads a scan.
     Otherwise it returns the resolved original. When the query's flag calls are only in `flag_evaluations`, as on
-    modes 2 and 3 or on the native JSON events table, it raises a QueryError instead of returning the original. It also
+    mode 2 or on the native JSON events table, it raises a QueryError instead of returning the original. It also
     raises before it resolves anything when such a query has a scan of only flag calls with a shape that
     `flag_evaluations` cannot stand in for. When the union refuses a scan, the query raises only if that scan still
     reads `events` after `swap_scans_found_by_type`.
@@ -228,7 +228,7 @@ def swap_flag_calls(
     When the query's flag calls are only in `flag_evaluations`, a scan that the syntactic rules miss swaps
     too when the resolved original shows that its filters pin `event` to flag calls in its WHERE or PREWHERE. The
     query raises when such a scan cannot swap. A scan that the resolver adds, such as one in an inline cohort, is not
-    swapped here. On modes 2 and 3 with the union enabled, `read_flag_calls_in_inline_cohort` points an inline cohort's scans
+    swapped here. On mode 2 with the union enabled, `read_flag_calls_in_inline_cohort` points an inline cohort's scans
     at the union. Otherwise they read `events`.
 
     The resolver runs this on the body of each saved view that it inlines, with `scope` naming that view for the
@@ -1031,7 +1031,7 @@ def names_flag_called(value: object) -> bool:
 
 class EventsOnlyNames(list[str]):
     """Event names that a query reads from `events` on every mode. A scan that matches `event` against these names
-    keeps reading `events`, so the flag-call swap and the flag-call union skip it. On modes 2 and 3, `events` holds the
+    keeps reading `events`, so the flag-call swap and the flag-call union skip it. On mode 2, `events` holds the
     `$experiment_exposure` copies of flag calls, and a scan of these names reads only those copies."""
 
 
@@ -1141,7 +1141,7 @@ class _EventsScanSwapper(ScanVisitor):
         ):
             self._swap(node, scan, conjuncts)
         else:
-            # On modes 2 and 3 the union reads a scan with a ratio SAMPLE, so this refuses only the other shapes.
+            # On mode 2 the union reads a scan with a ratio SAMPLE, so this refuses only the other shapes.
             refusal = scan.shape_refusal(node, ratio_sample_ok=self.union_reads_ratio_samples)
             if refusal is not None and scan.pins_flag_calls(conjuncts, needs_flag_key=False):
                 self.refusals.append(refusal)
@@ -1161,7 +1161,7 @@ class _EventsScanSwapper(ScanVisitor):
         them cannot swap, or None.
 
         A scan that the resolver adds, such as one in a saved view's body or an inline cohort, is not swapped here. A
-        view's scan keeps reading events. On modes 2 and 3 with the union enabled, an inline cohort's scan reads the union.
+        view's scan keeps reading events. On mode 2 with the union enabled, an inline cohort's scan reads the union.
         Any other scan without a clone cannot swap.
         """
         for select, join in _joins(resolved):

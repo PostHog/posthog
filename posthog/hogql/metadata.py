@@ -398,7 +398,7 @@ def _flag_called_notices(
                 )
             else:
                 if move_warning_by_span is None:
-                    # On modes 2 and 3 the union reads a mixed scan whenever the union flag is on.
+                    # On mode 2 the union reads a mixed scan whenever the union flag is on.
                     # The team's current mode does not change that.
                     union_on = context.database is not None and context.database.flag_calls_union_enabled
                     move_warning_by_span = flag_called_move_warnings(hogql_ast, union_on=union_on)

@@ -200,8 +200,7 @@ export interface JobSpec {
 export enum FlagEvaluationsMode {
     Events = 0,
     ReadFlagEvaluations = 1,
-    ReadFlagEvaluationsWithoutEventsFallback = 2,
-    FlagEvaluationsOnly = 3,
+    FlagEvaluationsOnly = 2,
 }
 
 export enum CookielessServerHashMode {

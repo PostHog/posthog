@@ -101,10 +101,10 @@ describe('StepTriggerConfiguration', () => {
         })
     })
 
-    it('lets a team on flag evaluations mode 3 pick Feature flag called as a trigger event', async () => {
+    it('lets a team on flag evaluations mode 2 pick Feature flag called as a trigger event', async () => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
-            flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number3,
+            flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
         })
         useMocks({
             get: {

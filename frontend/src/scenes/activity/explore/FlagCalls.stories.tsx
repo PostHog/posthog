@@ -16,7 +16,7 @@ import { getDefaultFlagCallsSceneQuery } from './flagCallsSceneLogic'
 
 const FLAG_CALLS_TEAM = {
     ...MOCK_DEFAULT_TEAM,
-    flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number3,
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
     flag_calls_only_in_flag_evaluations: true,
 }
 

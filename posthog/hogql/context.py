@@ -229,7 +229,7 @@ class HogQLContext:
         )
 
     def flag_calls_only_in_flag_evaluations(self) -> bool:
-        """Whether this query reads flag calls only from `posthog.flag_evaluations`, as modes 2 and 3 do. The events table
+        """Whether this query reads flag calls only from `posthog.flag_evaluations`, as mode 2 does. The events table
         that the query reads holds no new flag calls then, so a read that flag_evaluations cannot answer fails."""
         database = self.database
         return database is not None and (

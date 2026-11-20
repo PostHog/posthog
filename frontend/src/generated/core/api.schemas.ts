@@ -3062,7 +3062,6 @@ export const FlagEvaluationsModeEnumApi = {
     Number0: 0,
     Number1: 1,
     Number2: 2,
-    Number3: 3,
 } as const
 
 /**
@@ -3898,7 +3897,7 @@ export interface ProjectBackwardCompatApi {
     readonly realtime_cohorts: TeamRealtimeCohortsApi
     /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
     readonly available_error_tracking_ai_features: readonly ErrorTrackingAIFeatureEnumApi[]
-    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1, 2 and 3 read the flag_evaluations table. */
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
     readonly flag_calls_only_in_flag_evaluations: boolean
@@ -4796,7 +4795,7 @@ export interface PatchedProjectBackwardCompatApi {
     readonly realtime_cohorts?: TeamRealtimeCohortsApi
     /** Error tracking AI features available to this project. Its error tracking settings show a switch for each one. Empty when the project has none. */
     readonly available_error_tracking_ai_features?: readonly ErrorTrackingAIFeatureEnumApi[]
-    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1, 2 and 3 read the flag_evaluations table. */
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
     /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
     readonly flag_calls_only_in_flag_evaluations?: boolean

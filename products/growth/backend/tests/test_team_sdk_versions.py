@@ -163,20 +163,6 @@ class TestSdkVersionsFromRollup(ClickhouseTestMixin, BaseTest):
                 False,
                 {False: True, True: False},
             ),
-            (
-                "read_without_events_fallback_with_both_copies",
-                FlagEvaluationsMode.READ_FLAG_EVALUATIONS_WITHOUT_EVENTS_FALLBACK,
-                True,
-                True,
-                True,
-            ),
-            (
-                "read_without_events_fallback_ignores_a_call_only_events_holds",
-                FlagEvaluationsMode.READ_FLAG_EVALUATIONS_WITHOUT_EVENTS_FALLBACK,
-                True,
-                False,
-                False,
-            ),
             ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True, True),
             (
                 "flag_evaluations_only_with_older_events_copy",

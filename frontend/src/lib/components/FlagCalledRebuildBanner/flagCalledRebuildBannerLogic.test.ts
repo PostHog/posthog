@@ -22,7 +22,7 @@ describe('flagCalledRebuildBannerLogic', () => {
         ['off', FlagEvaluationsModeEnumApi.Number1, false],
         ['on', FlagEvaluationsModeEnumApi.Number0, false],
         ['on', FlagEvaluationsModeEnumApi.Number1, true],
-        ['on', FlagEvaluationsModeEnumApi.Number3, true],
+        ['on', FlagEvaluationsModeEnumApi.Number2, true],
     ])('with the flag %s on mode %s, banners enabled: %s', (flagState, mode, expected) => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES]: flagState === 'on',

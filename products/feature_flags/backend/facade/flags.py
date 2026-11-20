@@ -56,37 +56,19 @@ def get_organization_flag_evaluations_modes(organization_ids: Collection[UUID]) 
     }
 
 
-# The modes that read flag calls from flag_evaluations while ingestion still writes them to events.
-_MODES_THAT_WRITE_EVENTS = (
-    FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-    FlagEvaluationsMode.READ_FLAG_EVALUATIONS_WITHOUT_EVENTS_FALLBACK,
-)
-
-# The modes whose HogQL reads never fall back to events.
-_MODES_WITHOUT_EVENTS_FALLBACK = (
-    FlagEvaluationsMode.READ_FLAG_EVALUATIONS_WITHOUT_EVENTS_FALLBACK,
-    FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-)
-
-
 def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
     """The mode that picks the table for the flag-call readers that the READ_FLAG_EVALUATIONS comment lists.
-    FLAG_EVALUATIONS_READS_FORCE_EVENTS makes it EVENTS for an organization on a mode that still writes flag calls
-    to events, and leaves the stored mode unchanged. HogQL reads flag calls from flag_evaluations for a project on the
-    native JSON events table whatever this returns, because that table holds no flag calls, so the switch does not
-    move that project."""
+    FLAG_EVALUATIONS_READS_FORCE_EVENTS makes it EVENTS for an organization on READ_FLAG_EVALUATIONS and leaves
+    the stored mode unchanged. HogQL reads flag calls from flag_evaluations for a project on the native JSON events
+    table whatever this returns, because that table holds no flag calls, so the switch does not move that project."""
     mode = get_organization_flag_evaluations_mode(organization_id)
     # The switch skips FLAG_EVALUATIONS_ONLY. Events holds no new flag calls of the teams that ingestion copies to
     # flag_evaluations, so the readers would show no calls instead of the flag_evaluations rows.
-    if mode in _MODES_THAT_WRITE_EVENTS and get_instance_setting("FLAG_EVALUATIONS_READS_FORCE_EVENTS"):
+    if mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS and get_instance_setting(
+        "FLAG_EVALUATIONS_READS_FORCE_EVENTS"
+    ):
         return FlagEvaluationsMode.EVENTS
     return mode
-
-
-def read_mode_has_no_events_fallback(read_mode: int) -> bool:
-    """Whether HogQL reads flag calls from flag_evaluations without a fallback to events under `read_mode`, a value
-    of get_flag_evaluations_read_mode."""
-    return read_mode in _MODES_WITHOUT_EVENTS_FALLBACK
 
 
 def is_flag_calls_union_disabled() -> bool:
@@ -102,18 +84,6 @@ def reads_flag_calls_from_flag_evaluations(team: "Team", modifiers: "HogQLQueryM
     if _reads_native_events_with_flag_evaluations(team, modifiers):
         return True
     return get_flag_evaluations_read_mode(team.organization_id) != FlagEvaluationsMode.EVENTS
-
-
-def reads_flag_calls_without_events_fallback(team: "Team", read_mode: int | None = None) -> bool:
-    """Whether a reader that picks its own table reads the team's flag calls from flag_evaluations alone, as HogQL's
-    swap does when it has no fallback to events. A team that reads the native JSON events table does so on every
-    mode. A caller that already holds get_flag_evaluations_read_mode for the team's organization passes it as
-    `read_mode`, which saves the lookup."""
-    if _reads_native_events_with_flag_evaluations(team, None):
-        return True
-    if read_mode is None:
-        read_mode = get_flag_evaluations_read_mode(team.organization_id)
-    return read_mode_has_no_events_fallback(read_mode)
 
 
 def flag_calls_only_in_flag_evaluations(team: "Team", read_mode: int | None = None) -> bool:

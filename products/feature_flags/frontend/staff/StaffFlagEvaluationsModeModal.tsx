@@ -20,8 +20,7 @@ import { FLAG_EVALUATIONS_MODE_LABELS, featureFlagsStaffToolsLogic } from './fea
 const MODE_DESCRIPTIONS: Record<FlagEvaluationsModeEnumApi, string> = {
     0: 'Every reader of $feature_flag_called reads the events table.',
     1: "The Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to $feature_flag_called, and the home page flag call and enrollment counts read the flag_evaluations table. So does a HogQL query that pins $feature_flag_called to flag keys within the table's coverage. Other queries, including default experiment exposures, read the events table. Event pickers hide $feature_flag_called. New action steps on it are refused, and so are new cohort criteria on it that the cohort calculation would read from the events table. While the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, all of this uses the events table instead.",
-    2: "Reads as mode 3, and ingestion still writes $feature_flag_called to the events table. HogQL queries read flag_evaluations for any date range and fail when they can't, and queries that mix flag calls with other events read the flag calls from flag_evaluations. Queries that read events without naming $feature_flag_called still find the flag calls in the events table. While the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, all of this uses the events table instead.",
-    3: 'Reads as mode 2. Ingestion also stops writing $feature_flag_called to the events table for the teams it copies to flag_evaluations. Realtime cohorts refuse new $feature_flag_called criteria, and flags keep no last called time unless it syncs from flag_evaluations.',
+    2: "Reads as mode 1. Ingestion also stops writing $feature_flag_called to the events table for the teams it copies to flag_evaluations. HogQL queries read flag_evaluations for any date range and fail when they can't, queries that mix flag calls with other events read both tables, realtime cohorts refuse new $feature_flag_called criteria, and flags keep no last called time unless it syncs from flag_evaluations.",
 }
 
 export function StaffFlagEvaluationsModeModal(): JSX.Element {
@@ -119,7 +118,7 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                     />
                 </LemonField.Pure>
 
-                {mode === FlagEvaluationsModeEnumApi.Number3 && (
+                {mode === FlagEvaluationsModeEnumApi.Number2 && (
                     <LemonBanner type="warning">
                         For the teams ingestion copies to flag_evaluations, it writes $feature_flag_called only there,
                         so a failed write loses the event. Teams in INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS still
@@ -160,14 +159,14 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                                 {pluralize(summary.experimentsNeedingFlagCallsInEvents, 'experiment')} that read
                                 $feature_flag_called from the events table through an exposure action, an activation
                                 event, or a metric. Those reads find no new calls once the organization moves to{' '}
-                                {FLAG_EVALUATIONS_MODE_LABELS[FlagEvaluationsModeEnumApi.Number3]}.
+                                {FLAG_EVALUATIONS_MODE_LABELS[FlagEvaluationsModeEnumApi.Number2]}.
                             </LemonBanner>
                         )}
                         {summary.organizationsLoweredFromFlagEvaluationsOnly > 0 && (
                             <LemonBanner type="warning">
                                 Lowering{' '}
                                 {pluralize(summary.organizationsLoweredFromFlagEvaluationsOnly, 'organization')} from{' '}
-                                {FLAG_EVALUATIONS_MODE_LABELS[FlagEvaluationsModeEnumApi.Number3]} restarts any events
+                                {FLAG_EVALUATIONS_MODE_LABELS[FlagEvaluationsModeEnumApi.Number2]} restarts any events
                                 writes ingestion stopped for them, but the events table keeps a gap for that time.
                             </LemonBanner>
                         )}

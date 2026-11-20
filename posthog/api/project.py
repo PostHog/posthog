@@ -651,7 +651,7 @@ class ProjectBackwardCompatSerializer(
     flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
-            "whole organization. 0 reads the events table. 1, 2 and 3 read the flag_evaluations table."
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
         )
     )
     flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(  # Compat with TeamSerializer

@@ -58,7 +58,7 @@ describe('featureFlagUsageLogic', () => {
     it.each([
         ['events', FlagEvaluationsModeEnumApi.Number0, false],
         ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, true],
-        ['flag evaluations only', FlagEvaluationsModeEnumApi.Number3, true],
+        ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, true],
     ])('reads flag_evaluations for the %s mode: %s', (_name, mode, readsEvaluations) => {
         setFlagEvaluationsMode(mode)
 

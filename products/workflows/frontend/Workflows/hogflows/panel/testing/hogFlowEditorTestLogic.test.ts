@@ -569,7 +569,7 @@ describe('hogFlowEditorTestLogic', () => {
             // The example flag call names the flag that the trigger filters on, so a test run passes the trigger.
             [
                 'flag evaluations only mode',
-                FlagEvaluationsModeEnumApi.Number3,
+                FlagEvaluationsModeEnumApi.Number2,
                 [FLAG_CALLED],
                 `${FLAG_CALLS_NOT_LOADABLE} Using an example $feature_flag_called event instead.`,
                 false,
@@ -579,7 +579,7 @@ describe('hogFlowEditorTestLogic', () => {
             // An older pageview can still match, so the 30-day search stays available.
             [
                 'flag evaluations only mode with a pageview matcher',
-                FlagEvaluationsModeEnumApi.Number3,
+                FlagEvaluationsModeEnumApi.Number2,
                 [FLAG_CALLED, PAGEVIEW],
                 NO_MATCH_IN_7_DAYS,
                 true,

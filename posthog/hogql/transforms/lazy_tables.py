@@ -372,7 +372,7 @@ class LazyTableResolver(TraversingVisitor):
         self, select_type: ast.SelectQueryType, subquery: ast.SelectQuery, *, join_sources: JoinSources | None = None
     ) -> ast.SelectQuery:
         # The resolver copies `subquery`. A copy made here would have no source in `join_sources`. The swap then
-        # refuses the subquery on modes 2 and 3.
+        # refuses the subquery on mode 2.
         return cast(
             ast.SelectQuery,
             resolve_types(

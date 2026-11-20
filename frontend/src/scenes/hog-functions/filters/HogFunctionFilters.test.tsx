@@ -51,7 +51,7 @@ describe('HogFunctionFilters', () => {
             initKeaTests()
             teamLogic.actions.loadCurrentTeamSuccess({
                 ...MOCK_DEFAULT_TEAM,
-                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number3,
+                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
             })
         })
 
@@ -74,7 +74,7 @@ describe('HogFunctionFilters', () => {
                     configuration.mappings?.[0]?.filters?.events,
             },
         ])(
-            'lets a team on flag evaluations mode 3 match Feature flag called in $matcher',
+            'lets a team on flag evaluations mode 2 match Feature flag called in $matcher',
             async ({ template, matchedEvents }) => {
                 useMocks({
                     get: {

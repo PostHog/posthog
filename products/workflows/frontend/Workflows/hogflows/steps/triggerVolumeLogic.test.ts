@@ -42,12 +42,12 @@ describe('triggerVolumeLogic', () => {
         )
     })
 
-    // Mode 1 still writes flag calls to events, so only mode 3 adds the flag_evaluations count.
-    // On mode 3 the trends query leaves out flag calls, so a call that both tables hold counts once.
+    // Mode 1 still writes flag calls to events, so only mode 2 adds the flag_evaluations count.
+    // On mode 2 the trends query leaves out flag calls, so a call that both tables hold counts once.
     it.each([
         ['events', FlagEvaluationsModeEnumApi.Number0, 500, 500, false],
         ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, 500, false],
-        ['flag evaluations only', FlagEvaluationsModeEnumApi.Number3, 1203, 1200, true],
+        ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, 1203, 1200, true],
     ])(
         'estimates a trigger on feature flag calls on the %s mode',
         async (_name, mode, total, peakPerDay, excludesFlagCalls) => {

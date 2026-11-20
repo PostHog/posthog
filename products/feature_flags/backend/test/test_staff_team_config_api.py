@@ -404,8 +404,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("raises_the_organization_below_the_mode", False, False, [1, 3], (True, False), (False, True)),
-            ("dry_run_writes_nothing", True, False, [None, 3], (True, False), (False, True)),
+            ("raises_the_organization_below_the_mode", False, False, [1, 2], (True, False), (False, True)),
+            ("dry_run_writes_nothing", True, False, [None, 2], (True, False), (False, True)),
             ("allow_downgrade_lowers_the_organization_above", False, True, [1, 1], (True, True), (False, False)),
         ]
     )
@@ -414,7 +414,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
     ):
         # The staff UI previews every change with dry_run, so a view that dropped dry_run on the way to
         # the helper would write on every preview. A view that dropped allow_downgrade would never
-        # lower the organization on mode 3.
+        # lower the organization on mode 2.
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).delete()
         sibling = Team.objects.create(organization=self.organization, name="Sibling")
         Team.objects.create(organization=self.organization, name="Not requested")
