@@ -84,6 +84,7 @@ function useTraceMocks(firstTraceReply: TraceReply, nextTraceReply: TraceReply =
             [`${TRACE_BASE_URL}/clusters/`]: () => [200, { clusters: [] }],
             [`${TRACE_BASE_URL}/feedback/`]: () => [200, makeFeedback({ scores: [], responses: [] })],
             [`${TRACE_BASE_URL}/summary/`]: () => [404, { detail: 'No summary yet.' }],
+            [`${TRACE_BASE_URL}/search/`]: () => [200, { total: 0, matches: [] }],
         },
     })
 }
@@ -188,12 +189,18 @@ describe('TraceDrawerHost', () => {
         expect(await view.findByText('row-a')).toBeTruthy()
         expect(view.getByText('row-person@example.com')).toBeTruthy()
         expect(view.getByLabelText('Loading trace')).toBeTruthy()
-        expect(view.container.querySelector('[data-attr="trace-view-search-input"]')).toBeNull()
+        expect(attr(view.container, 'trace-view-copy').getAttribute('aria-disabled')).toBe('true')
+        expect(attr(view.container, 'trace-view-export').getAttribute('aria-disabled')).toBe('true')
+        fireEvent.change(attr(view.container, 'trace-view-search-input'), { target: { value: 'weather' } })
+        expect(await view.findByText('Searching…')).toBeTruthy()
         hover(view.getByText('2.31s'))
         expect(await view.findByText(PARTIAL_HINT)).toBeTruthy()
 
         release()
         expect((await view.findAllByText('answer-a')).length).toBeGreaterThan(0)
+        expect(attr(view.container, 'trace-view-copy').getAttribute('aria-disabled')).toBe('false')
+        expect(attr(view.container, 'trace-view-export').getAttribute('aria-disabled')).toBe('false')
+        expect(await view.findByText('No matches')).toBeTruthy()
         expect(view.queryByText('row-a')).toBeNull()
         expect(view.queryByText('row-person@example.com')).toBeNull()
         expect(view.getByText('ada@example.com')).toBeTruthy()
