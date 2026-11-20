@@ -70,7 +70,7 @@ import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-a
 import { STORE_URL } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { LIVE_FILE, LiveRecord } from './live'
-import { RunResult, Runner, createRunner } from './runner'
+import { RunResult, Runner, TargetRun, createRunner } from './runner'
 import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
@@ -278,6 +278,43 @@ describe('runner', () => {
         await expect(onHost.run(loaded, NEVER_ABORTED)).rejects.toThrow(
             `This runner already ran run ${runId} from its run manifest; a run host runs one card per manifest.`
         )
+    })
+
+    it('runs the card on the target it is given rather than the local one', async () => {
+        const opened: string[] = []
+        const closed: TargetRun = {
+            truth: { head: () => Promise.resolve(0), after: (next) => Promise.resolve({ records: [], next }) },
+            fetchRetries: 0,
+            probe: { unfinishedJobs: () => Promise.resolve(0), runningJobs: () => Promise.resolve(0) },
+            groups: [],
+            connect: () => Promise.reject(new Error('the given target refused the connection')),
+            seed: () => Promise.reject(new Error('unreachable')),
+            probes: () => Promise.reject(new Error('unreachable')),
+            offers: () => Promise.reject(new Error('unreachable')),
+            writeLogTails: () => Promise.resolve(),
+            close: () => Promise.resolve(),
+        }
+        const given = createRunner(
+            environment,
+            { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL, ...api.credentials },
+            {
+                target: {
+                    name: 'local',
+                    open: (_loaded, runId) => {
+                        opened.push(runId)
+                        return closed
+                    },
+                },
+            }
+        )
+
+        const result = await given.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        expect(opened).toEqual([result.runId])
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: expect.stringContaining('the given target refused the connection'),
+        })
     })
 
     it.each([
