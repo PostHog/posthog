@@ -90,7 +90,9 @@ const writerCpuUnder: BarDefinition = {
         if (minutes.length === 0) {
             return { unread: 'no whole writer CPU minute' }
         }
-        const readings = minutes.map((minute) => writerCpu.find(({ at }) => at === minute))
+        const readings = minutes.map((minute) =>
+            writerCpu.find(({ at, percent }) => at === minute && Number.isFinite(percent))
+        )
         const missing = readings.findIndex((reading) => reading === undefined)
         if (missing >= 0) {
             return { unread: `no writer CPU reading for the minute at ${iso(minutes[missing])}` }
@@ -135,11 +137,13 @@ function pickupsBetween(
         if (first < 0 || gap > 0) {
             return { unread: `no metrics from ${worker} after ${iso(first < 0 ? from : bounds[gap - 1])}` }
         }
-        if (inside.length < 2) {
-            return { unread: `no scrape of ${worker} was taken` }
-        }
-        inside.slice(1).forEach((sample, i) => {
-            const previous = inside[i]
+        // A scrape interval that straddles the step's end counts in both steps, so late pickups at a step's tail
+        // never pass into the next step's larger volume unjudged.
+        const last = inside.at(-1)!
+        const next = sorted.find(({ at }) => at > to)
+        const covered = last.at < to && next && next.at - last.at <= SCRAPE_GAP_MS ? [...inside, next] : inside
+        covered.slice(1).forEach((sample, i) => {
+            const previous = covered[i]
             add(picked, sample.lateness, sample.startedAt === previous.startedAt ? previous.lateness : {})
         })
     }

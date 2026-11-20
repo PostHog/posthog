@@ -229,6 +229,37 @@ describe('ramp', () => {
                 }),
             },
         ],
+        [
+            'ends at a harness limit, not a break, when a writer CPU minute came back without a value',
+            {
+                writerCpu: () =>
+                    Promise.resolve([
+                        { at: T, percent: undefined as unknown as number },
+                        { at: T + MINUTE, percent: 40 },
+                    ]),
+            },
+            0,
+            UNITS_PER_STEP[0],
+            {
+                advance: false,
+                stop: expect.objectContaining({
+                    end: 'harness_limit',
+                    reason: `writer_cpu_under was not judged: no writer CPU reading for the minute at ${iso(T)} in the 1x step`,
+                    broke: expect.objectContaining({ by: 'run_host', kind: 'harness', scale: 1 }),
+                }),
+            },
+        ],
+        [
+            'passes a pickup-only card without reading the writer CPU',
+            {
+                bars: [PICKUP],
+                samples: () => scrapedEvery5s(135, (atS) => ({ processed: {}, lateness: pickups(atS) })),
+                writerCpu: () => Promise.reject(new Error('no writer bar on this card')),
+            },
+            0,
+            UNITS_PER_STEP[0],
+            { advance: true, stop: undefined },
+        ],
     ])('%s', async (_story, overrides, index, offered, expected) => {
         jest.setSystemTime(windowOf(index).endedAt)
         const watch = watchRamp(live(overrides), NEVER)
@@ -238,6 +269,27 @@ describe('ramp', () => {
         await verdict
 
         expect({ advance: !watch.halt.aborted, stop: watch.stopped() }).toEqual(expected)
+    })
+
+    it('leaves no verdict when the run is cancelled while a writer CPU read is pending', async () => {
+        jest.setSystemTime(windowOf(0).endedAt)
+        const run = new AbortController()
+        const watch = watchRamp(
+            live({
+                writerCpu: () =>
+                    new Promise((_resolve, reject) =>
+                        run.signal.addEventListener('abort', () => reject(new Error('aws cloudwatch was cancelled')))
+                    ),
+            }),
+            run.signal
+        )
+
+        const verdict = watch.gate(windowOf(0), () => UNITS_PER_STEP[0])
+        await jest.advanceTimersByTimeAsync(SCRAPE_GAP_MS)
+        run.abort()
+        await verdict
+
+        expect({ halted: watch.halt.aborted, stop: watch.stopped() }).toEqual({ halted: false, stop: undefined })
     })
 
     it('judges a step only once its last scrape interval has passed', async () => {
@@ -270,6 +322,12 @@ describe('ramp', () => {
         ],
         ['no stop while the refusals stay within the gate', 1, [unit(1, 3, false)], undefined],
         ['no stop for an accepted unit', 0, [unit(1, 3)], undefined],
+        [
+            'the lower step whose refusal answered after a refusal in a higher step halted the drive',
+            0,
+            [unit(2, 3, false), unit(1, 3, false)],
+            1,
+        ],
     ])('halts the drive at %s', (_story, gate, journal, index) => {
         const watch = watchRamp(live({ gates: { refused_at_intake: gate } }), NEVER)
 
