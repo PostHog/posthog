@@ -2,12 +2,12 @@ import { useValues } from 'kea'
 
 import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from 'scenes/analytics/AnalyticsSpaceGlyph'
-import { AnalyticsTypeIcon } from 'scenes/analytics/AnalyticsTypeIcon'
 import { urls } from 'scenes/urls'
 
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 
+import { AnalyticsItemIcon } from '../analytics/AnalyticsItemIcon'
 import { todayAnalyticsLogic } from '../analytics/todayAnalyticsLogic'
 import { TodayRailPreviewList } from './TodayRailPreviewList'
 
@@ -30,13 +30,13 @@ export function TodayRailAnalyticsHoverCard({ onAction }: { onAction: () => void
                     : {
                           name: pin.item.name,
                           href: pin.item.href,
-                          icon: <AnalyticsTypeIcon type={pin.item.type} />,
+                          icon: <AnalyticsItemIcon type={pin.item.type} />,
                       }
             )}
             recents={recentAnalytics.map((item) => ({
                 name: item.name,
                 href: item.href,
-                icon: <AnalyticsTypeIcon type={item.type} />,
+                icon: <AnalyticsItemIcon type={item.type} />,
             }))}
             loading={shortcutDataLoading || recentsLoading}
             onAction={onAction}
