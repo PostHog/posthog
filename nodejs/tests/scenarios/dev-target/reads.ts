@@ -97,7 +97,7 @@ async function metricsRead(config: DevConfig, query: Record<string, string>): Pr
     )) as { series?: { name: string; values: unknown[] }[] }
     return (name) => {
         const values = series?.find((entry) => entry.name === name)?.values
-        if (!values?.every((value) => Number.isFinite(value))) {
+        if (!values?.length || !values.every((value) => Number.isSafeInteger(value) && (value as number) >= 0)) {
             throw new Error(`dev answered the workflow metrics read without a count of ${name}`)
         }
         return (values as number[]).reduce((sum, value) => sum + value, 0)

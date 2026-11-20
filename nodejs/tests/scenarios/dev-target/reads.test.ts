@@ -164,8 +164,11 @@ describe('dev reads', () => {
         }
     })
 
-    it('fails a workflow metrics read that answers a count it cannot add up, rather than reading it as zero', async () => {
-        const dev = await fakeDev({ receipts: [], series: { triggered: ['unknown' as unknown as number, 3] } })
+    it.each<[string, number[]]>([
+        ['a count it cannot add up', ['unknown' as unknown as number, 3]],
+        ['no buckets at all', []],
+    ])('fails a workflow metrics read that answers %s, rather than reading it as zero', async (_how, values) => {
+        const dev = await fakeDev({ receipts: [], series: { triggered: values } })
         try {
             await expect(workflowRuns(dev.config, '2026-11-20T14:00:00.000Z', 'hour')).rejects.toThrow(
                 'dev answered the workflow metrics read without a count of triggered'
