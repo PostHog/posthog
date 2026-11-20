@@ -1420,7 +1420,7 @@ export interface workflowLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -2373,7 +2373,7 @@ export interface workflowLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string

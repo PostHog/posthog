@@ -34,13 +34,17 @@ export function TransactionalEmailMetrics({ actions }: { actions: JSX.Element })
                     The numbers couldn't load. Check your connection and try again.
                 </LemonBanner>
             )}
-            <SceneSection title="All transactional emails" actions={actions}>
+            <SceneSection
+                title="All transactional emails"
+                description="Delivered means the recipient's mail server accepted the email, even if it then put it in spam. Mail providers don't tell senders which emails they put in spam, so spam complaints count only the complaints mail providers pass on, such as when a recipient reports an email as spam. To see where your emails land, send a test to an inbox at each provider."
+                actions={actions}
+            >
                 <TransactionalEmailMetricTiles />
             </SceneSection>
             <SceneDivider />
             <SceneSection
                 title="By email"
-                description="Delivered and bounced are shares of what was sent. Marked as spam, opened and clicked are shares of what was delivered."
+                description="Delivered and bounced are shares of what was sent. Spam complaints, opened and clicked are shares of what was delivered."
             >
                 <TransactionalEmailStatsTable
                     id="by_email"

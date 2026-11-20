@@ -25,6 +25,7 @@ import { AvailableFeature } from '~/types'
 
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from '../../../lib/components/heatmaps/types'
 import type { HedgehogModeInterface } from '../../../lib/components/HedgehogMode/types'
+import type { ToolbarProject } from '../../../lib/toolbar/toolbarProject'
 import type { ActionType } from '../../../types'
 import { DEFAULT_PII_MASKING_COLOR, applyPiiMaskingStylesheet, getPiiMaskingWarnings } from './piiMaskingStyles'
 
@@ -191,11 +192,11 @@ export interface toolbarLogicActions {
         accessToken: string,
         refreshToken: string | null,
         clientId: string,
-        project: import('../../../lib/toolbar/toolbarProject').ToolbarProject
+        project: ToolbarProject
     ) => {
         accessToken: string
         clientId: string
-        project: import('../../../lib/toolbar/toolbarProject').ToolbarProject
+        project: ToolbarProject
         refreshToken: string | null
     } // toolbarConfigLogic
     completeGracefulExit: () => {

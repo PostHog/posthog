@@ -117,7 +117,7 @@ export const CodeReviewProjectSettingsPeopleCreateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
- * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it. Project members can only turn reviews up: include a repository, raise its exception, or turn draft reviews on. Everything else needs a project admin.
+ * Include a repository into this project, remove it, set or clear its exception, or turn its draft reviews, push reviews or Deep reviews of pull requests that need a person on or off. Only the provided fields change. Including a repository that another project's 'all repositories' claim covers takes it from that project; the response names it. Project members can only turn reviews up: include a repository, raise its exception, or turn draft, push or Deep reviews on. Everything else needs a project admin.
  * @summary Save a repository's settings
  */
 export const codeReviewRepositoriesCreateBodyInstallationIdMax = 64
@@ -161,7 +161,19 @@ export const CodeReviewRepositoriesCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value.'
+            'True lets draft pull requests in this repository get their automatic review when they open, and one more when they are marked ready. False waits until they are ready for review. Omit it to keep the current value.'
+        ),
+    deep_review_gated_prs: zod
+        .boolean()
+        .optional()
+        .describe(
+            "True gives a pull request that auto-approval's size, restricted-path or tier rules send to a person its automatic review as a Deep review instead of a Standard one, once per pull request. Works only when the repository is also added to auto-approval. Drafts keep the Standard review. False keeps every automatic review Standard. Omit it to keep the current value."
+        ),
+    review_pushes: zod
+        .boolean()
+        .optional()
+        .describe(
+            'True lets later pushes to a ready pull request in this repository get automatic reviews, as the push gate allows. False stops automatic reviews after the review at ready. Omit it to keep the current value.'
         ),
 })
 

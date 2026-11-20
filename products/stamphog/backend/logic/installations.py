@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from django.db import router, transaction
+from django.db.models import QuerySet
 
 from ..models import StamphogInstallation, StamphogRepoConfig
 
@@ -84,3 +85,26 @@ def delete_installation(team_id: int, installation_id: str) -> None:
     StamphogInstallation.objects.for_team(team_id).using(_write_db()).filter(
         provider="github", installation_id=installation_id
     ).delete()
+
+
+def reviewable_repo_configs(configs: QuerySet[StamphogRepoConfig], repository: str) -> QuerySet[StamphogRepoConfig]:
+    """The enabled configs for ``repository`` that were bound through the verified sync flow.
+
+    Writer-pinned like every read that gates run creation (reader-lag invariant). Matched
+    case-insensitively because callers pass repository names in whatever casing they hold, while
+    configs keep GitHub's casing.
+    """
+    return (
+        configs.using(router.db_for_write(StamphogRepoConfig))
+        .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
+        .exclude(installation_id="")
+    )
+
+
+def reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig | None:
+    """The team's reviewable config for ``repository``."""
+    return (
+        reviewable_repo_configs(StamphogRepoConfig.objects.for_team(team_id), repository)
+        .order_by("created_at", "id")
+        .first()
+    )
