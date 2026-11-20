@@ -3,7 +3,7 @@
 Dynamic templates use Handlebars with SendGrid's own helpers:
 https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars. Legacy templates stay as text.
 
-Only plain values convert, in body text and in quoted attribute values. Any other Handlebars, conditions and loops
+Only plain values written with two braces convert, in body text. Any other Handlebars, conditions and loops
 included, keeps the whole template as text with a note, because each other form needs rules of its own to print what
 SendGrid prints.
 """
@@ -125,10 +125,8 @@ class _Converter:
             self.sender_variables.add(name)
         elif self.contact_fields and name in _CONTACT_VARIABLES:
             self.contact_variables.add(name)
-        value = f"variables.{name}"
-        if self.is_html and not node.raw:
-            return f"{{{{ {value}{_AS_TEXT}{_HTML_ESCAPE} | raw }}}}"
-        return f"{{{{ {value}{_AS_TEXT}{' | raw' if self.is_html else ''} }}}}"
+        # Handlebars escapes a two-brace value in every part, the subject and plain text included.
+        return f"{{{{ variables.{name}{_AS_TEXT}{_HTML_ESCAPE}{' | raw' if self.is_html else ''} }}}}"
 
 
 # Whole templates ------------------------------------------------------------------------------------------------------
@@ -149,10 +147,9 @@ def _convert_asm_tags(text: str, is_html: bool, converter: _Converter) -> str:
 # Only a plain value converts. Anything else keeps the whole template as text, because each other form needs rules of
 # its own to print what SendGrid prints: a condition reads an empty object differently, and a loop reads an object's
 # values where Liquid reads its pairs.
-_NAME = r"(?!this\b)[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*"
-_ALLOWED_TAG = re.compile(rf"\{{\{{\{{ *{_NAME} *\}}\}}\}}|\{{\{{ *{_NAME} *\}}\}}")
-# An attribute value in quotes, other than an event handler or a style, can hold a value.
-_PLAIN_ATTRIBUTE = re.compile(r"""\s(?!on|style\b)[\w:-]+\s*=\s*(?:"[^"<>]*"|'[^'<>]*')""", re.IGNORECASE)
+# Liquid reads `size`, `first` and `last` as properties of any object or array, where Handlebars finds nothing.
+_SEGMENT = r"(?!(?:this|size|first|last)\b)[A-Za-z_][A-Za-z0-9_]*"
+_ALLOWED_TAG = re.compile(rf"\{{\{{ *{_SEGMENT}(?:\.{_SEGMENT})* *\}}\}}(?!\}})")
 _HELD = re.compile("[\x02\x03]")
 _BRACE_BEFORE_ASM = re.compile(r"\{(?:<|&lt;)%")
 _ANGLE_IN_QUOTED_VALUE = re.compile(r"""=\s*(?:"[^"<>]*[<>][^"]*"|'[^'<>]*[<>][^']*')""")
@@ -166,9 +163,9 @@ def _unsupported_reason(source: str, is_html: bool) -> str | None:
     position = 0
     if any(match.group(1) not in _ASM_URLS and match.group(1) not in _ASM_LINKS for match in _ASM_TAG.finditer(source)):
         return "use <%...%> tags other than unsubscribe links"
-    # `<%...%>` tags hold `<` and `>`, which would read as HTML below. An unsubscribe URL counts as a value, and an
-    # unsubscribe link may only sit in body text.
-    text = _ASM_TAG.sub(lambda match: "\x02" if match.group(1) in _ASM_URLS else "\x03", source)
+    # `<%...%>` tags hold `<` and `>`, which would read as HTML below. An unsubscribe URL is PostHog's own, so it may
+    # also sit in a tag, and an unsubscribe link may only sit in body text.
+    text = _ASM_TAG.sub(lambda match: "\x04" if match.group(1) in _ASM_URLS else "\x03", source)
     while (start := text.find("{{", position)) != -1:
         match = _ALLOWED_TAG.match(text, start)
         if match is None:
@@ -181,11 +178,12 @@ def _unsupported_reason(source: str, is_html: bool) -> str | None:
     # A `<` or `>` in a quoted value hides where the tag ends from the checks below.
     if _ANGLE_IN_QUOTED_VALUE.search(text):
         return "have a < or > inside a quoted attribute value"
+    if _has_unclosed_block(text):
+        return "have a comment, style, script or head block that never closes"
     if any(_HELD.search(text[span.start : span.end]) for span in _not_content_spans(text)):
         return "sit inside a comment, style, script or head block"
-    for tag in _HTML_TAG.finditer(text):
-        if "\x03" in tag.group(0) or "\x02" in _PLAIN_ATTRIBUTE.sub("", tag.group(0)):
-            return "sit inside an HTML tag other than a plain attribute value"
+    if any(_HELD.search(tag.group(0)) for tag in _HTML_TAG.finditer(text)):
+        return "sit inside an HTML tag"
     return None
 
 
@@ -267,6 +265,17 @@ def _not_content_spans(html: str) -> Iterator[_Span]:
             continue
         yield _Span(start=match.start(), end=end)
         position = end
+
+
+def _has_unclosed_block(html: str) -> bool:
+    """Whether a comment, style, script or head block opens and never closes. Every span starts at an opening, so an
+    opening outside all spans is one that never closed."""
+    position = 0
+    for span in _not_content_spans(html):
+        if _NOT_CONTENT_OPENING.search(html, position, span.start):
+            return True
+        position = span.end
+    return _NOT_CONTENT_OPENING.search(html, position) is not None
 
 
 _HTML_LINK = re.compile(

@@ -9,15 +9,6 @@
     "expected": "<p>Hello Ben</p>"
   },
   {
-    "name": "link value",
-    "source": "<a href=\"{{url}}\">Go</a>",
-    "data": {
-      "url": "https://example.com/a?b=1"
-    },
-    "liquid": "<a href=\"{{ variables.url | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}\">Go</a>",
-    "expected": "<a href=\"https://example.com/a?b&#x3D;1\">Go</a>"
-  },
-  {
     "name": "deep object",
     "source": "<p>{{user.profile.firstName}}</p>",
     "data": {
@@ -49,15 +40,6 @@
     "expected": "&lt;b&gt;Tom &amp; Ann&lt;/b&gt;"
   },
   {
-    "name": "triple braces do not",
-    "source": "{{{markup}}}",
-    "data": {
-      "markup": "<b>Tom & Ann</b>"
-    },
-    "liquid": "{{ variables.markup | join: \",\" | raw }}",
-    "expected": "<b>Tom & Ann</b>"
-  },
-  {
     "name": "unicode and emoji",
     "source": "<p>Grüße {{name}} 🦔</p>",
     "data": {
@@ -83,16 +65,6 @@
     },
     "liquid": "[{{ variables.a | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
     "expected": "[]"
-  },
-  {
-    "name": "plain text keeps values unescaped by triple",
-    "source": "Hi {{{n}}}",
-    "data": {
-      "n": "Tom & Ann"
-    },
-    "liquid": "Hi {{ variables.n | join: \",\" }}",
-    "text": true,
-    "expected": "Hi Tom & Ann"
   },
   {
     "name": "liquid looking text stays literal",
@@ -141,5 +113,15 @@
     },
     "liquid": "<p>\\{{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }} and {% raw %}{{n}}{% endraw %}</p>",
     "expected": "<p>\\N and {{n}}</p>"
+  },
+  {
+    "name": "subject escapes like html",
+    "source": "Hi {{n}}",
+    "data": {
+      "n": "Tom & <Ann> \"q\" =`"
+    },
+    "liquid": "Hi {{ variables.n | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" }}",
+    "expected": "Hi Tom &amp; &lt;Ann&gt; &quot;q&quot; &#x3D;&#x60;",
+    "text": true
   }
 ]

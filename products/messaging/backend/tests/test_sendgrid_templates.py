@@ -71,6 +71,16 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 '<a href="<%subject%>{{#if allow}}u">{{token}}</a>{{/if}}',
             ),
             ("unsubscribe_tag_guarded_by_a_helper", '{{#if (lookup p "a")}}x<%body%>y{{/if}}'),
+            ("raw_value", "<p>{{{ body.html }}}</p>"),
+            ("value_in_a_plain_attribute", '<a href="https://example.com/?id={{id}}">Go</a>'),
+            (
+                "value_in_an_event_handler_that_looks_like_an_attribute",
+                "<a onclick=\"const x='{{token}}'; go(x)\">x</a>",
+            ),
+            ("value_after_an_unclosed_script", "<script>var u = {{x}};"),
+            ("value_after_an_unclosed_comment", "<!-- <p>{{x}}</p>"),
+            ("liquid_size_property", "<p>{{size}}</p>"),
+            ("liquid_first_property", "<p>{{items.first}}</p>"),
             ("deep_nesting", "".join(f"{{{{#with {'a' * 1900}}}}}" for _ in range(40)) + "{{this}}" * 500),
         ]
     )
@@ -87,9 +97,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
     @parameterized.expand(
         [
             ("value", "<p>Hi {{ name }}</p>", "{{ variables.name |"),
-            ("raw_value", "<p>{{{ body.html }}}</p>", '{{ variables.body.html | join: "," | raw }}'),
-            ("value_in_a_plain_attribute", '<a href="https://example.com/?id={{id}}">Go</a>', "variables.id |"),
-            ("unsubscribe_link", '<a href="{{{unsubscribe}}}">Leave</a>', "{{ unsubscribe_url }}"),
+            ("unsubscribe_link", "<p>{{unsubscribe}}</p>", "{{ unsubscribe_url }}"),
             (
                 "unsubscribe_tag_in_an_attribute",
                 '<a href="<%asm_group_unsubscribe_raw_url%>">Leave</a>',
@@ -157,11 +165,9 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         )
 
     def test_plain_text_prints_values_without_html_escaping(self) -> None:
-        converted = convert_version({"html_content": '<p>{{name}} <a href="https://example.com/?a={{id}}">Go</a></p>'})
+        converted = convert_version({"html_content": '<p>{{name}} <a href="<%asm_preferences_raw_url%>">Go</a></p>'})
 
-        assert converted.text == (
-            '{{ variables.name | join: "," }} Go (https://example.com/?a={{ variables.id | join: "," }})'
-        )
+        assert converted.text == '{{ variables.name | join: "," }} Go ({{ unsubscribe_url }})'
 
     def test_a_tag_kept_as_text_stays_text_in_the_plain_part(self) -> None:
         converted = convert_version({"html_content": '<p>{{helper endraw" | append: person.properties.secret}}</p>'})
