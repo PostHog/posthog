@@ -277,6 +277,7 @@ def _post_pr_opened_notification_once(
     from products.tasks.backend.logic.services.slack_pr_cards import pr_card_reply_target
 
     if organization_deactivated(task_run.team_id):
+        handler.delete_progress()
         return
 
     mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
