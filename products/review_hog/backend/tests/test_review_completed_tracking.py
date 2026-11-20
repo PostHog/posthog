@@ -387,14 +387,21 @@ class TestTrackReviewCompleted(BaseTest):
 
     @parameterized.expand(
         [
-            ("push_after_the_ready_review", _READY_REVIEWS_ONLY, False, "follow_up"),
-            ("reviewed_draft_marked_ready", _READY_REVIEWS_ONLY, True, "merge_only"),
+            ("push_after_the_ready_review", _READY_REVIEWS_ONLY, False, REVIEW_MODE_FLASH, "follow_up"),
+            ("reviewed_draft_marked_ready", _READY_REVIEWS_ONLY, True, REVIEW_MODE_FLASH, "merge_only"),
+            # The Deep switch only picks the depth of a turn the cadence runs, so a queued Deep turn is skipped too.
+            ("deep_turn_after_the_ready_review", _READY_REVIEWS_ONLY, False, REVIEW_MODE_FULL, "follow_up"),
             # The repository's name finds no owner, as after a rename, so the gate does not skip on the cadence.
-            ("unknown_cadence", None, False, "merge_only"),
+            ("unknown_cadence", None, False, REVIEW_MODE_FLASH, "merge_only"),
         ]
     )
     def test_without_push_reviews_only_the_ready_review_after_a_draft_review_reaches_the_gate(
-        self, _name: str, cadence: ReviewCadence | None, reviewed_draft: bool, expected_reason: str
+        self,
+        _name: str,
+        cadence: ReviewCadence | None,
+        reviewed_draft: bool,
+        review_mode: str,
+        expected_reason: str,
     ) -> None:
         report_id = self._review_report()
         ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(automatic_reviewed_draft=reviewed_draft)
@@ -422,7 +429,7 @@ class TestTrackReviewCompleted(BaseTest):
                     previous_head_sha="sha0",
                     head_sha="sha1",
                     run_index=2,
-                    review_mode=REVIEW_MODE_FLASH,
+                    review_mode=review_mode,
                 )
             )
 

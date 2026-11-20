@@ -152,6 +152,10 @@ class ReviewRepositoryOverviewEntrySerializer(serializers.Serializer):
         "gets its automatic review as a Deep review instead of a Standard one. Works only when the repository is also "
         "added to auto-approval."
     )
+    auto_approval = serializers.BooleanField(
+        help_text="Whether auto-approval reviews this repository in this project. Only then can its size, "
+        "restricted-path and tier rules make an automatic review a Deep review."
+    )
     my_choice = serializers.ChoiceField(
         choices=ReviewUserRepositoryChoiceMode.choices,
         allow_null=True,
@@ -222,8 +226,9 @@ def _entry_data(entry: ReviewRepositoryOverviewEntry) -> dict[str, Any]:
         "repository_id": entry.repository_id,
         "exception": exception,
         "review_drafts": entry.review_drafts,
-        "deep_review_gated_prs": entry.deep_review_gated_prs,
         "review_pushes": entry.review_pushes,
+        "deep_review_gated_prs": entry.deep_review_gated_prs,
+        "auto_approval": entry.auto_approval,
         "my_choice": entry.my_choice,
         "my_choice_id": entry.my_choice_id,
         "my_result": decision_data(entry.my_result),

@@ -25,6 +25,7 @@ from products.review_hog.backend.models import (
 )
 from products.review_hog.backend.repository_settings import ProjectRepositories
 from products.review_hog.backend.temporal.client import WorkflowProbe
+from products.stamphog.backend.facade.testing import seed_repo_config
 
 INSTALLATION = "1001"
 WEB = {"installation_id": INSTALLATION, "full_name": "example-org/web", "github_repo_id": 501}
@@ -42,6 +43,8 @@ ADMIN_WRITES = [
 
 
 class TestReviewRepositorySettingsAPI(APIBaseTest):
+    databases = {"default", "stamphog_db_writer", "stamphog_db_reader"}
+
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
@@ -452,6 +455,11 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": "flash"}
         )
+        # Auto-approval covers web, in GitHub's casing. Docs has a config nobody connected, which reviews nothing.
+        seed_repo_config(
+            team_id=self.team.id, repository="Example-Org/Web", installation_id="1", connected_by_user_id=self.user.id
+        )
+        seed_repo_config(team_id=self.team.id, repository="example-org/docs", installation_id="1")
         url = self._url(f"repository_overview/?installation_id={INSTALLATION}")
 
         everything = self.client.get(url)
@@ -473,6 +481,11 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert entries["example-org/docs"]["my_result"] == {"flash": False, "reason": "own_repository_choice"}
         assert entries["example-org/docs"]["inherited_result"] == {"flash": True, "reason": "own_default"}
         assert entries["example-org/docs"]["repository_result"] == {"flash": True, "reason": "repository_everyone"}
+        assert {name: entry["auto_approval"] for name, entry in entries.items()} == {
+            "example-org/web": True,
+            "example-org/api": False,
+            "example-org/docs": False,
+        }
 
         exceptions = self.client.get(f"{url}&view=exceptions").json()
         assert [entry["full_name"] for entry in exceptions["results"]] == ["example-org/docs"]

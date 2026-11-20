@@ -552,6 +552,8 @@ function inherited(name: string, { withDefault = true }: { withDefault?: boolean
     return decision(false, 'opt_in')
 }
 
+const AUTO_APPROVAL_REPOSITORIES = new Set(['example-org/web', 'example-org/docs'])
+
 function overviewEntry(name: string): ReviewRepositoryOverviewEntryApi {
     const row = storyState.rows[name]
     const choice = storyState.choices[name] ?? null
@@ -569,6 +571,7 @@ function overviewEntry(name: string): ReviewRepositoryOverviewEntryApi {
         review_drafts: own && !!row?.review_drafts,
         review_pushes: own && !!row?.review_pushes,
         deep_review_gated_prs: own && !!row?.deep_review_gated_prs,
+        auto_approval: AUTO_APPROVAL_REPOSITORIES.has(name),
         my_choice: own ? (choice?.mode ?? null) : null,
         my_choice_id: own ? (choice?.id ?? null) : null,
         my_result: own && choice ? { flash: choice.mode === 'flash', reason: 'own_repository_choice' } : base,

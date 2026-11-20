@@ -71,7 +71,7 @@ from products.review_hog.backend.repository_settings import (
 from products.review_hog.backend.review_listing import ReviewListing
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
 from products.review_hog.backend.skill_configs import ReviewSkillMenu
-from products.stamphog.backend.facade.api import has_reviewable_repo_config
+from products.stamphog.backend.facade.api import has_reviewable_repo_config, reviewable_repositories
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +243,7 @@ def _choice_info(choice: ReviewUserRepositoryChoice) -> ReviewRepositoryChoiceIn
     )
 
 
-def _overview_entry(entry: OverviewEntry) -> ReviewRepositoryOverviewEntry:
+def _overview_entry(entry: OverviewEntry, auto_approval: frozenset[str]) -> ReviewRepositoryOverviewEntry:
     repository = entry.repository
     exception = None
     if repository is not None and repository.flash_for is not None:
@@ -260,8 +260,9 @@ def _overview_entry(entry: OverviewEntry) -> ReviewRepositoryOverviewEntry:
         repository_id=repository.id if repository is not None else None,
         exception=exception,
         review_drafts=repository is not None and repository.review_drafts,
-        deep_review_gated_prs=repository is not None and repository.deep_review_gated_prs,
         review_pushes=repository is not None and repository.review_pushes,
+        deep_review_gated_prs=repository is not None and repository.deep_review_gated_prs,
+        auto_approval=entry.full_name.lower() in auto_approval,
         my_choice=ReviewUserRepositoryChoiceMode(entry.my_choice.mode) if entry.my_choice is not None else None,
         my_choice_id=entry.my_choice.id if entry.my_choice is not None else None,
         my_result=entry.my_result,
@@ -486,10 +487,11 @@ def get_review_repository_overview(
     folds = view == RepositoryOverviewView.DIFFERS or (view == RepositoryOverviewView.ALL and not search.strip())
     folded = overview.folded() if folds else []
     claim = repositories.claim_for(installation_id)
+    auto_approval = reviewable_repositories(team_id)
     return ReviewRepositoryOverviewPage(
         installation_id=installation_id,
         claim_scope=ReviewInstallationClaimScope(claim.scope) if claim is not None else None,
-        entries=[_overview_entry(entry) for entry in entries],
+        entries=[_overview_entry(entry, auto_approval) for entry in entries],
         total=total,
         folded=len(folded),
         folded_preview=[entry.full_name for entry in folded[:FOLDED_PREVIEW_SIZE]],

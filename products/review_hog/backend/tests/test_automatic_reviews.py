@@ -538,6 +538,8 @@ class TestAuthoredPRReviewTask(BaseTest):
     ) -> None:
         self.repository.deep_review_gated_prs = setup != "switch_off"
         self.repository.review_drafts = setup == "draft"
+        # A head with its automatic review reaches the depth choice only when the cadence reviews pushes.
+        self.repository.review_pushes = setup == "head_already_reviewed"
         self.repository.save()
         queued = QueuedReviewModes()
         if setup == "head_already_reviewed":

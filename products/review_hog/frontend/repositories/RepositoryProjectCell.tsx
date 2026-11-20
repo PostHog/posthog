@@ -135,7 +135,7 @@ export function RepositoryProjectCell({
                 <div className="flex min-h-7 flex-wrap items-center gap-2">
                     {status}
                     {(canInclude || canRemove || controlsOnStatusLine) && (
-                        <span className="ml-auto flex items-center gap-2">
+                        <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
                             {controlsOnStatusLine && (
                                 <>
                                     <RepositoryReviewsSelect entry={entry} />
@@ -180,7 +180,7 @@ export function RepositoryProjectCell({
                     onAddPerson={(userId, kind) => addExceptionPerson(entry, userId, kind)}
                     onRemovePerson={(person) => removeExceptionPerson(entry, person)}
                     tag={
-                        <span className="flex items-center gap-2">
+                        <span className="flex flex-wrap items-center gap-2">
                             <LemonTag type="warning" size="small">
                                 Exception
                             </LemonTag>
