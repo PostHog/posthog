@@ -288,7 +288,7 @@ def build_function_call(
     compression: Optional[str] = None,
     credential_required: bool = False,
 ) -> str:
-    # A call without a key reads under the ClickHouse role, which only suits a URL that PostHog built.
+    # Without a key, ClickHouse reads with its own role, which only suits a URL that PostHog built.
     if credential_required and not (access_key and access_secret):
         raise ExposedHogQLError(_MISSING_CREDENTIAL_MESSAGE)
 
@@ -332,7 +332,6 @@ class S3Table(FunctionCallTable):
     queryable_folder: Optional[str] = None
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
-    # Set when the table has its own credential. A read then fails without the key and secret.
     credential_required: bool = False
     structure: Optional[str] = None
     table_id: Optional[str] = None

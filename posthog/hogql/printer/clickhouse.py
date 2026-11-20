@@ -1180,8 +1180,7 @@ class ClickHousePrinter(BasePrinter):
             return None
 
         if isinstance(table_type.table, SavedQuery):
-            # The resolver replaces a view with its query. A view left here would print as a bare table name
-            # with no team_id filter.
+            # An unexpanded view would print as a bare table name with no team_id filter.
             raise ImpossibleASTError(f'View "{table_type.table.to_printed_hogql()}" was not expanded before printing.')
 
         if (
