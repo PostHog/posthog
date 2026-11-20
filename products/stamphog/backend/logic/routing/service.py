@@ -39,7 +39,7 @@ from products.stamphog.backend.facade.enums import (
     RoutingScope,
     RoutingStatus,
 )
-from products.stamphog.backend.logic.attestation_checks import PendingCheck
+from products.stamphog.backend.logic.attestation_checks import AttestationCheck, attestation_check
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.routing.candidates import (
     ChangedFile,
@@ -241,7 +241,7 @@ def save_waiting(
     head_sha: str,
     mode: RoutingMode,
     trigger: str,
-    attestation_checks: Sequence[PendingCheck],
+    attestation_checks: Sequence[AttestationCheck],
 ) -> bool:
     """Make the head wait for the verdict, or for the ``attestation_checks`` when there are any.
 
@@ -254,14 +254,14 @@ def save_waiting(
     return _replace_routing(pr_obj, expected=expected, record=record)
 
 
-def waiting_attestation_checks(record: Mapping[str, Any] | None) -> list[PendingCheck]:
+def waiting_attestation_checks(record: Mapping[str, Any] | None) -> list[AttestationCheck]:
     """The checks a record waits for, or nothing when it does not wait on an attestation.
 
     Only `save_waiting` writes them, so a record that stopped waiting carries none.
     """
     if record is None:
         return []
-    checks = [PendingCheck.from_entry(entry) for entry in record.get(ATTESTATION_CHECKS) or []]
+    checks = [attestation_check(entry) for entry in record.get(ATTESTATION_CHECKS) or []]
     return [check for check in checks if check is not None]
 
 

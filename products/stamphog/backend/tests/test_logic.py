@@ -23,6 +23,7 @@ from posthog.egress.limiter.policies import Priority
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
+from products.stamphog.backend.logic.attestation_checks import all_reported, attestation_check
 from products.stamphog.backend.logic.attestation_pins import check_runs_with_pins
 from products.stamphog.backend.logic.attestation_policy import (
     WORKFLOW_PROOF_KEY,
@@ -1252,6 +1253,13 @@ class WorkflowProofTests(SimpleTestCase):
         client = _WorkflowClient([check_run], jobs)
 
         assert _proofs(client).has_result(_PUBLISHER) is reported
+        # The review re-run and reviewer routing both poll through `all_reported`.
+        with patch(
+            "products.stamphog.backend.logic.workflow_proofs.select_signing_key",
+            side_effect=lambda _, token: _test_signing_key(token),
+        ):
+            polled = all_reported(cast(StamphogGitHubClient, client), "acme/widgets", "sha", [_PUBLISHER], pr_number=7)
+        assert polled is reported
 
     @parameterized.expand(
         [
@@ -1888,6 +1896,33 @@ class TestDecisionFingerprint(SimpleTestCase):
 
 
 class EngineAttestationProofParsingTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("an_app_entry", {"check": "Dependency proof", "app_id": 4242}),
+            (
+                "a_workflow_entry",
+                {
+                    "check": "Dependency proof",
+                    "app_id": None,
+                    "name": "dependency_proof",
+                    "workflow": ".github/workflows/dependency-proof.yml",
+                    "job": "Publish the Dependency proof check",
+                    "events": ["workflow_run"],
+                },
+            ),
+        ]
+    )
+    def test_routing_waits_on_the_check_the_engine_names_and_reads_it_back_from_its_record(
+        self, _name: str, entry: dict
+    ) -> None:
+        stdout = json.dumps({"checks": [entry], "proven": False})
+        with patch("products.stamphog.backend.logic.engine_pregate._run_engine_gates_only", return_value=stdout):
+            [check] = run_engine_attestation_proof({}, {}).checks
+
+        # Routing stores each check it waits on in its record, and its poll reads them back from there.
+        assert check.to_entry() == entry
+        assert attestation_check(check.to_entry()) == check
+
     @parameterized.expand(
         [
             ("missing_app_id", {"check": "Dependency proof"}),

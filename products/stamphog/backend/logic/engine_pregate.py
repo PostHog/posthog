@@ -37,7 +37,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.ownership.github_files import GitHubFilesFetcher, is_absent
 
-from products.stamphog.backend.logic.attestation_checks import PendingCheck
+from products.stamphog.backend.logic.attestation_checks import AttestationCheck, attestation_check
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 
 logger = structlog.get_logger(__name__)
@@ -104,7 +104,7 @@ class GateAttestation:
 
 @frozen
 class AttestationProof:
-    checks: tuple[PendingCheck, ...]
+    checks: tuple[AttestationCheck, ...]
     proven: bool
 
 
@@ -382,10 +382,10 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
     )
 
 
-def _pending_check(entry: object) -> PendingCheck:
-    check = PendingCheck.from_entry(entry)
+def _pending_check(entry: object) -> AttestationCheck:
+    check = attestation_check(entry)
     if check is None:
-        raise EnginePregateError("the engine attestation proof names a check without a name or an App id")
+        raise EnginePregateError("the engine attestation proof names a check without a name or a publisher")
     return check
 
 

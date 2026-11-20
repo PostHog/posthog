@@ -6,7 +6,7 @@ Each kind of claim is a lane, and each lane posts its own check run:
 - The dependency lane posts `Dependency proof`.
 - The revert lane posts `Revert proof`.
 
-All lanes use one GitHub App, one `dependency-proof` environment and one `issuer.yml`.
+All lanes use one `issuer.yml`, and each lane's `publish` job signs its check run with that job's GitHub Actions OIDC token.
 Each lane marks its proof with the same `stamphog:v1` marker.
 A proof lifts a deny category only when a `.stamphog/policy.yml` attestation entry names its check.
 That entry, and not the prover, decides what the proof lifts and for which paths.
@@ -60,15 +60,18 @@ Two workflows split the work.
 - `dependency-proof-trigger.yml` runs on `pull_request` when a dependency file changes. It has no permissions and runs one empty step. It only starts the second workflow.
 - `dependency-proof.yml` runs on `workflow_run`. GitHub runs it from the default-branch copy, so a pull request cannot change the workflow that judges it.
 
-| Job        | Permission                                                        | Work                                                                                                           |
-| ---------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `identify` | `contents: read`, `pull-requests: read`                           | Finds the one open pull request at the head by an allowed author, checks the pusher, and reads the merge base. |
-| `prove`    | none                                                              | Replays pnpm in a merge-base worktree with `--lockfile-only`, `--ignore-scripts` and `--ignore-pnpmfile`.      |
-| `scan`     | none                                                              | Scans the added packages with GuardDog.                                                                        |
-| `conclude` | none                                                              | Runs `conclude`, which decides the check run from the other jobs' results.                                     |
-| `publish`  | none, plus an App token with `checks: write` from its environment | Posts the check run that `conclude` decided.                                                                   |
+| Job        | Permission                              | Work                                                                                                           |
+| ---------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `identify` | `contents: read`, `pull-requests: read` | Finds the one open pull request at the head by an allowed author, checks the pusher, and reads the merge base. |
+| `prove`    | none                                    | Replays pnpm in a merge-base worktree with `--lockfile-only`, `--ignore-scripts` and `--ignore-pnpmfile`.      |
+| `scan`     | none                                    | Scans the added packages with GuardDog.                                                                        |
+| `conclude` | none                                    | Runs `conclude`, which decides the check run from the other jobs' results.                                     |
+| `publish`  | `checks: write`, `id-token: write`      | Signs the check run that `conclude` decided with its OIDC token, and posts it.                                 |
 
-Only `publish` can reach the App key, and `publish` checks out nothing and runs only `gh`.
+Only `publish` can request an OIDC token, and it checks out only `publish-check-run.sh` and runs only `jq`, `curl` and `gh`.
+The token's audience is a digest of the check name, the conclusion and the marker, so it signs exactly that result.
+stamphog accepts the check run only with that token, from this job of the default-branch workflow, because any job's built-in token can post a check run under any name.
+Every check run also names the one open pull request at the head, including one whose author gets no proof and one the prover refused, because stamphog takes a signed result only for the pull request it names.
 
 Nothing from the pull request tree runs.
 Each job checks out only the prover, the `setup-uv` action and `.nvmrc` from the default branch.
@@ -81,7 +84,7 @@ A path that ends in `/` is a directory, so a new file in the package is covered 
 The proof reports the tree SHA of each listed directory and the blob SHA of each listed file, at the workflow commit.
 It also reports the blob SHA of each pnpm settings file it read.
 `.stamphog/policy.yml` names the manifest as `issuer` on the `dependency_proof` attestation, and holds no copy of the list.
-The policy keeps only who may attest (the check name and the App) and what the proof may lift.
+The policy keeps only who may attest (the check name, the workflow and its publishing job) and what the proof may lift.
 stamphog reads the manifest from the default branch, and accepts a proof only when the proof pins every listed path, and only while the default branch still holds each pinned object.
 A proof made by an older prover, or under older settings, therefore lifts nothing.
 `tests/test_package.py` fails when a path the workflows check out or run is not covered by `issuer.yml`.
@@ -108,7 +111,7 @@ So the pnpm version, the settings and the prover code never come from the pull r
 **Identity names the process, not the content.**
 SLSA provenance and in-toto keys say which process ran a step, and in-toto checks what the step produced with separate rules [7] [8].
 TUF gives each key a narrow role and keeps automated keys out of the roles that clients trust most [9].
-Here the Renovate account admits a pull request and the App identity names the pinned prover, but only the replay shows that the lockfile is correct.
+Here the Renovate account admits a pull request and the signed identity of the publishing job names the pinned prover, but only the replay shows that the lockfile is correct.
 
 **The checker comes from the default branch.**
 SLSA Build L3 keeps signing material out of reach of the steps that a tenant controls [7].
