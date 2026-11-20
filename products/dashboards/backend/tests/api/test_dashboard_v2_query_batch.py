@@ -1,5 +1,7 @@
 import json
-from collections.abc import Iterator
+import asyncio
+from collections.abc import AsyncIterator, Iterator
+from contextlib import aclosing
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
@@ -21,6 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.dashboards.backend.facade.api import query_batch_stream
 from products.dashboards.backend.facade.contracts import QueryBatchInput, QueryBatchTarget
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
 from products.dashboards.backend.v2.query_batch import InvalidTarget, resolve_query, to_posthog_date
@@ -199,6 +202,48 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
 
         self.assertEqual(lines, [{"i": i, **too_large} for i in range(7)])
         self.assertEqual(reads.call_count, 1)
+
+    def test_a_client_that_stops_reading_gives_its_place_back_when_the_stream_expires(self) -> None:
+        target = QueryBatchTarget(
+            ref_id="a",
+            language=QueryBatchLanguage.INSIGHT,
+            query=json.dumps({"query": _events_node("$pageview")}),
+        )
+        inputs = [QueryBatchInput(target=target, date_from="now-7d", date_to="now", cache_only=True)]
+
+        def open_batch(asynchronous: bool) -> Any:
+            return query_batch_stream(
+                team=self.team,
+                user=self.user,
+                inputs=inputs,
+                dashboard_id=None,
+                client_query_id="stalled",
+                asynchronous=asynchronous,
+            )
+
+        async def stop_reading(stream: AsyncIterator[bytes]) -> None:
+            # Mirrors the ASGI handler, which closes the body when its send is cancelled.
+            async with aclosing(cast(Any, stream)) as body:
+                async for _line in body:
+                    await asyncio.Event().wait()
+
+        async def ended_by_the_batch() -> bool:
+            reader = asyncio.create_task(stop_reading(cast(AsyncIterator[bytes], open_batch(asynchronous=True))))
+            await asyncio.wait({reader}, timeout=10)
+            ended = reader.cancelled()
+            reader.cancel()
+            return ended
+
+        with (
+            patch("products.dashboards.backend.v2.query_batch.MAX_OPEN_BATCHES_PER_ORG", 1),
+            patch("products.dashboards.backend.v2.query_batch.MAX_STREAM_SECONDS", 0.0),
+            patch("products.dashboards.backend.v2.query_batch.STALLED_RESPONSE_GRACE_SECONDS", 0.0),
+        ):
+            ended = asyncio.run(ended_by_the_batch())
+            next_batch = b"".join(cast(Iterator[bytes], open_batch(asynchronous=False)))
+
+        self.assertTrue(ended)
+        self.assertEqual(json.loads(next_batch), {"i": 0, "error": "The dashboard took too long to load. Try again."})
 
 
 class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
