@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -151,6 +152,19 @@ describe('AIObservabilityScene', () => {
             const href = frameHref(container, 'ai-observability-tab-diagnostics')
             expect(href).toContain(`${urls.aiObservabilityErrors()}?date_from=-7d`)
             expect(href).not.toMatch(/trace=|ts=|step=/)
+        })
+
+        it.each([
+            ['no date range', urls.aiObservabilityTraces(), urls.aiObservabilityDashboard()],
+            [
+                'a date range',
+                `${urls.aiObservabilityTraces()}?date_from=-24h`,
+                `${urls.aiObservabilityDashboard()}?date_from=-24h`,
+            ],
+        ])('carries on the frame links the url with %s', (_name, url, homeHref) => {
+            const container = renderScene({ sceneKey: 'aiObservabilityTraces', url })
+
+            expect(removeProjectIdIfPresent(frameHref(container, 'ai-observability-tab-home'))).toEqual(homeHref)
         })
 
         it('moves to the other scope with the filters and without the trace drawer params', () => {
