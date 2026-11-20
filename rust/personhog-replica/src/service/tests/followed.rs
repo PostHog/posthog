@@ -169,9 +169,9 @@ async fn a_read_with_routing_headers_it_cannot_read_is_read_from_postgres() {
     }
 }
 
-fn person(version: i64, is_deleted: bool) -> Person {
+fn person(id: i64, version: i64, is_deleted: bool) -> Person {
     Person {
-        id: 42,
+        id,
         team_id: 1,
         uuid: "00000000-0000-0000-0000-000000000042".to_string(),
         properties: b"{}".to_vec(),
@@ -183,24 +183,29 @@ fn person(version: i64, is_deleted: bool) -> Person {
 
 #[rstest]
 #[case::a_live_person_without_asking_postgres(Some((5, false)), None, Some(5))]
-#[case::a_person_created_again_after_their_death(Some((6, true)), Some(Some(7)), Some(7))]
-#[case::a_death_postgres_has_not_applied(Some((6, true)), Some(Some(6)), None)]
+#[case::a_person_created_again_after_their_death(Some((6, true)), Some(Some((42, 7))), Some(7))]
+#[case::a_death_postgres_has_not_applied(Some((6, true)), Some(Some((42, 6))), None)]
 #[case::a_death_postgres_has_applied(Some((6, true)), Some(None), None)]
-#[case::a_person_it_does_not_hold(None, Some(Some(3)), Some(3))]
+#[case::another_person_created_after_the_row_was_gone(
+    Some((6, true)),
+    Some(Some((43, 0))),
+    Some(0)
+)]
+#[case::a_person_it_does_not_hold(None, Some(Some((42, 3))), Some(3))]
 #[case::a_person_nobody_has(None, Some(None), None)]
 #[tokio::test]
 async fn a_followed_answer_is_served_unless_postgres_must_be_asked(
     #[case] followed: Option<(i64, bool)>,
-    #[case] stored: Option<Option<i64>>,
+    #[case] stored: Option<Option<(i64, i64)>>,
     #[case] served: Option<i64>,
 ) {
     let followed = followed.map(|(version, is_deleted)| {
-        CachedPerson::try_from(person(version, is_deleted)).expect("a valid person")
+        CachedPerson::try_from(person(42, version, is_deleted)).expect("a valid person")
     });
 
     let answer = followed_or_stored(followed, || async {
         let row = stored.expect("this read must not ask Postgres");
-        Ok(row.map(|version| person(version, false)))
+        Ok(row.map(|(id, version)| person(id, version, false)))
     })
     .await;
 

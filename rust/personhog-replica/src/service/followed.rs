@@ -121,8 +121,11 @@ where
 {
     match followed {
         Some(person) if !person.is_deleted => Ok(Some(cached_person_into_proto(person))),
-        // A live row above a death document is the person created again under the same id.
-        Some(death) => Ok(stored().await?.filter(|row| row.version > death.version)),
+        // A row under another id is another person; under the same id, only a version above
+        // the death document is the person created again.
+        Some(death) => Ok(stored()
+            .await?
+            .filter(|row| row.id != death.id || row.version > death.version)),
         None => stored().await,
     }
 }
