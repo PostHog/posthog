@@ -16595,9 +16595,9 @@ snapshots:
     scenes-app-settings-project--settings-project-integrations--light:
         hash: v1.k794b7964.f66b186372277319f79c7d88bdf12701f91eb41e78f992463495d88bb362dd59.H4R4nR9tiUQY1bdzi5NiX2GxHPSs4RyCUM1MEYtDD4c
     scenes-app-settings-project--settings-project-logs--dark:
-        hash: v1.k794b7964.be5f3a70914a2b8e981be709c7c47d09546edf6e9b7396be2dd14c8edac85a7a.TInYc4-kuVKTgdEqYZQyYlIwNHR6taRwYn1274wz_FA
+        hash: v1.k794b7964.10d11748c68d407d63dd3b03688789e353cbdc829127de875b310ca24e8f5ffc.NKqZfoiDixiJ2d2pWNR7yo_MZ1l7I4Ap1jrzd4IXXCo
     scenes-app-settings-project--settings-project-logs--light:
-        hash: v1.k794b7964.ec6a14dc01c96dd77acb7d4782715c024f40f9fbb556546afa7895929eb87afb.gqvjnyneVaHELMa2JCNNUBtV4CjsIkyKvJTG4Tzk8pM
+        hash: v1.k794b7964.2089d68e152c5f00241e70d411396721cc032ebf28375fbd46764246ca2a5779.fJD2LQ2CUPUzQaAtG1_C-7RQx2pAZWIXD8SUwmS24lg
     scenes-app-settings-project--settings-project-logs-json-parsing--dark:
         hash: v1.k794b7964.96b60f05851fd873268568904b0edac65e42b8dbf7b3914bedbcf05e6dc20462.BaLN9ca4gtHOLa8MGa8_9suczpI2_ijpha8USy-8qW0
     scenes-app-settings-project--settings-project-logs-json-parsing--light:
@@ -16611,9 +16611,9 @@ snapshots:
     scenes-app-settings-project--settings-project-logs-json-parsing-read-only--light:
         hash: v1.k794b7964.73664384f751ebb238ebfe5610a08863a5dbef4101674b3e5e2c411bdeb382c1.tczWw9PuQzaHKD1eTfw9zpnJPvCLKldp6vmqch6SUxw
     scenes-app-settings-project--settings-project-logs-read-only--dark:
-        hash: v1.k794b7964.41027a77b0e1380fbbab88dafec5c232d56e560abe41bc09d2542d46212f5b13.MuI5ocT8y7NmTtl7F_x9XPsa-sQ7UiXy1ITqnQ7z3mw
+        hash: v1.k794b7964.de902afc56e21c9b1405c500b1d354b5f7c3a3bf34c93f45410000e5c47978b7.S2SEClnkgAkJqVL-NbWAJaLnOMeFR60QNdWlNDmRdhg
     scenes-app-settings-project--settings-project-logs-read-only--light:
-        hash: v1.k794b7964.e234f3e555bcb083ca96f00005f91ccccf94941d371c71497162169077ec1022.jNkdKOK2KaEq2T2jksEoVtN5Nupa3FuJLTe-npm0RIM
+        hash: v1.k794b7964.a132d4d86230ccf51328429dc156e817d0e3cb9b68658eebe2560601c892d2d0.ytBvkusBlnkIvyRZv25JnyRwN3dtRXbA46pQxF6pr3o
     scenes-app-settings-project--settings-project-product-analytics--dark:
         hash: v1.k794b7964.bf3304361f325f870d9216c3d831ed1a2e12fcdc4ae410d12137350f7adfbd17.UTfdss9_h21xy4k9S9tXwtVfiSYo3LE2gB-8fPwoKbY
     scenes-app-settings-project--settings-project-product-analytics--light:
