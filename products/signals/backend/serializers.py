@@ -86,8 +86,11 @@ from products.signals.backend.report_checks import (
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.report_monitoring_summary import (
+    MonitoringCheckState,
     MonitoringLeadCheck,
+    MonitoringOutcomeKind,
     MonitoringSummaryState,
+    ReportMonitoringOutcome,
     ReportMonitoringSummary,
 )
 from products.signals.backend.report_search import (
@@ -1890,6 +1893,52 @@ class MonitoringLeadCheckSerializer(serializers.Serializer):
         return lead.monitoring.model_dump(mode="json")
 
 
+class MonitoringCheckSummarySerializer(serializers.Serializer):
+    check_id = serializers.UUIDField(help_text="The follow-up check.")
+    title = serializers.CharField(help_text="The check's short label.")
+    kind = serializers.ChoiceField(
+        choices=SignalReportCheck.Kind.choices,
+        help_text="`metric_threshold` compares a query result with a target; `agent` runs a scout that judges the claim.",
+    )
+    state = serializers.ChoiceField(
+        choices=MonitoringCheckState.choices,
+        help_text=(
+            "Where this check stands. `passed` and `failed`: final verification recorded a verdict. `cancelled`: "
+            "removed from verification. `on_track` and `not_on_track`: whether its latest interim reading meets its "
+            "target. `awaiting_reading`: it takes interim readings and has none yet. `readings_hidden`: this viewer "
+            "may not read its data. `final_check_only`: it takes no interim readings and is judged when its window ends."
+        ),
+    )
+    ends_at = serializers.DateTimeField(help_text="End of this check's observation window.")
+
+
+class MonitoringFollowUpSerializer(serializers.Serializer):
+    report_id = serializers.UUIDField(help_text="The follow-up report researching why the fix was not shown to work.")
+    title = serializers.CharField(
+        allow_null=True, help_text="The follow-up report's title. Null until research names it."
+    )
+    status = serializers.ChoiceField(
+        choices=SignalReport.Status.choices, help_text="The follow-up report's current status."
+    )
+
+
+class ReportMonitoringOutcomeSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=MonitoringOutcomeKind.choices,
+        help_text=(
+            "How Monitoring ended. `resolved`: every check passed. `resolved_by_assessment`: the checks were "
+            "inconclusive and a report-level assessment established the fix worked. `resolved_manually`: a person "
+            "resolved it; `dismissal_reason` says why. `resolved_unverified`: every check was cancelled, so nothing "
+            "verified the fix. `closed`: the fix was not shown to work, and follow-up research was requested."
+        ),
+    )
+    ended_at = serializers.DateTimeField(help_text="When Monitoring ended.")
+    follow_up = MonitoringFollowUpSerializer(
+        allow_null=True,
+        help_text="The report researching why this Monitoring period did not establish the fix. Null until grouping places its research signal.",
+    )
+
+
 class ReportMonitoringSummarySerializer(serializers.Serializer):
     state = serializers.ChoiceField(
         choices=MonitoringSummaryState.choices,
@@ -1910,6 +1959,10 @@ class ReportMonitoringSummarySerializer(serializers.Serializer):
             "The metric check that best stands for the report: the first one this viewer can see is off track, "
             "otherwise the first metric check that takes interim readings. Null when none does."
         ),
+    )
+    checks = MonitoringCheckSummarySerializer(
+        many=True,
+        help_text="Every check this Monitoring period is verified with, oldest first, including cancelled ones.",
     )
 
 
@@ -2593,8 +2646,10 @@ class SignalReportSerializerExtension(OpenApiSerializerExtension):
         schema: dict[str, object] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
         required = schema.get("required")
         if isinstance(required, list):
-            # The disabled rollout omits this timestamp, so responses cannot require it.
-            schema["required"] = [name for name in required if name != "monitoring_started_at"]
+            # The disabled rollout omits these timestamps, so responses cannot require them.
+            schema["required"] = [
+                name for name in required if name not in ("monitoring_started_at", "monitoring_ended_at")
+            ]
         return schema
 
 
@@ -2721,6 +2776,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text="Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.",
+    )
+    monitoring_ended_at = serializers.DateTimeField(
+        read_only=True,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When this Monitoring period ended in resolved or closed. Null while Monitoring continues, when it was "
+            "archived (archiving pauses it), and after the report is reopened. Present only when Monitoring is enabled."
+        ),
     )
     status = serializers.SerializerMethodField(
         help_text="Current report status. Monitoring reads as resolved when its rollout is disabled.",
@@ -2934,6 +2998,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "reviewer_assignment",
             "status",
             "monitoring_started_at",
+            "monitoring_ended_at",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
             "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
@@ -3000,6 +3065,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         if not self._monitoring_enabled(instance):
             representation.pop("monitoring_started_at", None)
+            representation.pop("monitoring_ended_at", None)
         return representation
 
     def _display_status(self, obj: SignalReport, status: str) -> str:
@@ -3524,7 +3590,13 @@ class SignalReportListSerializer(SignalReportSerializer):
     monitoring_summary = serializers.SerializerMethodField(
         help_text=(
             "Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring "
-            "with open follow-up checks."
+            "with follow-up checks, or, with `view=monitoring_recent`, left Monitoring in the last 14 days."
+        ),
+    )
+    monitoring_outcome = serializers.SerializerMethodField(
+        help_text=(
+            "How Monitoring ended, for a resolved or closed report that went through it. Null otherwise, and when "
+            "Monitoring is disabled."
         ),
     )
 
@@ -3535,6 +3607,7 @@ class SignalReportListSerializer(SignalReportSerializer):
             "personal_tier",
             "personal_reason",
             "monitoring_summary",
+            "monitoring_outcome",
         ]
         read_only_fields = fields
 
@@ -3545,6 +3618,14 @@ class SignalReportListSerializer(SignalReportSerializer):
         if summary is None or not self._monitoring_enabled(obj):
             return None
         return dict(ReportMonitoringSummarySerializer(summary).data)
+
+    @extend_schema_field(ReportMonitoringOutcomeSerializer(allow_null=True))
+    def get_monitoring_outcome(self, obj: SignalReport) -> dict[str, object] | None:
+        outcomes: dict[str, ReportMonitoringOutcome] = self.context.get("monitoring_outcomes_map", {})
+        outcome = outcomes.get(str(obj.id))
+        if outcome is None or not self._monitoring_enabled(obj):
+            return None
+        return dict(ReportMonitoringOutcomeSerializer(outcome).data)
 
     def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
         if not self.context.get("ranked_inbox_sort"):
@@ -3574,6 +3655,16 @@ class SignalReportListSerializer(SignalReportSerializer):
 class SignalReportSectionCountsSerializer(serializers.Serializer):
     pull_requests = serializers.IntegerField(help_text="Ready reports with an implementation pull request.")
     reports = serializers.IntegerField(help_text="Ready reports without an implementation pull request.")
+
+
+class SignalReportTagOptionsSerializer(serializers.Serializer):
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The team's most-used report tags, most-used first, counted over its newest reports. "
+            "Empty when no report has tags."
+        ),
+    )
 
 
 class SignalReportFilterQuerySerializer(serializers.Serializer):

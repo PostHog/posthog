@@ -44,6 +44,8 @@ export const INBOX_EVENTS = {
     VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
     VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
+    // Sent by the cloud inbox only, because the desktop inbox does not retry a failed list load.
+    REPORT_LIST_RETRY_RECOVERED: 'Inbox report list retry recovered',
     WRITE_TIMED_OUT: 'Inbox write timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -60,6 +62,8 @@ export const INBOX_EVENTS = {
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
+    // Cloud-only for now: the desktop inbox shows no report tags.
+    REPORT_TAG_CLICKED: 'Inbox report tag clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
     INTERVIEW_INVITE_SHOWN: 'Inbox interview invite shown',
     INTERVIEW_INVITE_CLICKED: 'Inbox interview invite clicked',
@@ -272,6 +276,7 @@ export type InboxQueryChange =
     | 'sort'
     | 'source_product'
     | 'scout'
+    | 'tags'
     | 'priority'
     | 'state'
     | 'search'
@@ -897,6 +902,28 @@ export function captureInboxReportSourceSuggestionClicked(params: { report: Sign
     })
 }
 
+/** Where a report tag chip was clicked: a list row, or the report detail. */
+export type InboxReportTagSurface = 'card' | 'detail'
+
+/**
+ * A tag chip was clicked, which adds that tag to the Tags filter or removes it. The resulting query
+ * also fires `Inbox query changed`; this event says the chip, not the menu, was the way in.
+ */
+export function captureInboxReportTagClicked(params: {
+    report: SignalReport
+    surface: InboxReportTagSurface
+    added: boolean
+    tagFilterCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_TAG_CLICKED, {
+        ...baseReportProperties(params.report),
+        surface: params.surface,
+        added: params.added,
+        tag_count: params.report.tags?.length ?? 0,
+        tag_filter_count: params.tagFilterCount,
+    })
+}
+
 /**
  * Optional free-text note, offered only once a rating is already recorded. It rides on its own
  * event rather than re-firing {@link captureInboxReportFeedback} so sentiment stays exactly one
@@ -975,6 +1002,20 @@ export function captureSignalSourceToggleFailed(params: {
         enabled: params.enabled,
         reason: params.reason,
         error_message: params.errorMessage,
+    })
+}
+
+/** An automatic retry loaded the report list. Without this event, a recovered list looks like one that never failed. */
+export function captureInboxReportListRetryRecovered(params: {
+    sectionKey: InboxReportSectionKey
+    retryCount: number
+    error: unknown
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_LIST_RETRY_RECOVERED, {
+        section_key: params.sectionKey,
+        retry_count: params.retryCount,
+        error_type: params.error instanceof Error ? params.error.name : null,
+        status: (params.error as { status?: number } | null)?.status ?? null,
     })
 }
 
@@ -1199,6 +1240,7 @@ export function captureInboxQueryChanged(params: {
     sortDirection: string
     sourceProductFilter: string[]
     scoutFilter: string[]
+    tagFilter: string[]
     priorityFilter: string[]
     stateFilter: string[]
     searchQuery: string
@@ -1214,6 +1256,9 @@ export function captureInboxQueryChanged(params: {
         sort_direction: params.sortDirection,
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
+        // A count, not the tags: like the search term, a tag is written from the report's content and
+        // can name the customer's own entities.
+        tag_filter_count: params.tagFilter.length,
         priority_filter: params.priorityFilter,
         state_filter: params.stateFilter,
         has_search: search.length > 0,

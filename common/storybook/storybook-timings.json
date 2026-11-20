@@ -4894,7 +4894,7 @@
     "firefox": 7.83,
     "webkit": 4.992
   },
-  "products/tasks/frontend/spaces/SpaceFeedCard.stories.tsx": {
+  "products/today/frontend/spaces/SpaceFeedCard.stories.tsx": {
     "chromium": 0.988,
     "firefox": 1.673,
     "webkit": 1.445
