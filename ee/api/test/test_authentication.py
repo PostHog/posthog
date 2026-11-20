@@ -2082,6 +2082,7 @@ class TestEEAuthenticationAPI(APILicensedTest):
                 "exp": now + 300,
                 "nonce": authorize_query["nonce"][0],
                 "email": email,
+                "name": "New Person",
             }
             if email_verified is not None:
                 claims["email_verified"] = email_verified
@@ -2167,6 +2168,24 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertNotIn("_auth_user_id", self.client.session)
         self.assertFalse(User.objects.filter(email=email).exists())
         self.assertFalse(UserSocialAuth.objects.filter(provider=provider).exists())
+
+    def test_chatgpt_signup_paused_by_a_partial_step_stores_no_openai_token(self) -> None:
+        self.client.logout()
+
+        self._complete_chatgpt_login(email="new-person@example.com", email_verified=True)
+
+        stored = json.dumps(Partial.objects.get(backend="chatgpt").data)
+        self.assertIn("new-person@example.com", stored)
+        self.assertNotIn("access_token", stored)
+        self.assertNotIn("id_token", stored)
+
+    def test_chatgpt_login_is_refused_in_demo_mode(self) -> None:
+        self.client.logout()
+
+        with self.settings(**CHATGPT_MOCK_SETTINGS, DEMO=True):
+            response = self.client.get("/login/chatgpt/")
+
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     @parameterized.expand(
         [

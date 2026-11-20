@@ -583,6 +583,12 @@ class ChatGPTOpenIdConnect(OpenIdConnectAuth):
             raise AuthFailed(self, "Sign in with ChatGPT did not return a valid ID token.")
         return dict(id_token)
 
+    def do_auth(self, access_token: str, *args: Any, **kwargs: Any) -> Any:
+        # Only the verified ID token claims enter the pipeline. A paused partial step serializes the
+        # pipeline response to the database, so the OpenAI tokens must not be in it.
+        kwargs.update({"response": self.user_data(access_token), "backend": self})
+        return self.strategy.authenticate(*args, **kwargs)
+
     def extra_data(
         self, user: Any, uid: str, response: dict[str, Any], details: dict[str, Any], *args: Any, **kwargs: Any
     ) -> dict:
