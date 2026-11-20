@@ -2,7 +2,8 @@
 name: building-on-capture-v1
 description: >
   How to build on capture v1, PostHog's batch event intake API (`/i/v1/analytics/events`, `/i/v1/ai/events`).
-  Use when sending events to capture from PostHog code, changing `rust/capture/src/v1/`, adding a per-event option
+  Use when sending events to capture from PostHog code, changing any capture code under `rust/capture/` (legacy or v1)
+  or the `capture_internal` helpers, adding a per-event option
   (`event.options`) or a property that capture or ingestion must read, changing how Node ingestion or livestream
   applies capture `options`, changing the v1 request, batch, header or event schema, or checking whether an SDK or
   internal service uses capture v1 or legacy capture (`/batch`, `/e`, `/capture`, `$process_person_profile` or
@@ -75,6 +76,16 @@ Change all of these in one PR, or in an ordered stack where consumers ship befor
 4. Internal senders: `_OPTIONS_TO_LEGACY_PROPERTY` and the docstring table in [`posthog/api/capture.py`](../../../posthog/api/capture.py) (test: `posthog/api/test/test_capture_internal.py`), and `OPTIONS_TO_LEGACY_PROPERTY` in [`push-capture.ts`](../../../nodejs/src/messaging/push-subscriptions/push-capture.ts). Only a key that replaces a legacy property needs an entry.
 5. Docs and specs: the `invalid_options` entry in [`resolving-ingestion-warnings`](../../../products/ingestion/skills/resolving-ingestion-warnings/SKILL.md), the options table in the v1 README, the sdk-specs `capture` spec, and the public capture v1 API docs.
    SDKs change only when an SDK sets the option itself or has a typed options class, such as posthog-kmp's `PostHogEventOptions`. SDK behavior changes need the capture v1 suites in the SDK test harness.
+
+## Keep capture out of event properties
+
+Capture works with `event.options` and leaves `event.properties` alone.
+This applies to the legacy handlers and to the v1 handlers.
+
+- Capture request handlers and processing code must not deserialize `event.properties`, read a value from it or write a value into it.
+- The v1 endpoints (`/i/v1/*`) must not gain a new use of `event.properties`. A value capture must read, act on or change is an option: see [Choose an option or a property](#choose-an-option-or-a-property).
+- Only the ingestion processors that consume the events capture publishes read or change `event.properties`.
+- The uses that capture has today are being removed, such as the legacy handlers that read `$` option properties and the v1 legacy property splice. Do not copy them or add to them.
 
 ## Change capture v1 code
 
