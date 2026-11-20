@@ -14,6 +14,7 @@ mod constant;
 mod memory;
 mod node;
 mod pair;
+mod store;
 mod trace;
 mod write;
 
@@ -25,13 +26,16 @@ use std::{
 };
 
 use pair::{Action, SourcePair, Unreadable};
+use store::Store;
 use trace::Trace;
 
 const PROTOCOL: u32 = 1;
 
+const MILLIS_PER_SECOND: u64 = 1000;
+const NANOS_PER_MILLI: u32 = 1_000_000;
+
 const BAD_REQUEST: &str = "bad_request";
-const INJECT_FAILED: &str = "inject_failed";
-const WRITE_FAILED: &str = "write_failed";
+const FAILED: &str = "failed";
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -54,9 +58,8 @@ enum Request {
         ids: Vec<usize>,
         mode: ReleaseMode,
         release_id: Option<String>,
-        // Symbol-set mode only: one id for each pair `needs_new_chunk_id` names, in order. hog
-        // mints them, so its clock decides the timestamp inside each id.
-        new_chunk_ids: Vec<String>,
+        // hog's clock, in milliseconds, so its tests decide the timestamps in minted chunk ids.
+        now: u64,
     },
     Save {
         ids: Vec<usize>,
@@ -147,9 +150,16 @@ struct Failure {
 }
 
 impl Failure {
-    fn new(code: &'static str, message: impl ToString) -> Self {
+    fn bad_request(message: impl ToString) -> Self {
         Failure {
-            code,
+            code: BAD_REQUEST,
+            message: message.to_string(),
+        }
+    }
+
+    fn failed(message: impl ToString) -> Self {
+        Failure {
+            code: FAILED,
             message: message.to_string(),
         }
     }
@@ -177,8 +187,7 @@ fn state(id: usize, pair: &SourcePair) -> PairState {
 }
 
 struct Worker {
-    // A pair's id is its place here. A dropped pair leaves a hole, so ids never move.
-    pairs: Vec<Option<SourcePair>>,
+    pairs: Store<SourcePair>,
     trace: Trace,
 }
 
@@ -194,17 +203,15 @@ impl Worker {
                 public_path_prefix,
             } => Ok(self.read_pairs(&paths, public_path_prefix.as_deref())),
             Request::Drop { ids } => {
-                for id in ids {
-                    self.take(id)?;
-                }
+                self.pairs.take_all(&ids)?;
                 Ok(Answer::Done {})
             }
             Request::Inject {
                 ids,
                 mode,
                 release_id,
-                new_chunk_ids,
-            } => self.inject(&ids, mode, release_id.as_deref(), new_chunk_ids),
+                now,
+            } => self.inject(&ids, mode, release_id.as_deref(), now),
             Request::Save { ids } => self.save(&ids),
         }
     }
@@ -247,10 +254,9 @@ impl Worker {
             .into_iter()
             .map(|result| match result {
                 Ok(pair) => {
-                    let id = self.pairs.len();
-                    let answer = PairAnswer::Read(state(id, &pair));
-                    self.pairs.push(Some(pair));
-                    answer
+                    let answer = state(0, &pair);
+                    let id = self.pairs.hold(pair);
+                    PairAnswer::Read(PairState { id, ..answer })
                 }
                 Err(Unreadable::Skipped(skipped)) => PairAnswer::Skipped { skipped },
                 Err(Unreadable::NoSourcemap) => PairAnswer::Missing(()),
@@ -259,63 +265,27 @@ impl Worker {
         Answer::Pairs { pairs }
     }
 
-    fn take(&mut self, id: usize) -> Result<SourcePair, Failure> {
-        self.pairs
-            .get_mut(id)
-            .and_then(Option::take)
-            .ok_or_else(|| Failure::new(BAD_REQUEST, format!("the worker holds no pair {id}")))
-    }
-
-    // Takes the pairs out for the length of a request, so they can change in parallel.
-    fn take_all(&mut self, ids: &[usize]) -> Result<Vec<SourcePair>, Failure> {
-        let mut taken = Vec::with_capacity(ids.len());
-        for (place, id) in ids.iter().enumerate() {
-            match self.take(*id) {
-                Ok(pair) => taken.push(pair),
-                Err(failure) => {
-                    self.put_back(&ids[..place], taken);
-                    return Err(failure);
-                }
-            }
-        }
-        Ok(taken)
-    }
-
-    fn put_back(&mut self, ids: &[usize], pairs: Vec<SourcePair>) {
-        for (id, pair) in ids.iter().zip(pairs) {
-            self.pairs[*id] = Some(pair);
-        }
-    }
-
     fn inject(
         &mut self,
         ids: &[usize],
         mode: ReleaseMode,
         release_id: Option<&str>,
-        new_chunk_ids: Vec<String>,
+        now: u64,
     ) -> Result<Answer, Failure> {
-        let mut pairs = self.take_all(ids)?;
-
-        let mut fresh = new_chunk_ids.into_iter();
-        let assigned: Vec<Option<String>> = pairs
-            .iter()
-            .map(|pair| {
-                (mode == ReleaseMode::SymbolSet && pair::needs_new_chunk_id(pair, release_id))
-                    .then(|| fresh.next())
-                    .flatten()
-            })
-            .collect();
+        let mut pairs = self.pairs.take_all(ids)?;
+        let now = uuid::Timestamp::from_unix(
+            uuid::NoContext,
+            now / MILLIS_PER_SECOND,
+            (now % MILLIS_PER_SECOND) as u32 * NANOS_PER_MILLI,
+        );
 
         let results: Vec<anyhow::Result<(Action, String, Vec<String>)>> = pairs
             .par_iter_mut()
-            .zip(assigned)
-            .map(|(pair, new_chunk_id)| {
+            .map(|pair| {
                 let mut warnings = Vec::new();
                 let (action, chunk_id) = match mode {
                     ReleaseMode::Event => pair::inject_event_mode(pair, release_id, &mut warnings)?,
-                    ReleaseMode::SymbolSet => {
-                        pair::inject_symbol_set_mode(pair, release_id, new_chunk_id)?
-                    }
+                    ReleaseMode::SymbolSet => pair::inject_symbol_set_mode(pair, release_id, &now)?,
                 };
                 Ok((action, chunk_id, warnings))
             })
@@ -334,11 +304,11 @@ impl Worker {
                 }),
                 Err(error) => {
                     let message = format!("{}: {error:#}", pair.source_path.display());
-                    failure.get_or_insert(Failure::new(INJECT_FAILED, message));
+                    failure.get_or_insert(Failure::failed(message));
                 }
             }
         }
-        self.put_back(ids, pairs);
+        self.pairs.put_back(ids, pairs);
 
         match failure {
             Some(failure) => Err(failure),
@@ -348,7 +318,7 @@ impl Worker {
 
     // Unchanged pairs are written too, so every map ends in posthog-cli's canonical form.
     fn save(&mut self, ids: &[usize]) -> Result<Answer, Failure> {
-        let pairs = self.take_all(ids)?;
+        let pairs = self.pairs.take_all(ids)?;
 
         let staged: Vec<Result<Vec<write::Staged>, String>> = pairs
             .par_iter()
@@ -364,7 +334,7 @@ impl Worker {
                 }
             })
             .collect();
-        self.put_back(ids, pairs);
+        self.pairs.put_back(ids, pairs);
         self.trace.mark("stage");
 
         let mut files = Vec::with_capacity(staged.len() * 2);
@@ -379,10 +349,10 @@ impl Worker {
         }
         if let Some(message) = failure {
             write::discard(&files);
-            return Err(Failure::new(WRITE_FAILED, message));
+            return Err(Failure::failed(message));
         }
 
-        write::commit(files, &self.trace).map_err(|message| Failure::new(WRITE_FAILED, message))?;
+        write::commit(files, &self.trace).map_err(Failure::failed)?;
         Ok(Answer::Done {})
     }
 }
@@ -406,12 +376,12 @@ fn main() -> io::Result<()> {
     })?;
 
     let mut worker = Worker {
-        pairs: Vec::new(),
+        pairs: Store::new("pair"),
         trace: Trace::from_environment(),
     };
     for line in io::stdin().lock().lines() {
         let response = serde_json::from_str::<Request>(&line?)
-            .map_err(|error| Failure::new(BAD_REQUEST, error))
+            .map_err(Failure::bad_request)
             .and_then(|request| worker.handle(request));
 
         send(&match response {

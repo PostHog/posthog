@@ -204,14 +204,8 @@ export class Worker {
         await this.call({ op: 'drop', ids }, Done, {})
     }
 
-    async inject(
-        ids: number[],
-        mode: ReleaseMode,
-        releaseId: string | null,
-        newChunkIds: string[] = []
-    ): Promise<InjectOutcome[]> {
-        return (await this.call({ op: 'inject', ids, mode, releaseId, newChunkIds }, Outcomes, { outcomes: [] }))
-            .outcomes
+    async inject(ids: number[], mode: ReleaseMode, releaseId: string | null, now: number): Promise<InjectOutcome[]> {
+        return (await this.call({ op: 'inject', ids, mode, releaseId, now }, Outcomes, { outcomes: [] })).outcomes
     }
 
     async save(ids: number[]): Promise<void> {
