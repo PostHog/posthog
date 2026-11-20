@@ -22,6 +22,8 @@ const MIN_STRING_KEEP_BYTES = 64
 const MAX_PROJECTION_DEPTH = 6
 const MAX_FIT_ATTEMPTS = 6
 const MAX_LISTED_CUTS = 5
+/** A cut names its path, and a key can be any length, so a long one would crowd out the result it describes. */
+const MAX_CUT_CHARS = 160
 const POINTER_LINE = /^(_posthogUrl|_agentNote): /
 /** A bracketed last line is a tool's own notice, such as the execute-sql preview line. */
 const TRAILING_NOTICE_LINE = /^\[.*\]$/
@@ -66,7 +68,10 @@ function formatTokens(tokens: number): string {
 }
 
 function overflowNotice(fullBytes: number, maxTokens: number, cuts: string[]): string {
-    const listed = cuts.slice(0, MAX_LISTED_CUTS).join('; ')
+    const listed = cuts
+        .slice(0, MAX_LISTED_CUTS)
+        .map((cut) => (cut.length > MAX_CUT_CHARS ? `${cut.slice(0, MAX_CUT_CHARS)}…` : cut))
+        .join('; ')
     const more = cuts.length > MAX_LISTED_CUTS ? `; and ${cuts.length - MAX_LISTED_CUTS} more` : ''
     return (
         `[Response shortened to about ${formatTokens(maxTokens)} tokens, the most this client accepts in one tool result. ` +

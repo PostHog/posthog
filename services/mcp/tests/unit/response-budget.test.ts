@@ -219,6 +219,15 @@ describe('boundText', () => {
         expect(bounded).toContain('y'.repeat(30_000))
     })
 
+    it('keeps a JSON result valid JSON when it cuts a field with a very long key', () => {
+        const value = { attributes: { ['k'.repeat(60_000)]: 'v'.repeat(60_000) } }
+
+        const bounded = boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value))
+
+        expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_BYTES)
+        expect(() => JSON.parse(bounded)).not.toThrow()
+    })
+
     it('keeps a JSON string result a JSON string', () => {
         const value = 'line of schema\n'.repeat(10_000)
 
