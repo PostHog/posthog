@@ -994,15 +994,25 @@ def _serve_heads(
     merge_queue: dict[int, str],
     setup_check_conclusions: list[str] | None | Exception = None,
     statuses_by_commit: dict[str, dict[str, github_api.PostedStatus]] | None = None,
+    base_changes: tuple[timedelta, ...] | None = (),
 ) -> None:
     carried = statuses_by_commit or {}
     mocker.patch.object(
         github_api, "commit_statuses", side_effect=lambda repo, sha, priority: dict(carried.get(sha, {}))
     )
     if isinstance(setup_check_conclusions, Exception):
-        mocker.patch.object(github_api, "check_run_conclusions", side_effect=setup_check_conclusions)
+        mocker.patch.object(github_api, "actions_check_runs", side_effect=setup_check_conclusions)
     else:
-        mocker.patch.object(github_api, "check_run_conclusions", return_value=setup_check_conclusions)
+        check_runs = None
+        if setup_check_conclusions is not None:
+            check_runs = [
+                github_api.CheckRun(conclusion=conclusion, completed_at=SETUP_CHECK_DONE)
+                for conclusion in setup_check_conclusions
+            ]
+        mocker.patch.object(github_api, "actions_check_runs", return_value=check_runs)
+    # Each base change is given by how long after the setup check finished it happened.
+    changed_at = None if base_changes is None else [SETUP_CHECK_DONE + after for after in base_changes]
+    mocker.patch.object(github_api, "pull_request_base_changes", return_value=changed_at)
     mocker.patch.object(
         github_api,
         "open_pull_request_heads",
@@ -1040,8 +1050,10 @@ def _recheck_command(
 
 
 RUN_GONE = commit_status.RUN_GONE_DESCRIPTION
+SETUP_CHECK_DONE = timezone.now() - timedelta(days=2)
 APP_BOT = "posthog-app[bot]"
 LEGACY = "PostHog Visual Review / storybook"
+GATING_STORYBOOK = "Visual Review gate / storybook"
 NO_RUN_NEEDED = commit_status.NO_RUN_NEEDED_FOR_COMMIT_DESCRIPTION
 
 
@@ -1451,7 +1463,33 @@ class TestLedgerRecheck:
         assert _posted(sender) == [
             (self.GATING, CHANGES_DETECTED.state, CHANGES_DETECTED.description),
             (self.GATING, "success", "Visual changes approved"),
+            (LEGACY, "success", "Replaced by Visual Review gate / storybook"),
         ]
+
+    @pytest.mark.parametrize(
+        ("record", "posted"),
+        [
+            pytest.param(
+                SHADOW_RECORD,
+                [
+                    (GATING_STORYBOOK, "success", "No visual changes"),
+                    (LEGACY, "success", "Replaced by Visual Review gate / storybook"),
+                ],
+                id="run_from_before_the_switch",
+            ),
+            pytest.param(
+                make_record(), [(GATING_STORYBOOK, "success", "No visual changes")], id="run_from_after_the_switch"
+            ),
+        ],
+    )
+    def test_a_passing_verdict_turns_the_old_context_green_only_for_a_run_from_before_the_switch(
+        self, repo, sender, record, posted
+    ) -> None:
+        run = _shadow_run(repo, "b0", stored_baseline="b0", record=record)
+
+        commit_status.publish(repo, run.commit_sha, run.run_type)
+
+        assert _posted(sender) == posted
 
     def test_the_recheck_dry_run_shows_the_ledger_verdicts_and_posts_nothing(self, repo, sender, mocker) -> None:
         set_baseline_mode(repo, BaselineMode.SHADOW, status_gate=False)
@@ -1627,3 +1665,30 @@ class TestLedgerRecheck:
             ("head-6", self.GATING, "success", NO_RUN_NEEDED),
             ("head-8", self.GATING, RERUN_ONE.state, RERUN_ONE.description),
         ]
+
+    @pytest.mark.parametrize(
+        ("base_changes", "posted_heads", "dry_run_line"),
+        [
+            pytest.param((), ["head-4"], "storybook success (1) No visual run needed for this commit: #4", id="never"),
+            pytest.param(
+                (-timedelta(hours=1),),
+                ["head-4"],
+                "storybook success (1) No visual run needed for this commit: #4",
+                id="before_the_setup_check",
+            ),
+            pytest.param(
+                (timedelta(hours=1),), [], "storybook skipped (1) retargeted, no run: #4", id="after_the_setup_check"
+            ),
+            pytest.param(None, [], "storybook skipped (1) retargeted, no run: #4", id="timeline_unknown"),
+        ],
+    )
+    def test_a_skipped_setup_check_counts_only_if_the_pull_request_was_not_retargeted_after_it(
+        self, repo, sender, mocker, base_changes, posted_heads, dry_run_line
+    ) -> None:
+        _serve_heads(mocker, {4: "head-4"}, {}, ["skipped"], base_changes=base_changes)
+
+        dry_run = _recheck_command(repo)
+        _recheck_command(repo, "--apply")
+
+        assert dry_run_line in dry_run
+        assert [call.args[1] for call in sender.call_args_list] == posted_heads

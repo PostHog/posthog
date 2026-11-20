@@ -427,13 +427,19 @@ def commit_statuses(repo: Repo, sha: str, priority: Priority = Priority.CRITICAL
 _ACTIONS_APP_SLUG = "github-actions"
 
 
-def check_run_conclusions(
-    repo: Repo, sha: str, check_name: str, priority: Priority = Priority.CRITICAL
-) -> list[str] | None:
-    """The conclusion of each GitHub Actions check run named `check_name` on the commit.
+@frozen
+class CheckRun:
+    # Empty while the check run has not finished.
+    conclusion: str
+    completed_at: datetime | None
 
-    None when GitHub cannot say. A check run that has not finished has an empty conclusion. Check
-    runs of other apps are left out.
+
+def actions_check_runs(
+    repo: Repo, sha: str, check_name: str, priority: Priority = Priority.CRITICAL
+) -> list[CheckRun] | None:
+    """The GitHub Actions check runs named `check_name` on the commit, or None when GitHub cannot say.
+
+    Check runs of other apps are left out.
     """
     data = _read_json(
         "visual_review.check_runs_fetch_failed",
@@ -451,10 +457,30 @@ def check_run_conclusions(
     if data is None:
         return None
     return [
-        check_run.get("conclusion") or ""
+        CheckRun(
+            conclusion=check_run.get("conclusion") or "",
+            completed_at=parse_datetime(check_run["completed_at"]) if check_run.get("completed_at") else None,
+        )
         for check_run in data.get("check_runs") or []
         if (check_run.get("app") or {}).get("slug") == _ACTIONS_APP_SLUG
     ]
+
+
+def pull_request_base_changes(
+    repo: Repo, pr_number: int, priority: Priority = Priority.CRITICAL
+) -> list[datetime] | None:
+    """When the pull request's base branch was changed, or None when GitHub cannot say."""
+    events = _read_all_pages(
+        "visual_review.pull_request_timeline_fetch_failed", repo, f"issues/{pr_number}/timeline", {}, priority=priority
+    )
+    if events is None:
+        return None
+    changed_at = [
+        parse_datetime(event["created_at"])
+        for event in events
+        if event.get("event") == "base_ref_changed" and event.get("created_at")
+    ]
+    return [moment for moment in changed_at if moment is not None]
 
 
 def merged_pull_requests_for_commit(

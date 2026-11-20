@@ -49,6 +49,8 @@ class _Heads:
     heads: list[github_api.BranchHead]
     # Heads of pull requests that target another branch than the default one, and of none that targets it.
     stacked_commits: frozenset[str]
+    # The pull requests whose head each commit is. A merge-queue head has none.
+    pull_requests_by_commit: dict[str, tuple[int, ...]]
 
 
 class _Pacer:
@@ -400,7 +402,17 @@ class Command(BaseCommand):
         )
         on_default = {head.commit_sha for head in in_repo if head.base_ref == default_branch}
         stacked = {head.commit_sha for head in in_repo if head.base_ref != default_branch}
-        return _Heads(heads=in_repo + merge_queue, stacked_commits=frozenset(stacked - on_default))
+        pull_requests_by_commit: dict[str, tuple[int, ...]] = {}
+        for head in in_repo:
+            pull_requests_by_commit[head.commit_sha] = (
+                *pull_requests_by_commit.get(head.commit_sha, ()),
+                head.pr_number,
+            )
+        return _Heads(
+            heads=in_repo + merge_queue,
+            stacked_commits=frozenset(stacked - on_default),
+            pull_requests_by_commit=pull_requests_by_commit,
+        )
 
     def _show_verdicts(self, repo: Repo, heads: _Heads, run_types: list[str], setup_check: str) -> None:
         pull_requests_by_reason: dict[tuple[str, str, str], set[int]] = {}
@@ -409,7 +421,12 @@ class Command(BaseCommand):
             for run_type in run_types:
                 try:
                     verdict = commit_status.ledger_verdict(
-                        repo, head.commit_sha, run_type, setup_check, stacked=stacked
+                        repo,
+                        head.commit_sha,
+                        run_type,
+                        setup_check,
+                        stacked=stacked,
+                        pr_numbers=heads.pull_requests_by_commit.get(head.commit_sha, ()),
                     )
                 except github_api.GITHUB_READ_REFUSED:
                     verdict = commit_status.StatusVerdict(state="unknown", description="read refused")
@@ -431,6 +448,7 @@ class Command(BaseCommand):
             f"{outcomes[commit_status.RecheckPost.UNCHANGED]} skipped as already posted, "
             f"{outcomes[commit_status.RecheckPost.NOT_SUCCESS]} skipped as not success, "
             f"{outcomes[commit_status.RecheckPost.STACKED_WITHOUT_RUN]} skipped as stacked without a run, "
+            f"{outcomes[commit_status.RecheckPost.RETARGETED_WITHOUT_RUN]} skipped as retargeted without a run, "
             f"{legacy_replaced} old statuses replaced"
         )
 
@@ -470,6 +488,7 @@ class Command(BaseCommand):
                 only_success=only_success,
                 wait=pacer.wait,
                 stacked=commit_sha in heads.stacked_commits,
+                pr_numbers=heads.pull_requests_by_commit.get(commit_sha, ()),
             )
             if result.outcome == commit_status.RecheckPost.STOPPED:
                 raise stopped

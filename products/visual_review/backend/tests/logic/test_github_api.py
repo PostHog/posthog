@@ -233,7 +233,7 @@ def test_recheck_setup_job_evidence_counts_only_github_actions_check_runs() -> N
     response = MagicMock(status_code=200)
     response.json.return_value = {
         "check_runs": [
-            {"conclusion": "success", "app": {"slug": "github-actions"}},
+            {"conclusion": "success", "completed_at": "2026-11-20T10:00:00Z", "app": {"slug": "github-actions"}},
             {"conclusion": "skipped", "app": {"slug": "another-app"}},
             {"conclusion": "skipped"},
         ]
@@ -242,9 +242,11 @@ def test_recheck_setup_job_evidence_counts_only_github_actions_check_runs() -> N
     github.api_request.return_value = response
 
     with patch.object(github_api, "get_github_integration_for_repo", return_value=github):
-        conclusions = github_api.check_run_conclusions(Repo(repo_full_name="org/repo"), "sha", "Create run")
+        check_runs = github_api.actions_check_runs(Repo(repo_full_name="org/repo"), "sha", "Create run")
 
-    assert conclusions == ["success"]
+    assert check_runs == [
+        github_api.CheckRun(conclusion="success", completed_at=datetime(2026, 11, 20, 10, tzinfo=UTC))
+    ]
 
 
 def test_recheck_reads_the_newest_status_of_each_context_from_every_page() -> None:
