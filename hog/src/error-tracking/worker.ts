@@ -119,9 +119,8 @@ const SourcePaths = z.object({
 })
 const Packed = z.object({
     unreadable: z.array(z.array(z.object({ path: z.string(), message: z.string() }))),
-    containers: z.array(Container),
+    containers: z.array(Container.nullable()),
 })
-const Wrapped = z.object({ contentHash: z.string(), size: z.number() })
 
 export type InjectAction = z.output<typeof InjectAction>
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
@@ -135,14 +134,13 @@ type NativeFileAnswer = z.output<typeof NativeFiles>['files'][number]
 type DsymMemberAnswer = z.output<typeof DsymMembers>['members'][number]
 type SourcePathsAnswer = z.output<typeof SourcePaths>['sources'][number]
 type PackedNative = z.output<typeof Packed>
-type WrappedPayload = z.output<typeof Wrapped>
 
 export interface PackItem {
     id: number
     sources: number | null
+    chunkId: string
+    dsym: boolean
 }
-
-export type ContainerKind = 'proguard' | 'hermes' | 'dsym' | 'elf'
 
 interface DetectCandidate {
     path: string
@@ -364,15 +362,16 @@ export class Worker {
     }
 
     // The worker lets every binary go, so this is the last request that names one.
-    async packNative(sources: string[][], items: PackItem[], folder: string | null): Promise<PackedNative> {
-        return this.call({ op: 'pack_native', sources, items, folder }, Packed, {
+    async packNative(
+        sources: string[][],
+        items: PackItem[],
+        folder: string | null,
+        maxSize: number
+    ): Promise<PackedNative> {
+        return this.call({ op: 'pack_native', sources, items, folder, maxSize }, Packed, {
             unreadable: sources.map(() => []),
             containers: [],
         })
-    }
-
-    async wrap(path: string, kind: ContainerKind, out: string | null): Promise<WrappedPayload> {
-        return this.call({ op: 'wrap', path, kind, out }, Wrapped)
     }
 
     async close(): Promise<void> {

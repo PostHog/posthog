@@ -21,8 +21,8 @@
 //   native_candidates  {"files":[{"candidates":[{"id",...} | {"problem"}]} | {"unparseable"}]}
 //   dsym_slices        {"members":[{"slices":[{"id","uuid"}]} | {"unreadable"}]}
 //   source_paths       {"sources":[{"paths":["..."]} | {"failed"}]}
-//   pack_native        {"unreadable":[[{"path","message"}]],"containers":[{"contentHash",...}]}
-//   wrap               {"contentHash":"...","size":640}, for the parity tests
+//   pack_native        {"unreadable":[[{"path","message"}]],"containers":[{"contentHash",...} | null]},
+//                      null for a native file that a dSYM which fits replaces
 // Each architecture of a fat Mach-O is a binary with an id of its own. `pack_native` reads each
 // list in `sources` once and answers one `unreadable` list for it, and one container per item.
 // `prepare`, `prepare_maps` and `pack_native` write symbol sets to files for hog to send and let
@@ -38,17 +38,19 @@ mod memory;
 mod native;
 mod node;
 mod pair;
+#[cfg(test)]
+mod parity;
 mod proguard;
 mod sources;
 mod store;
 mod trace;
 mod upload;
-mod wrap;
 mod write;
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     io::{self, BufRead, Write},
     path::{Path, PathBuf},
 };
@@ -145,23 +147,23 @@ enum Request {
     SourcePaths {
         ids: Vec<usize>,
     },
+    #[serde(rename_all = "camelCase")]
     PackNative {
         sources: Vec<Vec<String>>,
         items: Vec<PackItem>,
         folder: Option<String>,
-    },
-    Wrap {
-        path: String,
-        kind: wrap::Kind,
-        out: Option<String>,
+        max_size: usize,
     },
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PackItem {
     id: usize,
     // A place in the request's `sources`. Null packs the binary alone.
     sources: Option<usize>,
+    chunk_id: String,
+    dsym: bool,
 }
 
 #[derive(Deserialize)]
@@ -239,9 +241,8 @@ enum Answer {
     },
     Packed {
         unreadable: Vec<Vec<sources::Unreadable>>,
-        containers: Vec<upload::Container>,
+        containers: Vec<Option<upload::Container>>,
     },
-    Wrapped(wrap::Wrapped),
     Done {},
 }
 
@@ -470,12 +471,8 @@ impl Worker {
                 sources,
                 items,
                 folder,
-            } => self.pack_native(&sources, &items, folder.as_deref()),
-            Request::Wrap { path, kind, out } => {
-                wrap::wrap(Path::new(&path), kind, out.as_deref().map(Path::new))
-                    .map(Answer::Wrapped)
-                    .map_err(|error| Failure::failed(format!("{error:#}")))
-            }
+                max_size,
+            } => self.pack_native(&sources, &items, folder.as_deref(), max_size),
         }
     }
 
@@ -932,21 +929,25 @@ impl Worker {
         Ok(Answer::SourcePaths { sources })
     }
 
+    // A dSYM symbol set that fits wins over a native file with its UUID, so dSYMs pack first and
+    // such a native file never packs. Its sources are still read, for the warnings.
     fn pack_native(
         &mut self,
         sources: &[Vec<String>],
         items: &[PackItem],
         folder: Option<&str>,
+        max_size: usize,
     ) -> Result<Answer, Failure> {
         let folder = folder.map(Path::new);
-        let mut work = Vec::with_capacity(items.len());
-        for item in items {
-            if item.sources.is_some_and(|place| place >= sources.len()) {
-                let message = format!("binary {} names a source list that is not there", item.id);
-                return Err(Failure::bad_request(message));
-            }
-            work.push((item, self.binaries.get(item.id)?));
+        if let Some(item) = items
+            .iter()
+            .find(|item| item.sources.is_some_and(|place| place >= sources.len()))
+        {
+            let message = format!("binary {} names a source list that is not there", item.id);
+            return Err(Failure::bad_request(message));
         }
+        let ids: Vec<usize> = items.iter().map(|item| item.id).collect();
+        let binaries = self.binaries.take_all(&ids)?;
 
         let (collected, unreadable): (Vec<_>, Vec<_>) = sources
             .par_iter()
@@ -954,21 +955,41 @@ impl Worker {
             .unzip();
         self.trace.mark("collect sources");
 
-        let containers: Result<Vec<upload::Container>, String> = work
+        let pack = |item: &PackItem, binary: &native::Binary| {
+            let sources = item.sources.map(|place| &collected[place]);
+            native::pack(binary, sources, folder).map_err(|error| format!("{error:#}"))
+        };
+        let dsyms: Vec<Option<upload::Container>> = items
             .par_iter()
-            .map(|(item, binary)| {
-                let sources = item.sources.map(|place| &collected[place]);
-                native::pack(binary, sources, folder).map_err(|error| format!("{error:#}"))
-            })
+            .zip(&binaries)
+            .map(|(item, binary)| item.dsym.then(|| pack(item, binary)).transpose())
+            .collect::<Result<_, _>>()
+            .map_err(Failure::failed)?;
+        let fitting: HashSet<&str> = items
+            .iter()
+            .zip(&dsyms)
+            .filter_map(|(item, packed)| packed.as_ref().map(|packed| (item, packed)))
+            .filter(|(_, packed)| packed.size <= max_size)
+            .map(|(item, _)| item.chunk_id.as_str())
             .collect();
+
+        let containers: Vec<Option<upload::Container>> = items
+            .par_iter()
+            .zip(binaries)
+            .zip(dsyms)
+            .map(|((item, binary), packed)| match packed {
+                Some(packed) => Ok(Some(packed)),
+                None if fitting.contains(item.chunk_id.as_str()) => Ok(None),
+                None => pack(item, &binary).map(Some),
+            })
+            .collect::<Result<_, _>>()
+            .map_err(Failure::failed)?;
         self.trace.mark("pack native");
 
-        containers
-            .map(|containers| Answer::Packed {
-                unreadable,
-                containers,
-            })
-            .map_err(Failure::failed)
+        Ok(Answer::Packed {
+            unreadable,
+            containers,
+        })
     }
 }
 

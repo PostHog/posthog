@@ -1,6 +1,5 @@
-// Copied from posthog-cli's `dsym/source_bundle.rs`, so the paths found, their zip names and the
-// bytes of the manifest are the ones posthog-cli writes. hog applies its ignore patterns between
-// `extract` and `collect`.
+// Mirrors cli/src/dsym/source_bundle.rs; keep byte output identical. hog applies its ignore
+// patterns between `extract` and `collect`.
 
 use anyhow::Result;
 use serde::Serialize;

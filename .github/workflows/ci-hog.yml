@@ -77,6 +77,10 @@ jobs:
               working-directory: hog/worker
               run: cargo clippy --locked --all-targets -- -D warnings
 
+            - name: Test hog-worker
+              working-directory: hog/worker
+              run: cargo test --locked
+
             - name: Build hog-worker
               working-directory: hog
               run: pnpm run build:worker

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import { extractSymbolSet } from './symbols'
+import { MAX_FILE_SIZE } from './upload'
 import { Worker } from './worker'
 
 const BINARY = join(import.meta.dir, '../../test/parity/native/bin/linux/checkout')
@@ -21,7 +22,8 @@ describe('source bundles', () => {
         if (!file || !('candidates' in file) || !file.candidates[0] || !('id' in file.candidates[0])) {
             throw new Error('The fixture binary gave no candidate.')
         }
-        return worker.packNative([sources], [{ id: file.candidates[0].id, sources: 0 }], folder)
+        const { id, debugId } = file.candidates[0]
+        return worker.packNative([sources], [{ id, sources: 0, chunkId: debugId, dsym: false }], folder, MAX_FILE_SIZE)
     }
 
     test.each([

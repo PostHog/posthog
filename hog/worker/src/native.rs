@@ -1,5 +1,4 @@
-// Copied from posthog-cli's `debug_symbols/mod.rs` and `dsym/mod.rs`, so a symbol set and its
-// content hash are the ones PostHog stores for a posthog-cli upload.
+// Mirrors cli/src/debug_symbols/mod.rs and dsym/mod.rs; keep byte output identical.
 
 use anyhow::Result;
 use posthog_symbol_data::{write_symbol_data, AppleDsym, ElfDebugInfo};
@@ -9,9 +8,11 @@ use std::{
     io::{Cursor, Read, Write},
     ops::Range,
     path::Path,
-    sync::Arc,
 };
-use symbolic::debuginfo::{Archive, FileFormat, Object, ObjectKind};
+use symbolic::{
+    common::ByteView,
+    debuginfo::{Archive, FileFormat, Object, ObjectKind},
+};
 
 use crate::{
     node,
@@ -53,9 +54,14 @@ pub fn magic_format(path: &Path) -> Option<Format> {
     }
 }
 
+// A file that can't be mapped, such as a folder, is read, so it fails with a read's message.
+pub fn map(path: &Path) -> Result<ByteView<'static>, String> {
+    ByteView::open(path).or_else(|_| node::read(path).map(ByteView::from_vec))
+}
+
 // The file is shared, so the slices of a fat file hold it once.
 pub struct Binary {
-    file: Arc<Vec<u8>>,
+    file: ByteView<'static>,
     range: Range<usize>,
     format: Format,
     // A slice of a dSYM bundle reads its sources from the whole file, so every architecture of a
@@ -64,7 +70,12 @@ pub struct Binary {
 }
 
 impl Binary {
-    pub fn new(file: Arc<Vec<u8>>, range: Range<usize>, format: Format, from_dsym: bool) -> Self {
+    pub fn new(
+        file: ByteView<'static>,
+        range: Range<usize>,
+        format: Format,
+        from_dsym: bool,
+    ) -> Self {
         Binary {
             file,
             range,
@@ -117,7 +128,7 @@ pub fn range_within(whole: &[u8], part: &[u8]) -> Range<usize> {
 }
 
 pub fn candidates(path: &Path) -> Result<Vec<Candidate>, String> {
-    let file = Arc::new(node::read(path)?);
+    let file = map(path)?;
     let archive = Archive::parse(&file).map_err(|error| error.to_string())?;
 
     let mut candidates = Vec::new();
