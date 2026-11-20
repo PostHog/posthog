@@ -32,7 +32,11 @@ expiry is not checked. The audience binds the token to one result, so an old tok
 it signed. Three limits remain:
 - A writer's job can edit a newer result's check run and post an older result of the same PR, head
   and merge base again. That result proved the same inputs with code the pins still hold, so this
-  matters only for a publisher that can answer differently on the same inputs.
+  matters only for a publisher that can answer differently on the same inputs. The change prover's
+  dependency lane can: it reads the npm registry and PyPI, so a pulled release turns a re-run of the
+  proof from a success into a neutral, and a writer who hides that neutral brings the success back.
+  It takes a job of this repository with `checks: write` and a new review of that head after the
+  neutral, and an approval given on the success stands without it.
 - A key that GitHub removes from its published set fails every result it signed. The entry then
   waits until the publisher runs again.
 - A writer who floods a head with check runs or check suites past GitHub's listing limits keeps the
