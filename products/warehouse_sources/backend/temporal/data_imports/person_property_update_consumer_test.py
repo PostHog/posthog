@@ -48,6 +48,27 @@ class TestBuildCaptureKwargs:
             "process_person_profile": True,
         }
 
+    def test_maps_unset_only_message_to_person_property_removal(self):
+        kwargs = build_capture_kwargs(
+            {
+                "token": "tok",
+                "distinct_id": "person-1",
+                "properties": {},
+                "unset_properties": ["plan_tier", "audience_member"],
+            }
+        )
+        assert kwargs == {
+            "token": "tok",
+            "event_name": "$set",
+            "event_source": EVENT_SOURCE,
+            "distinct_id": "person-1",
+            "properties": {
+                "$unset": ["plan_tier", "audience_member"],
+                "$geoip_disable": True,
+            },
+            "process_person_profile": True,
+        }
+
     def test_group_message_maps_to_groupidentify(self):
         # Regression: a group message must become a $groupidentify with $group_type/$group_key/$group_set
         # and process_person_profile=True. With false, ingestion drops the event before the group
@@ -84,6 +105,10 @@ class TestBuildCaptureKwargs:
             ("missing_distinct_id", {"token": "t", "properties": {"p": 1}}),
             ("empty_properties", {"token": "t", "distinct_id": "a", "properties": {}}),
             ("non_dict_properties", {"token": "t", "distinct_id": "a", "properties": "nope"}),
+            (
+                "invalid_unset_properties",
+                {"token": "t", "distinct_id": "a", "properties": {}, "unset_properties": [1]},
+            ),
             ("nan_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("nan")}}),
             ("inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": float("inf")}}),
             ("nested_inf_value", {"token": "t", "distinct_id": "a", "properties": {"p": {"q": float("-inf")}}}),
@@ -94,6 +119,18 @@ class TestBuildCaptureKwargs:
             (
                 "group_missing_group_key",
                 {"token": "t", "distinct_id": "a", "kind": "group", "group_type": "org", "properties": {"p": 1}},
+            ),
+            (
+                "group_unset",
+                {
+                    "token": "t",
+                    "distinct_id": "a",
+                    "kind": "group",
+                    "group_type": "org",
+                    "group_key": "k",
+                    "properties": {},
+                    "unset_properties": ["p"],
+                },
             ),
         ]
     )

@@ -1,6 +1,6 @@
-"""Throttling consumer for warehouse -> person-property $set intents.
+"""Throttling consumer for warehouse -> person-property update intents.
 
-Drains ``KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES`` and sends each as a ``$set`` through
+Drains ``KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES`` and sends each as a ``$set`` or ``$unset`` through
 capture-internal, at a global rate (a constance setting ops can retune live). The rate is enforced
 by the shared, Redis-backed outbound egress limiter, so the budget holds across every replica at
 once — the consumer can run many pods without multiplying the send rate. Kafka lag is the
@@ -55,8 +55,8 @@ _IN_MEMORY_DIVIDER = 6
 
 SENT_TOTAL = Counter(
     "warehouse_person_property_sent_total",
-    "person-property update events sent to capture ($set for persons, $groupidentify for groups)",
-    labelnames=["kind"],
+    "person-property update events sent to capture ($set/$unset for persons, $groupidentify for groups)",
+    labelnames=["kind", "operation"],
 )
 DLQ_TOTAL = Counter(
     "warehouse_person_property_dlq_total",
@@ -119,16 +119,23 @@ register_policy(_RATE_DOMAIN, _rate_policy)
 
 
 def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
-    """Map a topic message to capture_internal kwargs. Person messages become a `$set`; group messages
+    """Map a topic message to capture_internal kwargs. Person messages become a `$set`/`$unset`; group messages
     (``kind == "group"``) become a `$groupidentify` carrying `$group_type`/`$group_key`/`$group_set`.
     Raises InvalidPersonPropertyMessage for a shape that can never succeed."""
     token = payload.get("token")
     distinct_id = payload.get("distinct_id")
     properties = payload.get("properties")
+    unset_properties = payload.get("unset_properties", [])
     if not token or not distinct_id:
         raise InvalidPersonPropertyMessage("message missing token or distinct_id")
-    if not isinstance(properties, dict) or not properties:
-        raise InvalidPersonPropertyMessage("message has no properties to set")
+    if not isinstance(properties, dict):
+        raise InvalidPersonPropertyMessage("message properties must be an object")
+    if not isinstance(unset_properties, list) or any(
+        not isinstance(property_name, str) or not property_name for property_name in unset_properties
+    ):
+        raise InvalidPersonPropertyMessage("message unset_properties must be a list of property names")
+    if not properties and not unset_properties:
+        raise InvalidPersonPropertyMessage("message has no properties to update")
     # Non-finite floats (NaN/Infinity) survive json.loads but serialize to non-compliant JSON that
     # the capture transport rejects as an unaccounted (non-terminal) failure, which would otherwise
     # retry forever and wedge the partition. They can never succeed, so treat them as poison -> DLQ.
@@ -139,6 +146,8 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
 
     event_source = payload.get("event_source") or EVENT_SOURCE
     if payload.get("kind") == "group":
+        if unset_properties:
+            raise InvalidPersonPropertyMessage("group messages cannot unset properties")
         group_type = payload.get("group_type")
         group_key = payload.get("group_key")
         if not group_type or not group_key:
@@ -161,12 +170,17 @@ def build_capture_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
             },
             "process_person_profile": True,
         }
+    person_properties: dict[str, Any] = {"$geoip_disable": True}
+    if properties:
+        person_properties["$set"] = properties
+    if unset_properties:
+        person_properties["$unset"] = unset_properties
     return {
         "token": token,
         "event_name": "$set",
         "event_source": event_source,
         "distinct_id": str(distinct_id),
-        "properties": {"$set": properties, "$geoip_disable": True},
+        "properties": person_properties,
         "process_person_profile": True,
     }
 
@@ -358,7 +372,9 @@ class PersonPropertyUpdateConsumer:
             logger.exception("person_property_update.capture_error")
             return RETRY
         if result.succeeded():
-            SENT_TOTAL.labels(kind="group" if kwargs["event_name"] == "$groupidentify" else "person").inc()
+            kind = "group" if kwargs["event_name"] == "$groupidentify" else "person"
+            operation = "unset" if "$unset" in kwargs["properties"] else "set"
+            SENT_TOTAL.labels(kind=kind, operation=operation).inc()
             return SENT
         # A drop is terminal: capture rejected the event permanently (e.g. invalid/stale token,
         # validation failure), so it's poison. DLQ it rather than redelivering forever.

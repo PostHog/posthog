@@ -3319,6 +3319,18 @@ export interface CustomPropertyOptionApi {
 }
 
 /**
+ * * `keep` - Keep the last synced values
+ * * `remove` - Remove mapped properties
+ */
+export type WarehousePersonPropertyMissingRowBehaviorEnumApi =
+    (typeof WarehousePersonPropertyMissingRowBehaviorEnumApi)[keyof typeof WarehousePersonPropertyMissingRowBehaviorEnumApi]
+
+export const WarehousePersonPropertyMissingRowBehaviorEnumApi = {
+    Keep: 'keep',
+    Remove: 'remove',
+} as const
+
+/**
  * * `tracked` - tracked
  * * `ignored` - ignored
  */
@@ -3408,6 +3420,8 @@ export interface CustomPropertySyncRunApi {
     readonly existing: number
     /** Property updates written or produced to the ingestion pipeline. */
     readonly produced: number
+    /** People whose mapped properties were removed after they left the source table. */
+    readonly removed: number
     /** Changed rows skipped because no existing account, person, or group matched the key column value. */
     readonly skipped_missing_person: number
     /**
@@ -3449,6 +3463,11 @@ export interface CustomPropertySourceApi {
     column_property_map?: unknown
     /** Person and group sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. */
     column_descriptions?: unknown
+    /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read. Existing sources default to 'keep'.
+     *
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties */
+    missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnumApi
     /**
      * Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources.
      * @maxLength 400
@@ -3704,6 +3723,11 @@ export interface CustomPropertySourceUpdateApi {
     column_property_map?: unknown
     /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
     column_descriptions?: unknown
+    /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+     *
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties */
+    missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnumApi
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }
@@ -3727,6 +3751,11 @@ export interface PatchedCustomPropertySourceUpdateApi {
     column_property_map?: unknown
     /** Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column. */
     column_descriptions?: unknown
+    /** Person sources only: keep the last synced values, or remove mapped properties when a key is absent from a complete table read.
+     *
+     * * `keep` - Keep the last synced values
+     * * `remove` - Remove mapped properties */
+    missing_row_behavior?: WarehousePersonPropertyMissingRowBehaviorEnumApi
     /** Whether the source syncs; re-enabling it resets the failure count. */
     is_enabled?: boolean
 }

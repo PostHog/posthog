@@ -1399,6 +1399,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     source_type=source_type,
                     schema_name=schema_name,
                     last_synced_at=last_synced_at,
+                    complete_table_read=(
+                        (not incremental_or_append or scheduled_full_refresh or inputs.reset_pipeline)
+                        and not is_resumable_source
+                    ),
                 )
                 # Keyed per job (not per schema): each sync stages its changed rows under a job-scoped
                 # S3 prefix that only its own child consumes. A per-schema id would coalesce a

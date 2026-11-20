@@ -524,9 +524,10 @@ def _person_sync_result(**overrides) -> MaterializeViewResult:
 
 
 class TestMaybeSyncPersonProperties:
-    async def test_starts_child_with_the_view_binding_when_rows_were_staged(self):
+    @pytest.mark.parametrize("incremental", [False, True])
+    async def test_starts_child_with_the_view_binding_when_rows_were_staged(self, incremental: bool):
         workflow = MaterializeViewWorkflow()
-        result = _person_sync_result(person_property_sync_enabled=True)
+        result = _person_sync_result(person_property_sync_enabled=True, incremental=incremental)
         with patch.object(temporalio.workflow, "start_child_workflow", new=AsyncMock()) as start_child:
             await workflow._maybe_sync_person_properties(_inputs(), result, "job-123")
 
@@ -540,6 +541,7 @@ class TestMaybeSyncPersonProperties:
         assert str(payload.saved_query_id) == result.saved_query_id
         assert payload.binding.kind == "saved_query"
         assert payload.job_id == "job-123"
+        assert payload.complete_table_read is not incremental
         # Keyed per job: a per-view id would coalesce a concurrent run's child and drop its staged rows.
         assert start_child.await_args.kwargs["id"] == "sync-warehouse-person-properties-job-123"
 

@@ -221,6 +221,68 @@ class TestRunOrchestration:
         clear.assert_awaited_once()
         assert order == ["reconcile", "produce", "snapshot", "compact"]
 
+    @parameterized.expand(
+        [
+            ("opted_in_complete_read", True, True, "pro", 1),
+            ("opted_in_present_null", True, True, None, 1),
+            ("opted_in_partial_read", True, False, "pro", 0),
+            ("default_complete_read", False, True, "pro", 0),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_removes_only_after_an_opted_in_complete_read(
+        self,
+        _name: str,
+        remove_when_missing: bool,
+        complete_table_read: bool,
+        present_value: str | None,
+        expected_removed: int,
+    ) -> None:
+        source = PersonPropertySyncSource(
+            source_id="source-1",
+            definition_id="def-1",
+            key_column="distinct_id",
+            column_property_map={"plan": "plan_tier"},
+            remove_when_missing=remove_when_missing,
+        )
+        prior = {
+            "present": pps.bundle_hash({"plan_tier": "pro"}),
+            "left": pps.bundle_hash({"plan_tier": "free"}),
+        }
+        fake = _FakeS3()
+        _stage(fake, "chunk_1_000000", [{"distinct_id": "present", "plan": present_value}])
+        with (
+            _fake_s3_patch(fake),
+            patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[source]),
+            patch(f"{_MODULE}.Team") as team_cls,
+            patch(f"{_MODULE}._read_snapshot_hashes", new=AsyncMock(side_effect=lambda *_args: dict(prior))),
+            patch(
+                f"{_MODULE}._filter_existing_ids",
+                side_effect=lambda _team_id, _source, ids: set(ids) & {"present", "left"},
+            ),
+            patch(f"{_MODULE}._produce_intents", return_value={"left"}) as produce,
+            patch(f"{_MODULE}._write_snapshot_chunk", new=AsyncMock()) as write_chunk,
+            patch(f"{_MODULE}._write_snapshot_hashes", new=AsyncMock()),
+            patch(f"{_MODULE}._reconcile_property_definitions"),
+            patch(f"{_MODULE}._clear_staged", new=AsyncMock()),
+        ):
+            team_cls.objects.get.return_value = MagicMock(api_token="tok", project_id=7, uuid="team-uuid")
+            result = await pps.run_person_property_sync(
+                team_id=1,
+                binding=_SCHEMA,
+                job_id="job-1",
+                complete_table_read=complete_table_read,
+            )
+
+        assert result.removed == expected_removed
+        if expected_removed:
+            assert produce.call_count == 1
+            assert write_chunk.await_count == 1
+            assert produce.call_args.args[3] == [("left", {"plan_tier": None})]
+            assert write_chunk.await_args.args[4] == {"left": None}
+        else:
+            produce.assert_not_called()
+
     @parameterized.expand([("unconfirmed_delivery", False), ("snapshot_write_failure", True)])
     @pytest.mark.asyncio
     async def test_undelivered_intents_stay_out_of_the_snapshot_and_fail_the_run(self, _name, snapshot_write_fails):
@@ -924,16 +986,21 @@ class TestSnapshotCompaction:
         with _fake_s3_patch(fake):
             await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-1", {"a": "old"})
             await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"a": "new"})
-            original_cat_file = fake._cat_file
+            await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "new"})
+            concurrent_data = fake.store.pop(f"{prefix}/concurrent.parquet")
+            concurrent_time = fake.times.pop(f"{prefix}/concurrent.parquet")
+            original_merge_snapshot_path = pps._merge_snapshot_path
 
-            async def _cat_after_concurrent_compaction(path):
-                data = await original_cat_file(path)
+            def _merge_after_concurrent_compaction(path, hashes):
+                original_merge_snapshot_path(path, hashes)
                 if path.endswith("/job-1.parquet"):
-                    await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "new"})
-                    await fake._rm([f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"])
-                return data
+                    fake.store[f"{prefix}/concurrent.parquet"] = concurrent_data
+                    fake.times[f"{prefix}/concurrent.parquet"] = concurrent_time
+                    for key in (f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"):
+                        fake.store.pop(key)
+                        fake.times.pop(key)
 
-            with patch.object(fake, "_cat_file", _cat_after_concurrent_compaction):
+            with patch(f"{_MODULE}._merge_snapshot_path", side_effect=_merge_after_concurrent_compaction):
                 await pps._write_snapshot_hashes(1, _SCHEMA, "src", "job-3", {})
 
             hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
@@ -948,18 +1015,24 @@ class TestSnapshotCompaction:
         with _fake_s3_patch(fake):
             await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-1", {"a": "h1"})
             await pps._write_snapshot_chunk(1, _SCHEMA, "src", "job-2", {"b": "h2"})
-            original_cat_file = fake._cat_file
+            await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "h1", "b": "h2"})
+            concurrent_data = fake.store.pop(f"{prefix}/concurrent.parquet")
+            concurrent_time = fake.times.pop(f"{prefix}/concurrent.parquet")
+            original_merge_snapshot_path = pps._merge_snapshot_path
             compacted = False
 
-            async def _cat_with_one_concurrent_compaction(path):
+            def _merge_with_one_concurrent_compaction(path, hashes):
                 nonlocal compacted
                 if not compacted:
                     compacted = True
-                    await pps._put_snapshot_file(fake, f"{prefix}/concurrent.parquet", {"a": "h1", "b": "h2"})
-                    await fake._rm([f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"])
-                return await original_cat_file(path)
+                    fake.store[f"{prefix}/concurrent.parquet"] = concurrent_data
+                    fake.times[f"{prefix}/concurrent.parquet"] = concurrent_time
+                    for key in (f"{prefix}/job-1.parquet", f"{prefix}/job-2.parquet"):
+                        fake.store.pop(key)
+                        fake.times.pop(key)
+                original_merge_snapshot_path(path, hashes)
 
-            with patch.object(fake, "_cat_file", _cat_with_one_concurrent_compaction):
+            with patch(f"{_MODULE}._merge_snapshot_path", side_effect=_merge_with_one_concurrent_compaction):
                 hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "src")
 
         assert hashes == {"a": "h1", "b": "h2"}

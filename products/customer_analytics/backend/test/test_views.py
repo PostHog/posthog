@@ -2811,6 +2811,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
             {
                 "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
                 "column_descriptions": {"seats": " Seat count "},
+                "missing_row_behavior": "remove",
             },
             format="json",
         )
@@ -2819,6 +2820,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert patched.json()["id"] == source_id
         assert patched.json()["column_property_map"] == {"plan": "plan_tier", "seats": "seat_count"}
         assert patched.json()["column_descriptions"] == {"seats": "Seat count"}
+        assert patched.json()["missing_row_behavior"] == "remove"
 
         invalid = self.client.patch(f"{self.endpoint}{source_id}/", {"column_property_map": {}}, format="json")
         assert invalid.status_code == status.HTTP_400_BAD_REQUEST, invalid.content
@@ -2858,6 +2860,7 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert create_properties["target_type"] == TargetType.PERSON.value
         assert create_properties["mapped_column_count"] == 2
         assert create_properties["reads_warehouse_table"] is True
+        assert create_properties["missing_row_behavior"] == "keep"
 
     def test_create_person_source_with_account_binding_is_rejected(self):
         definition, _schema = self._person_definition_and_schema()

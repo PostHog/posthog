@@ -102,7 +102,9 @@ Create the definition first, then the source:
    is ignored (it only drives how an account property renders, since profile properties are written as raw `$set` /
    `$group_set` values).
 2. `custom-property-sources-create` with the definition id, exactly one of `external_data_schema` or
-   `saved_query`, the whole `column_property_map`, and `key_column` set to the identifier from step 2.
+   `saved_query`, the whole `column_property_map`, and `key_column` set to the identifier from step 2. Person
+   sources may also set `missing_row_behavior: remove` when membership in the table should control whether the
+   mapped properties stay on a person. The default is `keep`, which preserves existing behavior.
 
 The mapping and the binding are **create-only**. To change which columns are mapped, delete the property and
 create it again — so it is worth getting the proposal right rather than iterating on a live mapping.
@@ -121,6 +123,7 @@ explains itself:
 | `changed`   | Every value already matches what was last sent; a re-run is expected to be quiet |
 | `existing`  | No row's identifier matched a person or group — usually the wrong key column     |
 | `produced`  | Nothing reached capture; check `skipped_missing_person`                          |
+| `removed`   | No previously matched person left the table on a complete read                    |
 
 A run that reads rows but shows `existing: 0` is the wrong-key-column case almost every time.
 
