@@ -905,6 +905,8 @@ class ClickHousePrinter(BasePrinter):
     def _is_ai_bloom_filter_read(self, node: ast.Expr) -> bool:
         # Match the read and not the printed SQL: any other column or JSON path whose name contains one of these
         # names, such as a `$ai_trace_id_v2` property, must keep the NULL handling of its comparisons.
+        while isinstance(node, ast.Alias) and node.hidden:
+            node = node.expr
         read = node.expr if isinstance(node, ast.TypeCast) else node
         if isinstance(read, ast.JsonSubcolumnAccess):
             return len(read.keys) == 1 and read.keys[0] in AI_BLOOM_FILTER_PROPERTIES
