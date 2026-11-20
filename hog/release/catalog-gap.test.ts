@@ -28,7 +28,6 @@ const pascal = (tool: string): string =>
     tool.replace(/(^|-)([a-z0-9])/g, (_, __, letter: string) => letter.toUpperCase())
 const camel = (tool: string): string => pascal(tool).replace(/^./, (letter) => letter.toLowerCase())
 
-// A generated tool module laid out like the real ones: each tool reads the schema named after it.
 function generated(...tools: string[]): string {
     const blocks = tools.map(
         (tool) =>
@@ -68,7 +67,6 @@ function registry(...modules: string[]): string {
     ].join('\n')
 }
 
-// Both generated modules exist before and after every change, so a test only lists what it changes.
 const MODULES = {
     [GENERATED]: generated('action-get', 'action-create'),
     [UNCARRIED_MODULE]: generated('workflows-get', 'workflows-patch-graph'),
@@ -141,11 +139,20 @@ describe('catalog gaps', () => {
             {},
         ],
         [
-            'a generated schema file a hand-written tool imports in a form the check cannot parse',
+            'a generated schema file a hand-written tool also loads with import()',
             [SHARED_SCHEMAS],
             {
                 [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, WorkflowsGet: 'a newer workflow' }),
-                [HAND_WRITTEN_TOOL]: lifecycleTool('HogFlowsPartialUpdateParams').replaceAll("'", '"'),
+                [HAND_WRITTEN_TOOL]: `${lifecycleTool('HogFlowsPartialUpdateParams')}export const later = () => import("@/generated/workflows/api")\n`,
+            },
+            {},
+        ],
+        [
+            'a generated schema a hand-written tool imports with a comment between the braces',
+            [SHARED_SCHEMAS],
+            {
+                [SHARED_SCHEMAS]: schemas({ ...WORKFLOW_SCHEMAS, HogFlowsPartialUpdateParams: 'a new flow' }),
+                [HAND_WRITTEN_TOOL]: lifecycleTool('HogFlowsPartialUpdateParams /* the flow to update */'),
             },
             {},
         ],
@@ -233,6 +240,25 @@ describe('catalog gaps', () => {
 
         expect(result).toMatchObject({ needsRelease: true, bump: 'patch' })
         expect(result.reasons.map((reason) => reason.file)).toEqual(changed)
+    })
+
+    test('counts a schema change read by a tool the catalog build drops, though the tool list names it', () => {
+        const result = findCatalogGaps({
+            changed: [SCHEMAS],
+            compiled: { files: new Set([GENERATED, SCHEMAS]), importers: new Map([[SCHEMAS, new Set([GENERATED])]]) },
+            readBase: (path) => ({ ...MODULES })[path],
+            readHead: (path) =>
+                ({
+                    [CATALOG_TOOLS_JSON]: CATALOG,
+                    ...MODULES,
+                    [SCHEMAS]: schemas({ ActionGet: 'a newer action', ActionCreate: 'a new action' }),
+                })[path],
+            carried: new Set(['action-create']),
+        })
+
+        expect(result.reasons).toEqual([
+            expect.objectContaining({ file: SCHEMAS, why: expect.stringContaining('tools/generated/actions.ts') }),
+        ])
     })
 
     test('counts a tool removed from a generated file, which the catalog no longer carries', () => {
