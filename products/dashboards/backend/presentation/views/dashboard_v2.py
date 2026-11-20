@@ -49,6 +49,14 @@ class QueryBatchTargetSerializer(serializers.Serializer):
         ),
     )
     query = serializers.CharField(max_length=200_000, help_text="The query text, read according to `language`.")
+    bucketed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "HogQL only. The query returns its time bucket as the first column, filters time with `{filters}` and "
+            "aggregates only within a bucket, so finished buckets are kept and only missing and recent ones run."
+        ),
+    )
 
 
 class QueryBatchTimeSerializer(serializers.Serializer):
@@ -173,6 +181,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     ref_id=item["target"]["refId"],
                     language=QueryBatchLanguage(item["target"]["language"]),
                     query=item["target"]["query"],
+                    bucketed=item["target"]["bucketed"],
                 ),
                 date_from=item["time"]["from"],
                 date_to=item["time"]["to"],
