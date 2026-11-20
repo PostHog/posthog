@@ -17,6 +17,7 @@
                 "backend/schedule.py",
                 "backend/logic/describe_columns.py",
                 "backend/logic/node_materialization.py",
+                "backend/logic/notebook_table_dag_sync.py",
                 "backend/logic/refresh_floor.py",
                 "backend/logic/saved_query_dag_sync.py",
                 "backend/logic/saved_query_deletion.py",

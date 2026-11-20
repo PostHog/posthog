@@ -15,7 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.notebook_warehouse_tables import NotebookTableError, get_notebook_table_writer
 
-from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.facade.testing import create_access_control
 from products.warehouse_sources.backend.file_uploads import MAX_UPLOAD_SIZE_BYTES
 from products.warehouse_sources.backend.logic.notebook_tables import (
     _object_url,
@@ -92,12 +92,12 @@ class TestValidateNotebookTableName(BaseTest):
         self.organization.save(update_fields=["available_product_features"])
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save(update_fields=["level"])
-        AccessControl.objects.create(
-            team=self.team,
+        create_access_control(
+            team_id=self.team.id,
             # Resource-level warehouse rules live on the warehouse_objects umbrella.
             resource="warehouse_table" if table_exists else "warehouse_objects",
             resource_id=str(table.id) if table_exists else None,
-            organization_member=self.organization_membership,
+            organization_member_id=self.organization_membership.id,
             access_level="viewer",
         )
         cache.clear()
