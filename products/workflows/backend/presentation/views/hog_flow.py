@@ -66,7 +66,6 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import email_domain
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.paging import Page, PageRequest
@@ -1163,10 +1162,10 @@ def _custom_address_fits(action: dict, sender_domain: str) -> bool:
     address = sender.get("email") if isinstance(sender, dict) else None
     if not isinstance(address, str):
         return not address
-    address = address.strip()
-    if not address or "{" in address:
+    _, at, domain = address.strip().lower().rpartition("@")
+    if "{" in domain or not (at or domain):
         return True
-    return (email_domain(address.lower()) or "") == sender_domain
+    return bool(at) and domain == sender_domain
 
 
 def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id: int) -> Any:
