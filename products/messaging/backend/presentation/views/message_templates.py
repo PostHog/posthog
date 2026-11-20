@@ -733,6 +733,8 @@ CODE_SEND_FIELDS = (
     "capture_engagement",
     "tracking",
     "sensitive",
+    "in_reply_to",
+    "references",
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
@@ -807,6 +809,9 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with "
         "`template_id`, which refuses any address here.",
     )
+    # PROTOTYPE (ses-threading): reply threading headers, never merged.
+    in_reply_to = serializers.CharField(required=False, max_length=995)
+    references = serializers.ListField(child=serializers.CharField(max_length=995), required=False, max_length=200)
     attachments = AttachmentListField(
         required=False,
         allow_null=True,
@@ -1883,6 +1888,8 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+            in_reply_to=data.get("in_reply_to"),
+            references=tuple(data.get("references") or ()),
         )
         return self._queue_send(
             request,

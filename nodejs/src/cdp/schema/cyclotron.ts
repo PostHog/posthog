@@ -184,6 +184,9 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     }),
     cc: z.string().optional(),
     bcc: z.string().optional(),
+    // PROTOTYPE (ses-threading): reply threading headers, never merged.
+    inReplyTo: z.string().optional(),
+    references: z.string().optional(),
     subject: z.string(),
     preheader: z.string().optional(),
     // Emails authored through the API or MCP often carry html only.

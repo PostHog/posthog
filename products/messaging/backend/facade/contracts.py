@@ -241,6 +241,9 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    # PROTOTYPE (ses-threading): reply threading headers, never merged.
+    in_reply_to: str | None = None
+    references: tuple[str, ...] = ()
 
 
 class DeliveryUnavailable(Exception):

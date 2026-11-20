@@ -162,6 +162,11 @@ export const AcceptedSendSchema = z
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
         sensitive: z.boolean().optional(),
+        // PROTOTYPE (ses-threading): reply threading headers, never merged.
+        threading: z
+            .object({ inReplyTo: z.string().optional(), references: z.array(z.string()).optional() })
+            .strict()
+            .optional(),
         tracking: z
             .object({
                 captureEngagement: z.boolean(),
@@ -221,6 +226,8 @@ export const acceptedSendEmailFields = (
     ...(send?.replyTo && { replyTo: send.replyTo.join(', ') }),
     ...(send?.cc && { cc: send.cc.join(', ') }),
     ...(send?.bcc && { bcc: send.bcc.join(', ') }),
+    ...(send?.threading?.inReplyTo && { inReplyTo: send.threading.inReplyTo }),
+    ...(send?.threading?.references && { references: send.threading.references.join(' ') }),
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
 })
 

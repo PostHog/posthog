@@ -98,6 +98,39 @@ const sesThrottleResponsesTotal = new Counter({
  * included, not only the sends that answer an incoming message.
  */
 const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
+
+// PROTOTYPE (ses-threading), never merged. SES caps a header value at 995 characters, so a long
+// References chain keeps its first ID and as many of the newest as fit (RFC 5322 3.6.4).
+const SES_HEADER_VALUE_MAX = 995
+export function boundReferences(references: string): string {
+    const ids = references.split(/\s+/).filter(Boolean)
+    if (ids.join(' ').length <= SES_HEADER_VALUE_MAX) {
+        return ids.join(' ')
+    }
+    const [first, ...rest] = ids
+    const kept: string[] = []
+    let length = first.length
+    for (const id of rest.reverse()) {
+        if (length + 1 + id.length > SES_HEADER_VALUE_MAX) {
+            break
+        }
+        kept.unshift(id)
+        length += 1 + id.length
+    }
+    return [first, ...kept].join(' ')
+}
+
+function threadingHeaders(params: { inReplyTo?: string; references?: string }): MessageHeader[] {
+    return [
+        ...(params.inReplyTo ? [{ Name: 'In-Reply-To', Value: params.inReplyTo }] : []),
+        ...(params.references ? [{ Name: 'References', Value: boundReferences(params.references) }] : []),
+    ]
+}
+
+// SES replaces any Message-ID with its own. us-east-1 uses email.amazonses.com, other regions <region>.amazonses.com.
+export function sesWireMessageId(sesMessageId: string, region: string): string {
+    return `<${sesMessageId}@${region === 'us-east-1' ? 'email' : region}.amazonses.com>`
+}
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
 const SES_HEADER_VALUE_MAX_LENGTH = 870
@@ -952,6 +985,10 @@ export class EmailService {
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
+            if (messageId) {
+                // PROTOTYPE (ses-threading): the Message-ID the recipient sees, for mapping replies back.
+                addLog('info', `SES wire Message-ID ${sesWireMessageId(messageId, this.sesConfig.sesRegion)}`)
+            }
             success = true
             result.emailSendResult = { status: 'accepted' }
             if (isRealWorkflowSend(invocation, isTest)) {
@@ -1581,7 +1618,9 @@ export class EmailService {
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
-            headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
+            headers: Object.fromEntries(
+                [AUTO_SUBMITTED_HEADER, ...threadingHeaders(params)].map(({ Name, Value }) => [Name!, Value!])
+            ),
             ...(params.html
                 ? {
                       html: trackingEnabled
@@ -1755,6 +1794,7 @@ export class EmailService {
                 trackingHeader,
                 ...messageCreatedHeaders,
                 AUTO_SUBMITTED_HEADER,
+                ...threadingHeaders(params),
             ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map(({ file, bytes }) => ({
