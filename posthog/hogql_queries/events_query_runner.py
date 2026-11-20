@@ -29,6 +29,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.flag_evaluations import EVENTS_LIST_JOINED_FIELDS, join_persons_to_flag_evaluations
+from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
@@ -44,6 +45,7 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.dataclasses import frozen
 from posthog.date_util import start_of_day
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
@@ -186,17 +188,28 @@ def and_exprs(existing: ast.Expr | None, extra: ast.Expr | None) -> ast.Expr | N
 QueryPropertyFilter = AnyPropertyFilterDiscriminated | PropertyGroupFilter | PropertyGroupFilterValue
 
 
-def _exact_flag_keys(prop: QueryPropertyFilter) -> list[str] | None:
-    if not (
-        isinstance(prop, EventPropertyFilter)
-        and prop.key == "$feature_flag"
-        and prop.operator == PropertyOperator.EXACT
-    ):
+# HogQL reads these properties from the properties JSON of every flag call in the date range. Each column holds the
+# same value. flag_key leads the table's sort key after team_id. The group columns are the stored keys, which the
+# events list also compares, so the group type mapping cutoff on the `$group_N` fields does not apply.
+_FLAG_EVALUATIONS_PROPERTY_COLUMNS = {
+    "$feature_flag": "flag_key",
+    **{f"$group_{index}": f"_$group_{index}_raw" for index in range(GROUP_TYPES_LIMIT)},
+}
+
+
+def _flag_evaluations_column_match(prop: QueryPropertyFilter) -> tuple[str, list[str]] | None:
+    """The flag_evaluations column and the values that select the same rows as an exact event property filter."""
+    if not isinstance(prop, EventPropertyFilter) or prop.operator != PropertyOperator.EXACT:
+        return None
+    column = _FLAG_EVALUATIONS_PROPERTY_COLUMNS.get(prop.key)
+    if column is None:
         return None
     values = prop.value if isinstance(prop.value, list) else [prop.value]
-    if not values or not all(isinstance(value, str) for value in values):
+    # The JSON read turns '' and 'null' into NULL, so a filter on either matches no call. The column stores '' for a
+    # call without the property and 'null' for a JSON null, so the same filter on the column would match those calls.
+    if not values or not all(isinstance(value, str) and value not in MAT_COL_NULL_SENTINELS for value in values):
         return None
-    return [str(value) for value in values]
+    return column, [str(value) for value in values]
 
 
 def _retention_start_expr(retention_days: int) -> ast.Expr:
@@ -460,22 +473,21 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         if table is not FLAG_EVALUATIONS_LIST_TABLE:
             return property_to_expr(prop, self.team)
         if isinstance(prop, PropertyGroupFilter | PropertyGroupFilterValue):
-            # Builds the group the way property_to_expr does, so an exact flag filter inside a group also reads flag_key.
+            # Builds the group the way property_to_expr does, so an exact filter inside a group also reads its column.
             exprs = [self._property_where_expr(value, table) for value in prop.values]
             if not exprs:
                 return ast.Constant(value=1)
             if len(exprs) == 1:
                 return exprs[0]
             return ast.And(exprs=exprs) if prop.type == FilterLogicalOperator.AND_ else ast.Or(exprs=exprs)
-        flag_keys = _exact_flag_keys(prop)
-        if flag_keys is None:
+        column_match = _flag_evaluations_column_match(prop)
+        if column_match is None:
             return property_to_expr(prop, self.team)
-        # HogQL reads properties.$feature_flag from the properties JSON, which reads the properties of every call of
-        # the flag in the date range. flag_key holds the same value and leads the table's sort key after team_id.
+        column, values = column_match
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
-            left=ast.Field(chain=["flag_key"]),
-            right=ast.Tuple(exprs=[ast.Constant(value=key) for key in flag_keys]),
+            left=ast.Field(chain=[column]),
+            right=ast.Tuple(exprs=[ast.Constant(value=value) for value in values]),
         )
 
     def _adds_persons_join(self, table: EventsListTable) -> bool:
