@@ -18,7 +18,7 @@ const EMAIL_ROWS = [
 ]
 
 const TEMPLATES = [{ id: 'tpl-1', name: 'Order receipt', transactional_hog_flow_id: 'flow-1' }]
-const CODE_EMAILS = [{ id: 'code-1', key: 'sign-in-code', hog_flow_id: 'flow-2' }]
+const CODE_EMAILS = [{ id: 'code-9', key: 'password-changed', hog_flow_id: 'flow-9' }]
 
 describe('transactionalEmailMetricsLogic', () => {
     let logic: ReturnType<typeof transactionalEmailMetricsLogic.build>
@@ -82,15 +82,15 @@ describe('transactionalEmailMetricsLogic', () => {
         expect(logic.values.templateStatsLinks).toEqual(links)
     })
 
-    it('offers the transactional templates and the emails sent from code', async () => {
+    it('offers the templates and every email sent from code, sent in the period or not', async () => {
         logic = transactionalEmailMetricsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(transactionalTemplatesLogic).toFinishAllListeners()
 
         expect(logic.values.resultsEmailOptions).toEqual([
-            { value: 'flow-1', label: 'Order receipt' },
-            { value: 'flow-2', label: 'sign-in-code' },
+            { title: 'Templates', options: [{ value: 'flow-1', label: 'Order receipt' }] },
+            { title: 'Sent from code', options: [{ value: 'flow-9', label: 'password-changed' }] },
         ])
     })
 })
