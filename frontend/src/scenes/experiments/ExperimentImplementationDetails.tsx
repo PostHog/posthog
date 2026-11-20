@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 import { IconServer } from '@posthog/icons'
 import { IconFlutter, IconGo, IconJavascript, IconPHP, IconPython, IconRuby } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSelect, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { type AgentPromptAction, AgentPromptButton, buildAgentPrompt } from 'lib/components/AgentPromptButton'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -501,17 +501,27 @@ function GenericExperimentImplementation({
     onSnippetCopied: OnSnippetCopied
     onAgentPromptCopied: OnAgentPromptCopied
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { groupTypes } = useValues(groupsModel)
-    // Read here rather than on the page, so only people who see this section are exposed to the experiment.
-    const implementationArm: ImplementationArm =
-        featureFlags[FEATURE_FLAGS.EXPERIMENT_IMPLEMENTATION_AGENT_PROMPT] === 'test' ? 'test' : 'control'
     const [implementationOption, setImplementationOption] =
         useState<ImplementationOption>(DEFAULT_IMPLEMENTATION_OPTION)
     const defaultVariant = getExperimentVariants(experiment)[1]?.key ?? 'test'
     const [currentVariant, setCurrentVariant] = useState(defaultVariant)
     const [defaultSelectedOption] = OPTIONS
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
+
+    if (!receivedFeatureFlags) {
+        return (
+            <div className="space-y-4" data-attr="experiment-implementation-loading">
+                <h2 className="font-semibold text-lg mb-0">Implementation</h2>
+                <LemonSkeleton className="h-32 w-full" />
+            </div>
+        )
+    }
+
+    // Read here rather than on the page, so only people who see this section are exposed to the experiment.
+    const implementationArm: ImplementationArm =
+        featureFlags[FEATURE_FLAGS.EXPERIMENT_IMPLEMENTATION_AGENT_PROMPT] === 'test' ? 'test' : 'control'
 
     const selectOption = (selectedValue: string): void => {
         const option = OPTIONS.find((option) => option.value === selectedValue)

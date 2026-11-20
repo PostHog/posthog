@@ -77,6 +77,7 @@ describe('ExperimentImplementationDetails', () => {
         // The syntax highlighter reads the theme from kea.
         initKeaTests()
         featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
         jest.mocked(copyToClipboard).mockResolvedValue(true)
         captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
     })
@@ -185,6 +186,27 @@ describe('ExperimentImplementationDetails', () => {
             },
         ])
         expect(snippetCopies()).toEqual([])
+    })
+
+    // Persisted flags from the last visit can name the wrong arm, and a copy before the switch to the test arm
+    // would count against the control.
+    it('shows neither arm until the feature flags load', () => {
+        initKeaTests()
+        featureFlagLogic.mount()
+
+        render(
+            <ExperimentImplementationDetails
+                experiment={experimentWithStatus(ExperimentStatus.Draft)}
+                placement="draft_header"
+            />
+        )
+
+        expect(screen.queryByText('Variant group')).not.toBeInTheDocument()
+        expect(screen.queryByText('Prompt for your agent')).not.toBeInTheDocument()
+
+        act(() => setImplementationArm('test'))
+
+        expect(screen.getByText('Prompt for your agent')).toBeInTheDocument()
     })
 
     // Gating on anything looser than === 'test' would show the switch to people outside the experiment.
