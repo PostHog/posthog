@@ -13,6 +13,7 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.transforms.cross_join import local_cross_join_predicates
 from posthog.hogql.transforms.flag_calls_in_lazy_joins import (
     read_flag_calls_in_lazy_join,
     refuse_flag_calls_in_wrapped_lazy_join,
@@ -436,6 +437,12 @@ class LazyTableResolver(TraversingVisitor):
                 table=ast.Field(chain=list(join_ptr.table.chain)),
                 alias=table_alias,
                 sample=clone_expr(join_ptr.sample, clear_types=True) if join_ptr.sample is not None else None,
+            ),
+            # Identity-key joins wrap their source; keep direct event/date filters inside that read.
+            where=(
+                local_cross_join_predicates(node.where, table_alias)
+                if self.context.modifiers.optimizeCrossJoins and join_ptr.join_type == "ALL INNER JOIN"
+                else None
             ),
         )
         subquery = cast(

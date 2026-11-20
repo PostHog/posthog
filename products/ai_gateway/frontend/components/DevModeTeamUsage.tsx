@@ -3,16 +3,18 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { DevTokenActivityApi, DevUserUsageApi } from '../generated/api.schemas'
 import { PAGE_SIZE_OPTIONS, devModeTeamUsageLogic } from '../logics/devModeTeamUsageLogic'
+import { QuillDevModeTeamUsage } from './QuillDevModeTeamUsage'
 
 // Four places, because single calls cost fractions of a cent.
-function usd(value: string): JSX.Element {
+export function usd(value: string): JSX.Element {
     return <span translate="no">${Number(value).toFixed(4)}</span>
 }
 
-const ACTIVITY_TAG: Record<string, { label: string; type: 'success' | 'danger' | 'default' }> = {
+export const ACTIVITY_TAG: Record<string, { label: string; type: 'success' | 'danger' | 'default' }> = {
     minted: { label: 'Minted', type: 'success' },
     revoked: { label: 'Revoked', type: 'danger' },
 }
@@ -21,6 +23,11 @@ export function DevModeTeamUsage(): JSX.Element {
     const { teamUsageLoading, teamUsage, refusal, isPayingTeam, search, pageSize, filteredUsers, filteredActivity } =
         useValues(devModeTeamUsageLogic)
     const { setSearch, setPageSize } = useActions(devModeTeamUsageLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillDevModeTeamUsage />
+    }
 
     if (refusal && !teamUsage) {
         return <LemonBanner type="warning">{refusal}</LemonBanner>

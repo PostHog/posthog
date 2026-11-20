@@ -207,6 +207,7 @@ const workflowsMakeEmailTemplateTransactionalExecute = (): ToolBase<
         if (params.from_integration_id !== undefined) {
             body['from_integration_id'] = params.from_integration_id
         }
+        body['expected_type'] = 'email'
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/make_transactional/`,

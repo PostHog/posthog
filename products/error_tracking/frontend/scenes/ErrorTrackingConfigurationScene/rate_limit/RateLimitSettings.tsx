@@ -12,7 +12,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { BypassRules } from '../bypass_rules/BypassRules'
+import { QuillConfigurationSubsection } from '../QuillConfigurationSubsection'
 import { IssueRateLimitSettings } from './IssueRateLimitSettings'
+import { QuillProjectRateLimitSection } from './QuillProjectRateLimitSection'
 import { BUCKET_OPTIONS, rateLimitConfigLogic } from './rateLimitConfigLogic'
 import { RateLimitHistoryChart } from './RateLimitHistoryChart'
 import { formatTotalDuration, RateLimitSimulationChart } from './RateLimitSimulationChart'
@@ -20,6 +22,24 @@ import { formatTotalDuration, RateLimitSimulationChart } from './RateLimitSimula
 export function RateLimitSettings(): JSX.Element {
     const hasPerIssueRateLimit = useFeatureFlag('ERROR_TRACKING_RATE_LIMITING_PER_ISSUE')
     const hasBypassRules = useFeatureFlag('ERROR_TRACKING_RATE_LIMITING_BYPASS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-8">
+                <QuillProjectRateLimitSection />
+                {hasPerIssueRateLimit ? <IssueRateLimitSettings /> : null}
+                {hasBypassRules ? (
+                    <QuillConfigurationSubsection
+                        title="Bypass rules"
+                        description="Exceptions matching a bypass rule are always ingested, skipping the rate limits above."
+                    >
+                        <BypassRules />
+                    </QuillConfigurationSubsection>
+                ) : null}
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-8">

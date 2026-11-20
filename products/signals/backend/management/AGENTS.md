@@ -221,8 +221,9 @@ reviewers. See `docs/internal/signals-pr-lifecycle.md` for rollout and cleanup.
 
 `uv run manage.py backfill_inbox_summary --team-id <id> --dry-run` previews the next
 batch of verified implementation PRs that need participant snapshots. Remove
-`--dry-run` to queue the GitHub refresh. `--limit` bounds each invocation (default
-100, maximum 1000); use the printed `--after` cursor to continue. Run it without a
+`--dry-run` to queue the GitHub refresh. `--limit` bounds the PRs each invocation
+checks (default 100, maximum 1000), so a batch can queue fewer when some PRs are not
+verified implementation PRs; use the printed `--after` cursor to continue. Run it without a
 cursor again to retry missing snapshots. The worker repairs missing merge times
 before checking the seven-day window. Completed snapshots are skipped.
 

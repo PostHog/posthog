@@ -18,6 +18,7 @@ import { EmailSenderPicker } from './EmailSenderPicker'
 import { emailTemplaterLogic } from './emailTemplaterLogic'
 import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
 import { sandboxSenderHint } from './sandboxSenderOptions'
+import { TestSenderRow } from './TestSenderRow'
 
 /** The From row: pick senders in one click, and set a custom name, address, or reply-to only when needed. */
 export function EmailSenderRow(): JSX.Element {
@@ -91,6 +92,10 @@ export function EmailSenderRow(): JSX.Element {
             })
         }
         setIsEditing(visible)
+    }
+
+    if (sandbox?.selected && sandbox.onlySender) {
+        return <TestSenderRow sandbox={sandbox} senders={senders} />
     }
 
     // The setup sits outside both rows, so it stays open when its new sender swaps the empty row for the picker.

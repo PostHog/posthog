@@ -4,6 +4,7 @@ import asyncio
 import functools
 import contextlib
 from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
@@ -11,8 +12,10 @@ from django.conf import settings
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
+import pyarrow.dataset as ds
 import deltalake.exceptions
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -49,6 +52,26 @@ if TYPE_CHECKING:
 
 # About the size at which a delta-rs `IN (...)` predicate still plans quickly.
 DELETE_VALUES_PER_COMMIT = 1000
+# Data files that `value_locations` reads at once. The deltalake file system releases the GIL while
+# it waits on object storage, so threads overlap those waits.
+VALUE_SCAN_CONCURRENCY = 32
+# Bounds the memory of each concurrent read of `value_locations`.
+VALUE_SCAN_BATCH_ROWS = 16_384
+
+
+@frozen
+class ValueLocations:
+    """The distinct values of a text column, and the partitions of the data files that hold each value."""
+
+    # Empty when the table has no partition columns, or one that is not text.
+    partition_columns: tuple[str, ...]
+    # Each partition is a tuple of values in the order of `partition_columns`.
+    partitions_by_value: dict[str, frozenset[tuple[str | None, ...]]]
+    files_read: int
+
+    @property
+    def values(self) -> set[str]:
+        return set(self.partitions_by_value)
 
 
 def _sql_identifier(name: str) -> str:
@@ -57,6 +80,33 @@ def _sql_identifier(name: str) -> str:
 
 def _sql_string_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def _is_text_type(data_type: pa.DataType) -> bool:
+    return pa.types.is_string(data_type) or pa.types.is_large_string(data_type) or pa.types.is_string_view(data_type)
+
+
+def _partition_predicate(columns: tuple[str, ...], partitions: Iterable[tuple[str | None, ...]]) -> str:
+    """A predicate that matches the rows of `partitions`, so delta-rs prunes every other data file."""
+    if len(columns) == 1:
+        # One `IN` list plans faster than an `OR` of as many equalities.
+        column = _sql_identifier(columns[0])
+        values = {partition[0] for partition in partitions}
+        texts = sorted(value for value in values if value is not None)
+        terms = [f"{column} IN ({', '.join(_sql_string_literal(value) for value in texts)})"] if texts else []
+        if None in values:
+            terms.append(f"{column} IS NULL")
+        return " OR ".join(terms)
+
+    def _equals(column: str, value: str | None) -> str:
+        if value is None:
+            return f"{_sql_identifier(column)} IS NULL"
+        return f"{_sql_identifier(column)} = {_sql_string_literal(value)}"
+
+    terms = sorted(
+        " AND ".join(_equals(column, value) for column, value in zip(columns, partition)) for partition in partitions
+    )
+    return " OR ".join(f"({term})" for term in terms)
 
 
 class DeltaliteFallbackRefusedError(Exception):
@@ -848,22 +898,49 @@ class DeltaWriter:
         self._table.invalidate_cached_table()
         return restore_metrics
 
-    async def distinct_values(self, column: str) -> set[str] | None:
-        """The distinct non-null values of a text `column`, or None when the table or the column is missing.
+    async def value_locations(self, column: str) -> ValueLocations | None:
+        """The distinct non-null values of a text `column` and the partitions that hold them, or None
+        when the table or the column is missing.
 
-        The scan reads only that column, one file at a time, so its memory is the set it returns.
+        Every data file is read, but only that column, and `VALUE_SCAN_CONCURRENCY` files at once.
+        The read of a file is a few object storage requests that each wait a round trip, so a read
+        of one file at a time spends almost all of its time waiting.
         """
         delta_table = await self._table.get_delta_table()
         if delta_table is None or column not in {field.name for field in delta_table.schema().fields}:
             return None
         dataset = delta_table.to_pyarrow_dataset()
+        partition_columns = tuple(delta_table.metadata().partition_columns)
+        if not all(_is_text_type(dataset.schema.field(name).type) for name in partition_columns):
+            # A predicate compares a partition column with text literals, so other types can't scope it.
+            partition_columns = ()
+        read_schema = pa.schema([dataset.schema.field(column)])
 
-        def _scan() -> set[str]:
+        def _read_file(fragment: ds.Fragment) -> tuple[tuple[str | None, ...], set[str]]:
+            keys = ds.get_partition_keys(fragment.partition_expression)
+            # A null partition value has no key, because its expression is `is_null` and not an equality.
+            partition = tuple(None if keys.get(name) is None else str(keys[name]) for name in partition_columns)
             values: set[str] = set()
-            scanner = dataset.scanner(columns=[column], batch_readahead=1, fragment_readahead=1, use_threads=False)
-            for batch in scanner.to_batches():
+            # `schema` reads the column as null from a file written before the column existed.
+            for batch in fragment.to_batches(
+                schema=read_schema, columns=[column], batch_size=VALUE_SCAN_BATCH_ROWS, use_threads=False
+            ):
                 values.update(str(value) for value in pc.unique(batch.column(0)).drop_null().to_pylist())
-            return values
+            return partition, values
+
+        def _scan() -> ValueLocations:
+            partitions_by_value: dict[str, set[tuple[str | None, ...]]] = {}
+            files = 0
+            with ThreadPoolExecutor(max_workers=VALUE_SCAN_CONCURRENCY) as executor:
+                for partition, values in executor.map(_read_file, dataset.get_fragments()):
+                    files += 1
+                    for value in values:
+                        partitions_by_value.setdefault(value, set()).add(partition)
+            return ValueLocations(
+                partition_columns=partition_columns,
+                partitions_by_value={value: frozenset(found) for value, found in partitions_by_value.items()},
+                files_read=files,
+            )
 
         return await asyncio.to_thread(_scan)
 
@@ -872,6 +949,7 @@ class DeltaWriter:
         column: str,
         values: Iterable[str],
         *,
+        locations: ValueLocations | None = None,
         chunk_size: int = DELETE_VALUES_PER_COMMIT,
         commit_metadata: dict[str, str] | None = None,
         before_commit: Callable[[], None] | None = None,
@@ -882,19 +960,30 @@ class DeltaWriter:
         plan. A crash between commits leaves some values deleted, so a caller must be able to run
         the same delete again. `before_commit` runs before each commit.
 
+        `locations` from `value_locations` of the same `column` makes the delete skip the values the
+        table doesn't hold, and limits each commit to the partitions that hold its values. Without
+        that limit, a delete reads every data file, because the statistics of a long text value are
+        truncated and a common prefix then makes every file match.
+
         Never pass a batch tag in `commit_metadata`: `has_batch_been_committed` would then skip the
         write of a batch whose delete committed and whose write did not.
         """
         delta_table = await self._table.get_delta_table()
         ordered = sorted(set(values))
+        if locations is not None:
+            ordered = [value for value in ordered if value in locations.partitions_by_value]
         if delta_table is None or not ordered:
             return 0
         commit_properties = deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
         target = delta_table
         deleted = 0
         for start in range(0, len(ordered), chunk_size):
-            literals = ", ".join(_sql_string_literal(value) for value in ordered[start : start + chunk_size])
+            chunk = ordered[start : start + chunk_size]
+            literals = ", ".join(_sql_string_literal(value) for value in chunk)
             predicate = f"{_sql_identifier(column)} IN ({literals})"
+            if locations is not None and locations.partition_columns:
+                partitions = set().union(*(locations.partitions_by_value[value] for value in chunk))
+                predicate = f"{predicate} AND ({_partition_predicate(locations.partition_columns, partitions)})"
 
             # Inside the operation, so a retry after a commit conflict checks ownership again.
             def _delete(predicate: str = predicate) -> dict[str, Any]:
