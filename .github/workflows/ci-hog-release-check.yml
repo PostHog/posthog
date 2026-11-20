@@ -55,7 +55,9 @@ jobs:
                   set -euo pipefail
                   base=$(git rev-parse HEAD^1)
                   echo "base=$base" >> "$GITHUB_OUTPUT"
-                  if git diff --name-only --diff-filter=AM "$base" HEAD -- 'hog/.sampo/changesets/*.md' | grep -q .; then
+                  # Collected first: grep -q exiting early would end git with SIGPIPE, which pipefail reports as a failure.
+                  changesets=$(git diff --name-only --diff-filter=AM "$base" HEAD -- 'hog/.sampo/changesets/*.md')
+                  if [ -n "$changesets" ]; then
                       echo "present=true" >> "$GITHUB_OUTPUT"
                       echo "The pull request carries a hog changeset."
                   else
