@@ -351,6 +351,9 @@ def _enqueue_user(
     pull_request_url: str | None = None,
     on_enqueued: Callable[[], None] | None = None,
 ) -> bool:
+    if organization_deactivated(task.team_id):
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="organization_deactivated").inc()
+        return False
     task.refresh_from_db(fields=["state"])
     if task.is_scout_experiment:
         return False

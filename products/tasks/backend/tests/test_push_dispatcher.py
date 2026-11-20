@@ -82,7 +82,7 @@ class TestPushDispatcher(TestCase):
         # No presence rows in this test's setUp, so nothing to suppress.
         self.assertEqual(suppressed, [])
 
-    @parameterized.expand([("run_completed",), ("pr_merged",)])
+    @parameterized.expand([("run_completed",), ("pr_merged",), ("handoff",)])
     @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=False)
     def test_deactivated_organization_gets_no_push(self, trigger, _flag):
         if trigger == "pr_merged":
@@ -108,6 +108,8 @@ class TestPushDispatcher(TestCase):
                     pr_url="https://github.com/example/project/pull/1",
                     merged=True,
                 )
+            elif trigger == "handoff":
+                notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=uuid4())
             else:
                 notify_task_run_completed(self.task_run)
 
