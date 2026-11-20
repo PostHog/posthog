@@ -350,11 +350,18 @@ class TestCloudflareModelAdvertising:
             "llm_gateway.services.model_registry.get_settings",
             return_value=create_mock_settings(cloudflare=True),
         ):
-            models = get_available_models("django")
+            models = get_available_models("review_hog")
             cf = [m for m in models if m.id.startswith("@cf/")]
             # GLM 5.2 needs Baseten or Modal now that Cloudflare retired it.
             assert {m.id for m in cf} == set(CLOUDFLARE_ALLOWED_MODELS) - {"@cf/zai-org/glm-5.2"}
             assert all(m.provider == "cloudflare" for m in cf)
+
+    def test_reserved_cf_model_not_listed_for_other_products(self):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=True),
+        ):
+            assert "@cf/zai-org/glm-5.3" not in self._cf_ids("django")
 
     def test_cf_models_absent_when_not_configured(self):
         with patch(
@@ -480,7 +487,9 @@ class TestIsModelAvailable:
         "model_id,product,cloudflare,modal,expected",
         [
             # CF creds present + model priced/allowed -> available.
-            ("@cf/zai-org/glm-5.3", "django", True, False, True),
+            ("@cf/zai-org/glm-5.3", "review_hog", True, False, True),
+            # Reserved for posthog_code and review_hog, like its Baseten id.
+            ("@cf/zai-org/glm-5.3", "django", True, False, False),
             # Cloudflare retired GLM 5.2, so CF creds alone don't serve it.
             ("@cf/zai-org/glm-5.2", "django", True, False, False),
             # Same model, but no backend configured -> the runtime gate refuses it.

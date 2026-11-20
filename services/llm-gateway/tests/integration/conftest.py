@@ -263,7 +263,7 @@ def cloudflare_gateway_url():
 def cloudflare_anthropic_client(cloudflare_gateway_url):
     return Anthropic(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{cloudflare_gateway_url}/django",
+        base_url=f"{cloudflare_gateway_url}/review_hog",
         default_headers={"X-PostHog-Provider": "cloudflare"},
         timeout=CLOUDFLARE_REQUEST_TIMEOUT,
         max_retries=CLOUDFLARE_MAX_RETRIES,
@@ -274,7 +274,7 @@ def cloudflare_anthropic_client(cloudflare_gateway_url):
 def cloudflare_openai_client(cloudflare_gateway_url):
     return OpenAI(
         api_key=TEST_POSTHOG_API_KEY,
-        base_url=f"{cloudflare_gateway_url}/django/v1",
+        base_url=f"{cloudflare_gateway_url}/review_hog/v1",
         timeout=CLOUDFLARE_REQUEST_TIMEOUT,
         max_retries=CLOUDFLARE_MAX_RETRIES,
     )

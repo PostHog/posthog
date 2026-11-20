@@ -160,7 +160,7 @@ class ModelRegistryService:
         # the litellm loop above). Always advertised as provider "cloudflare" — clients key model
         # handling off the `@cf/` id/owner, and the Modal ramp must not change what they see.
         for model_id in CLOUDFLARE_ALLOWED_MODELS:
-            if not _glm_backend_configured(model_id):
+            if is_model_restricted_for_product(model_id, product) or not _glm_backend_configured(model_id):
                 continue
             if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
                 continue
@@ -211,7 +211,7 @@ class ModelRegistryService:
         # `@cf/`-served models aren't in litellm's cost map (so get_model returns None) — gate them
         # on the CF allowlist + a configured backend (Cloudflare or Modal) instead.
         if _model_matches_allowlist(model_id, CLOUDFLARE_ALLOWED_MODELS):
-            return _glm_backend_configured(model_id)
+            return not is_model_restricted_for_product(model_id, product) and _glm_backend_configured(model_id)
 
         if _model_matches_allowlist(model_id, MODAL_ALLOWED_MODELS):
             return is_modal_model_configured(model_id, get_settings())

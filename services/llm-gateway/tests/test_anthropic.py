@@ -648,7 +648,7 @@ class TestAnthropicMessagesEndpoint:
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
-                    "/django/v1/messages",
+                    "/review_hog/v1/messages",
                     json={
                         "model": "@cf/zai-org/glm-5.3",
                         "messages": [{"role": "user", "content": "Hello"}],
@@ -684,7 +684,7 @@ class TestAnthropicMessagesEndpoint:
                 return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
             ):
                 response = authenticated_client.post(
-                    "/django/v1/messages",
+                    "/review_hog/v1/messages",
                     json={
                         "model": "@cf/zai-org/glm-5.3",
                         "messages": [{"role": "user", "content": "find issues"}],
@@ -735,7 +735,7 @@ class TestAnthropicMessagesEndpoint:
             ):
                 with authenticated_client.stream(
                     "POST",
-                    "/django/v1/messages",
+                    "/review_hog/v1/messages",
                     json={
                         "model": "@cf/zai-org/glm-5.3",
                         "messages": [{"role": "user", "content": "Hello"}],
@@ -1561,7 +1561,7 @@ class TestAnthropicCountTokensEndpoint:
         authenticated_client: TestClient,
     ) -> None:
         response = authenticated_client.post(
-            "/django/v1/messages/count_tokens",
+            "/review_hog/v1/messages/count_tokens",
             json={
                 "model": "@cf/zai-org/glm-5.3",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -1584,7 +1584,7 @@ class TestAnthropicCountTokensEndpoint:
         # @cf/... id to the real Anthropic count_tokens API (which would 404).
         with patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count:
             response = authenticated_client.post(
-                "/django/v1/messages/count_tokens",
+                "/review_hog/v1/messages/count_tokens",
                 json={
                     "model": "@cf/zai-org/glm-5.3",
                     "messages": [{"role": "user", "content": "Hello"}],

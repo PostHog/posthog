@@ -212,7 +212,7 @@ The gateway exposes models consistently across Anthropic Messages, chat/completi
 - **GLM 5.2** (`@cf/zai-org/glm-5.2`) runs on Baseten or Modal.
   Cloudflare Workers AI retired it on 2026-11-20, so the gateway never sends it to Cloudflare.
 - **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop.
-  Cloudflare also serves it as `@cf/zai-org/glm-5.3`, its recommended replacement for the retired GLM 5.2. That id is a separate model in the gateway and is not limited to those products.
+  Cloudflare also serves it as `@cf/zai-org/glm-5.3`, its recommended replacement for the retired GLM 5.2. That id carries the same product reservation, and only ReviewHog lists it so far.
   The deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
 - **GLM 5.3 Flash** (`zai-org/glm-5.3-flash`) runs only on Baseten and is available to ReviewHog and PostHog Desktop.
   Contract rate and 1M context window come from the Baseten listing and are pinned in `model_cost_overrides.py` / `model_registry.py`.

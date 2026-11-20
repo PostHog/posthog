@@ -297,7 +297,7 @@ class TestChatCompletionsEndpoint:
         mock_make_call.return_value = AsyncMock(return_value=mock_response)
 
         response = authenticated_client.post(
-            "/django/v1/chat/completions",
+            "/review_hog/v1/chat/completions",
             json={
                 "model": "@cf/zai-org/glm-5.3",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -335,7 +335,7 @@ class TestChatCompletionsEndpoint:
 
         with authenticated_client.stream(
             "POST",
-            "/django/v1/chat/completions",
+            "/review_hog/v1/chat/completions",
             json={
                 "model": "@cf/zai-org/glm-5.3",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -474,7 +474,7 @@ class TestResponsesRoutedModels:
         mock_make_call.return_value = AsyncMock(return_value=mock_response)
 
         response = authenticated_client.post(
-            "/django/v1/responses",
+            "/review_hog/v1/responses",
             json={
                 "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
@@ -537,7 +537,7 @@ class TestResponsesRoutedModels:
 
         with authenticated_client.stream(
             "POST",
-            "/django/v1/responses",
+            "/review_hog/v1/responses",
             json={
                 "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
@@ -591,7 +591,7 @@ class TestResponsesRoutedModels:
         # which this SDK-mode gateway doesn't have — so previous_response_id would silently drop
         # conversation context. Reject it explicitly rather than answer with lost history.
         response = authenticated_client.post(
-            "/django/v1/responses",
+            "/review_hog/v1/responses",
             json={
                 "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",
@@ -619,7 +619,7 @@ class TestResponsesRoutedModels:
         # tools, so CF's chat/completions endpoint would reject them. Reject up front instead of
         # handing CF a request that fails the moment tools are advertised.
         response = authenticated_client.post(
-            "/django/v1/responses",
+            "/review_hog/v1/responses",
             json={
                 "model": "@cf/zai-org/glm-5.3",
                 "input": "Hello",

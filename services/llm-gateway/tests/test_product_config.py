@@ -194,6 +194,9 @@ class TestCheckProductAccess:
             ("review_hog", "personal_api_key", None, "claude-opus-5", True, None),
             ("review_hog", "personal_api_key", None, "gpt-5.6-sol", True, None),
             ("review_hog", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
+            # GLM 5.3 on Cloudflare keeps the reservation of its Baseten id
+            ("review_hog", "personal_api_key", None, "@cf/zai-org/glm-5.3", True, None),
+            ("django", "personal_api_key", None, "@cf/zai-org/glm-5.3", False, "not allowed"),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
