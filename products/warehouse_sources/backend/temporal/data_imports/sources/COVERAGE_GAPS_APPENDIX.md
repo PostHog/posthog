@@ -4384,7 +4384,7 @@ Today (5): `knowledge_base_articles`, `knowledge_base_collections`, `leads`, `ta
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/11487813/2s9Y5Wx3QG?segregateAuth=true&versionTag=latest>
 
-- [ ] `GET /v1/knowledge/writers` — lookup table resolving the writer/author IDs carried on the knowledge_base_articles rows we already sync (medium)
+- [x] `GET /v1/knowledge/writers` — lookup table resolving the writer/author IDs carried on the knowledge_base_articles rows we already sync (medium)
 
 Note: Pulled the raw Postman collection JSON behind the published documenter link. The entire public REST surface is 18 request paths across users, leads, tags, messages and knowledge base; every GET-able collection is already synced except /v1/knowledge/writers. Companies exist as an object (users/add-to-company, company/add-attributes) but the public API has no company list/read endpoint, so there is nothing to sync. Messages are POST-only (send), not readable, and there is no conversations export endpoint in the public API.
 
