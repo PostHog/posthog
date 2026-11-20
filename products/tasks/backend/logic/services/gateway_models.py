@@ -89,6 +89,14 @@ def _last_good(product: Product) -> tuple[GatewayModel, ...]:
         return ()
 
 
+def cached_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
+    try:
+        cached = cache.get(f"{_CACHE_KEY_PREFIX}:{product}")
+    except Exception:
+        return ()
+    return cached if cached is not None else _last_good(product)
+
+
 def list_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
     cache_key = f"{_CACHE_KEY_PREFIX}:{product}"
 

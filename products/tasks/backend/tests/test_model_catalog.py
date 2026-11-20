@@ -10,7 +10,11 @@ from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.facade.model_catalogue import GatewayModel, available_model_choices
 from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
+from products.tasks.backend.temporal.process_task.utils import (
+    ReasoningEffort,
+    RuntimeAdapter,
+    get_reasoning_effort_error,
+)
 
 
 def _resolved_catalog() -> dict[str, Any]:
@@ -144,6 +148,37 @@ def test_efforts_resolve_by_id_then_family_then_adapter(adapter: str, model: str
     assert model_catalog.reasoning_efforts_for(adapter, model) == expected
 
 
+@pytest.mark.parametrize(
+    "model,provider_efforts,expected",
+    [
+        ("gpt-9-sol", ["low", "medium", "high", "xhigh", "max"], ("low", "medium", "high", "xhigh", "max")),
+        ("gpt-9-sol", ["none", "minimal", "low", "high"], ("low", "high")),
+        ("gpt-9-sol", ["max", "low"], ("low", "max")),
+        ("gpt-9-sol", [], ()),
+        (
+            "claude-opus-9",
+            ["low", "medium", "high", "xhigh", "max"],
+            ("low", "medium", "high", "xhigh", "max", "ultracode"),
+        ),
+        ("claude-opus-9", ["low", "medium", "high"], ("low", "medium", "high")),
+        ("zai-org/glm-9", ["high", "max"], ("high", "max")),
+    ],
+    ids=[
+        "every_tier",
+        "tiers_the_catalog_lacks_are_dropped",
+        "catalog_order",
+        "no_effort_control",
+        "claude_with_max_gains_ultracode",
+        "claude_without_max",
+        "hosted_model_with_max_gains_nothing",
+    ],
+)
+def test_provider_efforts_map_onto_catalog_tiers(
+    model: str, provider_efforts: list[str], expected: tuple[str, ...]
+) -> None:
+    assert model_catalog.reasoning_efforts_from_provider(model, provider_efforts) == expected
+
+
 def test_default_model_is_one_the_catalog_serves() -> None:
     for adapter, model in model_catalog.DEFAULT_MODEL_BY_RUNTIME_ADAPTER.items():
         assert model in model_catalog.models_for_runtime_adapter(adapter), (
@@ -230,6 +265,108 @@ class TestAvailableModelChoices:
             return_value=gateway,
         ):
             assert [c.model for c in available_model_choices("posthog_code")] == ["claude-opus-5-5"]
+
+    @pytest.mark.parametrize(
+        "listed,expected",
+        [
+            pytest.param(
+                GatewayModel(
+                    id="gpt-5.4",
+                    owned_by="openai",
+                    context_window=1050000,
+                    name="GPT-5.4 (listed)",
+                    reasoning_efforts=("low", "medium", "high", "xhigh"),
+                    input_per_mtok=8.0,
+                    output_per_mtok=40.0,
+                ),
+                ("GPT-5.4 (listed)", ("low", "medium", "high", "xhigh"), "4×"),
+                id="every_fact",
+            ),
+            pytest.param(
+                GatewayModel(id="gpt-5.4", owned_by="openai", context_window=1050000, name="GPT-5.4 (listed)"),
+                ("GPT-5.4 (listed)", ("low", "medium", "high"), None),
+                id="name_only",
+            ),
+            pytest.param(
+                GatewayModel(id="gpt-5.4", owned_by="openai", context_window=1050000, input_per_mtok=8.0),
+                ("GPT-5.4", ("low", "medium", "high"), None),
+                id="half_a_price",
+            ),
+            pytest.param(
+                GatewayModel(id="gpt-5.4", owned_by="openai", context_window=1050000),
+                ("GPT-5.4", ("low", "medium", "high"), None),
+                id="no_facts",
+            ),
+            pytest.param(
+                GatewayModel(
+                    id="claude-haiku-4-5",
+                    owned_by="anthropic",
+                    context_window=200000,
+                    name="Claude Haiku 4.5 (latest)",
+                ),
+                ("Claude Haiku 4.5", (), None),
+                id="alias_name",
+            ),
+            pytest.param(
+                GatewayModel(
+                    id="claude-sonnet-5",
+                    owned_by="anthropic",
+                    context_window=1000000,
+                    name="Sonnet (listed)",
+                    reasoning_efforts=("low",),
+                    input_per_mtok=8.0,
+                    output_per_mtok=40.0,
+                ),
+                ("Claude Sonnet 5", ("low", "medium", "high", "xhigh", "max", "ultracode"), "1×"),
+                id="the_catalog_row_wins",
+            ),
+        ],
+    )
+    def test_describes_a_model_the_catalog_lacks_from_its_listing(
+        self, listed: GatewayModel, expected: tuple[str, tuple[str, ...], str | None]
+    ) -> None:
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+            return_value=(listed,),
+        ):
+            (choice,) = available_model_choices("posthog_code")
+
+        assert (choice.label, choice.supported_efforts, choice.cost_multiplier) == expected
+
+    @pytest.mark.parametrize(
+        "model,listed_efforts,effort,accepted",
+        [
+            ("gpt-5.4", ("low", "medium", "high", "xhigh", "max"), "max", True),
+            ("gpt-5.4", ("low", "medium", "high"), "max", False),
+            ("gpt-5.4", None, "high", True),
+            ("gpt-5.4", None, "max", False),
+            ("gpt-6.2-sol", ("low",), "max", True),
+        ],
+        ids=[
+            "listed_effort",
+            "unlisted_effort",
+            "no_listing_falls_back_to_the_adapter",
+            "no_listing_rejects_past_the_fallback",
+            "the_catalog_row_wins",
+        ],
+    )
+    def test_effort_check_agrees_with_the_listing(
+        self, model: str, listed_efforts: tuple[str, ...] | None, effort: str, accepted: bool
+    ) -> None:
+        listed = GatewayModel(id=model, owned_by="openai", context_window=1050000, reasoning_efforts=listed_efforts)
+        with (
+            patch(
+                "products.tasks.backend.logic.services.model_catalogue.cached_gateway_models",
+                return_value=(listed,),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+                side_effect=AssertionError("an effort check must not wait on the gateway"),
+            ),
+        ):
+            error = get_reasoning_effort_error("codex", model, effort)
+
+        assert (error is None) is accepted
 
     def test_keeps_vendor_served_models_the_catalog_routes(self) -> None:
         # The gateway owns these under the party serving them, not the harness that drives

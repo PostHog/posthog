@@ -21,6 +21,7 @@ import and the Celery and settings machinery behind it.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 CLAUDE = "claude"
@@ -503,14 +504,11 @@ def _baseline_cost() -> ModelCost:
     return baseline
 
 
-def cost_multiplier_for(model_id: str) -> tuple[float, bool] | None:
+def cost_multiplier_for(cost: ModelCost) -> tuple[float, bool]:
     """This model's per-token cost relative to the baseline, and whether it is approximate.
 
     Input and output rarely scale together, so one multiplier is the mean of both ratios.
     """
-    cost = cost_for_model(model_id)
-    if cost is None:
-        return None
     baseline = _baseline_cost()
     input_ratio = cost.input_per_mtok / baseline.input_per_mtok
     output_ratio = cost.output_per_mtok / baseline.output_per_mtok
@@ -534,13 +532,14 @@ def cost_multiplier_label(model_id: str) -> str | None:
     Resolved here so the web composer, the Slack picker and the desktop app cannot quote one
     model differently.
     """
-    resolved = cost_multiplier_for(model_id)
-    if resolved is None:
-        return None
-    multiplier, approximate = resolved
-    base_label = f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
     cost = cost_for_model(model_id)
-    return f"{base_label} base" if cost and cost.long_context else base_label
+    return None if cost is None else cost_multiplier_label_for_cost(cost)
+
+
+def cost_multiplier_label_for_cost(cost: ModelCost) -> str:
+    multiplier, approximate = cost_multiplier_for(cost)
+    base_label = f"{'≈' if approximate else ''}{_format_multiplier(multiplier)}×"
+    return f"{base_label} base" if cost.long_context else base_label
 
 
 def format_cost_rates(cost: ModelCost) -> str:
@@ -582,6 +581,17 @@ def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...
     return FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER.get(runtime_adapter, ())
 
 
+_CLAUDE_CODE_TIER_ABOVE_MAX = ULTRACODE
+
+
+def reasoning_efforts_from_provider(model_id: str, provider_efforts: Iterable[str]) -> tuple[str, ...]:
+    listed = set(provider_efforts)
+    efforts = tuple(effort for effort in _THROUGH_MAX if effort in listed)
+    if MAX in listed and is_anthropic_served_model(model_id):
+        return (*efforts, _CLAUDE_CODE_TIER_ABOVE_MAX)
+    return efforts
+
+
 __all__ = [
     "ANTHROPIC",
     "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
@@ -603,6 +613,7 @@ __all__ = [
     "cost_for_model",
     "cost_multiplier_for",
     "cost_multiplier_label",
+    "cost_multiplier_label_for_cost",
     "format_cost_rates",
     "is_offered_model",
     "label_for_model",
@@ -611,6 +622,7 @@ __all__ = [
     "display_name_for_model",
     "format_model_id",
     "reasoning_efforts_for",
+    "reasoning_efforts_from_provider",
     "runtime_adapter_for_model",
     "serves_model",
     "supports_1m_context",

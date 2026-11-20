@@ -116,7 +116,7 @@ import {
   isRetryableUpstreamErrorClassification,
   sanitizeAgentErrorCause,
 } from "../adapters/error-classification";
-import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
+import { isLaunchableReasoningEffort } from "../adapters/reasoning-effort";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
@@ -2436,7 +2436,7 @@ export class AgentServer {
               // Claude-only levels like ultracode must not leak into codex.
               reasoningEffort:
                 this.config.reasoningEffort &&
-                isSupportedReasoningEffort(
+                isLaunchableReasoningEffort(
                   "codex",
                   this.config.model ?? DEFAULT_CODEX_MODEL,
                   this.config.reasoningEffort,

@@ -72,6 +72,7 @@ from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _re
 
 # Re-exported so existing activity/workflow imports keep working after the move to
 # logic/services (non-temporal callers import run_actor directly).
+from products.tasks.backend.logic.services.model_catalogue import supported_efforts
 from products.tasks.backend.logic.services.run_actor import (
     get_actor_distinct_id as get_actor_distinct_id,
     get_task_run_actor_user as get_task_run_actor_user,
@@ -278,7 +279,7 @@ def get_supported_reasoning_efforts(
         return ()
 
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    return tuple(ReasoningEffort(effort) for effort in model_catalog.reasoning_efforts_for(adapter_value, model))
+    return tuple(ReasoningEffort(effort) for effort in supported_efforts(adapter_value, model))
 
 
 def get_reasoning_effort_error(

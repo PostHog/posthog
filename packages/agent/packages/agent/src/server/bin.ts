@@ -8,7 +8,7 @@ import {
 import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "@posthog/harness/extensions/posthog-mcp-policy";
 import { Command } from "commander";
 import { z } from "zod/v4";
-import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
+import { isLaunchableReasoningEffort } from "../adapters/reasoning-effort";
 import { selectProduct } from "../boot/select-product";
 import { AgentServer } from "./agent-server";
 import { launcherToProcessMs } from "./boot-phases";
@@ -305,7 +305,7 @@ program
       env.POSTHOG_CODE_RUNTIME_ADAPTER &&
       env.POSTHOG_CODE_MODEL &&
       env.POSTHOG_CODE_REASONING_EFFORT &&
-      !isSupportedReasoningEffort(
+      !isLaunchableReasoningEffort(
         env.POSTHOG_CODE_RUNTIME_ADAPTER,
         env.POSTHOG_CODE_MODEL,
         env.POSTHOG_CODE_REASONING_EFFORT,

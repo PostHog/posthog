@@ -3,8 +3,29 @@ import {
   getCapabilityLadder,
   getContextWindowOptions,
   getFastModeOptions,
+  isLaunchableReasoningEffort,
   isSupportedReasoningEffort,
 } from "./reasoning-effort";
+
+describe("isLaunchableReasoningEffort", () => {
+  it.each([
+    ["codex", "gpt-6.3-sol", "max", true],
+    ["codex", "openai/gpt-6.3-sol", "max", true],
+    ["codex", "gpt-6.3-sol", "ultracode", false],
+    ["codex", "gpt-6.3-sol", "ultra", false],
+    ["claude", "claude-opus-9", "ultracode", true],
+    ["codex", "gpt-5.5", "xhigh", true],
+    ["codex", "gpt-5.5", "max", false],
+    ["claude", "claude-sonnet-4-6", "xhigh", false],
+  ] as const)(
+    "launches %s %s at %s: %s",
+    (adapter, modelId, effort, expected) => {
+      expect(isLaunchableReasoningEffort(adapter, modelId, effort)).toBe(
+        expected,
+      );
+    },
+  );
+});
 
 describe("isSupportedReasoningEffort", () => {
   it("accepts xhigh for the codex gpt-5.5 family", () => {
