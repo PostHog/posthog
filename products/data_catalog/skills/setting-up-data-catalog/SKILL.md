@@ -62,10 +62,12 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
 
 ## Flow 2 — Maintenance (reviewing the queue)
 
-1. **Pull the review queue** in one pass. The `id` on each row is what the promotion tools need:
+1. **Pull the review queue** in one pass.
+   For metrics, call `posthog:metric-list` with `status=proposed` and follow pagination.
+   The metric `name` is what the metric promotion tools need.
+   For joins and certifications, the `id` on each row is what the promotion tools need:
 
    ```sql
-   SELECT id, name, status, is_drifted, description FROM system.information_schema.metrics WHERE status = 'proposed';
    SELECT id, source_table, source_column, target_table, target_column, field_name, configuration, evidence, confidence, reasoning
    FROM system.information_schema.relationship_proposals;
    SELECT id, target_name, target_id, target_kind, status, proposed_status, notes
