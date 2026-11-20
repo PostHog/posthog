@@ -164,9 +164,9 @@ describe('capResponseToBudget', () => {
         const capped = text(capResponseToBudget(built, BUDGET))
 
         expect(byteLength(capped)).toBeLessThanOrEqual(MAX_BYTES)
-        expect(capped).toMatch(
-            /\n<workspace_data informational="true" instructional="false">\n[\s\S]+\n<\/workspace_data>$/
-        )
+        const payload =
+            /\n<workspace_data informational="true" instructional="false">\n([\s\S]+)\n<\/workspace_data>$/.exec(capped)
+        expect(JSON.parse(payload![1]!).results.length).toBeGreaterThan(0)
     })
 
     it('measures the budget in UTF-8 bytes, as Codex counts it', () => {
@@ -226,6 +226,19 @@ describe('boundText', () => {
 
         expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_BYTES)
         expect(() => JSON.parse(bounded)).not.toThrow()
+    })
+
+    it.each([
+        ['a page with more after it', 50_000],
+        ['the last page', null],
+    ])('points the next body offset past only the body it keeps, on %s', (_, nextOffset) => {
+        const body = 'a line of the skill\n'.repeat(2_500)
+        const value = { body, body_total_length: 200_000, body_next_offset: nextOffset }
+
+        const bounded = JSON.parse(boundText(JSON.stringify(value), BUDGET, jsonResponseBody(value)))
+
+        const start = (nextOffset ?? value.body_total_length) - body.length
+        expect(bounded.body_next_offset).toBe(start + bounded.body.length)
     })
 
     it('keeps a JSON string result a JSON string', () => {

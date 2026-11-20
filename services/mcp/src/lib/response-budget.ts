@@ -206,6 +206,39 @@ function projectArray(value: unknown[], budget: number, path: string, cuts: stri
     return kept
 }
 
+function commonPrefixLength(a: string, b: string): number {
+    let length = 0
+    while (length < a.length && length < b.length && a[length] === b[length]) {
+        length++
+    }
+    return length
+}
+
+/**
+ * A text field paged by `<field>_next_offset` (as `skill-get` pages its body) would skip what the
+ * projection cut, so point it at the first character the response no longer carries.
+ */
+function realignPagedText(
+    value: Record<string, unknown>,
+    kept: Map<string, unknown>,
+    key: string,
+    full: unknown
+): void {
+    const nextKey = `${key}_next_offset`
+    const shortened = kept.get(key)
+    if (typeof full !== 'string' || shortened === full || !kept.has(nextKey)) {
+        return
+    }
+    const next = value[nextKey]
+    const total = value[`${key}_total_length`]
+    const start =
+        typeof next === 'number' ? next - full.length : typeof total === 'number' ? total - full.length : undefined
+    if (start === undefined) {
+        return
+    }
+    kept.set(nextKey, start + (typeof shortened === 'string' ? commonPrefixLength(full, shortened) : 0))
+}
+
 function projectRecord(
     value: Record<string, unknown>,
     budget: number,
@@ -254,6 +287,9 @@ function projectRecord(
             kept.delete(key)
             cuts.push(`${path ? `${path}.${key}` : key} removed, because it skips the omitted items`)
         }
+    }
+    for (const [key, entryValue] of entries) {
+        realignPagedText(value, kept, key, entryValue)
     }
     return Object.fromEntries(entries.filter(([key]) => kept.has(key)).map(([key]) => [key, kept.get(key)]))
 }
@@ -341,6 +377,31 @@ function parseJsonText(text: string): unknown {
     }
 }
 
+/** Escapes markup characters, so data inside an informational tag can never close the tag. */
+export function serializeInformationalJson(value: unknown): string {
+    return (JSON.stringify(value) ?? String(value)).replace(
+        /[<>&]/g,
+        (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+    )
+}
+
+/** An informational wrapper holds one JSON value, which is re-serialized so the tag still wraps valid JSON. */
+function fitInformationalJson(text: string, maxBytes: number, maxTokens: number): string | undefined {
+    const open = INFORMATIONAL_OPEN_TAG.exec(text)
+    if (!open) {
+        return undefined
+    }
+    const bodyStart = open.index + open[0].length
+    const closeIndex = text.lastIndexOf(`\n</${open[1]}>`)
+    const json = closeIndex >= bodyStart ? parseJsonText(text.slice(bodyStart, closeIndex)) : undefined
+    if (json === undefined) {
+        return undefined
+    }
+    const wrapperBytes = byteLength(text) - byteLength(text.slice(bodyStart, closeIndex))
+    const fitted = fitValue(json, serializeInformationalJson, maxBytes - wrapperBytes, maxTokens)
+    return fitted ? text.slice(0, bodyStart) + fitted.text + text.slice(closeIndex) : undefined
+}
+
 export function boundText(
     text: string,
     maxTokens: number,
@@ -368,6 +429,10 @@ export function boundText(
         if (fitted) {
             return fitted.text
         }
+    }
+    const wrapped = fitInformationalJson(text, maxBytes, maxTokens)
+    if (wrapped !== undefined) {
+        return wrapped
     }
     const notice = overflowNotice(fullBytes, maxTokens, [])
     const clipped = clipLines(text, maxBytes - byteLength(notice) - 2 - 64)
