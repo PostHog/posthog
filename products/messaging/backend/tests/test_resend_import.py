@@ -37,6 +37,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportProviderUnavailable,
     ImportStepBlocked,
 )
+from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services import resend_client
 from products.messaging.backend.services.suppression import remove_suppressions
@@ -564,11 +565,19 @@ class TestResendImport(BaseTest):
         assert ["no subject" in note for note in imported.subject_notes] == [True]
         assert ["no sender" in note for note in imported.sender_notes] == [True]
 
-    def test_a_template_without_a_display_name_uses_the_senders_name(self) -> None:
-        sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": "Acme team", "verified": True}))
+    @parameterized.expand(
+        [
+            ("plain", "Acme team", "Acme team"),
+            ("liquid_stays_text", "{{ variables.reset_token }}", literal_liquid("{{ variables.reset_token }}")),
+        ]
+    )
+    def test_a_template_without_a_display_name_uses_the_senders_name(
+        self, _name: str, stored: str, expected: str
+    ) -> None:
+        sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": stored, "verified": True}))
         template = {**FIXTURES["templates"][0], "from": "hello@example.com"}
 
-        assert resend._imported_email(template, {"hello@example.com": sender}).from_name == "Acme team"
+        assert resend._imported_email(template, {"hello@example.com": sender}).from_name == expected
 
     def test_a_segment_resend_no_longer_has_leaves_the_step_to_fill_in(self) -> None:
         self.resend.data = {**self.resend.data, "segments": []}
