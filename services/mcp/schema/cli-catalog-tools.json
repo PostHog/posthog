@@ -39709,6 +39709,43 @@
             "validators": []
         }
     },
+    "posthog-support-ticket-reply": {
+        "name": "posthog-support-ticket-reply",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/posthog_support/tickets/{id}/reply/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "message",
+                    "key": "message"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "posthog-support-tickets-list": {
         "name": "posthog-support-tickets-list",
         "kind": "http",

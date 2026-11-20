@@ -86,6 +86,39 @@ const posthogSupportTicketGet = (): ToolBase<
     },
 })
 
+const PosthogSupportTicketReplySchema = () => {
+    const PosthogSupportTicketsReplyCreateBody = orvalSchemas.PosthogSupportTicketsReplyCreateBody()
+    const PosthogSupportTicketsReplyCreateParams = orvalSchemas.PosthogSupportTicketsReplyCreateParams()
+    return PosthogSupportTicketsReplyCreateParams.omit({ project_id: true })
+        .extend(PosthogSupportTicketsReplyCreateBody.shape)
+        .extend({
+            id: PosthogSupportTicketsReplyCreateParams.shape['id'].describe(
+                'Ticket ID from posthog-support-tickets-list or from posthog-support-ticket-create.'
+            ),
+        })
+}
+
+const posthogSupportTicketReply = (): ToolBase<
+    ReturnType<typeof PosthogSupportTicketReplySchema>,
+    Schemas.PostHogSupportReplySent
+> => ({
+    name: 'posthog-support-ticket-reply',
+    schema: PosthogSupportTicketReplySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof PosthogSupportTicketReplySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        const result = await context.api.request<Schemas.PostHogSupportReplySent>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/posthog_support/tickets/${encodeURIComponent(String(params.id))}/reply/`,
+            body,
+        })
+        return result
+    },
+})
+
 const PosthogSupportTicketsListSchema = () => {
     const PosthogSupportTicketsListQueryParams = orvalSchemas.PosthogSupportTicketsListQueryParams()
     return PosthogSupportTicketsListQueryParams
@@ -115,5 +148,6 @@ const posthogSupportTicketsList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'posthog-support-ticket-create': posthogSupportTicketCreate,
     'posthog-support-ticket-get': posthogSupportTicketGet,
+    'posthog-support-ticket-reply': posthogSupportTicketReply,
     'posthog-support-tickets-list': posthogSupportTicketsList,
 }

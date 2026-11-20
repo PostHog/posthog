@@ -743,6 +743,11 @@ class PostHogSupportTicketReadThrottle(_PostHogSupportUserThrottle):
     rate = "120/hour"
 
 
+class PostHogSupportTicketReplyThrottle(_PostHogSupportUserThrottle):
+    scope = "posthog_support_ticket_reply"
+    rate = "30/hour"
+
+
 def exhausted_throttle_wait(throttle: PersonalApiKeyRateThrottle, request: "Request", view: "APIView") -> float | None:
     if throttle.num_requests is None or throttle.duration is None:
         return None
