@@ -333,7 +333,8 @@ Direct event uploads stay open by default. Local development closes each batch b
 
 ## ChatGPT subscription credentials
 
-The Codex cloud subscription is under `posthog-code-codex-own-subscription-cloud`.
+Codex subscriptions are available for local and cloud tasks without a separate subscription feature flag.
+On the web, PostHog AI v2 access controls the subscription settings and billing picker.
 It does not use the credential relay. PostHog stores the ChatGPT login server-side, as it stores the GitHub login, and each cloud run gets a short-lived access token from PostHog.
 Desktop deletes the local credential file after PostHog accepts the tokens, if cleanup succeeds. A failed upload or cleanup can leave the file behind. Desktop is not needed while a run is active. Tasks continue when Desktop is closed.
 During connect, the tokens pass through the Desktop renderer process once: the host reads the file over tRPC and the renderer uploads it with the user's PostHog session. The renderer does not save the tokens. A cleanup warning identifies a local file that still needs deletion.

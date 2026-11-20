@@ -7,7 +7,7 @@ from typing import Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -77,14 +77,18 @@ def _ready_attempt(team_id: int, report_id: UUID, attempt_id: UUID) -> SignalRep
     return attempt
 
 
-def _assessment_queries(attempt: SignalReportMonitoringAttempt) -> list[dict[str, JsonValue]]:
-    configs = (
-        SignalReportCheck.objects.for_team(attempt.team_id)
-        .filter(
-            report_id=attempt.report_id, id__in=attempt.check_versions, kind=SignalReportCheck.Kind.METRIC_THRESHOLD
-        )
-        .values_list("config", flat=True)
+def _snapshot_checks(attempt: SignalReportMonitoringAttempt) -> QuerySet[SignalReportCheck]:
+    return SignalReportCheck.objects.for_team(attempt.team_id).filter(
+        report_id=attempt.report_id, id__in=attempt.check_versions
     )
+
+
+def _assessed_checks(attempt: SignalReportMonitoringAttempt) -> QuerySet[SignalReportCheck]:
+    return _snapshot_checks(attempt).exclude(status=SignalReportCheck.Status.CANCELLED)
+
+
+def _assessment_queries(checks: QuerySet[SignalReportCheck]) -> list[dict[str, JsonValue]]:
+    configs = checks.filter(kind=SignalReportCheck.Kind.METRIC_THRESHOLD).values_list("config", flat=True)
     return [config.get("query") if isinstance(config.get("query"), dict) else {} for config in configs]
 
 
@@ -95,11 +99,7 @@ def _assessment_prompt(report: SignalReport, attempt: SignalReportMonitoringAtte
         user=User.objects.get(id=user_id),
         token_scopes=resolve_scopes("signals_assessment"),
     )
-    checks = list(
-        SignalReportCheck.objects.for_team(report.team_id)
-        .filter(report_id=report.id, id__in=attempt.check_versions)
-        .values("id", "title", "kind", "rationale", "config", "soak_minutes")
-    )
+    checks = list(_assessed_checks(attempt).values("id", "title", "kind", "rationale", "config", "soak_minutes"))
     hidden = set()
     for check in checks:
         if check["kind"] == SignalReportCheck.Kind.METRIC_THRESHOLD and not policy.may_read_snapshot(check["config"]):
@@ -108,7 +108,7 @@ def _assessment_prompt(report: SignalReport, attempt: SignalReportMonitoringAtte
             check["rationale"] = "The acting user cannot read this check's stored metric evidence."
     results = list(
         SignalReportMonitoringResult.objects.for_team(report.team_id)
-        .filter(attempt_id=attempt.id)
+        .filter(attempt_id=attempt.id, report_check_id__in=[check["id"] for check in checks])
         .order_by("created_at", "id")
         .values()
     )
@@ -227,7 +227,11 @@ def finish_monitoring_assessment(
             report_id=str(report_id),
             content=NoteArtefact(
                 note=f"{'Resolved' if resolved else 'Closed'} after report-level assessment.\n\n{reason}\n\n{provenance}",
-                analytics_query_context=_assessment_queries(attempt) if assessment is not None else None,
+                # Completion has just cancelled the open checks, and the prompt may have quoted any snapshot
+                # member, so the note's access check covers the whole snapshot.
+                analytics_query_context=(
+                    _assessment_queries(_snapshot_checks(attempt)) if assessment is not None else None
+                ),
                 restricted_to_user_id=acting_user_id,
                 source_check_ids=list(attempt.check_versions),
             ),
@@ -308,7 +312,7 @@ def poll_monitoring_assessment(
                 extra_run_state={
                     "disable_repo_hooks": True,
                     "caller_ends_run": True,
-                    "analytics_query_context": _assessment_queries(attempt),
+                    "analytics_query_context": _assessment_queries(_assessed_checks(attempt)),
                     "initial_prompt_override": prompt,
                     **({"custom_image_id": custom_image_id} if custom_image_id is not None else {}),
                 },

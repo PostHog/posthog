@@ -36,6 +36,42 @@
             "maxItems": 100,
             "type": "array"
         },
+        "metric_goals": {
+            "description": "Targets for the release's metrics, at most one per metric. Each insight_id must be one of the metric_insight_ids. Replaces the current goals.",
+            "items": {
+                "properties": {
+                    "direction": {
+                        "description": "at_least when the metric should reach the value, at_most when it should stay at or below it.\n\n* `at_least` - At least the target\n* `at_most` - At most the target",
+                        "enum": ["at_least", "at_most"],
+                        "type": "string"
+                    },
+                    "insight_id": {
+                        "description": "ID of the metric insight the goal is for.",
+                        "maximum": 2147483647,
+                        "minimum": 1,
+                        "type": "number"
+                    },
+                    "value": {
+                        "description": "Target value of the metric.",
+                        "type": "number"
+                    }
+                },
+                "required": ["insight_id", "direction", "value"],
+                "type": "object"
+            },
+            "maxItems": 5,
+            "type": "array"
+        },
+        "metric_insight_ids": {
+            "description": "IDs of the saved trends insights that are the release's metrics, at most 5. The first is the primary metric, the rest are secondary. Replaces the current list.",
+            "items": {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "number"
+            },
+            "maxItems": 5,
+            "type": "array"
+        },
         "name": {
             "description": "Name of the release.",
             "maxLength": 255,

@@ -310,6 +310,7 @@ tools:
             List the issue tags enabled for the project, with the key, label and description of each. Use a key with
             `error-tracking-issues-tag-partial-update` to apply that tag to an issue or remove it. The list is empty
             when the project does not have issue tags.
+        feature_flag: error-tracking-issue-tags
     error-tracking-issues-tag-partial-update:
         operation: error_tracking_issues_tag_partial_update
         enabled: true
@@ -331,6 +332,7 @@ tools:
                 required: true
             applied:
                 required: true
+        feature_flag: error-tracking-issue-tags
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
         enabled: true
@@ -535,6 +537,69 @@ tools:
                 - failure_reason
                 - has_uploaded_file
                 - release
+    error-tracking-tag-rules-create:
+        operation: error_tracking_tag_rules_create
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking tag rule
+        description: >
+            Create a tag rule for the current project. Provide a `label` and at least one event property filter in
+            `filters`. When the first event of a new issue matches the filters, the issue gets the tag. Every matching
+            rule applies its own tag. Filters can use event properties only. Rules do not change existing issues. The
+            call fails with "Issue tags are off for this project." when the project does not have issue tags. A project
+            can have at most 100 tag rules.
+        feature_flag: error-tracking-issue-tags
+    error-tracking-tag-rules-delete:
+        operation: error_tracking_tag_rules_destroy
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete error tracking tag rule
+        description: >
+            Delete a tag rule by ID. This also removes the rule's tag from every issue that has it. Confirm with the
+            user before you delete a rule.
+        feature_flag: error-tracking-issue-tags
+    error-tracking-tag-rules-list:
+        operation: error_tracking_tag_rules_list
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking tag rules
+        description: >
+            List the tag rules of the current project, with the label, filters, key, version and disabled state of each.
+            Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its tag on one issue.
+            The call fails with "Issue tags are off for this project." when the project does not have issue tags.
+        feature_flag: error-tracking-issue-tags
+    error-tracking-tag-rules-update:
+        operation: error_tracking_tag_rules_partial_update
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update error tracking tag rule
+        description: >
+            Update a tag rule by ID. Include `label`, `description`, `filters`, or a combination. Omitted fields keep
+            their existing values. A new `label` shows at once on every issue that has the rule's tag. New filters apply
+            only to issues created after the update. When the new filters read the same event properties, issues that
+            already have the tag keep it. When they read different properties, the rule gets a new `key` and loses its
+            existing tags, so list the rules again to get the new key.
+        feature_flag: error-tracking-issue-tags
     query-error-tracking-issue:
         operation: error_tracking_query_issue_create
         enabled: true

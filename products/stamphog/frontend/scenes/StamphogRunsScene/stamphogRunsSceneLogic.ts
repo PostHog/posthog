@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -214,19 +214,21 @@ export const stamphogRunsSceneLogic = kea<stamphogRunsSceneLogicType>([
     })),
 
     actionToUrl(({ values }) => {
-        const toUrl = (): [string, Record<string, string>] => [
-            urls.stamphogRuns(),
+        // The runs share the Code review URL with its tab param, so the other params stay as they are.
+        const toUrl = (): [string, Record<string, any>] => [
+            urls.codeReview(),
             {
-                ...(values.repository ? { repository: values.repository } : {}),
-                ...(values.trigger ? { trigger: values.trigger } : {}),
-                ...(values.page > 1 ? { page: String(values.page) } : {}),
+                ...router.values.searchParams,
+                repository: values.repository ?? undefined,
+                trigger: values.trigger ?? undefined,
+                page: values.page > 1 ? String(values.page) : undefined,
             },
         ]
         return { setRepository: toUrl, setTrigger: toUrl, setPage: toUrl }
     }),
 
     urlToAction(({ actions, values }) => ({
-        [urls.stamphogRuns()]: (_: any, searchParams: Record<string, any>) => {
+        [urls.codeReview()]: (_: any, searchParams: Record<string, any>) => {
             const repository = (searchParams.repository as string | undefined) ?? null
             const trigger = (searchParams.trigger as CodeReviewApprovalsRunsListTrigger | undefined) ?? null
             const page = Number(searchParams.page ?? 1) || 1

@@ -105,6 +105,12 @@ export const DISPLAY_OPTIONS = [
     { name: 'lifecycleStacking', label: 'Stack bars', group: 'display', control: 'checkbox' },
     { name: 'valuesOnSeries', label: 'Show values on series', group: 'display', control: 'checkbox' },
     {
+        name: 'funnelSummaryOnDashboards',
+        label: 'Show summary on dashboards',
+        group: 'display',
+        control: 'checkbox',
+    },
+    {
         name: 'valueLabelPosition',
         label: 'Value position',
         group: 'display',

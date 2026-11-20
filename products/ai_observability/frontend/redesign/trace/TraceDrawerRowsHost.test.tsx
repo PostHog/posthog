@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
@@ -13,9 +13,15 @@ import { TraceListRow } from './traceListRows'
 const ROW: TraceListRow = { traceId: 'a', timestamp: null, stepId: null }
 
 describe('useTraceDrawerRows', () => {
-    function setUp(listId: 'traces' | 'dataset-items' = 'traces'): ReturnType<typeof useTraceDrawerRows> {
+    function setUp(
+        listId: 'traces' | 'dataset-items' = 'traces',
+        openTraceId?: string
+    ): ReturnType<typeof useTraceDrawerRows> {
         initKeaTests()
         localStorage.clear()
+        if (openTraceId) {
+            router.actions.push(combineUrl(urls.aiObservabilityTraces(), { trace: openTraceId }).url)
+        }
         return renderHook(() => useTraceDrawerRows(listId, 'a')).result.current
     }
 
@@ -47,4 +53,17 @@ describe('useTraceDrawerRows', () => {
         expect(result.current.rowProps(first).className).not.toContain(TRACE_DRAWER_OPEN_ROW_CLASS)
         expect(result.current.rowProps(second).className).toContain(TRACE_DRAWER_OPEN_ROW_CLASS)
     })
+
+    it.each<[string, TraceListRow, string | undefined, boolean]>([
+        ['a closed row with a default step', { ...ROW, defaultStepId: 'gen-1' }, 'other', true],
+        ['a row without a default step', ROW, undefined, false],
+        ['the open row', { ...ROW, defaultStepId: 'gen-1' }, 'a', false],
+    ])(
+        'adds hover handlers only for a row that carries a default step and is not open: %s',
+        (_name, row, openTraceId, hovers) => {
+            const props = setUp('traces', openTraceId).rowProps(row)
+
+            expect([Boolean(props.onMouseEnter), Boolean(props.onMouseLeave)]).toEqual([hovers, hovers])
+        }
+    )
 })

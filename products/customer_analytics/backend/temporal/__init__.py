@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from products.customer_analytics.backend.temporal.account_track_rules import (
     AccountTrackRuleCoordinatorWorkflow,
     AccountTrackRuleEvaluationWorkflow,
@@ -46,6 +48,9 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
     ownership_claims_sweep_activity,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     MembershipBackfillWorkflow,
     MembershipCoordinatorWorkflow,
@@ -61,7 +66,7 @@ WORKFLOWS = [
     OwnershipClaimsCoordinatorWorkflow,
     OwnershipClaimsSweepWorkflow,
 ]
-ACTIVITIES = [
+ACTIVITIES: list[ActivityDefinition] = [
     backfill_membership_batch_activity,
     fail_membership_backfill_activity,
     sync_membership_page_activity,

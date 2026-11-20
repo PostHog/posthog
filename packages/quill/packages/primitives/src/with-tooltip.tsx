@@ -30,11 +30,13 @@ export function withTooltip(
         target,
         delay,
         side,
+        align,
         focusable = false,
     }: {
         target: TooltipTarget
         delay?: number
         side?: React.ComponentProps<typeof TooltipContent>['side']
+        align?: React.ComponentProps<typeof TooltipContent>['align']
         /**
          * Puts the trigger in the tab order while there is content: the wrapper for `block` and
          * `inline`, the element itself for `self`. A disabled control leaves the tab order, so the
@@ -65,7 +67,20 @@ export function withTooltip(
                     {element}
                 </TooltipTrigger>
             )}
-            {hasContent && <TooltipContent side={side}>{content}</TooltipContent>}
+            {hasContent && (
+                <TooltipContent side={side} align={align}>
+                    {content}
+                </TooltipContent>
+            )}
         </Tooltip>
     )
+}
+
+/** Opens at the control's start edge, so a reason on a wide field or card sits beside where it starts. */
+export function withDisabledReason(
+    element: React.ReactElement,
+    reason: React.ReactNode,
+    options: Omit<Parameters<typeof withTooltip>[2], 'align'>
+): React.ReactElement {
+    return withTooltip(element, reason, { ...options, align: 'start' })
 }

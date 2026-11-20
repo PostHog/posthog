@@ -358,7 +358,8 @@ class ConsoleTool:
 
     key: ClassVar[str]
     title: ClassVar[str]
-    owner: ClassVar[Owner]
+    # None when no team owns the data behind the tool. The console then shows no owner badge.
+    owner: ClassVar[Owner | None]
     group: ClassVar[str]
     description: ClassVar[str] = ""
 

@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 import structlog
 
@@ -111,6 +112,10 @@ def _persist_change(node: Node, change: Callable[[Node], bool]) -> bool:
     return True
 
 
+def suspended_nodes(nodes: QuerySet[Node]) -> QuerySet[Node]:
+    return nodes.filter(properties__system__suspended__isnull=False).exclude(properties__system__suspended={})
+
+
 def unsuspend_nodes(
     nodes: Iterable[Node],
     *,
@@ -189,7 +194,7 @@ def unsuspend_saved_query(
     duplicate DAGs. Schedules nothing: the next tier fire runs the node because no marker stops it.
     Without an engine, every engine's marker is cleared."""
     return unsuspend_nodes(
-        Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id),
+        suspended_nodes(Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id)),
         by=by,
         engine=_SUSPENSION_ENGINES[engine].value if engine is not None else None,
     )

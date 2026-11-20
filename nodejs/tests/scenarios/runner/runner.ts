@@ -64,7 +64,7 @@ import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
-import { Admission, Status, admissionsOf, statusOf } from './status'
+import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
 
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
@@ -98,7 +98,7 @@ export type RunResult = {
 }
 
 export interface Runner {
-    up(): Promise<void>
+    up(signal: AbortSignal): Promise<void>
     run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
     down(): Promise<void>
 }
@@ -386,8 +386,8 @@ export function createRunner(
     }
 
     return {
-        async up() {
-            await environment.up()
+        async up(signal) {
+            await environment.up(signal)
         },
 
         async run(loaded, signal) {
@@ -523,7 +523,7 @@ export function createRunner(
                 void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
                     .then(() => valves.releaseAll())
                     .catch(() => undefined)
-                const units = await drive(loaded, seeded, judge, signal, {
+                const units = await drive(loaded, seeded, judge, AbortSignal.any([signal, valves.refusal]), {
                     producer,
                     eventsTopic,
                     cdpApi,
@@ -578,6 +578,12 @@ export function createRunner(
                 outcome = { ...verdict, units, convergence, janitorResets, invariants, measurements, admissions, bars }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
+                } else if (valves.refusal.aborted) {
+                    outcome = {
+                        ...outcome,
+                        status: 'invalid',
+                        statusReason: unobservedReasonOf(valves.refusal.reason as ValveTimelineEntry),
+                    }
                 }
             } catch (error) {
                 outcome = {

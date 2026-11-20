@@ -323,7 +323,7 @@ Runs appear in the offline experiments UI.
 
 ## Postgres experiment ingestion
 
-The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
+The project API accepts offline experiment results.
 The configured public suites call this API to publish completed scorer results.
 
 Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
@@ -640,7 +640,6 @@ Opening scorer history from an experiment clears remembered tag filters so they 
 
 ## Postgres experiment reads
 
-Read endpoints use the same feature flag as ingestion.
 The offline UI uses these APIs. The configured SQL pilot and Signals suites publish results here.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
@@ -743,8 +742,7 @@ Numeric increases do not imply better quality unless that meaning is established
 ### MCP access
 
 The `llma-offline-experiment-*` and `llma-offline-scorer-history` MCP tools expose
-these reads and the create/upload/complete/fail lifecycle behind the same
-`ai-observability-offline-evaluations` flag. Lifecycle tools record externally
+these reads and the create/upload/complete/fail lifecycle. Lifecycle tools record externally
 computed results; they do not execute evaluators. Scorer configuration remains on
 the existing `llma-score-definition-*` tools, with `version-list` and `version-get`
 for immutable version discovery. Version tools use the existing scorer permissions.
@@ -792,9 +790,9 @@ Opening those resources requires their own permissions.
 
 ## Inspecting offline results
 
-Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
-When offline evaluations are enabled, **Experiments** is selected by default. **Datasets** opens the list on the same page
-with `tab=datasets` in the query string. MCP-generated dataset-list links retain this tab selector.
+Open **Evaluations → Offline evals**. The **Experiments** tab opens by default and shows the newest experiments and chosen score trends.
+**Datasets** opens the dataset list on the same page with `tab=datasets` in the query string.
+MCP-generated dataset-list links retain this tab selector.
 Existing `/ai-evals/datasets` and `/llm-analytics/datasets`
 links redirect there, preserving filters and pagination. Dataset creation and detail pages live at
 `/ai-evals/evaluations/offline/datasets/:id`, within the Offline evals navigation. Both legacy dataset
@@ -804,8 +802,6 @@ directly in the detail view; **Details** opens the dataset metadata without repl
 The back arrow beside the dataset name returns to the list and preserves its filters, including after creating a dataset.
 Creation and editing actions appear below the dataset form. Switching from Experiments to Datasets clears
 experiment search and filters and restores the saved dataset tag selection.
-Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
-including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
 When Datasets is disabled, its tab stays disabled and direct list links show an availability message.
 The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers
 your choice in local storage. Charts load on the first expansion if the page opens collapsed, and
@@ -854,13 +850,14 @@ Upload completion is separate from score quality. **Mark as completed** checks d
 
 Manage scorer definitions and versions under **Evaluations → Scorers**.
 The previous Human reviews Scorers entry and bookmarked scorer URLs redirect there.
-Scorer management remains available for manual reviews when offline evaluations are disabled.
 Scorer names open the full-page editor at `/ai-evals/evaluations/scorers/{scorer_id}`; `/ai-evals/evaluations/scorers/new` creates a scorer.
-The editor combines metadata and score configuration in one form. Passing settings are shown only when offline evaluations are enabled; hiding those controls preserves existing rules. **Save** patches metadata when configuration is unchanged; configuration changes save metadata and a new immutable version together. Saving edits to a boolean scorer with omitted or null polarity also creates a version that explicitly records the default.
+The editor shows metadata, score configuration, and the passing rule in one form.
+**Save** updates only the metadata when the configuration is unchanged. When the configuration changes, **Save** updates the metadata and creates a new immutable version.
+Saving edits to a boolean scorer with omitted or null polarity also creates a version that explicitly records the default.
 Saving a new configuration checks the version observed when editing started. A concurrent version change returns 409 without saving either the draft metadata or configuration.
 The **More → Create new version** action can create an unchanged configuration version after confirmation. Save or discard a dirty draft before using this action.
 The **Offline evals history** button in the editor opens a scorer's experiment timeline.
-With the offline feature enabled, a scorer timeline offers upload state, source, date range, comparison, and exact version filters.
+The timeline offers upload state, source, date range, comparison, and exact version filters.
 The filters use compact controls. Selected and comparison period timestamps use the project timezone, matching the date range boundaries, chart labels, and coverage dates; hover a timestamp for full timezone details.
 **Break down by** splits score history by Model, Prompt version, Application version, Suite, or Run source.
 Model uses the item's optional `model_version`, falling back to the experiment's `model_version` when omitted or null.
@@ -878,6 +875,3 @@ Its experiment table keeps names and coverage on one line, shows execution time 
 Compare against a previous or custom period.
 Custom comparison periods ending now retain that end when their URL is shared or reloaded.
 Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
-
-The `ai-observability-offline-evaluations` flag controls all new offline views and related scorer wording and links.
-The legacy `llm-analytics-offline-evals` flag does not enable them. Keep rollout disabled until producer upload-to-display verification is complete.
