@@ -117,8 +117,8 @@ describe('suggestionReadiness', () => {
             optimization({ enabled: false, trackedSends: 12, liveHoursAgo: 24 }),
             [
                 ['enabled', 'blocked', null],
-                ['age', 'blocked', 50],
-                ['sends', 'blocked', 60],
+                ['age', 'waiting', 50],
+                ['sends', 'waiting', 60],
                 ['check', 'blocked', null],
             ],
         ],
@@ -127,5 +127,12 @@ describe('suggestionReadiness', () => {
         expect(suggestionReadiness(input, NOW)?.steps.map((step) => [step.key, step.state, step.percent])).toEqual(
             steps
         )
+    })
+
+    it('does not claim missing data when the sample is unknown', () => {
+        const check = suggestionReadiness(optimization({ noSample: true }), NOW)?.steps.find(
+            (step) => step.key === 'check'
+        )
+        expect(check?.detail).toEqual('Last checked 6 hours ago.')
     })
 })

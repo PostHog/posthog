@@ -67,7 +67,7 @@ export function suggestionReadiness(
         steps.push({
             key: 'age',
             title: 'Live for 2 days',
-            state: ageDone ? 'done' : enabled ? 'waiting' : 'blocked',
+            state: ageDone ? 'done' : 'waiting',
             detail: ageDone
                 ? `This version went live ${liveSince.from(now)}.`
                 : `This version went live ${liveSince.from(now)}. It can be judged from ${formatMoment(judgeableFrom, now, 'at')}.`,
@@ -80,7 +80,7 @@ export function suggestionReadiness(
         steps.push({
             key: 'sends',
             title: `${sample.required_sends} ${trackedEmails(sample.required_sends)} in 7 days`,
-            state: sendsShort === 0 ? 'done' : enabled ? 'waiting' : 'blocked',
+            state: sendsShort === 0 ? 'done' : 'waiting',
             detail:
                 sendsShort === 0
                     ? `The busiest email step sent ${sample.tracked_sends} ${trackedEmails(sample.tracked_sends)} in the last 7 days.`
@@ -111,7 +111,9 @@ export function suggestionReadiness(
               ? 'PostHog checks this workflow on a schedule and files a suggestion when it finds a change worth making.'
               : [
                     sample ? 'Suggestions can start once the steps above are done.' : null,
-                    lastChecked ? `Last checked ${lastChecked.from(now)}, not enough data yet.` : null,
+                    lastChecked
+                        ? `Last checked ${lastChecked.from(now)}${sample ? ', not enough data yet' : ''}.`
+                        : null,
                 ]
                     .filter(Boolean)
                     .join(' '),

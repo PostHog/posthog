@@ -53,7 +53,9 @@ export function WorkflowSuggestionsReadiness({
     const { optimization, turnOnDisabledReason } = useValues(workflowProposalsLogic({ id }))
     // A paused scout or one in dry run has its own notice, and a workflow that cannot turn suggestions on gets
     // no timeline it can never reach.
-    const scoutCanFile = optimization?.scout_status === 'running' || optimization?.scout_status === 'not_running'
+    const scoutCanFile =
+        optimization?.scout_status === 'running' ||
+        (optimization?.scout_status === 'not_running' && !optimization.enabled)
     if (!optimization || !scoutCanFile || (!optimization.enabled && turnOnDisabledReason)) {
         return null
     }
