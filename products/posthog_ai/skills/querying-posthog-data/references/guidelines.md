@@ -93,7 +93,9 @@ Do not query `system.information_schema.metrics` with SQL for this lookup.
 Use `metric-describe` to read a candidate's full definition.
 Run an approved, non-drifted match with `data-catalog-metric-run` instead of deriving it.
 Every other outcome means there is no canonical definition to reuse — no match, a drifted match, or a match that is not approved: derive the measure with the schema workflow below and label the result noncanonical.
-A project without the data catalog does not have these tools, so that is the same case, and it holds for the rest of the session: stop checking.
+If these tools are not available, this connection cannot check the catalog, because of a missing `data_catalog:read` scope or a client filter.
+That does not mean the project has no catalog.
+Tell the user once that you could not check the catalog, then treat it as the no-match case for the rest of the session.
 Everything else starts with that workflow.
 
 #### Schema discovery (information_schema)
