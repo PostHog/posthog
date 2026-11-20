@@ -259,7 +259,7 @@ def grant_org_credit(org_id: str, amount_usd: str, reason: str, idempotency_key:
 
 
 def reverse_org_credit(org_id: str, amount_usd: str, reason: str, idempotency_key: str) -> OrgLedgerResult:
-    """Take back funding that billing refunded or lost to a dispute, once per idempotency key."""
+    """Take back funding that a dispute reversed, whatever the wallet holds, once per idempotency key."""
     return _post_org_ledger_entry(
         f"/internal/accounts/{org_id}/credits/reversal", org_id, amount_usd, reason, idempotency_key
     )

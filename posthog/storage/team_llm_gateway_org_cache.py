@@ -21,8 +21,9 @@ every team of the organization, a new team gets its entry when PostHog creates i
 refresh rewrites entries before they expire. A project moved to another organization gets its new
 organization's entry when PostHog saves the move.
 
-The gateway calls billing once when the balance drops below the threshold, then waits for the balance to
-rise. When `ai_automatic_reload_enabled` turns on, it calls billing again.
+The gateway asks PostHog's reload route once when the balance drops below the threshold, and PostHog calls
+billing. The gateway closes that request when PostHog relays billing's `ai_reload_outcome`. When
+`ai_automatic_reload_enabled` turns on, it asks again.
 """
 
 import os

@@ -182,10 +182,10 @@ def _funding_reversed(**overrides):
         "type": "ai_funding_reversed",
         "version": 1,
         "organization_id": ORG_ID,
-        "operation_id": "ai_credit_reversal:re_1",
+        "operation_id": "ai_credit_reversal:dp_1",
         "amount_cents": 2000,
         "reverses_operation_id": "ai_credit:in_1",
-        "reason": "refund",
+        "reason": "dispute",
         **overrides,
     }
 
@@ -217,7 +217,7 @@ class TestBillingConsumerAIFunding(SimpleTestCase):
         with patch.object(consumer, "delete_message", return_value=True) as mock_delete:
             self._deliver(consumer, _funding_reversed())
 
-        mock_reverse.assert_called_once_with(ORG_ID, "20.00", "refund", "ai_credit_reversal:re_1")
+        mock_reverse.assert_called_once_with(ORG_ID, "20.00", "dispute", "ai_credit_reversal:dp_1")
         mock_delete.assert_called_once_with("receipt-1")
 
     @patch(f"{CONSUMER}.grant_org_credit", side_effect=AIGatewayInternalError("HTTP 503"))
