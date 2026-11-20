@@ -506,8 +506,6 @@ tools:
         required_when_set:
             priority:
                 - priority_explanation
-        feature_flag: inbox-reports-create-mcp
-        feature_flag_behavior: enable
     inbox-reports-feedback-create:
         operation: signals_reports_feedback_create
         enabled: true

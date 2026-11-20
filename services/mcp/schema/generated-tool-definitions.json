@@ -9303,9 +9303,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "inbox-reports-create-mcp",
-        "feature_flag_behavior": "enable"
+        }
     },
     "inbox-reports-feedback-create": {
         "description": "Record a person's thumbs up or thumbs down on an inbox report, with their context for why. Pass the person's verdict, never your own interpretation of the report. The note is forwarded to the scout that authored or edited the report as steering context for its next run; the response says whether it was forwarded. This does not dismiss, resolve, or otherwise change the report's state. Each successful call can create a new steering note, so do not retry after a confirmed success.",

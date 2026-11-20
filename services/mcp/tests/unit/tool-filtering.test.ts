@@ -1127,7 +1127,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'scout-scratchpad-discard-mcp',
             'signals-report-monitoring',
             'inbox-report-actions-mcp',
-            'inbox-reports-create-mcp',
             'signals-reviewer-exclusions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
