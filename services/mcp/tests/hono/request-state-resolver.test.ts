@@ -991,6 +991,37 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.viaMcpStore).toBe(true)
     })
 
+    it.each([
+        ['the URL asks for it', '?split_writes=true', {}, true],
+        ['the header asks for it', '', { 'x-posthog-split-writes': '1' }, true],
+        [
+            'the header declines what the URL asks for',
+            '?split_writes=true',
+            { 'x-posthog-split-writes': 'false' },
+            false,
+        ],
+        ['nothing asks for it', '', {}, false],
+        ['tools mode, which never lists exec-write', '?split_writes=true&mode=tools', {}, false],
+        ['a read-only connection, which has no writes', '?split_writes=true&readonly=true', {}, false],
+        [
+            'a wrapper whose write gate only knows exec',
+            '?split_writes=true',
+            { 'x-posthog-mcp-consumer': 'posthog-code' },
+            false,
+        ],
+    ])('splits writes from exec when %s: %s', async (_label, query, headers, expected) => {
+        const props = parseRequestProperties(
+            new Request(`https://example.com/mcp${query}`, {
+                headers: { Authorization: 'Bearer phx_test', ...headers },
+            }),
+            {}
+        )
+
+        const result = await makeResolver().resolve(props)
+
+        expect(result.splitWrites).toBe(expected)
+    })
+
     it('carries connected-tool restrictions to execution', async () => {
         const filters = {
             tools: ['linear__create_issue'],
