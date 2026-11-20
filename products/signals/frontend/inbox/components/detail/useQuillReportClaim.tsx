@@ -13,7 +13,7 @@ import type { _UserApi } from 'products/signals/frontend/generated/api.schemas'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
-import { ReportOwnerKind, reportOwnerKind, reportOwnerLabel } from '../../utils/reportFacts'
+import { ReportOwnerKind, claimKeyIntent, reportOwnerKind, reportOwnerLabel } from '../../utils/reportFacts'
 import { QuillTakeOverReportDialog } from './QuillTakeOverReportDialog'
 
 const IS_MAC = isMac()
@@ -69,17 +69,13 @@ export function useQuillReportClaim(report: SignalReport): QuillReportClaim {
         {
             u: {
                 action: (event) => {
-                    if (overlayOpen() || event.shiftKey || event.altKey) {
-                        return
-                    }
-                    const command = IS_MAC ? event.metaKey : event.ctrlKey
-                    if (command && canUnclaim) {
+                    const intent = overlayOpen()
+                        ? null
+                        : claimKeyIntent(event, IS_MAC, { canClaim: isReportClaimable, canUnclaim })
+                    if (intent) {
                         // The chord replaces the browser's own view-source shortcut while the user holds the claim.
                         event.preventDefault()
-                        unclaim()
-                    } else if (!command && !event.metaKey && !event.ctrlKey && isReportClaimable) {
-                        event.preventDefault()
-                        claim()
+                        ;(intent === 'claim' ? claim : unclaim)()
                     }
                 },
                 willHandleEvent: true,

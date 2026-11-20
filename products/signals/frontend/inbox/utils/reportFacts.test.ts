@@ -1,6 +1,6 @@
 import { myAgentClaim, myClaim, teammateClaim, makeReport } from '../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../types'
-import { reportFactStatus, reportOwnerKind } from './reportFacts'
+import { claimKeyIntent, reportFactStatus, reportOwnerKind } from './reportFacts'
 
 describe('reportFacts', () => {
     const openPullRequest = { url: 'https://github.com/example/repo/pull/7', state: 'open' as const, merged: false }
@@ -20,6 +20,39 @@ describe('reportFacts', () => {
             typeof makeReport
         >[0])
         expect(reportFactStatus(report)).toBe(expected)
+    })
+
+    const key = (
+        modifiers: Partial<Record<'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey', boolean>> = {}
+    ): {
+        metaKey: boolean
+        ctrlKey: boolean
+        shiftKey: boolean
+        altKey: boolean
+    } => ({ metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...modifiers })
+
+    test.each([
+        ['U claims a report with no owner', key(), true, { canClaim: true, canUnclaim: false }, 'claim'],
+        ['U does not release my claim', key(), true, { canClaim: false, canUnclaim: true }, null],
+        [
+            'Cmd+U releases my claim on a Mac',
+            key({ metaKey: true }),
+            true,
+            { canClaim: false, canUnclaim: true },
+            'unclaim',
+        ],
+        ['Cmd+U does not claim', key({ metaKey: true }), true, { canClaim: true, canUnclaim: false }, null],
+        [
+            'Ctrl+U releases my claim off a Mac',
+            key({ ctrlKey: true }),
+            false,
+            { canClaim: false, canUnclaim: true },
+            'unclaim',
+        ],
+        ['Ctrl+U does nothing on a Mac', key({ ctrlKey: true }), true, { canClaim: true, canUnclaim: true }, null],
+        ['Shift+U does nothing', key({ shiftKey: true }), true, { canClaim: true, canUnclaim: true }, null],
+    ])('%s', (_name, event, isMac, state, expected) => {
+        expect(claimKeyIntent(event, isMac, state)).toBe(expected)
     })
 
     test.each([
