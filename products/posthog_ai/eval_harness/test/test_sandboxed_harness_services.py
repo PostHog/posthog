@@ -322,11 +322,15 @@ def test_service_startup_does_not_retry_permanent_errors_or_interrupts(
 @pytest.mark.parametrize("credit_status", [200, 503])
 def test_gateway_provisioning_requires_test_credits(requests_mock: requests_mock.Mocker, credit_status: int) -> None:
     base_url = "http://localhost:18080"
-    credits = requests_mock.post(f"{base_url}/internal/teams/42/credits", status_code=credit_status, json={})
+    org_id = "0190b3a1-1111-7000-8000-000000000001"
+    credits = requests_mock.post(f"{base_url}/internal/accounts/{org_id}/credits", status_code=credit_status, json={})
     requests_mock.get(f"{base_url}/v1/models", json={"data": [{"id": "test-model"}]})
     requests_mock.post(f"{base_url}/v1/tokens", json={"token": "phe_test"})
 
-    with patch("products.posthog_ai.eval_harness.harness.services.call_command"):
+    with (
+        patch("products.posthog_ai.eval_harness.harness.services.call_command"),
+        patch("products.posthog_ai.eval_harness.harness.services._team_organization_id", return_value=org_id),
+    ):
         if credit_status == 200:
             assert provision_ai_gateway_mint_key(42, agent_model="test-model").startswith("phs_")
         else:

@@ -588,10 +588,10 @@ Diffed against: <https://github.com/amzn/selling-partner-api-models/tree/main/mo
 - [x] `Payouts (GET /finances/transfers/2024-06-01/payouts)` — settled disbursements to the seller bank account, to reconcile against transactions (high) → `payouts` (incremental on `creationDate`)
 - [x] `FBA inbound plans (GET /inbound/fba/2024-03-20/inboundPlans)` — shipments sent to Amazon fulfilment centers, with status and item counts (medium) → `inbound_plans` (full refresh; the listing has plan summaries, not item counts)
 - [x] `Outbound fulfillment orders (GET /fulfillment/outbound/2026-07-04/orders)` — multi-channel fulfillment orders shipped by FBA outside Amazon sales (medium) → `fulfillment_orders` (incremental on `statusUpdateTime`)
-- [ ] `Order metrics (GET /sales/v1/orderMetrics)` — Amazon-computed sales, units and average price by day or week, matching Seller Central (medium)
-- [ ] `Invoices (GET /finances/invoices/2026-06-25/invoices)` — invoice headers for fees and charges billed to the seller (medium)
-- [ ] `Replenishment offers (POST /replenishment/2022-11-07/offers/search)` — Subscribe and Save offers with their program settings (low)
-- [ ] `Direct fulfillment purchase orders (GET /vendor/directFulfillment/orders/2021-12-28/purchaseOrders)` — vendor drop-ship orders, a separate flow from vendor purchase orders (low)
+- [x] `Order metrics (GET /sales/v1/orderMetrics)` — Amazon-computed sales, units and average price by day or week, matching Seller Central (medium) → `order_metrics` (one row per marketplace and UTC day, incremental on `startTime`, the last 2 years Amazon allows)
+- [x] `Invoices (GET /finances/invoices/2026-06-25/invoices)` — invoice headers for fees and charges billed to the seller (medium) → `invoices` (90-day issue-date windows over the last 2 years per marketplace, incremental on `lastUpdatedDate` with `invoicesModifiedAfter`)
+- [x] `Replenishment offers (POST /replenishment/2022-11-07/offers/search)` — Subscribe and Save offers with their program settings (low) → `replenishment_offers` (full refresh per marketplace, up to the 9,100 offers that offset paging reaches)
+- [ ] `Direct fulfillment purchase orders (GET /vendor/directFulfillment/orders/2021-12-28/purchaseOrders)` — vendor drop-ship orders, a separate flow from vendor purchase orders (low) Skipped: needs the restricted Direct-to-Consumer Shipping role, and every order carries the end customer's ship-to and bill-to address.
 - [ ] `Vendor shipments (GET /vendor/shipping/v1/shipments)` — vendor shipment details for open purchase orders (low)
 - [ ] `AWD inventory and inbound shipments (GET /awd/2024-05-09/inventory; GET /awd/2024-05-09/inboundShipments)` — Amazon Warehousing and Distribution stock and inbound flow, upstream of FBA inventory (low)
 
@@ -8230,10 +8230,10 @@ Diffed against: <https://developer.justcall.io/llms.txt>
 - [x] `/v2.1/calls_ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
 - [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high) - needs a fan-out over phone numbers, since `phone_id` is a required filter
 - [x] `/v2.1/user_groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
-- [ ] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
-- [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium)
-- [ ] `/v2.1/texts/tags (List all tags)` — tag lookup resolving the tags applied to text threads (medium)
-- [ ] `/v2.1/sales_dialer/contacts (List all contacts)` — dialer contact list, a separate population from the synced CRM contacts table (medium)
+- [x] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
+- [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium) Skipped: per-call detail endpoint with no list form; one request per call over the full call history exceeds JustCall's 1,800-5,400 requests/hour plan limits.
+- [x] `/v2.1/texts/tags (List all tags)` — tag lookup resolving the tags applied to text threads (medium)
+- [x] `/v2.1/sales_dialer/contacts (List all contacts)` — dialer contact list, a separate population from the synced CRM contacts table (medium)
 - [ ] `/v2.1/whatsapp/messages (List all messages)` — WhatsApp is a full message channel alongside texts and is entirely absent (medium)
 - [ ] `/v2.1 account / agent / number analytics endpoints` — vendor-computed call metrics per account, agent and number - useful as a reconciliation baseline (medium)
 - [ ] `/v2.1/meetings/ai (List meetings AI data)` — meeting-level AI summaries for teams using JustCall meetings (low)
@@ -15281,9 +15281,9 @@ Diffed against: <https://developers.trustpilot.com/product-reviews-api/>
 - [x] `Conversations (GET /v1/private/conversations/{conversationId})` — resolve conversation IDs on product reviews into customer and business comments for response analysis (high)
 - [x] `Locations (GET /v1/private/business-units/{businessUnitId}/locations)` — resolve review location IDs into complete branch records and addresses for geographic comparisons (high)
 - [x] `Product reviews summaries list (GET /v1/private/product-reviews/business-units/{businessUnitId}/summaries)` — compare official rating averages, distributions, and review counts across products (medium)
-- [ ] `Imported product reviews (GET /v1/product-reviews/business-units/{businessUnitId}/imported-reviews)` — include externally imported feedback in product satisfaction and review volume analysis (medium)
-- [ ] `Categories for business unit (GET /v1/business-units/{businessUnitId}/categories)` — compare ratings across business categories and identify each category assignment (medium)
-- [ ] `Review likes (GET /v1/reviews/{reviewId}/likes)` — identify which consumers engage with service reviews beyond the embedded like count (low)
+- [ ] `Imported product reviews (GET /v1/product-reviews/business-units/{businessUnitId}/imported-reviews)` — include externally imported feedback in product satisfaction and review volume analysis (medium) Skipped: the endpoint requires a sku filter and its rows carry no review ID or SKU, so no unique primary key exists.
+- [x] `Categories for business unit (GET /v1/business-units/{businessUnitId}/categories)` — compare ratings across business categories and identify each category assignment (medium)
+- [x] `Review likes (GET /v1/reviews/{reviewId}/likes)` — identify which consumers engage with service reviews beyond the embedded like count (low)
 
 Note: Parsed GET operations on the official product reviews, private products, locations, categories, business units, and service reviews pages. Conversations require requests for IDs from product reviews; review likes require requests for each service review. Service review tags and company replies already appear in synced rows, so they are excluded. The catalog endpoint replaces the deprecated flat products list; invitation templates and writes are excluded.
 

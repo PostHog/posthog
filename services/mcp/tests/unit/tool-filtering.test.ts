@@ -1171,6 +1171,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-bulk-suppressions-mcp',
             'signals-source-filters',
             'error-tracking-issue-tags',
+            'inbox-plan-edits-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
