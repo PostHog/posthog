@@ -10,7 +10,7 @@ export function QuillReportNotesSection({
     notes: SignalReportArtefact[]
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-3" data-quill data-attr="inbox-report-notes">
+        <div className="flex flex-col gap-2.5" data-quill data-attr="inbox-report-notes">
             {notes.map((note) => (
                 <ReportNoteRow key={note.id} reportId={report.id} note={note} />
             ))}

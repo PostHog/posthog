@@ -122,6 +122,11 @@ class ReportPage:
 
 
 @dataclass(frozen=True)
+class ReportPageEvidence:
+    evidence: list[SignalView]
+
+
+@dataclass(frozen=True)
 class KeyClause:
     start: int
     end: int

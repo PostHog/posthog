@@ -440,28 +440,6 @@ export interface HiddenPulseNumbersApi {
 }
 
 /**
- * * `lead` - Lead
- * * `impact` - Impact
- */
-export type FigureTextEnumApi = (typeof FigureTextEnumApi)[keyof typeof FigureTextEnumApi]
-
-export const FigureTextEnumApi = {
-    Lead: 'lead',
-    Impact: 'impact',
-} as const
-
-/**
- * * `signal` - Signal
- * * `research` - Agent's research
- */
-export type FigureSourceKindEnumApi = (typeof FigureSourceKindEnumApi)[keyof typeof FigureSourceKindEnumApi]
-
-export const FigureSourceKindEnumApi = {
-    Signal: 'signal',
-    Research: 'research',
-} as const
-
-/**
  * * `code` - Code
  * * `slack` - Slack
  */
@@ -571,6 +549,33 @@ export interface SignalViewApi {
     /** What expanding the signal shows, if anything. */
     preview: SignalPreviewApi | null
 }
+
+export interface ReportPageEvidenceApi {
+    /** Every signal the report page counts as evidence, newest first, one per source object. Taken from the report's newest 100 signals. */
+    evidence: SignalViewApi[]
+}
+
+/**
+ * * `lead` - Lead
+ * * `impact` - Impact
+ */
+export type FigureTextEnumApi = (typeof FigureTextEnumApi)[keyof typeof FigureTextEnumApi]
+
+export const FigureTextEnumApi = {
+    Lead: 'lead',
+    Impact: 'impact',
+} as const
+
+/**
+ * * `signal` - Signal
+ * * `research` - Agent's research
+ */
+export type FigureSourceKindEnumApi = (typeof FigureSourceKindEnumApi)[keyof typeof FigureSourceKindEnumApi]
+
+export const FigureSourceKindEnumApi = {
+    Signal: 'signal',
+    Research: 'research',
+} as const
 
 export interface FigureQuoteApi {
     /** Where the number comes from: a signal or the agent's research.

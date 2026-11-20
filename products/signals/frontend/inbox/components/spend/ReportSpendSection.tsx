@@ -10,6 +10,7 @@ import type { ReportSpendApi } from 'products/signals/frontend/generated/api.sch
 import { reportSpendLogic } from '../../logics/reportSpendLogic'
 import { DetailSection } from '../detail/DetailSection'
 import { RecordedSpend } from './RecordedSpend'
+import { reportSpendLine } from './reportSpendLine'
 
 // Scout runs are shared with the rest of their output, so they stay out of this report's total.
 function reportOwnSpend({ generation, implementation }: ReportSpendApi): number | null {
@@ -48,6 +49,10 @@ export function ReportSpendSection({
                     </span>
                 ) : null
             }
+            line={{
+                name: 'Spend',
+                text: failed ? "Couldn't load usage" : spend ? reportSpendLine(spend) : null,
+            }}
         >
             {failed ? (
                 <LemonBanner

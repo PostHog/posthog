@@ -17,6 +17,7 @@ import {
     splitReportCheckRows,
 } from './reportCheckPresentation'
 import { ReportCheckRow } from './ReportCheckRow'
+import { reportChecksLine } from './reportDetailLines'
 import { ReportStartMonitoringPrompt } from './ReportStartMonitoringPrompt'
 
 /**
@@ -65,6 +66,7 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
             icon={<IconTarget />}
             title="Follow-up checks"
             collapsible
+            line={reportChecksLine(reportChecks, reportChecksMeta(reportChecks, report.status))}
             meta={
                 <span className="text-xs text-tertiary tabular-nums">
                     {reportChecksMeta(reportChecks, report.status)}

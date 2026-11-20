@@ -500,7 +500,18 @@ export function InboxDetailFrame({
 
     const isMonitoring = (currentReport ?? report).status === SignalReportStatus.MONITORING
 
-    const railSections = (
+    const observationSection = primaryMetric && (
+        <DetailSection
+            icon={<IconTrends />}
+            title="Observation"
+            collapsible
+            onToggleCollapsed={captureSectionToggle('observation')}
+        >
+            <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
+        </DetailSection>
+    )
+
+    const statusAndEvidence = (
         <>
             <ReportStatusSection
                 report={currentReport ?? report}
@@ -533,16 +544,7 @@ export function InboxDetailFrame({
             />
             {isMonitoring && <ReportChecksSection report={report} />}
             {/* The observation leads, then the evidence its claims rest on. */}
-            {primaryMetric && (
-                <DetailSection
-                    icon={<IconTrends />}
-                    title="Observation"
-                    collapsible
-                    onToggleCollapsed={captureSectionToggle('observation')}
-                >
-                    <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
-                </DetailSection>
-            )}
+            {observationSection}
             {hasEvidence && (
                 <DetailSection
                     icon={<IconSearch />}
@@ -573,12 +575,17 @@ export function InboxDetailFrame({
                     )}
                 </DetailSection>
             )}
+        </>
+    )
+    const detailSections = (
+        <>
             <SuggestedReviewersSection report={report} />
             <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
                 <ReportSpendSection reportId={report.id} onToggleCollapsed={captureSectionToggle('usage')} />
             </FlaggedFeature>
             <ReportTasksSection report={report} />
-            {!isMonitoring && <ReportChecksSection report={report} />}
+            {/* The Lemon rail leads with the checks of a monitoring report. The Quill page has no rail. */}
+            {(!isMonitoring || todayRailNav) && <ReportChecksSection report={report} />}
             <ReportActivitySection report={report} />
             {asideFooter}
         </>
@@ -590,7 +597,12 @@ export function InboxDetailFrame({
     const overviewBody = (
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
             <div className={DETAIL_CONTAINER_CLASS}>
-                {!evidenceRailCollapsed && <aside className={DETAIL_ASIDE_CLASS}>{railSections}</aside>}
+                {!evidenceRailCollapsed && (
+                    <aside className={DETAIL_ASIDE_CLASS}>
+                        {statusAndEvidence}
+                        {detailSections}
+                    </aside>
+                )}
 
                 <main className={DETAIL_MAIN_CLASS}>
                     {showFilesTab ? (
@@ -709,41 +721,42 @@ export function InboxDetailFrame({
         return (
             <QuillReportDetail
                 report={report}
+                // pinned: the flag-off label is 'Self-driving inbox'; the Quill page names the list as its header does.
                 backUrl={backOverride ?? urls.inbox('reports')}
-                backLabel={backLabel}
+                backLabel={backOverride ? backLabel : 'Inbox'}
                 actions={reportActions}
                 notesEnabled={notesEnabled}
+                banner={dataOnlyBanner || undefined}
                 fallback={lemonFrame}
             >
                 <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
-                    <div className="flex flex-col gap-5 text-sm">
-                        {dataOnlyBanner}
-                        {railSections}
+                    {observationSection}
+                    {detailSections}
+                    <DetailSection
+                        icon={<IconDocument />}
+                        title="Full report"
+                        afterTitle={<SignalReportBillingBadge report={report} />}
+                        meta={generatedAt}
+                        line={{ text: generatedAt }}
+                        collapsible
+                        defaultCollapsed
+                        onToggleCollapsed={captureSectionToggle('full_report')}
+                    >
+                        {reportBody(null)}
+                    </DetailSection>
+                    {showFilesTab && (
                         <DetailSection
-                            icon={<IconDocument />}
-                            title="Full report"
-                            afterTitle={<SignalReportBillingBadge report={report} />}
-                            meta={generatedAt}
+                            icon={<IconCode />}
+                            title="Files changed"
+                            afterTitle={diffStat}
+                            line={diffStat ? { text: diffStat } : null}
                             collapsible
                             defaultCollapsed
-                            onToggleCollapsed={captureSectionToggle('full_report')}
+                            onToggleCollapsed={captureSectionToggle('files_changed')}
                         >
-                            {reportBody(null)}
+                            {diffSection}
                         </DetailSection>
-                        {showFilesTab && (
-                            <DetailSection
-                                icon={<IconCode />}
-                                title="Files changed"
-                                afterTitle={diffStat}
-                                collapsible
-                                defaultCollapsed
-                                onToggleCollapsed={captureSectionToggle('files_changed')}
-                            >
-                                {diffSection}
-                            </DetailSection>
-                        )}
-                        <ReportFeedbackFooter report={report} align="end" />
-                    </div>
+                    )}
                 </BindLogic>
             </QuillReportDetail>
         )

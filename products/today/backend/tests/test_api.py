@@ -286,6 +286,20 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 status.HTTP_200_OK,
             ),
             (
+                "all the evidence with only today",
+                "get",
+                f"reports/{REPORT_ID}/evidence",
+                ["today:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "all the evidence with today and inbox",
+                "get",
+                f"reports/{REPORT_ID}/evidence",
+                ["today:read", "inbox:read"],
+                status.HTTP_200_OK,
+            ),
+            (
                 "key clauses with only today",
                 "get",
                 f"reports/{REPORT_ID}/key_clauses",
