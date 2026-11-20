@@ -168,7 +168,8 @@ class TestPlanEdits(BaseTest):
         self._add(plan, step)
 
         assert self._steps(step) == [("step", ())]
-        assert report_plan(team_id=self.team.id, report_id=str(step.id)).id == str(plan.id)
+        step_plan = report_plan(team_id=self.team.id, report_id=str(step.id))
+        assert step_plan is not None and step_plan.id == str(plan.id)
 
     def _other_team_report(self) -> SignalReport:
         other_team = Team.objects.create(organization=Organization.objects.create(name="other"))
