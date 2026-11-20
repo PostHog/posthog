@@ -265,6 +265,32 @@ class UnstorableIntegerError(NonReportableError):
         self.column = column
 
 
+class RustPanicError(Exception):
+    """A panic inside a Rust extension that the write path calls, such as delta-rs or deltalite.
+
+    pyo3 raises a panic as PanicException, which derives from BaseException. The activity's
+    failure handling catches Exception, so a panic skips the failed-attempt log and the discard of
+    staged CDP rows. This error replaces the panic and keeps its message, because the failure
+    classification in utils.py matches on that message.
+    """
+
+
+def _is_rust_panic(error: BaseException) -> bool:
+    # pyo3 creates PanicException at runtime, so no module exports it for an isinstance check.
+    error_type = type(error)
+    return error_type.__module__ == "pyo3_runtime" and error_type.__name__ == "PanicException"
+
+
+@contextlib.contextmanager
+def _rust_panics_as_errors() -> Iterator[None]:
+    try:
+        yield
+    except BaseException as error:
+        if _is_rust_panic(error):
+            raise RustPanicError(str(error)) from error
+        raise
+
+
 class DuplicateOutputColumnError(NonReportableError):
     """Both consumers of the probe address a column by name: the type wrapper rebuilds the select
     list from it, and the arrow transform looks it up on the batch. Neither can say which of two
@@ -1419,28 +1445,29 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
-                else:
-                    row_count, file_uris = await _materialize_fully(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
+                with _rust_panics_as_errors():
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
+                    else:
+                        row_count, file_uris = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.

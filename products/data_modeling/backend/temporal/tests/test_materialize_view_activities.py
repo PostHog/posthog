@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import tempfile
 import contextlib
 from collections.abc import AsyncIterator, Callable, Collection, Iterable
 from dataclasses import replace
@@ -152,6 +153,20 @@ async def _make_job(
         parent_workflow_id=parent_workflow_id,
         manually_triggered_by=manually_triggered_by,
     )
+
+
+def _rust_panic() -> BaseException:
+    # pyo3 creates PanicException at runtime, so no module exports it. delta-rs panics on a
+    # decimal buffer that is not 16-byte aligned, which gives a real one.
+    zeros = pa.array([0, 0, 0], pa.int64()).buffers()[1]
+    assert zeros is not None
+    misaligned = pa.Array.from_buffers(pa.decimal128(38, 0), 1, [None, zeros.slice(8, 16)])
+    with tempfile.TemporaryDirectory() as table_path:
+        try:
+            deltalake.write_deltalake(table_path, pa.RecordBatch.from_arrays([misaligned], names=["d"]))
+        except BaseException as panic:
+            return panic
+    raise AssertionError("delta-rs accepted a misaligned decimal buffer")
 
 
 class TestMaterializeViewManagedWarehouseActivity:
@@ -2053,7 +2068,16 @@ class TestMaterializeViewActivity:
             assert empty_parquet.metadata.num_row_groups == 0
             assert empty_parquet.schema_arrow.names == ["id", "name"]
 
-    async def test_write_failure_surfaces(self, activity_environment, ateam, anode, ajob, bucket_name, adag):
+    @pytest.mark.parametrize(
+        "write_error,expected_message",
+        [
+            pytest.param(lambda: RuntimeError("boom"), "boom", id="exception"),
+            pytest.param(_rust_panic, "not aligned with the specified scalar type", id="rust_panic"),
+        ],
+    )
+    async def test_write_failure_surfaces(
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag, write_error, expected_message
+    ):
         # regression: a failure in a per-batch write_deltalake call must surface from the
         # activity so Temporal retries, rather than being swallowed.
         names = ["a", "b"]
@@ -2071,9 +2095,11 @@ class TestMaterializeViewActivity:
 
             return async_generator()
 
+        error = write_error()
+
         def raising_write(*args, **kwargs):
             del args, kwargs
-            raise RuntimeError("boom")
+            raise error
 
         with (
             override_settings(
@@ -2093,7 +2119,7 @@ class TestMaterializeViewActivity:
                 node_id=str(anode.id),
                 job_id=str(ajob.id),
             )
-            with pytest.raises(RuntimeError, match="boom"):
+            with pytest.raises(Exception, match=expected_message):
                 await activity_environment.run(materialize_view_activity, inputs)
 
     @pytest.mark.parametrize(
