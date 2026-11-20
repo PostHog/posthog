@@ -8,6 +8,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { TodayPreviewCard, TodayPreviewCardContext } from './todayPreviewCardContext'
 import { TodayPreviewPayload } from './todayPreviewCards'
+import type { TodayRailPane } from './todayShellLogic'
 
 const TodayRailAnalyticsHoverCard = lazyWithRetry(() =>
     import('products/today/frontend/rail/TodayRailAnalyticsHoverCard').then((m) => ({
@@ -39,6 +40,19 @@ const TodayProductHoverCard = lazyWithRetry(() =>
 const TodaySessionHoverCard = lazyWithRetry(() =>
     import('./TodaySessionHoverCard').then((m) => ({ default: m.TodaySessionHoverCard }))
 )
+
+function railHoverCard(pane: TodayRailPane, onAction: () => void): JSX.Element {
+    if (pane === 'analytics') {
+        return <TodayRailAnalyticsHoverCard onAction={onAction} />
+    }
+    if (pane === 'products') {
+        return <TodayRailProductsHoverCard onAction={onAction} />
+    }
+    if (pane === 'spaces') {
+        return <TodayRailChatsHoverCard onAction={onAction} />
+    }
+    return <TodayRailHoverCard pane={pane} onAction={onAction} />
+}
 
 function TodayPreviewPositioner({
     below,
@@ -143,15 +157,7 @@ export function TodayPreviewCardProvider({
                                         >
                                             <Suspense fallback={<Skeleton className="h-24 w-full" />}>
                                                 {payload.kind === 'rail' ? (
-                                                    payload.pane === 'analytics' ? (
-                                                        <TodayRailAnalyticsHoverCard onAction={close} />
-                                                    ) : payload.pane === 'products' ? (
-                                                        <TodayRailProductsHoverCard onAction={close} />
-                                                    ) : payload.pane === 'spaces' ? (
-                                                        <TodayRailChatsHoverCard onAction={close} />
-                                                    ) : (
-                                                        <TodayRailHoverCard pane={payload.pane} onAction={close} />
-                                                    )
+                                                    railHoverCard(payload.pane, close)
                                                 ) : payload.kind === 'chat' ? (
                                                     <TodayChatHoverCard preview={payload} onAction={close} />
                                                 ) : payload.kind === 'object' ? (
