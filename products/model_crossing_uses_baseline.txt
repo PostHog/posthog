@@ -773,7 +773,6 @@ warehouse_sources.CDCSourceAdapter products.warehouse_sources.backend.facade.sou
 warehouse_sources.CDPProducer products.warehouse_sources.backend.facade.pipelines facade-wiring 1
 warehouse_sources.ClickHouseConnectionError products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.ClickHouseSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
-warehouse_sources.Config products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.CredentialAccountsMixin products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.CustomSource products.warehouse_sources.backend.facade.source_management facade-wiring 1
 warehouse_sources.CustomSourceConfig products.warehouse_sources.backend.facade.source_management facade-wiring 1
