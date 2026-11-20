@@ -185,7 +185,14 @@ export function QuillRoleDetails({ roleId }: { roleId: string }): JSX.Element | 
                                 `${fullName(membersByUuid[uuid]?.user)} ${membersByUuid[uuid]?.user.email ?? ''}`
                             }
                             value={membersToAdd}
-                            onValueChange={(next: string[]) => setMembersToAdd(next ?? [])}
+                            onValueChange={(next: string[], eventDetails) => {
+                                // Escape with the list closed would otherwise clear every selection.
+                                if (eventDetails.reason === 'escape-key') {
+                                    eventDetails.allowPropagation()
+                                    return
+                                }
+                                setMembersToAdd(next ?? [])
+                            }}
                         >
                             <MemberPicker id={pickerId} membersByUuid={membersByUuid} disabledReason={editReason} />
                         </Combobox>
