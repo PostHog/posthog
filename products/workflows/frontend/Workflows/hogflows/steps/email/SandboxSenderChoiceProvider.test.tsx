@@ -7,7 +7,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -327,7 +326,8 @@ describe('SandboxSenderChoiceProvider', () => {
 
         useSenderMocks([OWN_SENDER])
         fireEvent.click(screen.getByTestId('workflow-email-test-sender-refresh'))
-        await screen.findByTestId('workflow-email-sender-select')
+        expect(await screen.findByTestId('workflow-email-sender-select')).toHaveTextContent('PostHog test sender')
+        expect(storedStep()?.type).toEqual('email_sandbox')
 
         fireEvent.click(within(openFromPicker()).getByText('hello@example.com'))
         await waitFor(() => expect(storedStep()?.type).toEqual('function_email'))
@@ -346,14 +346,11 @@ describe('SandboxSenderChoiceProvider', () => {
             useSenderMocks(senders)
             showSenderRow(header === 'sender row')
             await renderStep(ownStep({ from: { integrationId: 7 } }))
-            await waitFor(() => {
-                expect(sandboxSenderLogic.values.sandboxStatus).toEqual(SANDBOX_STATUS)
-                expect(integrationsLogic.values.integrations?.map(({ config }) => config)).toEqual(
-                    senders.map(({ config }) => config)
-                )
-            })
+            await waitFor(() => expect(sandboxSenderLogic.values.sandboxStatus).toEqual(SANDBOX_STATUS))
 
-            expect(!!within(openFromPicker()).queryByText('PostHog test sender')).toEqual(offered)
+            const menu = openFromPicker()
+            await within(menu).findAllByText(/hello@example\.com/)
+            expect(!!within(menu).queryByText('PostHog test sender')).toEqual(offered)
         }
     )
 
