@@ -2,9 +2,13 @@ from datetime import timedelta
 
 import pytest
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from products.visual_review.backend import classifier
 from products.visual_review.backend.classifier import SnapshotClassifier, ToleratedKey
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import (
     ClassificationReason,
     ReviewState,
@@ -419,6 +423,15 @@ class TestBaselineHashStamping:
         snap = run.snapshots.get(identifier="New")
         assert snap.baseline_hash == ""
 
+    def test_stamps_a_baseline_hash_that_is_the_only_change(self, repo):
+        run = _make_run(repo, [{"identifier": "A", "current_hash": "h1"}])
+        _classify(run, {"A": "base_1"})
+
+        result = _classify(run, {"A": "base_2"})
+
+        assert result["A"].result == SnapshotResult.CHANGED
+        assert result["A"].baseline_hash == "base_2"
+
     def test_empty_baseline_skips_stamping(self, repo):
         run = _make_run(repo, [{"identifier": "A", "current_hash": "h1"}])
 
@@ -479,15 +492,19 @@ class TestMixedClassification:
             ],
         )
 
-        result = _classify(
-            run,
-            {
-                "Unchanged": "same_hash",
-                "Changed": "old_hash",
-                "Removed": "removed_hash",
-            },
-        )
+        with CaptureQueriesContext(connections[WRITER_DB]) as queries:
+            result = _classify(
+                run,
+                {
+                    "Unchanged": "same_hash",
+                    "Changed": "old_hash",
+                    "Removed": "removed_hash",
+                },
+            )
 
+        snapshot_update = f"UPDATE {RunSnapshot._meta.db_table} "
+        snapshot_updates = [q for q in queries if q["sql"].lstrip().replace('"', "").startswith(snapshot_update)]
+        assert len(snapshot_updates) == 1
         assert result["Unchanged"].result == SnapshotResult.UNCHANGED
         assert result["Unchanged"].classification_reason == ClassificationReason.EXACT
         assert result["Changed"].result == SnapshotResult.CHANGED
@@ -534,7 +551,8 @@ class TestMixedClassification:
         assert result["Tolerated"].classification_reason == ClassificationReason.TOLERATED_HASH
         assert result["Changed"].result == SnapshotResult.CHANGED
 
-    def test_large_run_all_unchanged(self, repo):
+    def test_large_run_all_unchanged(self, repo, mocker):
+        mocker.patch.object(classifier, "WRITE_BATCH_SIZE", 7)
         count = 50
         for i in range(count):
             _make_artifact(repo, f"hash_{i}")
@@ -545,3 +563,4 @@ class TestMixedClassification:
 
         assert len(result) == count
         assert all(s.result == SnapshotResult.UNCHANGED for s in result.values())
+        assert all(s.classification_reason == ClassificationReason.EXACT for s in result.values())

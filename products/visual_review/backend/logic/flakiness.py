@@ -125,7 +125,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
 
       `variant_count` stays baseline-scoped, because a `ToleratedHash` row is
       stored against a `baseline_hash` and the classifier only matches a row
-      whose hash is still the baseline (see `classify_remaining`). Variants
+      whose hash is still the baseline (see `classify_snapshot`). Variants
       recorded against a superseded baseline can never match again, so counting
       them would report churn from a snapshot that no longer exists.
 
