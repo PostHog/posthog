@@ -236,10 +236,13 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
         codeEmails: [
             [] as CodeEmailApi[],
             {
-                loadCodeEmails: async (_: void, breakpoint) =>
-                    values.currentProjectId === null
-                        ? []
-                        : await latest(listCodeEmails(String(values.currentProjectId)), breakpoint),
+                loadCodeEmails: async (_: void, breakpoint) => {
+                    if (values.currentProjectId === null) {
+                        return []
+                    }
+                    // The API client turns an empty body into null.
+                    return (await latest(listCodeEmails(String(values.currentProjectId)), breakpoint)) ?? []
+                },
             },
         ],
         templateStats: [

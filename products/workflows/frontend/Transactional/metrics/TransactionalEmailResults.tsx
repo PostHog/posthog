@@ -34,6 +34,7 @@ export function TransactionalEmailResults(): JSX.Element {
                     value={resultsQuery.workflowId}
                     onChange={(workflowId) => setResultsQuery({ workflowId })}
                     options={resultsEmailOptions}
+                    truncateText={{ maxWidthClass: 'max-w-60' }}
                     loading={resultsEmailOptions.length === 0 && (codeEmailsLoading || transactionalTemplatesLoading)}
                     data-attr="transactional-email-results-email"
                 />
