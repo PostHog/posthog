@@ -126,6 +126,11 @@ pub async fn index() -> &'static str {
 
 #[tokio::main]
 async fn main() {
+    // Without this, the first TLS handshake to the unknown token Valkey panics the refresh task.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install rustls CryptoProvider");
+
     setup_tracing();
     info!("Starting up...");
 
