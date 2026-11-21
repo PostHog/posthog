@@ -9,7 +9,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -17,7 +17,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -46,6 +46,7 @@ from posthog.storage.test.cluster_cache import reject_multi_key_commands
 from posthog.tasks.gateway_credential import (
     drain_gateway_credential_last_used_task,
     refresh_gateway_credentials,
+    reproject_organization_gateway_credentials_task,
     reproject_team_gateway_credentials_task,
     reproject_user_gateway_credentials_task,
     update_gateway_credential_cache_task,
@@ -341,6 +342,32 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         clear_gateway_credential(credential)
         self.assertIsNone(self._read_blob(cache_hash))
 
+    def test_a_team_that_resolves_late_cannot_skip_the_organization_check(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        real_lookup = gateway_credential_cache._team_for_credential
+        lookups: list[ProjectSecretAPIKey | OAuthAccessToken] = []
+
+        def miss_the_first_lookup(looked_up, memo):
+            lookups.append(looked_up)
+            return None if len(lookups) == 1 else real_lookup(looked_up, memo)
+
+        with patch.object(gateway_credential_cache, "_team_for_credential", side_effect=miss_the_first_lookup):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    @parameterized.expand([("active", True, True), ("deactivated", False, False)])
+    def test_the_loader_follows_the_organization_state(self, _name, is_active, loads):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=is_active)
+        cache_hash = credential_hash(credential)
+        assert cache_hash is not None
+
+        loaded = hypercache.load_fn(cache_hash)
+
+        self.assertEqual(isinstance(loaded, dict), loads)
+
     def test_scope_removal_clears_blob(self):
         credential, _ = self._make_secret_key([GATEWAY_SCOPE])
         project_gateway_credential(credential)
@@ -350,6 +377,82 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         credential.scopes = ["feature_flag:read"]
         project_gateway_credential(credential)
         self.assertIsNone(self._read_blob(cache_hash))
+
+    def test_a_projection_that_races_a_deactivation_leaves_no_blob(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        real_write = hypercache.set_cache_value_redis_only
+
+        def deactivate_then_write(*args, **kwargs):
+            Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+            real_write(*args, **kwargs)
+
+        with patch.object(hypercache, "set_cache_value_redis_only", side_effect=deactivate_then_write):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    def test_a_stale_clear_that_races_a_reactivation_restores_the_blob(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        real_delete = hypercache.delete_cache_entry
+
+        def reactivate_then_delete(*args, **kwargs):
+            Organization.objects.filter(pk=self.organization.pk).update(is_active=True)
+            return real_delete(*args, **kwargs)
+
+        with patch.object(hypercache, "delete_cache_entry", side_effect=reactivate_then_delete):
+            project_gateway_credential(credential)
+
+        self.assertIsNotNone(self._read_blob(credential_hash(credential)))
+
+    @parameterized.expand(
+        [
+            ("trailing_read_fails", [False, OperationalError("database unavailable")], OperationalError),
+            ("next_leading_read_fails", [False, True, OperationalError("database unavailable")], OperationalError),
+            ("never_settles", [False, True, True, False, False, True], RuntimeError),
+        ]
+    )
+    def test_an_unverified_write_is_cleared(self, _name, organization_reads, expected_error):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+
+        with (
+            patch.object(gateway_credential_cache, "_organization_deactivated", side_effect=organization_reads),
+            self.assertRaises(expected_error),
+        ):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    def test_a_write_that_errors_after_landing_is_cleared(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        real_write = hypercache.set_cache_value_redis_only
+
+        def write_then_fail(*args, **kwargs):
+            real_write(*args, **kwargs)
+            raise ConnectionError("redis timeout")
+
+        with (
+            patch.object(hypercache, "set_cache_value_redis_only", side_effect=write_then_fail),
+            self.assertRaises(ConnectionError),
+        ):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    def test_a_transient_reactivation_does_not_publish_a_blob(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+
+        with patch.object(gateway_credential_cache, "_organization_deactivated", side_effect=[True, False, True, True]):
+            project_gateway_credential(credential)
+
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    @parameterized.expand([("deactivated", False, False), ("unset", None, True)])
+    def test_oauth_authorization_follows_the_organization_state(self, _name, is_active, expected):
+        credential = self._make_oauth(GATEWAY_SCOPE)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=is_active)
+
+        self.assertIs(oauth_credential_authorized(credential, self.team), expected)
 
     def test_expired_oauth_token_clears(self):
         credential = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=-1)
@@ -515,6 +618,20 @@ class TestGatewayCredentialRefresh(GatewayCredentialTestMixin):
         self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
         self.assertIsNone(self._read_blob(credential_hash(ignored)))
 
+    def test_refresh_stops_projecting_an_org_deactivated_during_the_run(self):
+        keys = [self._make_secret_key([GATEWAY_SCOPE])[0] for _ in range(2)]
+        real_write = hypercache.set_cache_value_redis_only
+
+        def write_then_deactivate(*args, **kwargs):
+            real_write(*args, **kwargs)
+            Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+
+        with patch.object(hypercache, "set_cache_value_redis_only", side_effect=write_then_deactivate):
+            refresh_all_gateway_credentials()
+
+        written = [key for key in keys if self._read_blob(credential_hash(key)) is not None]
+        self.assertEqual(written, [])
+
     @contextmanager
     def _failing_blob_writes(
         self, fails: Callable[[int], bool], error: Callable[[], Exception] = lambda: ConnectionError("redis down")
@@ -639,6 +756,78 @@ class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
         reproject_team_gateway_credentials_task(self.team.pk)
 
         self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
+
+    @parameterized.expand([("two_keys", 2, 0), ("key_and_token", 1, 1), ("two_tokens", 0, 2)])
+    def test_reproject_organization_task_revokes_the_rest_when_one_credential_fails(self, _name, keys, tokens):
+        credentials = [self._make_secret_key([GATEWAY_SCOPE])[0] for _ in range(keys)] + [
+            self._make_oauth(GATEWAY_SCOPE) for _ in range(tokens)
+        ]
+        for credential in credentials:
+            project_gateway_credential(credential)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+
+        delete_cache_entry = hypercache.delete_cache_entry
+        attempted: list[str] = []
+
+        def fail_the_first_credential(cache_hash: str, kinds: list[str]) -> None:
+            attempted.append(cache_hash)
+            if cache_hash == attempted[0]:
+                raise ConnectionError("redis down")
+            delete_cache_entry(cache_hash, kinds=kinds)
+
+        with patch.object(hypercache, "delete_cache_entry", side_effect=fail_the_first_credential):
+            with self.assertRaises(ConnectionError):
+                reproject_organization_gateway_credentials_task(str(self.organization.pk))
+
+        still_cached = [c for c in credentials if self._read_blob(credential_hash(c)) is not None]
+        self.assertEqual(len(still_cached), 1)
+
+    @parameterized.expand([("organization_read", "_organization_deactivated"), ("team_lookup", "_team_for_credential")])
+    def test_reproject_organization_task_clears_every_credential_it_cannot_verify(self, _name, failing_read):
+        credentials = [self._make_secret_key([GATEWAY_SCOPE])[0] for _ in range(5)]
+        for credential in credentials:
+            project_gateway_credential(credential)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+
+        with patch.object(gateway_credential_cache, failing_read, side_effect=OperationalError("primary down")):
+            with self.assertRaises(OperationalError):
+                reproject_organization_gateway_credentials_task(str(self.organization.pk))
+
+        still_cached = [c for c in credentials if self._read_blob(credential_hash(c)) is not None]
+        self.assertEqual(still_cached, [])
+
+    def test_reproject_organization_task_sweeps_live_oauth_tokens_newest_first(self):
+        expiring_soon = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=1)
+        expiring_late = self._make_oauth(GATEWAY_SCOPE, expires_in_hours=2)
+        self._make_oauth(GATEWAY_SCOPE, expires_in_hours=-1)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        real_delete = hypercache.delete_cache_entry
+        cleared: list[str] = []
+
+        def record_delete(cache_hash: str, kinds: list[str]) -> None:
+            cleared.append(cache_hash)
+            real_delete(cache_hash, kinds=kinds)
+
+        with patch.object(hypercache, "delete_cache_entry", side_effect=record_delete):
+            reproject_organization_gateway_credentials_task(str(self.organization.pk))
+
+        self.assertEqual(cleared, [credential_hash(expiring_late), credential_hash(expiring_soon)])
+
+    def test_reproject_organization_task_stops_once_the_cache_keeps_failing(self):
+        for _ in range(5):
+            self._make_secret_key([GATEWAY_SCOPE])
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        attempted: list[str] = []
+
+        def fail_delete(cache_hash: str, kinds: list[str]) -> None:
+            attempted.append(cache_hash)
+            raise ConnectionError("redis down")
+
+        with patch.object(hypercache, "delete_cache_entry", side_effect=fail_delete):
+            with self.assertRaises(ConnectionError):
+                reproject_organization_gateway_credentials_task(str(self.organization.pk))
+
+        self.assertEqual(len(set(attempted)), gateway_credential_cache.REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES)
 
     @patch("posthog.tasks.gateway_credential.settings")
     def test_refresh_task_noop_without_redis_url(self, mock_settings):
@@ -979,6 +1168,84 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         team.save()
 
         mock_delay.assert_called_with(self.team.id)
+
+    @parameterized.expand([("phs", True), ("pha", True), ("phs", None)])
+    def test_organization_deactivation_clears_blob_until_the_flag_leaves_false(self, kind, restored_state):
+        credential = self._make_secret_key([GATEWAY_SCOPE])[0] if kind == "phs" else self._make_oauth(GATEWAY_SCOPE)
+        project_gateway_credential(credential)
+        cache_hash = credential_hash(credential)
+        assert self._read_blob(cache_hash) is not None
+
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch(
+                "posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+            self.organization.is_active = False
+            self.organization.save()
+            self.assertIsNone(self._read_blob(cache_hash))
+
+            self.organization.is_active = restored_state
+            self.organization.save()
+            self.assertIsNotNone(self._read_blob(cache_hash))
+
+    def test_organization_deactivation_queues_the_follow_up_before_it_projects(self):
+        self._make_secret_key([GATEWAY_SCOPE])
+        queued: list[str] = []
+
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch.object(hypercache, "delete_cache_entry", side_effect=SystemExit),
+            patch(
+                "posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay",
+                side_effect=queued.append,
+            ),
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+            self.organization.is_active = False
+            with self.assertRaises(SystemExit):
+                self.organization.save()
+
+        self.assertEqual(queued, [str(self.organization.pk)])
+
+    @parameterized.expand([("broker_up", True), ("broker_down", False)])
+    def test_organization_deactivation_queues_a_follow_up_without_failing_the_save(self, _name, broker_up):
+        self._make_secret_key([GATEWAY_SCOPE])
+        queued: list[str] = []
+
+        def enqueue(organization_id: str) -> None:
+            if not broker_up:
+                raise ConnectionError("broker down")
+            queued.append(organization_id)
+
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch(
+                "posthog.storage.gateway_credential_cache.project_gateway_credential",
+                side_effect=ConnectionError("redis down"),
+            ),
+            patch(
+                "posthog.tasks.gateway_credential.reproject_organization_gateway_credentials_task.delay",
+                side_effect=enqueue,
+            ),
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+            self.organization.is_active = False
+            self.organization.save()
+
+        self.organization.refresh_from_db()
+        self.assertIs(self.organization.is_active, False)
+        self.assertEqual(queued, [str(self.organization.pk)] if broker_up else [])
 
     @parameterized.expand([("set", None, Decimal("5")), ("clear", Decimal("5"), None)])
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")

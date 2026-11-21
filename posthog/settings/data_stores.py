@@ -935,6 +935,7 @@ if FLAGS_REDIS_URL:
     }
 
 # Dedicated cache for the ai-gateway service (if configured)
+# Saves write to it inside the request, so a stalled Redis must raise, not hold a worker.
 if AI_GATEWAY_REDIS_URL:
     from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
 
@@ -944,6 +945,8 @@ if AI_GATEWAY_REDIS_URL:
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+            "SOCKET_CONNECT_TIMEOUT": 1,
+            "SOCKET_TIMEOUT": 2,
         },
         "KEY_PREFIX": "posthog",
     }

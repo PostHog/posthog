@@ -19,9 +19,10 @@ cold Redis.
 """
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from itertools import chain
 from typing import Any
 
 from django.conf import settings
@@ -210,6 +211,10 @@ def _team_for_credential(credential: Credential, memo: "_RefreshMemo | None" = N
     return _team_by_id(team_id, memo)
 
 
+def _organization_deactivated(team_id: Any) -> bool:
+    return Team.objects.using("default").filter(pk=team_id, organization__is_active=False).exists()
+
+
 def _ttl_for_credential(credential: Credential) -> float:
     """Seconds the blob may live. OAuth: remaining token lifetime from one now() read (may
     be <=0 if it just expired → caller clears instead of writing). Secret keys never expire,
@@ -274,8 +279,15 @@ def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: in
     return memo.access(team_id, user.id, _load_access) if memo else _load_access()
 
 
-def _policy_for_credential(
-    credential: Credential, memo: "_RefreshMemo | None" = None
+def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCacheStoreMissing:
+    team = _team_for_credential(credential, None)
+    if team is None:
+        return HyperCacheStoreMissing()
+    return _policy_for_team(credential, team, None, _organization_deactivated(team.id))
+
+
+def _policy_for_team(
+    credential: Credential, team: Team, memo: "_RefreshMemo | None", organization_deactivated: bool
 ) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
@@ -284,11 +296,7 @@ def _policy_for_credential(
     OAuth — the user/expiry/scope/membership/RBAC checks. A project secret key has no user, so
     scope + resolvable-team + team-has-token is sufficient.
     """
-    if not credential_has_gateway_scope(credential):
-        return HyperCacheStoreMissing()
-
-    team = _team_for_credential(credential, memo)
-    if team is None:
+    if organization_deactivated or not credential_has_gateway_scope(credential):
         return HyperCacheStoreMissing()
 
     project_token = team.api_token
@@ -343,7 +351,7 @@ def oauth_credential_authorized(credential: OAuthAccessToken, team: Any) -> bool
     minted the token. Callers outside the projection need it because a token's
     scoped_teams is frozen at consent.
     """
-    return _oauth_authorization_ok(credential, team, team.id, None)
+    return not _organization_deactivated(team.id) and _oauth_authorization_ok(credential, team, team.id, None)
 
 
 def _resolve_credential(hash_key: str) -> Credential | None:
@@ -390,25 +398,64 @@ gateway_credential_hypercache = HyperCache(
 )
 
 
+_MAX_PROJECTION_PASSES = 3
+
+
+def _clear_unverified_gateway_credential(cache_hash: str) -> bool:
+    try:
+        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+    except Exception as e:
+        logger.warning("gateway_credential: unverified blob could not be cleared", error=str(e))
+        return False
+    return True
+
+
+def _write_or_clear_gateway_credential(
+    credential: Credential, cache_hash: str, memo: "_RefreshMemo | None", team: Team, organization_deactivated: bool
+) -> bool:
+    policy = _policy_for_team(credential, team, memo, organization_deactivated)
+    if isinstance(policy, HyperCacheStoreMissing):
+        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+        return False
+
+    ttl = _ttl_for_credential(credential)
+    if ttl <= 0:  # OAuth token expired since the policy check — clear, don't write a 1s blob
+        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
+        return False
+
+    # Floor at 1s so a sub-second-but-valid token isn't written with timeout=0,
+    # which Django treats as evict-immediately.
+    try:
+        gateway_credential_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
+    except Exception:
+        _clear_unverified_gateway_credential(cache_hash)
+        raise
+    return True
+
+
 def project_gateway_credential(credential: Credential, memo: "_RefreshMemo | None" = None) -> None:
     """Write (or clear) the credential's policy blob from current DB state."""
     cache_hash = credential_hash(credential)
     if not cache_hash:
         return
 
-    policy = _policy_for_credential(credential, memo)
-    if isinstance(policy, HyperCacheStoreMissing):
+    team = _team_for_credential(credential, memo)
+    if team is None:
         gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
         return
 
-    ttl = _ttl_for_credential(credential)
-    if ttl <= 0:  # OAuth token expired since the policy check — clear, don't write a 1s blob
-        gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
-        return
-
-    # Floor at 1s so a sub-second-but-valid token isn't written with timeout=0,
-    # which Django treats as evict-immediately.
-    gateway_credential_hypercache.set_cache_value_redis_only(cache_hash, policy, ttl=max(1, int(ttl)))
+    unverified_write = False
+    try:
+        for _ in range(_MAX_PROJECTION_PASSES):
+            deactivated = _organization_deactivated(team.id)
+            unverified_write = _write_or_clear_gateway_credential(credential, cache_hash, memo, team, deactivated)
+            if _organization_deactivated(team.id) == deactivated:
+                return
+        raise RuntimeError("Organization state did not settle during gateway credential projection")
+    except Exception:
+        if unverified_write:
+            _clear_unverified_gateway_credential(cache_hash)
+        raise
 
 
 def clear_gateway_credential(credential_or_hash: Credential | str) -> None:
@@ -469,6 +516,37 @@ def refresh_all_gateway_credentials() -> int:
         logger.warning("gateway_credential refresh skipped failing credentials", failed=failed, projected=count)
         capture_exception(first_error)
     return count
+
+
+def reproject_organization_gateway_credentials(organization_id: str) -> None:
+    credentials: Iterable[Credential] = chain(
+        ProjectSecretAPIKey.objects.using("default")
+        .select_related("team")
+        .filter(team__organization_id=organization_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE])
+        .iterator(),
+        OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
+        .using("default")
+        .select_related("user", "application")
+        .filter(application__organization_id=organization_id, expires__gt=timezone.now())
+        .order_by("-expires")
+        .iterator(),
+    )
+    first_error: Exception | None = None
+    uncleared_in_a_row = 0
+    for credential in credentials:
+        try:
+            project_gateway_credential(credential)
+        except Exception as e:
+            first_error = first_error or e
+            cache_hash = credential_hash(credential)
+            if cache_hash and not _clear_unverified_gateway_credential(cache_hash):
+                uncleared_in_a_row += 1
+                if uncleared_in_a_row >= REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES:
+                    raise
+                continue
+        uncleared_in_a_row = 0
+    if first_error is not None:
+        raise first_error
 
 
 # Gateway-owned Valkey hash (credential sha256$<hex> -> unix-second last-used),

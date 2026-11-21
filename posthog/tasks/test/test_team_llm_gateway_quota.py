@@ -1,9 +1,13 @@
+import contextlib
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.redis import get_client
@@ -98,15 +102,71 @@ class TestLLMGatewayQuotaTasks(BaseTest):
             reconcile_llm_gateway_quota_projection()
         reconcile.assert_not_called()
 
-    def test_deactivating_an_org_enqueues_the_projection(self) -> None:
+    @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
+    def test_deactivating_an_org_projects_the_blob_without_the_queue(self, mock_settings: MagicMock) -> None:
+        mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
         with (
             self.settings(AI_GATEWAY_REDIS_URL=_GATEWAY_REDIS_URL),
-            patch("posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay") as delay,
+            patch(
+                "posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
             self.captureOnCommitCallbacks(execute=True),
         ):
             self.organization.is_active = False
             self.organization.save()
-        delay.assert_called_once_with(str(self.organization.id))
+        blob = get_team_quota_blob(self.team)
+        assert blob is not None
+        self.assertTrue(blob["org_deactivated"])
+
+    @parameterized.expand(
+        [
+            ("projection_raises", ConnectionError("redis down")),
+            ("projection_writes_nothing", None),
+            ("worker_killed_mid_projection", SystemExit()),
+        ]
+    )
+    @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
+    def test_deactivation_always_queues_a_follow_up_projection(
+        self, _name: str, projection_error: BaseException | None, mock_settings: MagicMock
+    ) -> None:
+        mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
+        queued: list[str] = []
+        with (
+            contextlib.suppress(SystemExit),
+            self.settings(AI_GATEWAY_REDIS_URL=_GATEWAY_REDIS_URL),
+            patch(
+                "posthog.tasks.team_llm_gateway_quota.project_org_quota",
+                side_effect=projection_error,
+                return_value=0,
+            ),
+            patch(
+                "posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay",
+                side_effect=queued.append,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.organization.is_active = False
+            self.organization.save()
+        self.assertEqual(queued, [str(self.organization.id)])
+
+    @patch("posthog.storage.team_llm_gateway_quota_cache.settings")
+    def test_a_failed_cache_invalidation_does_not_block_the_projection(self, mock_settings: MagicMock) -> None:
+        mock_settings.AI_GATEWAY_REDIS_URL = _GATEWAY_REDIS_URL
+        with (
+            self.settings(AI_GATEWAY_REDIS_URL=_GATEWAY_REDIS_URL),
+            patch(
+                "ee.billing.quota_limiting.invalidate_llm_gateway_quota_cache",
+                side_effect=OperationalError("database unavailable"),
+            ),
+            patch("posthog.tasks.team_llm_gateway_quota.project_org_llm_gateway_quota_task.delay"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.organization.is_active = False
+            self.organization.save()
+        blob = get_team_quota_blob(self.team)
+        assert blob is not None
+        self.assertTrue(blob["org_deactivated"])
 
     def test_deactivating_an_org_enqueues_nothing_without_gateway_redis_url(self) -> None:
         with (

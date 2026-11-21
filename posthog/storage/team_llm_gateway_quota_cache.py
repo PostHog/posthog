@@ -10,13 +10,12 @@ import os
 import json
 import time
 from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from itertools import batched
 from typing import Any, NamedTuple
 
 from django.conf import settings
 from django.db.models import Q, QuerySet
-from django.db.models.functions import Coalesce
 
 import structlog
 
@@ -45,6 +44,7 @@ LLM_GATEWAY_QUOTA_DEACTIVATED_TTL = int(os.environ.get("LLM_GATEWAY_QUOTA_DEACTI
 LLM_GATEWAY_QUOTA_CACHE_EXPIRY_SORTED_SET = "llm_gateway_quota_cache_expiry"
 LLM_GATEWAY_QUOTA_RESTAMP_WINDOW_SECONDS = 7 * 24 * 60 * 60
 _MAX_PROJECTION_WRITES = 3
+_MAX_CONSECUTIVE_WRITE_FAILURES = 3
 _BATCH_SIZE = 500
 
 
@@ -109,31 +109,6 @@ def _enabled() -> bool:
     return bool(settings.AI_GATEWAY_REDIS_URL)
 
 
-def deactivated_teams_needing_a_blob() -> QuerySet[Team]:
-    """Teams of deactivated orgs that can still spend at the gateway: tokens minted within the
-    deactivated window are live, or the team has a standing gateway credential."""
-    from posthog.models.project_secret_api_key import ProjectSecretAPIKey  # noqa: PLC0415
-    from posthog.storage.gateway_credential_cache import GATEWAY_CREDENTIAL_REQUIRED_SCOPE  # noqa: PLC0415
-
-    recent = datetime.now(tz=UTC) - timedelta(seconds=LLM_GATEWAY_QUOTA_DEACTIVATED_TTL)
-    # A secret key bills its project root, so the root is the team that needs the blob.
-    key_roots = (
-        ProjectSecretAPIKey.objects.filter(scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE])
-        .annotate(root_team_id=Coalesce("team__parent_team_id", "team_id"))
-        .values("root_team_id")
-    )
-    return (
-        Team.objects.filter(organization__is_active=False)
-        .filter(
-            Q(organization__updated_at__gte=recent)
-            | Q(llm_gateway_enabled_at__isnull=False, llm_gateway_revoked_at__isnull=True)
-            | Q(id__in=key_roots)
-            | Q(organization__oauth_applications__isnull=False)
-        )
-        .distinct()
-    )
-
-
 def team_ai_credit_limited_until(team: Team) -> dict[str, float]:
     """When each AI credit bucket the team is limited on opens again, as epoch seconds. Open buckets are absent."""
     from ee.billing.quota_limiting import get_team_limited_until  # noqa: PLC0415
@@ -146,22 +121,18 @@ def _derive_blobs(teams: list[Team], now: datetime) -> dict[int, dict[str, Any] 
 
     # A NULL is_active counts as active.
     active_by_org = dict(
-        Organization.objects.filter(id__in={team.organization_id for team in teams}).values_list("id", "is_active")
+        Organization.objects.using("default")
+        .filter(id__in={team.organization_id for team in teams})
+        .values_list("id", "is_active")
     )
     active = {team.id: active_by_org.get(team.organization_id) is not False for team in teams}
-    inactive_ids = [team.id for team in teams if not active[team.id]]
-    reachable = (
-        set(deactivated_teams_needing_a_blob().filter(id__in=inactive_ids).values_list("id", flat=True))
-        if inactive_ids
-        else set()
-    )
     limited = get_teams_limited_until([team.api_token for team in teams if active[team.id]], AI_GATEWAY_QUOTA_BUCKETS)
     blobs: dict[int, dict[str, Any] | None] = {}
     for team in teams:
         if active[team.id]:
             blobs[team.id] = build_quota_blob(team.id, limited[team.api_token], True, now)
         else:
-            blobs[team.id] = build_quota_blob(team.id, {}, False, now) if team.id in reachable else None
+            blobs[team.id] = build_quota_blob(team.id, {}, False, now)
     return blobs
 
 
@@ -204,9 +175,10 @@ def _derive_or_capture(teams: list[Team], now: datetime) -> dict[int, dict[str, 
 class _Projected(NamedTuple):
     written: int
     cleared: int
+    write_failures_in_a_row: int
 
 
-def _project_batch(teams: list[Team]) -> _Projected:
+def _project_batch(teams: list[Team], failures_in_a_row: int = 0) -> _Projected:
     """Writes each blob, then re-reads and rewrites what moved. Writers race, and each re-read
     follows every earlier write, so the last write carries current state. Failures are captured
     for the reconcile, never raised into billing. Counts the blobs left written and the clears
@@ -219,10 +191,15 @@ def _project_batch(teams: list[Team]) -> _Projected:
         for team_id, blob in to_write.items():
             try:
                 _write_blob(by_id[team_id], blob, now)
-                written[team_id] = blob
             except Exception as e:
                 _capture_failure("llm_gateway_quota: projection write failed", e, team_id=team_id)
                 written.pop(team_id, None)
+                failures_in_a_row += 1
+                if failures_in_a_row >= _MAX_CONSECUTIVE_WRITE_FAILURES:
+                    break
+                continue
+            written[team_id] = blob
+            failures_in_a_row = 0
         current = _derive_or_capture([by_id[team_id] for team_id in written], datetime.now(tz=UTC))
         to_write = {
             team_id: current[team_id]
@@ -235,16 +212,19 @@ def _project_batch(teams: list[Team]) -> _Projected:
         # State kept moving; the reconcile re-projects these teams within a tick.
         logger.warning("llm_gateway_quota: projection did not settle", team_ids=sorted(to_write))
     blobs = sum(1 for blob in written.values() if blob is not None)
-    return _Projected(blobs, len(written) - blobs)
+    return _Projected(blobs, len(written) - blobs, failures_in_a_row)
 
 
 def _project_in_batches(queryset: QuerySet[Team]) -> _Projected:
-    written = cleared = 0
+    written = cleared = failures_in_a_row = 0
     for batch in batched(queryset.iterator(chunk_size=_BATCH_SIZE), _BATCH_SIZE, strict=False):
-        projected = _project_batch(list(batch))
+        projected = _project_batch(list(batch), failures_in_a_row)
         written += projected.written
         cleared += projected.cleared
-    return _Projected(written, cleared)
+        failures_in_a_row = projected.write_failures_in_a_row
+        if failures_in_a_row >= _MAX_CONSECUTIVE_WRITE_FAILURES:
+            break
+    return _Projected(written, cleared, failures_in_a_row)
 
 
 def _project_teams(queryset: QuerySet[Team]) -> _Projected:
@@ -322,7 +302,7 @@ def _missing_blobs(team_ids: set[int]) -> set[int]:
 
 
 def reconcile_quota_projection() -> dict[str, int]:
-    """Re-projects every team limited on an AI bucket or in a reachable deactivated org, and every
+    """Re-projects every team limited on an AI bucket or in a deactivated org, and every
     team with a blob, which deletes a stray one."""
     if not _enabled():
         return {"candidates": 0, "written": 0, "cleared": 0, "failed": 0}
@@ -342,16 +322,8 @@ def reconcile_quota_projection() -> dict[str, int]:
     # A deleted team is never re-projected; drop its tracking once its blob has expired.
     _untrack(have - set(have_active), expired_before=now_ts)
     deactivated_have = {team_id for team_id, active in have_active.items() if active is False}
-    # Only deactivated teams that can still spend keep a blob. A present one is left until its
-    # window, so the tick does not rewrite every deactivated team; one that can no longer spend
-    # is re-projected once, which deletes it.
-    reachable = set(deactivated_teams_needing_a_blob().values_list("id", flat=True))
-    ids = (
-        expiring
-        | (set(have_active) - deactivated_have)
-        | (deactivated_have - reachable)
-        | _missing_blobs(reachable - expiring)
-    )
+    deactivated = set(Team.objects.filter(organization__is_active=False).values_list("id", flat=True))
+    ids = expiring | (set(have_active) - deactivated_have) | _missing_blobs(deactivated - expiring)
     candidates = Team.objects.filter(Q(api_token__in=tokens) | Q(id__in=ids))
     total = candidates.count()
     projected = _project_teams(candidates)

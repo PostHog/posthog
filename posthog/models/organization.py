@@ -731,7 +731,12 @@ def remember_organization_field_changes(sender, instance: Organization, **kwargs
         if not tracked_fields:
             return
 
-    previous = sender.objects.filter(pk=instance.pk).values("is_active", "has_active_subscription").first()
+    previous = (
+        sender.objects.using(kwargs.get("using") or "default")
+        .filter(pk=instance.pk)
+        .values("is_active", "has_active_subscription")
+        .first()
+    )
     if previous is None:
         return
     if "is_active" in tracked_fields:
@@ -765,8 +770,12 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
         except Exception:
             # The reconcile re-derives a deactivated org's blobs; never fail the org save.
             logger.warning("llm_gateway_quota_projection_enqueue_failed", organization_id=str(organization_id))
+        try:
+            project_org_llm_gateway_quota_task(str(organization_id))
+        except Exception:
+            logger.warning("llm_gateway_quota_projection_failed", organization_id=str(organization_id))
 
-    transaction.on_commit(_invalidate_cache)
+    transaction.on_commit(_invalidate_cache, robust=True)
     if settings.AI_GATEWAY_REDIS_URL:
         transaction.on_commit(_project_gateway_quota)
 
