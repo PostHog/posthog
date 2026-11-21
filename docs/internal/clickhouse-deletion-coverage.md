@@ -91,6 +91,8 @@ ClickHouse has no S3 dictionary source, but that source runs its query locally, 
 
 The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
 `squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` (`sharded_events`, `sharded_events_json` and `sharded_flag_evaluations`) through an update that joins a snapshot dictionary, then deletes the overrides it just applied.
+The rewrite is a mutation on every target, including `sharded_events_json`, where deletes write patch parts.
+A patch part that updates `person_id` stops ClickHouse from using the bloom filter index on that column until a merge applies the patch.
 Skipping one of those tables is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
 `SQUASH_TARGETS` is derived from the `accepts_person_id_rewrite` capability rather than kept as a second hand-written list, so a target registered for deletion and then forgotten by the squash is not expressible.
 Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that decision gets written down.
