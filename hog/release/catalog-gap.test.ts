@@ -16,7 +16,6 @@ import {
     releaseBuildInputs,
     releaseCheckoutPatterns,
     UNNAMED_IMPORT,
-    untriggeredFiles,
 } from './catalog-gap'
 
 const GENERATED = 'services/mcp/src/tools/generated/actions.ts'
@@ -640,30 +639,6 @@ test('lists compiled files the release build checkout leaves out', () => {
         'products/notebooks/frontend/widget.ts',
         'products/error_tracking/mcp/tools.ts',
         'services/mcp/src/cli/library.ts',
-    ])
-})
-
-test('lists compiled files the workflow trigger paths miss', () => {
-    const workflow = [
-        'on:',
-        '    pull_request:',
-        '        paths:',
-        "            - 'hog/**'",
-        "            - 'products/*/mcp/**'",
-        "            - 'products/notebooks/*'",
-        "            - '!products/notebooks/*.md'",
-    ].join('\n')
-    const compiled = new Set([
-        'hog/src/cli.ts',
-        'products/product_analytics/mcp/apps/chart.ts',
-        'products/notebooks/notebook-widget-catalog.json',
-        'products/notebooks/README.md',
-        'products/notebooks/frontend/widget.ts',
-    ])
-
-    expect(untriggeredFiles(compiled, workflow)).toEqual([
-        'products/notebooks/README.md',
-        'products/notebooks/frontend/widget.ts',
     ])
 })
 

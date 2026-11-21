@@ -17,7 +17,6 @@ import { parseJsonOrUndefined } from '../src/core/json'
 export const CATALOG_TOOLS_JSON = 'services/mcp/schema/cli-catalog-tools.json'
 export const CATALOG_SCHEMA = 'services/mcp/src/cli/catalog/schema.ts'
 const RELEASE_WORKFLOW = '.github/workflows/release-hog.yml'
-const CHANGESET_WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
 const RELEASE_BUILD_JOB = 'build'
 const GLOB_PATHSPEC = ':(glob)'
 const HOG_SOURCE_PATHS = 'HOG_SOURCE_PATHS'
@@ -135,7 +134,6 @@ const Metafile = z.object({
         })
     ),
 })
-const TriggerWorkflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
 const Workflow = z.object({
     env: z.record(z.string(), z.unknown()).optional(),
     jobs: z.record(
@@ -916,18 +914,6 @@ export function compiledFiles(metafiles: { path: string; root: string }[], repoR
     return { files, importers, specifiers }
 }
 
-// Patterns apply in order, and a later `!pattern` excludes again, as GitHub applies them.
-export function untriggeredFiles(compiled: Set<string>, workflow: string): string[] {
-    const patterns = TriggerWorkflow.parse(parseYaml(workflow)).on.pull_request.paths
-    return [...compiled].filter(
-        (file) =>
-            !patterns.reduce((matched, pattern) => {
-                const negated = pattern.startsWith('!')
-                return new Bun.Glob(negated ? pattern.slice(1) : pattern).match(file) ? !negated : matched
-            }, false)
-    )
-}
-
 // The workflow passes HOG_SOURCE_PATHS to the approver check as extra paths, so they must cover everything the
 // release builds from.
 export function hogSourcePaths(workflow: string): string[] {
@@ -1077,7 +1063,6 @@ if (import.meta.main) {
         carried: builtCatalogTools(repoRoot),
     })
     const patterns = releaseCheckoutPatterns(readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8'))
-    const untriggered = untriggeredFiles(compiled.files, readFileSync(resolve(repoRoot, CHANGESET_WORKFLOW), 'utf8'))
     const releasePaths = values['release-paths']
         ? readFileSync(values['release-paths'], 'utf8').split('\n').filter(Boolean)
         : undefined
@@ -1086,7 +1071,6 @@ if (import.meta.main) {
     process.stdout.write(
         `${JSON.stringify({
             ...result,
-            untriggered,
             outsideReleaseCheckout: outsideCheckout(compiled.files, patterns),
             outsideSourcePaths: outsideReleasePaths(buildsFrom, hogSourcePaths(releaseWorkflow)),
             ...(releasePaths && { outsideReleasePaths: outsideReleasePaths(buildsFrom, releasePaths) }),
