@@ -126,6 +126,7 @@ from products.cohorts.backend.cohort_enablement import (
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import (
     COHORT_REALTIME_SWITCH_FIELDS,
+    COHORT_RECALCULATION_FIELDS,
     DEFAULT_COHORT_INSERT_BATCH_SIZE,
     PENDING_POPULATION_CLEARED,
     REALTIME_COHORT_MAX_PERSON_COUNT,
@@ -2640,7 +2641,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     mode=population_mode,
                 )
             if cohort.is_static:
-                cohort.save(update_fields=update_fields)
+                cohort.save(
+                    update_fields=[field for field in update_fields if field not in COHORT_RECALCULATION_FIELDS]
+                )
             else:
                 dynamic_update_fields = [*update_fields, "is_calculating"]
                 if was_static:

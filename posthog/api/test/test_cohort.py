@@ -926,6 +926,22 @@ email@example.org
             ("renamed", CohortPopulationMode.APPEND, marker, claimed_at),
         )
 
+    def test_static_cohort_rename_from_stale_read_keeps_recalculation_fields(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True, count=0, errors_calculating=0)
+        stale_for_rename = Cohort.objects.get(pk=cohort.pk)
+        finished_at = datetime(2026, 11, 7, 12, 30, tzinfo=UTC)
+        Cohort.objects.filter(pk=cohort.pk).update(count=42, last_calculation=finished_at, errors_calculating=1)
+
+        with patch.object(CohortViewSet, "get_object", return_value=stale_for_rename):
+            response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"name": "renamed"})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        cohort.refresh_from_db()
+        self.assertEqual(
+            (cohort.name, cohort.count, cohort.last_calculation, cohort.errors_calculating),
+            ("renamed", 42, finished_at, 1),
+        )
+
     @parameterized.expand(
         [
             (
