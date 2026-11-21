@@ -554,6 +554,23 @@ class TestScoutReportAPI(APIBaseTest):
             ("edit_report", "literal_newline_escapes", run.skill_name),
         ]
 
+    @parameterized.expand([("emit", False), ("both", True), (None, False)])
+    def test_emit_pr_style_title_hint_follows_the_run_report_channel(
+        self, report_channel: str | None, tells_to_edit: bool
+    ) -> None:
+        run = _make_run(self.team)
+        if report_channel is not None:
+            run.metadata = {**(run.metadata or {}), "report_channel": report_channel}
+            run.save(update_fields=["metadata"])
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(title="fix(checkout): p99 regressed"), format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        (hint,) = response.json()["quality_hints"]
+        assert hint["check_id"] == "pr_style_title"
+        assert ("Rewrite it with edit_report" in hint["message"]) is tells_to_edit
+
     def test_edit_report_writes_typed_links_and_rejects_a_cycle(self) -> None:
         # A scout that splits one finding into a stack has to be able to record the order, and the
         # cycle guard has to hold on this path too, not only on the REST action.
