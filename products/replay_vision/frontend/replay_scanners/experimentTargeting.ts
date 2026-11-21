@@ -58,12 +58,17 @@ export interface ScannerExperimentScope {
 }
 
 /**
- * The experiment a scanner watches, wherever it is stored. The experiment type keeps it in
- * `scanner_config`; older types use `experiment_targeting`. Mirrors the backend's `experiment_scope()`.
+ * The experiment a scanner watches, wherever it is stored: the `scope` column first, then the two
+ * stores it replaces. Mirrors the backend's `stored_scope()`, including its order, so a row the
+ * backfill or the save mirror has given a scope reads the same here as it does there.
  */
 export function scannerExperimentScope(scanner: ReplayScanner | null | undefined): ScannerExperimentScope | null {
     if (!scanner) {
         return null
+    }
+    const scope = scanner.scope
+    if (scope?.kind === 'experiment' && scope.experiment_id) {
+        return { experimentId: scope.experiment_id, variants: scope.variants ?? null }
     }
     if (scanner.scanner_type === 'experiment') {
         const { experiment_id, variants } = scanner.scanner_config
