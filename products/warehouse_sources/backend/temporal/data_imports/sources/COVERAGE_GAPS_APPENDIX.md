@@ -14965,7 +14965,7 @@ Note: The published OpenAPI snapshot supplied all GET operations, parameters, an
 
 ## Thinkific — gaps
 
-Today (13): `chapters`, `collections`, `contents`, `coupons`, `course_reviews`, `courses`, `enrollments`, `groups`, `instructors`, `orders`, `products`, `promotions`, `users`
+Today (17): `bundle_courses`, `bundle_enrollments`, `chapters`, `collection_products`, `collections`, `contents`, `coupons`, `course_reviews`, `courses`, `custom_profile_field_definitions`, `enrollments`, `groups`, `instructors`, `orders`, `products`, `promotions`, `users`
 
 Diffed against: <https://developers.thinkific.com/openapi/thinkific-admin-api-v1.yaml>
 
@@ -14973,10 +14973,10 @@ Diffed against: <https://developers.thinkific.com/openapi/thinkific-admin-api-v1
 - [x] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course, the lookup needed to interpret any lesson-level progress (high)
 - [x] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the finest grain of course content and the join target for completion analysis (high)
 - [x] `GET /course_reviews (+ /course_reviews/{id})` — student ratings and review text per course, a headline course-quality metric (high)
-- [ ] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium)
-- [ ] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium)
-- [ ] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium)
-- [ ] `GET /bundles/{id}/enrollments` — enrollments scoped to a bundle, distinguishing bundle-driven from direct enrollment (medium)
+- [x] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium) → `collection_products` (full refresh, fan-out over `collections`; `/collection_memberships/{id}` is POST/DELETE only)
+- [x] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium) → `custom_profile_field_definitions` (full refresh)
+- [x] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium) → `bundle_courses` (full refresh, fan-out over `products` with `productable_type` Bundle)
+- [x] `GET /bundles/{id}/enrollments` — enrollments scoped to a bundle, distinguishing bundle-driven from direct enrollment (medium) → `bundle_enrollments` (incremental on `updated_at`, fan-out over `products` with `productable_type` Bundle)
 - [ ] `GET /products/{id}/related` — product relationship graph used for cross-sell reporting (low)
 - [ ] `GET /groups/{group_id}/analysts` — who administers each synced group, a small membership lookup (low)
 - [ ] `GET /product_publish_requests` — publication request state per product, useful for content-pipeline reporting (low)
