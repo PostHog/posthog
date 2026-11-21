@@ -31,6 +31,9 @@ from products.customer_analytics.backend.presentation.views.customer_tasks impor
     CustomerTaskListQuerySerializer,
     CustomerTaskUpdateSerializer,
 )
+from products.customer_analytics.backend.presentation.views.workflow_customer_tasks import (
+    WorkflowCustomerTaskCreateSerializer,
+)
 
 
 class CustomerTaskSerializerTest(SimpleTestCase):
@@ -97,6 +100,9 @@ class CustomerTaskSerializerTest(SimpleTestCase):
             ("not json", "renewal", None),
             ("not a list", '"renewal"', None),
             ("not strings", "[1]", None),
+            ("too many names", json.dumps(["renewal"] * 101), None),
+            ("name too long", json.dumps(["x" * 256]), None),
+            ("normalized name too long", json.dumps(["İ" * 128]), None),
             ("a list of names", '["renewal", "urgent"]', ("renewal", "urgent")),
         ]
     )
@@ -111,6 +117,21 @@ class CustomerTaskSerializerTest(SimpleTestCase):
             return
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["tags"] == expected
+
+    @parameterized.expand(
+        [
+            ("create", CustomerTaskCreateSerializer, {"name": "Follow up"}),
+            ("update", CustomerTaskUpdateSerializer, {}),
+            ("workflow", WorkflowCustomerTaskCreateSerializer, {"name": "Follow up"}),
+        ]
+    )
+    def test_write_rejects_tags_that_exceed_the_normalized_length(
+        self, _name: str, serializer_class: type[serializers.Serializer], fields: dict[str, str]
+    ) -> None:
+        serializer = serializer_class(data={**fields, "tags": ["İ" * 128]}, partial=True)
+
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
 
     @parameterized.expand(
         [
@@ -512,6 +533,25 @@ class CustomerTaskAPI(APIBaseTest):
             {"before": ["renewal", "urgent"], "after": ["expansion", "renewal"]},
             {"before": ["expansion", "renewal"], "after": None},
         ]
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="TaggedItem").exists()
+
+    def test_deleting_an_account_removes_access_granted_by_task_assignment(self) -> None:
+        account = Account.objects.for_team(self.team.id).create(team_id=self.team.id, name="Example account")
+        assignee = User.objects.create_and_join(self.organization, "assignee@example.com", "testpassword")
+        created = self.client.post(
+            self.url,
+            {"name": "Follow up", "account_id": str(account.id), "assigned_to_id": assignee.id, "tags": ["renewal"]},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        task_id = created.json()["id"]
+        grants = AccessControl.objects.filter(team=self.team, resource="customer_task", resource_id=task_id)
+        assert grants.exists()
+
+        deleted = self.client.delete(f"/api/projects/{self.team.id}/accounts/{account.id}/")
+
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT, deleted.content
+        assert not grants.exists()
 
     def test_create_with_an_invalid_tag_saves_no_task(self) -> None:
         response = self.client.post(self.url, {"name": "Renewal call", "tags": ["x" * 256]}, format="json")
@@ -526,21 +566,41 @@ class CustomerTaskAPI(APIBaseTest):
             ("set", {"tags": ["expansion"], "tags_mode": "set"}, ["expansion"]),
         ]
     )
-    def test_bulk_update_applies_tags_by_mode(
-        self, _name: str, updates: dict[str, object], expected: list[str]
-    ) -> None:
+    def test_bulk_update_applies_tags_by_mode(self, mode: str, updates: dict[str, object], expected: list[str]) -> None:
         task_ids = [
             self.client.post(self.url, {"name": f"Task {i}", "tags": ["renewal"]}, format="json").json()["id"]
             for i in range(2)
         ]
 
-        response = self.client.post(
-            f"{self.url}bulk_update/", {"task_ids": task_ids, "updates": updates}, format="json"
-        )
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post(
+                f"{self.url}bulk_update/", {"task_ids": task_ids, "updates": updates}, format="json"
+            )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"updated_count": 2}
         assert [self.client.get(f"{self.url}{task_id}/").json()["tags"] for task_id in task_ids] == [expected] * 2
+        if mode == "add":
+            tag_lookups = [query["sql"] for query in queries if 'FROM "posthog_tag"' in query["sql"]]
+            assert len(tag_lookups) <= 2, tag_lookups
+
+    def test_bulk_add_rejects_the_batch_if_any_task_would_exceed_the_tag_limit(self) -> None:
+        full_task = self.client.post(
+            self.url, {"name": "Full", "tags": [f"tag-{index:03}" for index in range(100)]}, format="json"
+        )
+        empty_task = self.client.post(self.url, {"name": "Empty"}, format="json")
+        original_tasks = [empty_task.json(), full_task.json()]
+
+        response = self.client.post(
+            f"{self.url}bulk_update/",
+            {"task_ids": [task["id"] for task in original_tasks], "updates": {"tags": ["new"]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert [self.client.get(f"{self.url}{task['id']}/").json()["tags"] for task in original_tasks] == [
+            task["tags"] for task in original_tasks
+        ]
 
     @parameterized.expand(
         [

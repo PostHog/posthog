@@ -1515,6 +1515,10 @@ class CustomerTaskArchived(Exception):
     pass
 
 
+class CustomerTaskTagLimitExceeded(Exception):
+    pass
+
+
 class CustomerTaskAccessDenied(Exception):
     pass
 

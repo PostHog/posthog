@@ -4100,12 +4100,12 @@ export const CustomerTaskActivityTypeEnumApi = {
 /**
  * Value before the change.
  */
-export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | null
+export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | string[] | null
 
 /**
  * Value after the change.
  */
-export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | null
+export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | string[] | null
 
 export interface CustomerTaskChangeApi {
     /** Semantic task field that changed. */
@@ -5714,6 +5714,7 @@ export type CustomerTasksListParams = {
     /**
      * JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.
      * @minLength 1
+     * @maxLength 306402
      */
     tags?: string
 }

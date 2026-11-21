@@ -18,7 +18,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH, BulkUpdateTagsAction
+from posthog.api.tagged_item import TAG_NAME_MAX_LENGTH, BulkUpdateTagsAction
 from posthog.models import Team, User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.paging import Page, PageRequest
@@ -26,7 +26,11 @@ from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api, contracts
-from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
+from products.customer_analytics.backend.facade.constants import (
+    CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG,
+    CUSTOMER_TASK_MAX_TAGS,
+)
+from products.customer_analytics.backend.presentation.customer_task_tags import create_customer_task_tags_field
 
 _ASSIGNED_TO_ERROR = "assigned_to must be me, unassigned, a project member ID, or role:<role UUID>."
 # pinned: the frontend writes the same prefix into links and API calls
@@ -48,15 +52,6 @@ _ORDERING_CHOICES = [
     "created_at",
     "-created_at",
 ]
-
-
-def _create_tags_field(help_text: str) -> serializers.ListField:
-    return serializers.ListField(
-        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
-        required=False,
-        max_length=BULK_UPDATE_TAGS_MAX_TAGS,
-        help_text=help_text,
-    )
 
 
 class CustomerTaskUserSerializer(serializers.Serializer):
@@ -127,7 +122,7 @@ class CustomerTaskCreateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         required=False, default="open", choices=api.CUSTOMER_TASK_STATUS_CHOICES, help_text="Initial task status."
     )
-    tags = _create_tags_field("Tag names for the task, up to 100.")
+    tags = create_customer_task_tags_field("Tag names for the task, up to 100.")
 
     def validate_name(self, value: str) -> str:
         value = value.strip()
@@ -158,7 +153,7 @@ class CustomerTaskUpdateFieldsSerializer(serializers.Serializer):
         choices=api.CUSTOMER_TASK_STATUS_CHOICES,
         help_text="Replacement task status.",
     )
-    tags = _create_tags_field("Replacement tag names, up to 100. An empty list removes every tag.")
+    tags = create_customer_task_tags_field("Replacement tag names, up to 100. An empty list removes every tag.")
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         if isinstance(data, dict):
@@ -232,7 +227,17 @@ class CustomerTaskBulkUpdateErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(read_only=True, help_text="Reason the batch could not be updated.")
 
 
-@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}, {"type": "object"}]})
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "object"},
+            {"type": "array", "items": {"type": "string"}},
+        ]
+    }
+)
 class CustomerTaskChangeValueField(serializers.JSONField):
     pass
 
@@ -276,6 +281,7 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
     has_due_at = serializers.BooleanField(required=False, help_text="Filter tasks by whether a deadline exists.")
     tags = serializers.CharField(
         required=False,
+        max_length=CUSTOMER_TASK_MAX_TAGS * (12 * TAG_NAME_MAX_LENGTH + 4) + 2,
         help_text='JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.',
     )
     ordering = serializers.ChoiceField(
@@ -310,11 +316,11 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
     def validate_tags(self, value: str) -> tuple[str, ...]:
         try:
             tags = json.loads(value)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
             raise serializers.ValidationError("Must be a JSON-encoded list of strings.") from None
         if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
             raise serializers.ValidationError("Must be a JSON-encoded list of strings.")
-        return tuple(tags)
+        return tuple(create_customer_task_tags_field(allow_blank=True).run_validation(tags))
 
     def validate_statuses(self, value: str) -> tuple[str, ...]:
         values = tuple(part.strip() for part in value.split(","))
@@ -621,6 +627,11 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if isinstance(exc, contracts.CustomerTaskArchived):
             return Response({"detail": "Restore this task before editing it."}, status=status.HTTP_409_CONFLICT)
+        if isinstance(exc, contracts.CustomerTaskTagLimitExceeded):
+            return Response(
+                {"detail": f"Tasks can have up to {CUSTOMER_TASK_MAX_TAGS} tags. Remove a tag before adding more."},
+                status=status.HTTP_409_CONFLICT,
+            )
         if isinstance(exc, contracts.CustomerTaskBulkUpdateConflict):
             return Response(
                 {"detail": "Could not update the tasks. No tasks changed. Refresh the page and try again."},

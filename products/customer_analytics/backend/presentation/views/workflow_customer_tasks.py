@@ -8,7 +8,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.jwt import PosthogJwtAudience
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
@@ -21,6 +20,7 @@ from products.customer_analytics.backend.facade.workflow_customer_tasks import (
     WorkflowCustomerTasksDisabled,
     create_customer_task_from_workflow,
 )
+from products.customer_analytics.backend.presentation.customer_task_tags import create_customer_task_tags_field
 from products.workflows.backend.facade.api import WorkflowNotFound
 
 
@@ -45,12 +45,7 @@ class WorkflowCustomerTaskCreateSerializer(serializers.Serializer):
         help_text="PostHog user ID of the assigned project member.",
     )
     due_at = serializers.DateTimeField(required=False, allow_null=True, help_text="ISO 8601 task deadline.")
-    tags = serializers.ListField(
-        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH),
-        required=False,
-        max_length=BULK_UPDATE_TAGS_MAX_TAGS,
-        help_text="Tag names for the task, up to 100.",
-    )
+    tags = create_customer_task_tags_field("Tag names for the task, up to 100.")
     idempotency_key = serializers.CharField(
         max_length=128, help_text="Invocation and action key from the workflow worker."
     )

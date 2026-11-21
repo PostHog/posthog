@@ -1130,6 +1130,8 @@ export const customerTasksListQueryLimitMax = 100
 export const customerTasksListQueryOffsetDefault = 0
 export const customerTasksListQueryOffsetMin = 0
 
+export const customerTasksListQueryTagsMax = 306402
+
 export const CustomerTasksListQueryParams = () => zod.object({
     account_id: zod.string().optional().describe('Filter by account UUID.'),
     archive_state: zod
@@ -1169,6 +1171,7 @@ export const CustomerTasksListQueryParams = () => zod.object({
     tags: zod
         .string()
         .min(1)
+        .max(customerTasksListQueryTagsMax)
         .optional()
         .describe(
             'JSON-encoded list of tag names, such as [\"renewal\", \"urgent\"]. Returns tasks with any of the tags.'

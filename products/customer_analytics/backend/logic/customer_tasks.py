@@ -24,6 +24,7 @@ from products.access_control.backend.facade import (
     contracts as access_control_contracts,
 )
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.customer_analytics.backend.constants import CUSTOMER_TASK_MAX_TAGS
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.contracts import (
     CustomerTaskAccessDenied,
@@ -33,6 +34,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomerTaskAssigneeInvalid,
     CustomerTaskInvalidTransition,
     CustomerTaskRoleNotFound,
+    CustomerTaskTagLimitExceeded,
 )
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.models.customer_task import CustomerTaskActivityType, CustomerTaskStatus
@@ -78,11 +80,13 @@ def _task_queryset(team_id: int) -> QuerySet[CustomerTask]:
     )
 
 
-def list_customer_task_tag_names(task: CustomerTask) -> list[str]:
+def _get_customer_task_tagged_items(task: CustomerTask) -> list[TaggedItem]:
     tagged_items = getattr(task, "prefetched_tags", None)
-    if tagged_items is None:
-        tagged_items = list(task.tagged_items.select_related("tag"))
-    return sorted(tagged_item.tag.name for tagged_item in tagged_items)
+    return tagged_items if tagged_items is not None else list(task.tagged_items.select_related("tag"))
+
+
+def list_customer_task_tag_names(task: CustomerTask) -> list[str]:
+    return sorted(item.tag.name for item in _get_customer_task_tagged_items(task))
 
 
 def _parse_tag_names(tags: Iterable[str]) -> list[str]:
@@ -92,31 +96,47 @@ def _parse_tag_names(tags: Iterable[str]) -> list[str]:
 def _resolve_tag_names(current: list[str], tags: Iterable[str], tags_mode: str) -> list[str]:
     requested = set(_parse_tag_names(tags))
     if tags_mode == "add":
-        return sorted(set(current) | requested)
+        resolved = set(current) | requested
+        if len(resolved) > max(len(current), CUSTOMER_TASK_MAX_TAGS):
+            raise CustomerTaskTagLimitExceeded()
+        return sorted(resolved)
     if tags_mode == "remove":
         return sorted(set(current) - requested)
     return sorted(requested)
 
 
-def _set_customer_task_tags(task: CustomerTask, tag_names: list[str]) -> None:
-    """Replace a task's tags. Rows are written one by one so each change lands in the activity log."""
-    kept: list[TaggedItem] = []
+def _set_customer_task_tags(team_id: int, updates: Iterable[tuple[CustomerTask, list[str]]]) -> None:
+    """Use bulk writes so tag changes appear only in the access-checked task history."""
+    pending: list[tuple[CustomerTask, dict[str, TaggedItem], set[str]]] = []
+    names_to_add: set[str] = set()
+    removed_ids: set[UUID] = set()
+    removed_tag_ids: set[UUID] = set()
+    for task, names in updates:
+        requested = set(names)
+        kept = {}
+        for item in _get_customer_task_tagged_items(task):
+            if item.tag.name in requested:
+                kept[item.tag.name] = item
+            else:
+                removed_ids.add(item.pk)
+                removed_tag_ids.add(item.tag_id)
+        missing = requested - kept.keys()
+        names_to_add.update(missing)
+        pending.append((task, kept, missing))
+
     # Concurrent transactions must insert shared tags in the same order to avoid deadlocks.
-    for name in sorted(tag_names):
-        tag, _ = Tag.objects.get_or_create(name=name, team_id=task.team_id)
-        tagged_item, _ = task.tagged_items.get_or_create(tag_id=tag.id)
-        tagged_item.tag = tag
-        kept.append(tagged_item)
-    removed = list(
-        task.tagged_items.exclude(tag__name__in=tag_names).select_related("tag__team").prefetch_related("uuid_object")
-    )
-    for tagged_item in removed:
-        tagged_item.delete()
-    if removed:
-        Tag.objects.filter(
-            team_id=task.team_id, id__in=[tagged_item.tag_id for tagged_item in removed], tagged_items__isnull=True
-        ).delete()
-    task.prefetched_tags = kept  # type: ignore[attr-defined]
+    tags = {name: Tag.objects.get_or_create(name=name, team_id=team_id)[0] for name in sorted(names_to_add)}
+    added: list[TaggedItem] = []
+    for task, kept, missing in pending:
+        new_items = [TaggedItem.for_content_object(tags[name], task) for name in missing]
+        added.extend(new_items)
+        task.prefetched_tags = [*kept.values(), *new_items]  # type: ignore[attr-defined]
+
+    if added:
+        TaggedItem.objects.bulk_create(added)
+    if removed_ids:
+        TaggedItem.objects.filter(team_id=team_id, pk__in=removed_ids).delete()
+        Tag.objects.filter(team_id=team_id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
 
 
 def _visible_account_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[Account]:
@@ -376,7 +396,11 @@ def _apply_ordering(queryset: QuerySet[CustomerTask], ordering: str) -> QuerySet
 
 
 def remove_customer_task_assignee_access_for_account(*, team: Team, account_id: UUID) -> None:
-    tasks = _task_queryset(team.id).filter(account_id=account_id, assigned_to__isnull=False)
+    tasks = (
+        CustomerTask.objects.for_team(team.id)
+        .select_related("assigned_to")
+        .filter(account_id=account_id, assigned_to__isnull=False)
+    )
     for task in tasks.iterator():
         _set_customer_task_assignee_access(
             task=task,
@@ -482,7 +506,8 @@ def create_customer_task(
             completed_by=completed_by,
             created_by=actor,
         )
-        _set_customer_task_tags(task, tag_names)
+        if tag_names:
+            _set_customer_task_tags(team.id, [(task, tag_names)])
         _set_customer_task_assignee_access(
             task=task,
             organization_id=team.organization_id,
@@ -688,7 +713,7 @@ def update_customer_task(
         if write is not None:
             task.save()
             if write.tag_names is not None:
-                _set_customer_task_tags(task, write.tag_names)
+                _set_customer_task_tags(team.id, [(task, write.tag_names)])
             _update_customer_task_access(team=team, write=write, actor=actor)
             write.activity.save()
         return task
@@ -764,9 +789,9 @@ def bulk_update_customer_tasks(
                     "updated_at",
                 ],
             )
-            for write in writes:
-                if write.tag_names is not None:
-                    _set_customer_task_tags(write.task, write.tag_names)
+            _set_customer_task_tags(
+                team.id, ((write.task, write.tag_names) for write in writes if write.tag_names is not None)
+            )
             _bulk_update_customer_task_access(team=team, writes=writes, actor=actor)
             CustomerTaskActivity.objects.for_team(team.id).bulk_create([write.activity for write in writes])
             return len(writes)

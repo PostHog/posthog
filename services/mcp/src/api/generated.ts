@@ -34643,12 +34643,12 @@ export namespace Schemas {
     /**
      * Value before the change.
      */
-    export type CustomerTaskChangeBefore = string | number | boolean | { [key: string]: unknown } | null;
+    export type CustomerTaskChangeBefore = string | number | boolean | { [key: string]: unknown } | string[] | null;
 
     /**
      * Value after the change.
      */
-    export type CustomerTaskChangeAfter = string | number | boolean | { [key: string]: unknown } | null;
+    export type CustomerTaskChangeAfter = string | number | boolean | { [key: string]: unknown } | string[] | null;
 
     export interface CustomerTaskChange {
       /** Semantic task field that changed. */
@@ -139957,6 +139957,7 @@ export namespace Schemas {
     /**
      * JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.
      * @minLength 1
+     * @maxLength 306402
      */
     tags?: string;
     };
