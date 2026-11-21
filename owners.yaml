@@ -324,3 +324,8 @@ rules:
     - match:
           - '/frontend/src/layout/navigation-3000/sidepanel/panels/max/*.test.*'
       owners: team-surfaces
+    - match:
+          - '/frontend/src/lib/utils/sensitiveUrlRedaction.*'
+          - '/posthog/invite_analytics.py'
+          - '/posthog/test/test_invite_analytics.py'
+      owners: team-security

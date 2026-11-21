@@ -71,6 +71,7 @@ export function TwoFactorReset(): JSX.Element {
                     size="large"
                     data-attr="login-to-reset"
                     to={loginRedirectUrl}
+                    className="ph-no-capture"
                 >
                     Log in to continue
                 </LemonButton>

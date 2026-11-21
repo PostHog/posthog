@@ -36,7 +36,7 @@ function QuillInviteLink({ invite }: { invite: OrganizationInviteType }): JSX.El
             data-attr="invite-link"
         >
             <IconCopy />
-            <span className="truncate">{url}</span>
+            <span className="truncate ph-no-capture">{url}</span>
         </Button>
     )
 }

@@ -4,6 +4,7 @@ import { useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { countryCodeToFlag } from 'lib/utils/country'
+import { replayBlockClassFor } from 'lib/utils/sensitiveUrlRedaction'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { otherRegionLoginUrl, otherRegionOf } from 'scenes/authentication/shared/otherRegion'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
@@ -43,6 +44,8 @@ export function OtherRegionNotice({
     const search = new URLSearchParams(location.search)
     search.set('email', email)
     const switchUrl = otherRegionLoginUrl(preflight.region, `?${search.toString()}`)
+    // The query keeps `next`, which holds the token of a two-factor reset link.
+    const blockClass = replayBlockClassFor(switchUrl)
 
     if (reason === 'no_account') {
         return (
@@ -52,7 +55,10 @@ export function OtherRegionNotice({
                     to={switchUrl}
                     disableClientSideRouting
                     data-attr={SWITCH_DATA_ATTR[reason]}
-                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                    className={clsx(
+                        'font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning',
+                        blockClass
+                    )}
                 >
                     {countryCodeToFlag(otherRegion)} {otherRegion} region
                 </Link>
@@ -71,7 +77,10 @@ export function OtherRegionNotice({
                 to={switchUrl}
                 disableClientSideRouting
                 data-attr={SWITCH_DATA_ATTR[reason]}
-                className="inline-block mt-1 font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                className={clsx(
+                    'inline-block mt-1 font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning',
+                    blockClass
+                )}
             >
                 Switch to {otherRegion} →
             </Link>

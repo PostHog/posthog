@@ -1,3 +1,4 @@
+import time
 from copy import deepcopy
 from typing import Any
 
@@ -20,6 +21,7 @@ from posthog.ph_client import (
     default_before_send,
     get_client,
     ph_scoped_capture,
+    redact_sensitive_url_segments,
     self_hosted_capture_reaches_posthog,
 )
 from posthog.tasks.ai_observability_usage_report import get_ph_client as get_ai_observability_usage_report_client
@@ -379,3 +381,123 @@ class TestGetClientTestGuard(SimpleTestCase):
 
     def test_unknown_region_returns_nothing(self) -> None:
         self.assertIsNone(get_client(region="MARS"))
+
+
+USER_UUID = "0190f1a2-3b4c-7d5e-8f60-718293a4b5c6"
+INVITE_ID = "0190f1a2-9c8b-7a69-8584-736251403f2e"
+RESET_TOKEN = "cxmplq-0123456789abcdef0123456789abcdef"
+
+
+class TestSensitiveUrlRedaction(SimpleTestCase):
+    @parameterized.expand([("cloud", False), ("self_hosted", True)])
+    def test_default_before_send_redacts_sensitive_url_segments(self, _name: str, self_hosted: bool) -> None:
+        before_send = default_before_send(private_scout_capture=False, self_hosted=self_hosted)
+        message = {
+            "event": "user signed up",
+            "distinct_id": "synthetic",
+            "properties": {
+                "$current_url": f"https://us.posthog.com/api/signup/{INVITE_ID}/",
+                "$request_path": f"/api/signup/{INVITE_ID}/",
+                "http_referer": f"https://us.posthog.com/reset/{USER_UUID}/{RESET_TOKEN}",
+                "nested": {"urls": [f"/api/reset_2fa/{USER_UUID}/?token={RESET_TOKEN}"]},
+                "social_login": f"/login/google-oauth2/?invite_id={INVITE_ID}",
+                "long_query": f"/api/reset/{USER_UUID}/?x={'a' * 300}&token={RESET_TOKEN}",
+                "kept": 1,
+            },
+        }
+
+        result = before_send(message)
+
+        assert result is not None
+        self.assertEqual(
+            result["properties"],
+            {
+                "$current_url": "https://us.posthog.com/api/signup/:id/",
+                "$request_path": "/api/signup/:id/",
+                "http_referer": f"https://us.posthog.com/reset/{USER_UUID}/:token",
+                "nested": {"urls": [f"/api/reset_2fa/{USER_UUID}/?token=:token"]},
+                "social_login": "/login/google-oauth2/?invite_id=:id",
+                "long_query": f"/api/reset/{USER_UUID}/?x={'a' * 300}&token=:token",
+                "kept": 1,
+            },
+        )
+
+    def test_default_before_send_keeps_other_urls(self) -> None:
+        before_send = default_before_send(private_scout_capture=False, self_hosted=False)
+        properties = {
+            "$current_url": "https://us.posthog.com/api/signup/precheck",
+            "$request_path": f"/verify_email/{USER_UUID}",
+        }
+
+        result = before_send({"event": "query executed", "properties": dict(properties)})
+
+        assert result is not None
+        self.assertEqual(result["properties"], properties)
+
+    def test_message_without_sensitive_urls_is_not_copied(self) -> None:
+        message = {
+            "event": "query executed",
+            "properties": {"$current_url": "https://us.posthog.com/project/1", "nested": {"urls": ["/signup"]}},
+        }
+
+        self.assertIs(redact_sensitive_url_segments(message), message)
+
+    def test_long_text_without_a_token_is_scanned_in_linear_time(self) -> None:
+        text = f"/reset/{USER_UUID}/?next=" * 20_000
+        message = {"event": "$exception", "properties": {"token": text}}
+
+        start = time.monotonic()
+        result = redact_sensitive_url_segments(message)
+
+        self.assertLess(time.monotonic() - start, 2)
+        self.assertIs(result, message)
+
+    def test_request_context_is_redacted(self) -> None:
+        client = posthoganalytics.Client(
+            "test-key",
+            send=False,
+            enable_local_evaluation=False,
+            before_send=default_before_send(private_scout_capture=False, self_hosted=False),
+        )
+        messages = []
+        before_send = client.before_send
+
+        def record(message):
+            result = before_send(message)
+            if result is not None:
+                messages.append(result)
+            return result
+
+        client.before_send = record
+        try:
+            with posthoganalytics.new_context(capture_exceptions=False):
+                posthoganalytics.tag("$current_url", f"https://us.posthog.com/api/signup/{INVITE_ID}/")
+                client.capture("user joined organization", distinct_id="synthetic")
+        finally:
+            client.shutdown()
+
+        self.assertEqual(messages[0]["properties"]["$current_url"], "https://us.posthog.com/api/signup/:id/")
+
+    @override_settings(CLOUD_DEPLOYMENT="US", SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
+    def test_scoped_capture_is_redacted(self) -> None:
+        client = get_client("US", send=False, disabled=False, enable_local_evaluation=False)
+        assert client is not None
+        capture_filter = client.before_send
+        messages: list[dict[str, Any]] = []
+
+        def record(message: dict[str, Any]) -> dict[str, Any] | None:
+            result = capture_filter(message)
+            if result is not None:
+                messages.append(result)
+            return result
+
+        client.before_send = record
+        with patch("posthog.ph_client.get_client", return_value=client):
+            with ph_scoped_capture() as capture:
+                capture(
+                    distinct_id="synthetic",
+                    event="heatmap prewarm wasted",
+                    properties={"url": f"https://us.posthog.com/reset/{USER_UUID}/{RESET_TOKEN}"},
+                )
+
+        self.assertEqual(messages[0]["properties"]["url"], f"https://us.posthog.com/reset/{USER_UUID}/:token")

@@ -28,7 +28,7 @@ function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.El
     return invite.is_expired ? (
         <b>Expired – please recreate</b>
     ) : (
-        <CopyToClipboardInline data-attr="invite-link" description="invite link" iconPosition="start">
+        <CopyToClipboardInline data-attr="invite-link" description="invite link" iconPosition="start" isValueSensitive>
             {url}
         </CopyToClipboardInline>
     )
@@ -126,7 +126,8 @@ export function InvitesTable(): JSX.Element {
         <LemonTable
             dataSource={invites}
             columns={columns}
-            rowKey="id"
+            // LemonTable writes the row key into the DOM, and the invite id is the secret that accepts the invite.
+            rowKey={(_, index) => index}
             loading={invitesLoading}
             data-attr="invites-table"
             emptyState="There are no outstanding invitations. You can invite another team member above."
