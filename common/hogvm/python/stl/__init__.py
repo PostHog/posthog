@@ -182,7 +182,8 @@ def jsonStringify(args: list[Any], team: Optional["Team"], stdout: Optional[list
         return obj
 
     if len(args) > 1 and isinstance(args[1], int) and args[1] > 0:
-        return json.dumps(json_safe(args[0]), indent=args[1])
+        # Every line repeats the indent, so an unbounded one multiplies the output. 10 is JSON.stringify's cap.
+        return json.dumps(json_safe(args[0]), indent=min(args[1], 10))
     return json.dumps(json_safe(args[0]))
 
 
@@ -888,6 +889,22 @@ def _guard_sequence_length(length: int) -> None:
         raise HogVMMemoryExceededException(memory_limit=MAX_MEMORY, attempted_memory=(length + 1) * COST_PER_UNIT)
 
 
+def _replace_all_memory_cost(args: list[Any]) -> int:
+    text, needle, replacement = args
+    if not (isinstance(text, str) and isinstance(needle, str) and isinstance(replacement, str)):
+        return 0
+    return COST_PER_UNIT + len(text) + text.count(needle) * max(0, len(replacement) - len(needle))
+
+
+def _array_string_concat_memory_cost(args: list[Any]) -> int:
+    arr = args[0]
+    sep = args[1] if len(args) > 1 else ""
+    if not (isinstance(arr, list) and isinstance(sep, str)):
+        return 0
+    # The items are already counted; the separator is the one input the join repeats.
+    return COST_PER_UNIT + sum(len(item) for item in arr if isinstance(item, str)) + max(0, len(arr) - 1) * len(sep)
+
+
 def _range_memory_cost(args: list[Any]) -> int:
     length = args[0] if len(args) == 1 else args[1] - args[0]
     return (max(0, length) + 1) * COST_PER_UNIT
@@ -1057,6 +1074,7 @@ STL: dict[str, STLFunction] = {
         fn=lambda args, team, stdout, timeout: args[0].replace(args[1], args[2]) if args[0] is not None else None,
         minArgs=3,
         maxArgs=3,
+        memory_cost=_replace_all_memory_cost,
     ),
     "position": STLFunction(
         fn=lambda args, team, stdout, timeout: (
@@ -1149,7 +1167,9 @@ STL: dict[str, STLFunction] = {
     "arraySort": STLFunction(fn=arraySort, minArgs=1, maxArgs=None),
     "arrayReverse": STLFunction(fn=arrayReverse, minArgs=1, maxArgs=1),
     "arrayReverseSort": STLFunction(fn=arrayReverseSort, minArgs=1, maxArgs=None),
-    "arrayStringConcat": STLFunction(fn=arrayStringConcat, minArgs=1, maxArgs=2),
+    "arrayStringConcat": STLFunction(
+        fn=arrayStringConcat, minArgs=1, maxArgs=2, memory_cost=_array_string_concat_memory_cost
+    ),
     "has": STLFunction(fn=has, minArgs=2, maxArgs=2),
     "now": STLFunction(fn=lambda args, team, stdout, timeout: now(), minArgs=0, maxArgs=1),
     "toUnixTimestamp": STLFunction(

@@ -1,5 +1,6 @@
 import json
 import time
+import tracemalloc
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any, Optional, cast
@@ -21,12 +22,14 @@ from common.hogvm.python.operation import (
 from common.hogvm.python.stl import _MAX_SEQUENCE_LENGTH, STL, _guard_sequence_length, sleep
 from common.hogvm.python.utils import (
     COST_PER_UNIT,
+    MAX_INT_BITS,
     MAX_MEMORY,
     MAX_REGEX_PATTERN_LENGTH,
     HogVMException,
     HogVMMemoryExceededException,
     HogVMRuntimeExceededException,
     UncaughtHogVMException,
+    calculate_cost,
 )
 
 
@@ -419,6 +422,56 @@ class TestBytecodeExecute:
         _guard_sequence_length(_MAX_SEQUENCE_LENGTH)
         with pytest.raises(HogVMMemoryExceededException):
             _guard_sequence_length(_MAX_SEQUENCE_LENGTH + 1)
+
+    @parameterized.expand([("'x' * 10000000",), ("10000000 * 'x'",), ("[1] * 10000000",)])
+    def test_repeating_a_sequence_is_refused_before_allocation(self, expression: str) -> None:
+        # The peak shows the guard fired before Python built the result. A count big enough to matter would take the
+        # test process down without it.
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        tracemalloc.start()
+        try:
+            with pytest.raises(HogVMMemoryExceededException):
+                execute_bytecode(bytecode, {}, memory_limit=2048)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert peak < 1_000_000
+
+    def test_repeating_a_sequence_counts_its_overhead_once(self):
+        response = execute_bytecode(create_bytecode(parse_expr("'x' * 8000000")).bytecode, {})
+        assert len(response.result) == 8000000
+
+    def test_a_string_cannot_be_formatted_with_modulo(self):
+        bytecode = create_bytecode(parse_expr("'%1000s' % 'x'")).bytecode
+        with pytest.raises(HogVMException, match="Cannot use % on a string"):
+            execute_bytecode(bytecode, {})
+
+    @parameterized.expand(
+        [
+            ("replaceAll", "replaceAll('" + "x" * 1000 + "', 'x', '" + "y" * 100 + "')"),
+            ("arrayStringConcat", "arrayStringConcat(range(200), '" + "x" * 1000 + "')"),
+        ]
+    )
+    def test_a_growing_stl_call_is_refused_before_it_builds_a_result_past_the_limit(
+        self, name: str, expression: str
+    ) -> None:
+        bytecode = create_bytecode(parse_expr(expression)).bytecode
+        with patch.object(STL[name], "fn", side_effect=AssertionError("Built the result")):
+            with pytest.raises(HogVMMemoryExceededException):
+                execute_bytecode(bytecode, memory_limit=50_000)
+
+    def test_json_stringify_caps_the_indent_like_javascript(self):
+        response = execute_bytecode(create_bytecode(parse_expr("jsonStringify([1], 1000000)")).bytecode, {})
+        assert len(response.result) == len(json.dumps([1], indent=10))
+
+    def test_multiplying_integers_past_the_bit_cap_is_refused(self):
+        big = 2 ** (MAX_INT_BITS // 2)
+        bytecode = [_H, VERSION, op.INTEGER, big, op.INTEGER, big, op.MULTIPLY, op.RETURN]
+        with pytest.raises(HogVMException, match="Integer too large"):
+            execute_bytecode(bytecode, {})
+
+    def test_a_large_integer_costs_its_size(self):
+        assert calculate_cost(2**MAX_INT_BITS) == calculate_cost(1) + (MAX_INT_BITS + 1 - 64) // 8
 
     @parameterized.expand([("range(0, 200)",), ("(range)(0, 200)",)])
     def test_range_checks_remaining_memory_before_allocating(self, expression: str) -> None:
