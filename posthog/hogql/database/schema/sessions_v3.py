@@ -24,7 +24,10 @@ from posthog.hogql.database.schema.sessions_v1 import (
     finalize_aggregation,
     select_session_property_values,
 )
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV3
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    SessionMinTimestampWhereClauseExtractorV3,
+    build_global_sessions_join_filter,
+)
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
@@ -479,6 +482,15 @@ def select_from_sessions_table_v3(
     )
 
 
+# session_id_v7 is declared a string here but is a UInt128 in the sessions subquery, so a string constant is
+# coerced to a number and its LEFT JOIN default 0 can match.
+LAZY_SESSIONS_STRING_FIELDS = frozenset(
+    name
+    for name, field in LAZY_SESSIONS_FIELDS.items()
+    if isinstance(field, StringDatabaseField) and name != "session_id_v7"
+)
+
+
 class SessionsTableV3(LazyTable):
     description: str = (
         "Aggregated user sessions (one row per session), with entry/exit URLs, attribution, device/geo info, "
@@ -532,8 +544,17 @@ def join_events_table_to_sessions_table_v3(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from events")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context))
+    sessions_query = select_from_sessions_table_v3(join_to_add.fields_accessed, node, context)
+    join_expr = ast.JoinExpr(table=sessions_query)
     join_expr.join_type = "LEFT JOIN"
+    # A plain join from a distributed events table runs the sessions subquery on every events shard, and each
+    # shard reads all the sessions in the date range. GLOBAL runs it once and sends the result to the shards,
+    # which is only cheap when a session filter keeps that result small.
+    if context.modifiers.sessionFilterGlobalJoin:
+        session_filter = build_global_sessions_join_filter(node, join_to_add, context, LAZY_SESSIONS_STRING_FIELDS)
+        if session_filter is not None:
+            sessions_query.having = session_filter
+            join_expr.join_type = "GLOBAL LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
