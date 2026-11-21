@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.core import mail
+from django.core.mail import EmailMultiAlternatives
 from django.test import override_settings
 from django.utils import timezone
 
@@ -419,7 +420,10 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             flow.refresh_from_db()
         assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
         paused_flow = sibling if paused == ["sibling"] else self.flow
-        delivered = [(message.subject, message.to, str(message.alternatives[0][0])) for message in mail.outbox]
+        delivered: list[tuple[str, list[str], str]] = []
+        for message in mail.outbox:
+            assert isinstance(message, EmailMultiAlternatives)
+            delivered.append((str(message.subject), message.to, str(message.alternatives[0][0])))
         assert [
             (
                 next((label for label in ("needs attention", "is paused") if label in subject), subject),
