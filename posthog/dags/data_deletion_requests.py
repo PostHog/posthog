@@ -1,7 +1,7 @@
 import json
 import time
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -317,18 +317,52 @@ def _property_removal_where(
 QueryLogger = Callable[[str, str], None]
 
 
+@frozen
+class _TypedColumns:
+    """The ``(name, is_nullable)`` typed columns that a request's properties reach."""
+
+    from_properties: list[tuple[str, bool]]
+    from_person_properties: list[tuple[str, bool]]
+
+
+def _affected_typed_columns(
+    client: Client, deletion_request: DeletionRequestContext, target: DeletionTarget, log: QueryLogger | None = None
+) -> _TypedColumns:
+    """The typed columns of ``target`` that derive from the request's properties and person properties.
+
+    A table with no typed columns, such as events_json, has no column comments and so yields nothing.
+    On the native JSON tables a typed column can read temporary_properties. A request lists those keys
+    in its properties, so discovery matches columns that read either column.
+    """
+    mat_cols: list[tuple[str, bool]] = []
+    person_mat_cols: list[tuple[str, bool]] = []
+    if deletion_request.properties:
+        mat_cols = _get_affected_mat_columns(
+            client,
+            target.read_table,
+            deletion_request.properties,
+            table_columns=("properties", "temporary_properties"),
+            log=log,
+        )
+    if deletion_request.person_properties:
+        person_mat_cols = _get_affected_mat_columns(
+            client, target.read_table, deletion_request.person_properties, table_columns=("person_properties",), log=log
+        )
+    return _TypedColumns(from_properties=mat_cols, from_person_properties=person_mat_cols)
+
+
 def _get_affected_mat_columns(
     client: Client,
     table: str,
     properties: list[str],
-    table_column: str = "properties",
+    table_columns: Sequence[str] = ("properties",),
     log: QueryLogger | None = None,
 ) -> list[tuple[str, bool]]:
     """Query a specific shard for materialized columns matching deleted properties.
 
     Returns ``(column_name, is_nullable)`` for columns whose comment follows the
     ``column_materializer::<table_column>::<prop>`` convention.  Pass
-    ``table_column="person_properties"`` to discover columns materialised from
+    ``table_columns=("person_properties",)`` to discover columns materialised from
     ``events.person_properties``.  Comments live on the distributed ``events``
     table while the DEFAULT expression lives on ``sharded_events`` (see
     ``materialize()`` in ee/clickhouse/materialized_columns), so we cannot
@@ -356,7 +390,7 @@ def _get_affected_mat_columns(
     result: list[tuple[str, bool]] = []
     for col_name, comment, is_nullable in rows:
         details = MaterializedColumnDetails.from_column_comment(comment)
-        if details.table_column == table_column and details.property_name in target_props:
+        if details.table_column in table_columns and details.property_name in target_props:
             result.append((col_name, bool(is_nullable)))
     return result
 
@@ -632,8 +666,17 @@ def _refuse_property_removal_unsweepable(
     """
 
     def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
+        # A typed column keeps a removed value after its JSON key is gone, so the count reads it too.
+        # Discovery reads a data node, as the count does. A host without the read table finds no columns.
+        typed = cluster.any_host_by_role(
+            partial(_affected_typed_columns, deletion_request=deletion_request, target=target), NodeRole.DATA
+        ).result()
         return _property_removal_where(
-            deletion_request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema
+            deletion_request,
+            mat_cols=typed.from_properties,
+            person_mat_cols=typed.from_person_properties,
+            inserted_at_max=marker_str,
+            json_schema=target.stores_native_json_properties,
         )
 
     _refuse_unsweepable(
@@ -1246,11 +1289,11 @@ def _holds_marker(deletion_request: DeletionRequestContext) -> bool:
     ).exists()
 
 
-def _compile_predicate(deletion_request: DeletionRequestContext, json_schema: bool) -> tuple[str, dict]:
+def _compile_predicate(deletion_request: DeletionRequestContext, target: DeletionTarget) -> tuple[str, dict]:
     # HogQL compilation reaches into the Django ORM (Team lookup), so it runs on the op's own thread
     # before the shard work is dispatched to a cluster worker thread. Property access lowers
     # differently on the legacy and native-JSON tables, hence one compilation per schema.
-    return compile_hogql_predicate(deletion_request, use_new_events_schema=json_schema)
+    return compile_hogql_predicate(deletion_request, use_new_events_schema=target.uses_new_events_schema)
 
 
 @frozen
@@ -1276,26 +1319,15 @@ def _shard_predicate(
     the same ``inserted_at < marker`` bound, so they cannot drift. Drift either deletes rows the copy
     does not hold or leaves originals behind.
     """
-    # Materialized columns only exist on the legacy table; the JSON table reads properties
-    # through JSON subcolumns.
-    mat_cols: list[tuple[str, bool]] = []
-    person_mat_cols: list[tuple[str, bool]] = []
-    if not target.uses_new_events_schema:
-        if deletion_request.properties:
-            mat_cols = _get_affected_mat_columns(
-                client, target.read_table, deletion_request.properties, table_column="properties", log=log
-            )
-        if deletion_request.person_properties:
-            person_mat_cols = _get_affected_mat_columns(
-                client, target.read_table, deletion_request.person_properties, table_column="person_properties", log=log
-            )
+    typed = _affected_typed_columns(client, deletion_request, target, log)
+    mat_cols, person_mat_cols = typed.from_properties, typed.from_person_properties
     sql, params = _property_removal_where(
         deletion_request,
         mat_cols=mat_cols,
         person_mat_cols=person_mat_cols,
         inserted_at_max=marker_str,
         hogql_compiled=hogql_compiled,
-        json_schema=target.uses_new_events_schema,
+        json_schema=target.stores_native_json_properties,
     )
     return _ShardPredicate(sql=sql, params=params, mat_cols=mat_cols + person_mat_cols)
 
@@ -1619,7 +1651,9 @@ def get_property_removal_shards(
     for placement in rewritten:
         for shard in sorted(placement.cluster.shards):
             target = PropertyRemovalTarget(
-                table=placement.target.data_table, shard=shard, json_schema=placement.target.uses_new_events_schema
+                table=placement.target.data_table,
+                shard=shard,
+                json_schema=placement.target.stores_native_json_properties,
             )
             yield dagster.DynamicOutput(target, mapping_key=target.mapping_key)
 
@@ -1715,7 +1749,7 @@ def copy_property_removal_shard(
     ClickHouse, and the write overwrites each monthly file.
     """
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
+    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1740,7 +1774,7 @@ def delete_property_removal_shard(
     """
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
+    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
     # Another removal on the team may rewrite these rows once the marker is gone, so a stale run must not
@@ -1954,7 +1988,7 @@ def verify_property_removal_shard(
     """Fail when this shard kept an original, lost a uuid, or holds a target property on a cleaned row."""
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
+    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -2097,7 +2131,7 @@ def verify_property_removal(
             partial(
                 check,
                 target=target,
-                hogql_compiled=_compile_predicate(deletion_request, target.uses_new_events_schema),
+                hogql_compiled=_compile_predicate(deletion_request, target),
             ),
             NodeRole.DATA,
         )

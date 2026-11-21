@@ -34,6 +34,7 @@ from posthog.models.event.sql import (
 from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
     FLAG_EVALUATIONS_JSON_DATA_TABLE,
+    FLAG_EVALUATIONS_JSON_TABLE,
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TTL_DAYS,
@@ -108,6 +109,10 @@ class DeletionTarget:
     # a named property that the table keeps survives the rewrite. A property removal refuses while a
     # target without it holds rows the request names.
     accepts_property_rewrite: bool = False
+    # True where the table stores properties in native JSON columns, which makes property removal read
+    # and rewrite them as JSON. Independent of hogql_schema: a table can store JSON and still take no
+    # HogQL predicate, as flag evaluations JSON does.
+    stores_native_json_properties: bool = False
     # Whether the person-overrides squash rewrites person_id here. A merge moves a distinct_id to
     # another person, and a later deletion names only the survivor, so a table the squash skips
     # keeps its rows on the absorbed person and no sweep ever matches them (#93035).
@@ -212,6 +217,7 @@ EVENTS_JSON = DeletionTarget(
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
     hogql_schema=HogQLSchema.NATIVE_JSON,
+    stores_native_json_properties=True,
     accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
     # Dual-written from the same events, so its uuids are the legacy table's.
@@ -244,8 +250,32 @@ FLAG_EVALUATIONS = DeletionTarget(
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
 
+# The same flag calls on the native-JSON events schema, written next to FLAG_EVALUATIONS while both exist.
+# Every sweep treats it like that table, except that property removal rewrites its properties as JSON and
+# resets flag_key, response and request_id. uncopied_rows_hogql_table stays unset because the HogQL table
+# for FLAG_EVALUATIONS reads String properties. An event removal with a predicate therefore refuses while
+# rows here have no events copy.
+FLAG_EVALUATIONS_JSON = DeletionTarget(
+    data_table=FLAG_EVALUATIONS_JSON_DATA_TABLE,
+    read_table=FLAG_EVALUATIONS_JSON_TABLE,
+    optional=True,
+    cluster_setting="CLICKHOUSE_FLAGS_CLUSTER",
+    node_role=NodeRole.FLAGS,
+    accepts_property_rewrite=True,
+    accepts_person_id_rewrite=True,
+    stores_native_json_properties=True,
+    # Same sharding key as sharded_flag_evaluations, so a flag call and its event share a shard while both
+    # tables are on one cluster. A request with a HogQL predicate refuses when they are on different clusters.
+    copied_from=EVENTS_DATA_TABLE(),
+    stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
+    ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
+    # The table has the serialization settings that patch parts need, and sweeps the same JSON columns
+    # as sharded_events_json.
+    uses_patch_parts=True,
+)
+
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
-PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
+PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS, FLAG_EVALUATIONS_JSON)
 
 # The targets deletes_job sweeps and deletion requests verify by default. Leaving a target out
 # keeps it registered while its rows stay in place; see COVERAGE_DOC.
@@ -268,12 +298,7 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
 # on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
-#
-# sharded_flag_evaluations_json is exempt only until the next change in its stack registers it as a
-# sweep target. Migration 0392 creates it and its consumer on every deployment that is not deployed
-# cloud, so a self-hosted deployment that forks flag calls holds personal data in it that no sweep
-# reaches. The two changes must merge together.
-TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), FLAG_EVALUATIONS_JSON_DATA_TABLE})
+TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"
