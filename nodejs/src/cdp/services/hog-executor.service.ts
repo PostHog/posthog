@@ -85,6 +85,8 @@ export type HogExecutorExecuteOptions = {
      */
     asyncFunctionsNames?: string[]
     onAsyncFunction?: HogExecutorAsyncFunctionHandler
+    /** Event link for the completion log, for callers whose `event.url` global is not the PostHog event page. */
+    eventUrl?: string
 }
 
 /**
@@ -395,7 +397,7 @@ export class HogExecutorService {
                     messages.push(`Sync: ${formatNumber(execRes.state.syncDuration)}ms.`)
                     messages.push(`Mem: ${formatNumber(execRes.state.maxMemUsed / 1024)}kb.`)
                     messages.push(`Ops: ${execRes.state.ops}.`)
-                    messages.push(`Event: '${globals.event.url}'`)
+                    messages.push(`Event: '${options.eventUrl ?? globals.event.url}'`)
 
                     hogFunctionStateMemory.observe(execRes.state.maxMemUsed / 1024)
 
