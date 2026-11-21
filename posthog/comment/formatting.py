@@ -30,12 +30,18 @@ _RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
-_RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
+_RE_MD_ESCAPE_INLINE = re.compile(r"[\\`*_\[\]]|!(?=\[)")
+_RE_MD_ESCAPE_LINE_START = re.compile(
+    r"^([ \t]*)(#{1,6}(?=[ \t]|$)|[-+](?=[ \t]|$)|-{2,}(?=[ \t]*$)|\d{1,9}[.)](?=[ \t]|$))", re.MULTILINE
+)
+_RE_MD_ESCAPE_TABLE_ROW = re.compile(r"^([ \t]*)([-:|][-:|\t ]*)$", re.MULTILINE)
 _RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 _RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
 _RE_MD_FENCED_CODE = re.compile(r"(^```[^\n]*\n.*?^```)", re.MULTILINE | re.DOTALL)
+# A code delimiter is an unescaped backtick: the serializer escapes every backtick it writes as prose.
+_RE_MD_CODE = re.compile(r"(^```[^\n]*\n.*?^```|(?<!\\)``[^\n]+?``|(?<!\\)`[^`\n]+`)", re.MULTILINE | re.DOTALL)
 _RE_MD_TRAILING_LINE_SPACES = re.compile(r"[ \t]+\n")
 _RE_BLANK_LINE_RUN = re.compile(r"\n{2,}")
 
@@ -439,8 +445,53 @@ def _normalize_single_newlines_to_markdown(text: str) -> str:
     return _RE_SINGLE_NEWLINE.sub("  \n", text)
 
 
+def _escape_line_start_markdown(match: re.Match) -> str:
+    indent, marker = match.group(1), match.group(2)
+    if marker[0].isdigit():
+        # A numbered marker takes the backslash on its delimiter, because `\1` is not an escape.
+        return f"{indent}{marker[:-1]}\\{marker[-1]}"
+    return f"{indent}\\{marker}"
+
+
+def _escape_table_delimiter_row(match: re.Match) -> str:
+    indent, row = match.group(1), match.group(2)
+    # A table needs a pipe and a hyphen in the row, so a rule of only hyphens starts nothing.
+    if "|" not in row or "-" not in row:
+        return match.group(0)
+    # The backslash takes a character `unescape_markdown` knows, so a leading `:` keeps it forever.
+    cut = min(row.index("|"), row.index("-"))
+    return f"{indent}{row[:cut]}\\{row[cut:]}"
+
+
 def _escape_markdown(text: str) -> str:
-    return _RE_MD_ESCAPE.sub(r"\\\1", text)
+    """
+    Escape the markdown characters that would otherwise change how the text renders.
+
+    The set stays narrow because this markdown is also read as plain text, by the text/plain part
+    of a reply email and by the widget's conversation list. Every backslash added here shows up for
+    the customer on those surfaces, so a character is escaped only where markdown acts on it. This
+    must match `escapeMarkdown` in the support composer (SupportEditor.tsx).
+
+    The two line regexes anchor on this string, which is one text node rather than a whole line, so
+    a marker in a node that follows a mark on the same line still takes a backslash it does not need.
+    """
+    text = _RE_MD_ESCAPE_INLINE.sub(r"\\\g<0>", text)
+    text = _RE_MD_ESCAPE_LINE_START.sub(_escape_line_start_markdown, text)
+    return _RE_MD_ESCAPE_TABLE_ROW.sub(_escape_table_delimiter_row, text)
+
+
+def unescape_markdown(text: str) -> str:
+    """
+    Remove markdown escapes, for a reader that gets the text as plain text.
+
+    The character set is the wide one the composer used before, so a reply stored then still
+    unescapes now. Code keeps every backslash: the serializer escapes no code span and no fenced
+    block, so a backslash inside one belongs to the code and changes what it means.
+    """
+    parts = _RE_MD_CODE.split(text)
+    for index in range(0, len(parts), 2):
+        parts[index] = _RE_MD_ESCAPED_CHAR.sub(r"\1", parts[index])
+    return "".join(parts)
 
 
 def _escape_alt_text(text: str) -> str:
@@ -657,6 +708,24 @@ def _serialize_text_node_to_markdown(node: JSON) -> str:
     return text
 
 
+def _escape_bang_before_links(chunks: list[str]) -> None:
+    """
+    Escape a ``!`` that ends one chunk where the next chunk opens a generated link.
+
+    A link's ``[`` is written after the node before it was escaped, so the ``!`` would read as an
+    image opener and take the link's label as alt text. Every ``[`` the text itself held is already
+    escaped, so an unescaped one is always the serializer's own. An empty chunk, such as an image
+    with no source, leaves the ``!`` next to the link and is skipped rather than treated as a gap.
+    """
+    previous = -1
+    for index, chunk in enumerate(chunks):
+        if not chunk:
+            continue
+        if previous >= 0 and chunk.startswith("[") and chunks[previous].endswith("!"):
+            chunks[previous] = f"{chunks[previous][:-1]}\\!"
+        previous = index
+
+
 def _serialize_inline_nodes_to_markdown(nodes: list[JSON], include_images: bool = True) -> str:
     chunks: list[str] = []
     for node in nodes:
@@ -670,6 +739,7 @@ def _serialize_inline_nodes_to_markdown(nodes: list[JSON], include_images: bool 
             if src:
                 alt = _escape_alt_text(node.get("attrs", {}).get("alt", "image"))
                 chunks.append(f"![{alt}]({src})")
+    _escape_bang_before_links(chunks)
     return "".join(chunks)
 
 

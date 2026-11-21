@@ -15,7 +15,9 @@ from posthog.comment.formatting import (
     rich_content_to_markdown,
     rich_content_to_slack_payload,
     slack_to_content_and_rich_content,
+    unescape_markdown,
 )
+from posthog.comment.tiptap import markdown_to_tiptap_doc
 from posthog.models import Organization, User
 
 
@@ -700,6 +702,76 @@ class TestRichContentBlockNodes(SimpleTestCase):
     )
     def test_rich_content_to_markdown_block_nodes(self, _name: str, doc: dict, expected: str) -> None:
         assert rich_content_to_markdown(doc) == expected
+
+    @parameterized.expand(
+        [
+            ("prose_punctuation_kept_clean", "Use v2.5 (not v1), e.g. query-time properties!", None),
+            ("pipe_in_prose_kept_clean", "Open Settings | Project | Danger zone", None),
+            ("formatting_characters_escaped", "2 * 3, a_b, [label]", "2 \\* 3, a\\_b, \\[label\\]"),
+            ("numbered_line_start_escaped", "1. not a list", "1\\. not a list"),
+            ("bullet_line_start_escaped", "- not a bullet", "\\- not a bullet"),
+            ("heading_line_start_escaped", "# not a heading", "\\# not a heading"),
+            ("piped_table_delimiter_row_escaped", "| --- | --- |", "\\| --- | --- |"),
+            ("bare_table_delimiter_row_escaped", ":--- | ---:", ":\\--- | ---:"),
+        ]
+    )
+    def test_rich_content_to_markdown_escapes_only_what_markdown_acts_on(
+        self, _name: str, text: str, expected: str | None
+    ) -> None:
+        assert rich_content_to_markdown({"type": "doc", "content": [_paragraph(text)]}) == (expected or text)
+
+    @parameterized.expand(
+        [
+            (
+                "wide_set_a_stored_reply_carries",
+                "e\\.g\\. query\\-time \\(v2\\) \\{a\\} \\| 2 \\* 3\\!",
+                "e.g. query-time (v2) {a} | 2 * 3!",
+            ),
+            ("code_span_keeps_its_backslash", "Match `^\\d+\\.\\d+$` in \\(v2\\)", "Match `^\\d+\\.\\d+$` in (v2)"),
+            ("double_tick_span_keeps_its_backslash", "Use `` `\\d` `` in \\(v2\\)", "Use `` `\\d` `` in (v2)"),
+            (
+                "escaped_backtick_is_not_a_code_span",
+                "Wrap it in \\`\\` and drop \\(v2\\)",
+                "Wrap it in `` and drop (v2)",
+            ),
+            (
+                "fenced_block_keeps_its_backslash",
+                "Try \\(this\\):\n```\nre.sub(r'\\.', '', s)\n```",
+                "Try (this):\n```\nre.sub(r'\\.', '', s)\n```",
+            ),
+        ]
+    )
+    def test_unescape_markdown_clears_prose_and_keeps_code(self, _name: str, escaped: str, expected: str) -> None:
+        assert unescape_markdown(escaped) == expected
+
+    def test_escaped_markdown_survives_a_tiptap_round_trip(self) -> None:
+        assert rich_content_to_markdown(markdown_to_tiptap_doc("2 \\* 3 and a\\_b")) == "2 \\* 3 and a\\_b"
+
+    @parameterized.expand(
+        [
+            ("link_directly_after_the_bang", []),
+            ("empty_sibling_between_them", [{"type": "image", "attrs": {"src": ""}}]),
+        ]
+    )
+    def test_bang_before_a_link_node_stays_text(self, _name: str, between: list[dict]) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Read this!"},
+                        *between,
+                        {
+                            "type": "text",
+                            "text": "guide",
+                            "marks": [{"type": "link", "attrs": {"href": "https://example.com/g"}}],
+                        },
+                    ],
+                }
+            ],
+        }
+        assert rich_content_to_markdown(doc) == "Read this\\![guide](https://example.com/g)"
 
     def test_slack_payload_falls_back_to_text_when_blocks_cannot_represent_doc(self) -> None:
         doc = {
