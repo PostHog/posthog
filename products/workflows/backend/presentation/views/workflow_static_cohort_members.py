@@ -108,8 +108,8 @@ class WorkflowStaticCohortMemberViewSet(viewsets.GenericViewSet):
 
         # The insert checks for an existing member and then writes, so two runs for the same person must not
         # overlap. Otherwise both see no member and the person is stored twice. blocking_timeout=2 keeps the
-        # computed worst case (2 s lock wait + 9 s quorum-lock retries + resolution/writes) under Node's 15 s
-        # per-attempt abort, while timeout=60 still outlives the whole insert.
+        # computed worst case (2 s lock wait + 7 s quorum-lock retries + 2 s quorum timeout + resolution/writes)
+        # under Node's 15 s per-attempt abort, while timeout=60 still outlives the whole insert.
         lock = get_client().lock(
             f"workflow-static-cohort-member:{team_id}:{cohort_id}:{person_uuid}", timeout=60, blocking_timeout=2
         )
