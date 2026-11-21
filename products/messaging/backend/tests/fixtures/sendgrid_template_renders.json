@@ -340,6 +340,71 @@
     "expected": "Ana in Zürich|nobody"
   },
   {
+    "name": "comparison helpers",
+    "source": "{{#equals plan \"pro\"}}P{{else}}F{{/equals}}{{#notEquals plan \"pro\"}}N{{/notEquals}}{{#greaterThan total 100}}G{{/greaterThan}}{{#lessThan total 100}}L{{/lessThan}}{{#and plan total}}&{{/and}}{{#and plan zero}}0{{/and}}",
+    "data": {
+      "plan": "pro",
+      "total": 120,
+      "zero": 0
+    },
+    "liquid": "{% if variables.plan == \"pro\" %}P{% else %}F{% endif %}{% if variables.plan != \"pro\" %}N{% endif %}{% if variables.total > 100 %}G{% endif %}{% if variables.total < 100 %}L{% endif %}{% if variables.plan != blank and variables.plan != 0 and variables.total != blank and variables.total != 0 %}&{% endif %}{% if variables.plan != blank and variables.plan != 0 and variables.zero != blank and variables.zero != 0 %}0{% endif %}",
+    "expected": "PG&"
+  },
+  {
+    "name": "equals compares numbers and text as text",
+    "source": "{{#equals count 5}}A{{/equals}}{{#equals code \"5\"}}B{{/equals}}{{#notEquals count code}}C{{else}}same{{/notEquals}}{{#equals plan \"pro\"}}D{{/equals}}",
+    "data": {
+      "count": "5",
+      "code": 5,
+      "plan": "pro"
+    },
+    "liquid": "{% assign text1 = variables.count | append: \"\" %}{% if text1 == \"5\" %}A{% endif %}{% assign text2 = variables.code | append: \"\" %}{% if text2 == \"5\" %}B{% endif %}{% assign text3 = variables.count | append: \"\" %}{% assign text4 = variables.code | append: \"\" %}{% if text3 != text4 %}C{% else %}same{% endif %}{% if variables.plan == \"pro\" %}D{% endif %}",
+    "expected": "ABsameD"
+  },
+  {
+    "name": "length of a missing value or an object is 0",
+    "source": "{{#equals (length missing) 0}}none{{/equals}}{{#greaterThan (length obj) 0}}some{{else}}zero{{/greaterThan}}",
+    "data": {
+      "obj": {
+        "a": 1
+      }
+    },
+    "liquid": "{% assign length1 = variables.missing | size %}{% assign text2 = length1 | append: \"\" %}{% if text2 == \"0\" %}none{% endif %}{% assign length3 = variables.obj | size %}{% if length3 > 0 %}some{% else %}zero{% endif %}",
+    "expected": "nonezero"
+  },
+  {
+    "name": "length helper",
+    "source": "{{length items}} {{#greaterThan (length items) 1}}many{{else}}few{{/greaterThan}}",
+    "data": {
+      "items": [
+        1,
+        2,
+        3
+      ]
+    },
+    "liquid": "{{ variables.items | size }} {% assign length1 = variables.items | size %}{% if length1 > 1 %}many{% else %}few{% endif %}",
+    "expected": "3 many"
+  },
+  {
+    "name": "format date",
+    "source": "{{formatDate when \"MMMM D, YYYY h:mm A\"}} | {{formatDate when \"DD/MM/YY HH:mm:ss\"}} | {{formatDate when \"ddd, MMM D\"}} | {{formatDate when \"dddd a\"}}",
+    "data": {
+      "when": "2026-03-08T19:05:09Z"
+    },
+    "liquid": "{{ variables.when | date: \"%B %-d, %Y %-I:%M %p\", \"UTC\" }} | {{ variables.when | date: \"%d/%m/%y %H:%M:%S\", \"UTC\" }} | {{ variables.when | date: \"%a, %b %-d\", \"UTC\" }} | {{ variables.when | date: \"%A %P\", \"UTC\" }}",
+    "expected": "March 8, 2026 7:05 PM | 08/03/26 19:05:09 | Sun, Mar 8 | Sunday pm"
+  },
+  {
+    "name": "insert with a default",
+    "source": "{{insert name \"default=friend\"}}/{{insert missing \"default=friend\"}}/{{insert empty \"default=friend\"}}",
+    "data": {
+      "name": "Zoë",
+      "empty": ""
+    },
+    "liquid": "{{ variables.name | default: \"friend\" }}/{{ variables.missing | default: \"friend\" }}/{{ variables.empty | default: \"friend\" }}",
+    "expected": "Zoë/friend/friend"
+  },
+  {
     "name": "values that look like markup stay escaped",
     "source": "<p>{{q}}</p><a href=\"https://example.com/?q={{q}}\" title='{{q}}'>{{{safe}}}</a>",
     "data": {

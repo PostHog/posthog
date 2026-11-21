@@ -221,14 +221,14 @@ class TestSendGridImport(BaseTest):
         assert email["subject"] == 'Your order {{ variables.order.id | join: "," }}'
         assert "Old" not in email["html"]
         assert "{% for raw1 in variables.items %}" in email["html"]
-        assert '{% raw %}{{formatDate order.placed_at "MMMM DD, YYYY"}}{% endraw %}' in email["html"]
+        assert '{{ variables.order.placed_at | date: "%B %d, %Y", "UTC" }}' in email["html"]
         assert "{{ unsubscribe_url }}" in email["html"]
         assert '"first_name": "Ada"' in receipt.description
         assert templates["d-4444444444444444444444444444dddd"].content["email"]["html"] == "<p>Newest</p>"
 
         items = {item["label"]: item for item in run.progress["templates"]["items"]}
         assert any("Old draft" in note for note in items["Order receipt"]["notes"])
-        assert any("{{formatDate order.placed_at" in note for note in items["Order receipt"]["notes"])
+        assert not any("can't convert" in note for note in items["Order receipt"]["notes"])
         assert any("{{customHelper name}}" in note for note in items["Přivítání 🦔"]["notes"])
         assert any("design editor" in note for note in items["Přivítání 🦔"]["notes"])
         assert any("no version" in note for note in items["Empty template"]["notes"])

@@ -16,12 +16,14 @@ and none for anything else. Liquid alone would loop over an object's key and val
 
 import re
 from collections.abc import Callable, Iterator
+from typing import Literal
 
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.provider_imports.html_context import HtmlContext, Place
 from products.messaging.backend.provider_imports.sendgrid_handlebars import (
     _Block,
+    _Call,
     _Liquid,
     _Literal,
     _Output,
@@ -30,6 +32,7 @@ from products.messaging.backend.provider_imports.sendgrid_handlebars import (
     _Text,
     _Unconvertible,
     liquid_literal,
+    liquid_string,
 )
 
 # Liquid reads `size`, `first` and `last` as properties of any list or object, where Handlebars finds nothing.
@@ -43,7 +46,42 @@ _TAKEN_NAMES = frozenset(
 )
 # Names the converter assigns for a loop's values. A loop variable of the same name would hide them.
 _LIST_NAME = re.compile(r"(?:values|shape|string|raw)\d+")
+# Names the converter assigns before a comparison. A loop variable of the same name would hide them.
+_ASSIGNED_NAME = re.compile(r"(?:text|length)\d+")
 _LOOP_DATA = {"@index": "forloop.index0", "@first": "forloop.first", "@last": "forloop.last"}
+# Each provider adds its own helpers to Handlebars:
+# https://www.twilio.com/docs/sendgrid/for-developers/sending-email/using-handlebars and
+# https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send-templates.
+Dialect = Literal["sendgrid", "mailgun"]
+_COMPARISONS: dict[Dialect, dict[str, str]] = {
+    "sendgrid": {"equals": "==", "notEquals": "!=", "greaterThan": ">", "lessThan": "<"},
+    "mailgun": {"equal": "=="},
+}
+# SendGrid's formatDate takes Moment-style tokens. Each maps to the strftime code Liquid's `date` filter takes.
+_DATE_TOKENS = {
+    "YYYY": "%Y",
+    "YY": "%y",
+    "MMMM": "%B",
+    "MMM": "%b",
+    "MM": "%m",
+    "M": "%-m",
+    "DD": "%d",
+    "D": "%-d",
+    "dddd": "%A",
+    "ddd": "%a",
+    "HH": "%H",
+    "H": "%-H",
+    "hh": "%I",
+    "h": "%-I",
+    "mm": "%M",
+    "m": "%-M",
+    "ss": "%S",
+    "s": "%-S",
+    "A": "%p",
+    "a": "%P",
+}
+# A run of one letter is one token, so a run with no strftime code, such as DDD (day of the year), stays as written.
+_DATE_TOKEN = re.compile(r"([A-Za-z])\1*|[^A-Za-z]+")
 _MAX_OUTPUT_CHARS = 5_000_000
 HTML_ESCAPE = ' | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;"'
 
@@ -86,10 +124,12 @@ class HandlebarsToLiquid:
         self,
         *,
         is_html: bool,
+        dialect: Dialect,
         root_value: Callable[[str], str | None] = lambda _name: None,
         split_text: TextSplitter | None = None,
     ) -> None:
         self.is_html = is_html
+        self._dialect = dialect
         self.unsupported: list[str] = []
         self.converted: list[str] = []
         self._root_value = root_value
@@ -99,6 +139,8 @@ class HandlebarsToLiquid:
         self._after_raw_html = False
         self._written = 0
         self._lists = 0
+        self._assigned = 0
+        self._converted_root = ""
 
     def convert(self, nodes: tuple[object, ...]) -> str:
         converted = self._nodes(nodes, (_Frame(this="variables"),))
@@ -147,6 +189,7 @@ class HandlebarsToLiquid:
 
     def _output(self, node: _Output, frames: tuple[_Frame, ...]) -> str:
         body, raw = node.body, node.raw
+        self._converted_root = ""
         if body.startswith("&"):
             body, raw = body[1:].strip(), True
         try:
@@ -157,6 +200,8 @@ class HandlebarsToLiquid:
             return self._literal(node.source)
         self._feed("x")
         self._after_raw_html = self._after_raw_html or (raw and self.is_html)
+        if self._converted_root:
+            self.converted.append(self._converted_root)
         return liquid
 
     def _output_liquid(self, body: str, raw: bool, frames: tuple[_Frame, ...]) -> tuple[str, bool]:
@@ -166,8 +211,27 @@ class HandlebarsToLiquid:
             raise _Unsupported
         if not params:
             if len(frames) == 1 and (special := self._root_value(name)) is not None:
+                self._converted_root = name
                 return special, False
             return self._print(self._path(name, frames), raw), raw
+        if self._dialect != "sendgrid":
+            raise _Unsupported
+        if name == "formatDate" and len(params) == 2:
+            date_format = _date_format(params[1])
+            return self._print(f'{self._value_path(params[0], frames)} | date: {date_format}, "UTC"', False), False
+        if name == "insert" and len(params) <= 2:
+            value = self._value_path(params[0], frames)
+            if len(params) == 1:
+                return self._print(value, raw), raw
+            default = params[1].text if isinstance(params[1], _Literal) else None
+            if default is None or not default.startswith("default="):
+                raise _Unsupported
+            fallback = liquid_string(default.removeprefix("default="))
+            if fallback is None:
+                raise _Unsupported
+            return self._print(f"{value} | default: {fallback}", raw), raw
+        if name == "length" and len(params) == 1:
+            return self._print(f"{self._value_path(params[0], frames)} | size", False), False
         raise _Unsupported
 
     def _print(self, value: str, raw: bool) -> str:
@@ -197,7 +261,7 @@ class HandlebarsToLiquid:
                 return self._each(block, frames)
             if block.name == "with" and not block.inverted:
                 return self._with(block, frames)
-            self._condition(block, frames)
+            self._dry_condition(block, frames)
         except (_Unsupported, _Unconvertible):
             return self._literal_block(block)
         return self._if_chain(block, frames)
@@ -208,8 +272,10 @@ class HandlebarsToLiquid:
         ends: list[Place | None] = []
         current: _Block | None = block
         keyword = "if"
+        # A comparison may first assign a value as text, and Liquid only allows that before the whole chain.
+        setup: list[str] = []
         while current is not None:
-            condition = self._condition(current, frames)
+            condition = self._condition(current, frames, setup)
             body = current.body
             parts.append(self._spend(f"{{% {keyword} {condition} %}}"))
             parts.append(self._branch(start, ends, body, frames))
@@ -219,7 +285,7 @@ class HandlebarsToLiquid:
             if len(inverse) == 1 and isinstance(inverse[0], _Block) and inverse[0].chained:
                 chained = inverse[0]
                 try:
-                    self._condition(chained, frames)
+                    self._dry_condition(chained, frames)
                     current = chained
                     continue
                 except (_Unsupported, _Unconvertible):
@@ -230,9 +296,17 @@ class HandlebarsToLiquid:
             else:
                 ends.append(start)
         self._merge(ends)
-        return _joined([*parts, self._spend("{% endif %}")])
+        return _joined([self._spend("".join(setup)), *parts, self._spend("{% endif %}")])
 
-    def _condition(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
+    def _dry_condition(self, block: _Block, frames: tuple[_Frame, ...]) -> None:
+        """Raises when the block has no condition, without using up assignment names."""
+        assigned = self._assigned
+        try:
+            self._condition(block, frames, [])
+        finally:
+            self._assigned = assigned
+
+    def _condition(self, block: _Block, frames: tuple[_Frame, ...], setup: list[str]) -> str:
         params, hash_args = block.params, block.hash_args
         if not block.parsed or block.block_params:
             raise _Unsupported
@@ -242,7 +316,20 @@ class HandlebarsToLiquid:
         include_zero = _include_zero(hash_args)
         if block.name in ("if", "unless") and len(params) == 1:
             test = self._truthy if block.name == "if" else self._falsy
-            return test(params[0], frames, include_zero=include_zero)
+            return test(params[0], frames, setup, include_zero=include_zero)
+        if hash_args:
+            raise _Unsupported
+        comparisons = _COMPARISONS[self._dialect]
+        if block.name in comparisons and len(params) == 2:
+            operator = comparisons[block.name]
+            if operator in ("==", "!=") and not any(_is_word(param) for param in params):
+                left, right = self._as_text(params[0], frames, setup), self._as_text(params[1], frames, setup)
+            else:
+                left, right = self._operand(params[0], frames, setup), self._operand(params[1], frames, setup)
+            return f"{left} {operator} {right}"
+        # Liquid reads `and` and `or` right to left with no brackets, so only `and` keeps each test whole.
+        if self._dialect == "sendgrid" and block.name == "and" and len(params) >= 2:
+            return " and ".join(self._truthy(param, frames, setup, include_zero=False) for param in params)
         raise _Unsupported
 
     def _each(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
@@ -325,7 +412,7 @@ class HandlebarsToLiquid:
         start = self._snapshot()
         ends: list[Place | None] = []
         # Handlebars `with` skips its body only for an empty value, and 0 isn't one.
-        opening = self._spend(f"{{% if {self._truthy(target, frames, include_zero=True)} %}}")
+        opening = self._spend(f"{{% if {self._truthy(target, frames, [], include_zero=True)} %}}")
         body = self._branch(start, ends, block.body, (*frames, frame))
         parts = [opening, body]
         if block.inverse:
@@ -419,9 +506,41 @@ class HandlebarsToLiquid:
             raise _Unsupported
         return self._path(param.source, frames)
 
-    def _truthy(self, param: object, frames: tuple[_Frame, ...], *, include_zero: bool) -> str:
+    def _operand(self, param: object, frames: tuple[_Frame, ...], setup: list[str]) -> str:
+        if isinstance(param, _Literal):
+            return param.liquid
+        if (
+            self._dialect == "sendgrid"
+            and isinstance(param, _Call)
+            and param.name == "length"
+            and len(param.params) == 1
+        ):
+            # The `size` filter gives 0 for a missing value or an object, as SendGrid's `length` does.
+            return self._assign(f"{self._value_path(param.params[0], frames)} | size", "length", setup)
+        return self._value_path(param, frames)
+
+    def _as_text(self, param: object, frames: tuple[_Frame, ...], setup: list[str]) -> str:
+        """Both providers compare `equals` as text, so 5 equals "5". Liquid compares by type."""
+        if isinstance(param, _Literal):
+            if param.text is None:
+                raise _Unsupported
+            literal = liquid_string(param.text)
+            if literal is None:
+                raise _Unsupported
+            return literal
+        return self._assign(f'{self._operand(param, frames, setup)} | append: ""', "text", setup)
+
+    def _assign(self, expression: str, prefix: str, setup: list[str]) -> str:
+        self._assigned += 1
+        name = f"{prefix}{self._assigned}"
+        setup.append(f"{{% assign {name} = {expression} %}}")
+        return name
+
+    def _truthy(self, param: object, frames: tuple[_Frame, ...], setup: list[str], *, include_zero: bool) -> str:
         if isinstance(param, _Literal):
             return "true" if _literal_truthy(param, include_zero) else "false"
+        if isinstance(param, _Call):
+            return "true" if include_zero else f"{self._operand(param, frames, setup)} > 0"
         path = self._value_path(param, frames)
         if path == "forloop.index0":
             return "true" if include_zero else f"{path} != 0"
@@ -430,7 +549,7 @@ class HandlebarsToLiquid:
         zero = "" if include_zero else f" and {path} != 0"
         return f"{path} != nil and {path} != false{zero} and {path}.length != 0 or {path} != empty"
 
-    def _falsy(self, param: object, frames: tuple[_Frame, ...], *, include_zero: bool) -> str:
+    def _falsy(self, param: object, frames: tuple[_Frame, ...], setup: list[str], *, include_zero: bool) -> str:
         if isinstance(param, _Literal):
             return "false" if _literal_truthy(param, include_zero) else "true"
         path = self._value_path(param, frames)
@@ -446,6 +565,7 @@ class HandlebarsToLiquid:
             bool(_SEGMENT.fullmatch(name))
             and name not in _TAKEN_NAMES
             and name not in self._loop_names
+            and not _ASSIGNED_NAME.fullmatch(name)
             and not _LIST_NAME.fullmatch(name)
         )
 
@@ -512,12 +632,39 @@ def _include_zero(hash_args: dict[str, object]) -> bool:
     return value.text == "true"
 
 
+def _is_word(param: object) -> bool:
+    """A string that no number or boolean prints as, so comparing it by type gives the same answer as by text."""
+    return (
+        isinstance(param, _Literal)
+        and param.text is not None
+        and param.liquid != param.text
+        and not re.fullmatch(r"-?\d+(?:\.\d+)?|true|false|null|undefined", param.text)
+    )
+
+
 def _literal_truthy(literal: _Literal, include_zero: bool) -> bool:
     if literal.text is None or literal.liquid == "false":
         return False
     if literal.liquid == literal.text and literal.text != "true":
         return include_zero or float(literal.text) != 0
     return literal.text != ""
+
+
+def _date_format(param: object) -> str:
+    if not isinstance(param, _Literal) or not param.text or param.liquid == param.text:
+        raise _Unsupported
+    converted: list[str] = []
+    for token in (match.group(0) for match in _DATE_TOKEN.finditer(param.text)):
+        if token in _DATE_TOKENS:
+            converted.append(_DATE_TOKENS[token])
+        elif re.search(r"[A-Za-z\[\]]", token):
+            raise _Unsupported
+        else:
+            converted.append(token.replace("%", "%%"))
+    literal = liquid_string("".join(converted))
+    if literal is None:
+        raise _Unsupported
+    return literal
 
 
 def _literal_text(text: str) -> str:
