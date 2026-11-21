@@ -30,7 +30,7 @@ from products.alerts.backend.evaluation.series_values_shadow import (
 )
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
-from products.product_analytics.backend.facade.contracts import ClosedSqlSeriesValues
+from products.product_analytics.backend.facade.contracts import ClosedSeriesValues, ClosedSqlSeriesValues
 from products.product_analytics.backend.facade.models import Insight
 
 _NOW = "2024-01-15T12:00:00Z"
@@ -70,6 +70,9 @@ def _create_alert(
     config: dict[str, Any],
     detector: dict[str, Any] | None,
     calculation_interval: str,
+    *,
+    condition: str = "absolute_value",
+    upper: float = 100,
 ) -> AlertConfiguration:
     insight = Insight.objects.create(team=team, query=query)
     return AlertConfiguration.objects.create(
@@ -77,14 +80,14 @@ def _create_alert(
         insight=insight,
         created_by=user,
         name="signups",
-        condition={"type": "absolute_value"},
+        condition={"type": condition},
         config=config,
         calculation_interval=calculation_interval,
         detector_config=detector,
         threshold=None
         if detector
         else Threshold.objects.create(
-            team=team, insight=insight, name="t", configuration={"type": "absolute", "bounds": {"upper": 100}}
+            team=team, insight=insight, name="t", configuration={"type": "absolute", "bounds": {"upper": upper}}
         ),
     )
 
@@ -109,7 +112,9 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             _create_event(team=self.team, event="signed_up", distinct_id="p1", timestamp=timestamp)
         flush_persons_and_events()
 
-    def _alert(self, *, detector: dict[str, Any] | None, interval: str = "day") -> AlertConfiguration:
+    def _alert(
+        self, *, detector: dict[str, Any] | None, interval: str = "day", upper: float = 100
+    ) -> AlertConfiguration:
         return _create_alert(
             self.team,
             self.user,
@@ -117,6 +122,7 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             {"type": "TrendsAlertConfig", "series_index": 0},
             detector,
             "daily" if interval == "day" else "hourly",
+            upper=upper,
         )
 
     def _enrolled(self) -> Any:
@@ -183,13 +189,25 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             None,
         )
         assert cold_properties["buckets_compared"] > 0
+        assert (cold_properties["max_rel_difference"], cold_properties["alert_decision_matches"]) == (
+            0.0,
+            None if detector else True,
+        )
         assert cold_properties["alert_kind"] == ("detector" if detector else "threshold")
         assert cold_properties["insight_kind"] == "trends"
         assert self._insert_execution_limits() == {str(SHADOW_BUILD_BUDGET_SECONDS)}
 
-    @parameterized.expand([("threshold", None), ("detector", _THRESHOLD_DETECTOR)])
-    def test_a_mismatch_never_changes_the_check(self, _name: str, detector: dict[str, Any] | None) -> None:
-        alert = self._alert(detector=detector)
+    @parameterized.expand(
+        [
+            ("threshold_far_from_its_bound", None, 100, True),
+            ("threshold_at_its_bound", None, 3, False),
+            ("detector", _THRESHOLD_DETECTOR, 100, None),
+        ]
+    )
+    def test_a_mismatch_never_changes_the_check(
+        self, _name: str, detector: dict[str, Any] | None, upper: float, decision_matches: bool | None
+    ) -> None:
+        alert = self._alert(detector=detector, upper=upper)
         live = check_alert_for_insight(alert)
         self._shadowed_check(alert)
         job = PreaggregationJob.objects.get(
@@ -210,6 +228,34 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert shadowed == live
         assert (properties["outcome"], properties["max_abs_difference"]) == ("mismatch", 1.0)
+        assert (properties["max_rel_difference"], properties["alert_decision_matches"]) == (0.25, decision_matches)
+
+    def test_a_failing_decision_replay_keeps_the_mismatch(self) -> None:
+        alert = self._alert(detector=None)
+        stored = ClosedSeriesValues(values={datetime(2024, 1, 14): 4}, live_from=None)
+
+        with (
+            self._enrolled(),
+            patch(f"{_SHADOW}.closed_series_values", return_value=stored),
+            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
+        ):
+            compare_series_values_shadow(
+                alert,
+                TrendsQuery.model_validate(_trends_query("day")),
+                None,
+                InsightResult(
+                    result=[{"days": ["2024-01-14"], "data": [3]}],
+                    last_refresh=None,
+                    cache_key=None,
+                    is_cached=False,
+                    timezone=None,
+                ),
+                alert_kind="threshold",
+                replay=MagicMock(side_effect=RuntimeError("boom")),
+            )
+
+        [properties] = _shadow_events(capture)
+        assert (properties["outcome"], properties["alert_decision_matches"]) == ("mismatch", None)
 
     def test_a_failing_shadow_step_records_an_error_and_never_changes_the_check(self) -> None:
         alert = self._alert(detector=_THRESHOLD_DETECTOR)
@@ -298,6 +344,7 @@ class TestSeriesValuesShadowForSqlAlerts(ClickhouseTestMixin, APIBaseTest):
         traveller.start()
         self.addCleanup(traveller.stop)
         today = clickhouse_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        self.today = today.replace(tzinfo=UTC)
         for days_ago, hour in ((6, 5), (4, 7), (4, 8), (2, 20), (1, 1), (1, 23), (0, 0)):
             _create_event(
                 team=self.team,
@@ -307,8 +354,19 @@ class TestSeriesValuesShadowForSqlAlerts(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-    def _sql_alert(self, sql: str, *, detector: dict[str, Any] | None) -> AlertConfiguration:
-        return _create_alert(self.team, self.user, {"kind": "HogQLQuery", "query": sql}, _SQL_CONFIG, detector, "daily")
+    def _sql_alert(
+        self, sql: str, *, detector: dict[str, Any] | None, condition: str = "absolute_value", upper: float = 100
+    ) -> AlertConfiguration:
+        return _create_alert(
+            self.team,
+            self.user,
+            {"kind": "HogQLQuery", "query": sql},
+            _SQL_CONFIG,
+            detector,
+            "daily",
+            condition=condition,
+            upper=upper,
+        )
 
     def _jobs(self) -> int:
         return PreaggregationJob.objects.filter(team_id=self.team.pk).count()
@@ -352,6 +410,34 @@ class TestSeriesValuesShadowForSqlAlerts(ClickhouseTestMixin, APIBaseTest):
             )
             assert properties["verified"] is False
         assert (self._jobs() > 0) == (expected == ("match", None))
+
+    @parameterized.expand([("decision_differs", 0, False), ("decision_holds", 5, True)])
+    def test_a_mismatch_reports_whether_stored_values_change_the_decision(
+        self, _name: str, upper: float, decision_matches: bool
+    ) -> None:
+        alert = self._sql_alert(_WINDOWED_SQL, detector=None, condition="relative_increase", upper=upper)
+        live = check_alert_for_insight(alert)
+        stored = ClosedSqlSeriesValues(
+            bucket_column="day",
+            values={
+                self.today - timedelta(days=4): 2.0,
+                self.today - timedelta(days=2): 1.0,
+                self.today - timedelta(days=1): 0.0,
+            },
+            closed_before=self.today,
+        )
+
+        with (
+            self.settings(ALERTS_SERIES_VALUES_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
+            patch(f"{_SHADOW}.closed_sql_series_values", return_value=stored),
+            patch(f"{_SHADOW}.posthoganalytics.capture") as capture,
+        ):
+            checked = check_alert_for_insight(alert)
+
+        [properties] = _shadow_events(capture)
+        assert checked == live
+        assert (properties["outcome"], properties["max_abs_difference"]) == ("mismatch", 2.0)
+        assert (properties["max_rel_difference"], properties["alert_decision_matches"]) == (1.0, decision_matches)
 
     def test_a_user_facing_query_error_in_the_shadow_never_disables_the_alert(self) -> None:
         alert = self._sql_alert(_WINDOWED_SQL, detector=None)
@@ -423,33 +509,55 @@ class TestCompareClosedSqlValues(SimpleTestCase):
                 "clipped_first_bucket_and_today_are_skipped",
                 [["2024-01-10T00:00:00Z", 1], [_day(11), 5], [date(2024, 1, 12), None], [_day(15), 9]],
                 {_day(10): 3.0, _day(11): 5.0},
-                ("match", 2, 0.0),
+                ("match", 2, 0.0, 0.0, None),
             ),
             (
                 "a_row_missing_on_one_side_is_a_mismatch",
                 [[_day(10), 1], [_day(11), 5], [_day(13), 2]],
                 {_day(11): 5.0, _day(12): 4.0, _day(13): 2.0},
-                ("mismatch", 3, 4.0),
+                ("mismatch", 3, 4.0, 1.0, None),
+            ),
+            (
+                "a_changed_value_is_replaced_in_its_row",
+                [(_day(10), 1), (_day(11), 5), (_day(12), 7), (_day(15), 9)],
+                {_day(11): 4.0, _day(12): 7.0},
+                ("mismatch", 2, 1.0, 0.2, [(_day(10), 1), [_day(11), 4.0], [_day(12), 7.0], (_day(15), 9)]),
             ),
             (
                 "buckets_after_the_last_live_row_are_skipped",
                 [[_day(14), 3], [_day(13), 2], [_day(12), 1]],
                 {_day(11): 8.0, _day(12): 1.0, _day(13): 2.0, _day(14): 3.0},
-                ("match", 2, 0.0),
+                ("match", 2, 0.0, 0.0, None),
             ),
             (
                 "float_noise_within_tolerance_matches",
                 [[_day(10), 1], [_day(11), 0.1 + 0.2]],
                 {_day(11): 0.3},
-                ("match", 1, abs(0.1 + 0.2 - 0.3)),
+                (
+                    "match",
+                    1,
+                    abs(0.1 + 0.2 - 0.3),
+                    abs(0.1 + 0.2 - 0.3) / (0.1 + 0.2),
+                    [[_day(10), 1], [_day(11), 0.3]],
+                ),
             ),
         ]
     )
     def test_compares_closed_buckets_after_the_first_live_row(
-        self, _name: str, rows: list, stored: dict[datetime, float], expected: tuple[str, int, float]
+        self,
+        _name: str,
+        rows: list,
+        stored: dict[datetime, float],
+        expected: tuple[str, int, float, float, list | None],
     ) -> None:
         closed = ClosedSqlSeriesValues(bucket_column="day", values=stored, closed_before=_TODAY)
 
         comparison = compare_closed_sql_values(closed, rows, ["day", "value"], "value")
 
-        assert (comparison.outcome, comparison.buckets_compared, comparison.max_abs_difference) == expected
+        assert (
+            comparison.outcome,
+            comparison.buckets_compared,
+            comparison.max_abs_difference,
+            comparison.max_rel_difference,
+            comparison.live_with_stored_values,
+        ) == expected
