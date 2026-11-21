@@ -30,6 +30,7 @@ Any one row firing is enough; both volume gates must pass before the rate counts
 Every number is a `WORKFLOW_EMAIL_AUTO_PAUSE_*` or `WORKFLOW_EMAIL_WARN_*` setting in `posthog/settings/ses.py` with an env override.
 Warnings repeat at most once per `WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS` (default 7) per workflow.
 A warning goes out only while the rate its reason leads with, the project's for a project warning, is under the pause rate; otherwise the detector tries the next signal.
+A transactional workflow is the exception: at or above the pause rate it gets the warning in place of a pause, as described under Rollout.
 Batch job metrics count toward their parent workflow, and discovery gates sum at the team level so a breach split across many small batch jobs still surfaces.
 
 Feedback arrives hours or days after the send it belongs to.
@@ -69,6 +70,16 @@ A project breach that only an exempt workflow's feedback would cause is neither 
 An exempt workflow is judged on its own sends only, never on its project's.
 An id that is not a UUID in the 8-4-4-4-12 form, in either case, stops Django from starting.
 Use it for a workflow whose email must not stop, such as sign-in verification codes.
+
+A workflow whose every email step is transactional (`message_category_type` is `transactional`) is never paused automatically.
+Where it would be paused, the sweep sends its admins the warning email instead, at most once per warning cooldown, and logs the breach at warning level with `mode="transactional"`.
+While enforcement is off, these breaches log as `mode="dry_run"` with `transactional=true`.
+Its warning email says it is not paused automatically and that staff can pause it by hand.
+Like an exempt workflow, it is judged on its own sends only, and its sends and feedback stay out of the project totals.
+A workflow with one email step that is not transactional, such as a marketing step, is judged like any other.
+Its `function_email` steps follow the quota check's rule.
+Any other function step that runs the `template-email` template, whatever its category, makes the workflow pausable.
+The exempt list wins over this rule: an exempt workflow stays in dry run and gets no warning, transactional or not.
 
 Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES` afterwards, so an auto-paused workflow also demotes its team's tier at the next daily run.
 
