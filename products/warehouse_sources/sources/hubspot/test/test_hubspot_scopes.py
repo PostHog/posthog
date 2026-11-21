@@ -20,7 +20,6 @@ from products.warehouse_sources.sources.hubspot.settings import (
     CONVERSATIONS_SCOPE,
     LEADS_SCOPE,
     MARKETING_CAMPAIGNS_SCOPE,
-    MARKETING_EMAILS_SCOPE,
     TEAMS_SCOPE,
     USERS_SCOPE,
 )
@@ -153,7 +152,6 @@ class TestScopeGatingInSource:
             ("non_crm_table", "conversation_threads", CONVERSATIONS_SCOPE),
             ("users", "users", USERS_SCOPE),
             ("teams", "teams", TEAMS_SCOPE),
-            ("marketing_emails", "marketing_emails", MARKETING_EMAILS_SCOPE),
             ("marketing_campaigns", "marketing_campaigns", MARKETING_CAMPAIGNS_SCOPE),
         ]
     )

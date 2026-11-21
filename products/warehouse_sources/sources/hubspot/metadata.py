@@ -1,5 +1,5 @@
 """Fetchers for HubSpot's tables that are not CRM objects: pipelines, pipeline stages, property
-definitions, owners, conversation threads, teams, marketing emails and marketing campaigns.
+definitions, owners, conversation threads, teams and marketing campaigns.
 
 These are not CRM objects — they have no `properties` envelope, no `/search` endpoint and no
 server-side timestamp filter — so they are always a full refresh and reuse `helpers.fetch_data`
@@ -28,7 +28,6 @@ from products.warehouse_sources.sources.hubspot.settings import (
     apply_crm_api_version,
     conversation_threads_path,
     marketing_campaigns_path,
-    marketing_emails_path,
     teams_path,
 )
 
@@ -180,34 +179,6 @@ def get_teams_rows(
         yield [_normalize_row(team, columns) for team in page]
 
 
-# `content` is the full email design (every module and its HTML), and `previewKey` opens a preview
-# of the email without signing in. `folderId` is deprecated in favour of `folderIdV2`.
-_MARKETING_EMAIL_DROPPED_FIELDS = frozenset({"content", "previewKey", "folderId"})
-
-
-def get_marketing_emails_rows(
-    api_key: str,
-    refresh_token: str,
-    logger: FilteringBoundLogger,
-    source_id: str | None,
-    api_version: str,
-) -> Iterator[list[dict[str, Any]]]:
-    columns = HUBSPOT_METADATA_ENDPOINTS["marketing_emails"].columns
-    for page in _iter_pages(
-        marketing_emails_path(api_version),
-        api_key,
-        refresh_token,
-        source_id,
-        logger,
-        params={"limit": 100, "includeStats": "true"},
-        follow_after_cursor=True,
-    ):
-        yield [
-            _normalize_row({k: v for k, v in email.items() if k not in _MARKETING_EMAIL_DROPPED_FIELDS}, columns)
-            for email in page
-        ]
-
-
 def get_marketing_campaigns_rows(
     api_key: str,
     refresh_token: str,
@@ -243,6 +214,5 @@ METADATA_FETCHERS = {
     "owners": get_owners_rows,
     "conversation_threads": get_conversation_threads_rows,
     "teams": get_teams_rows,
-    "marketing_emails": get_marketing_emails_rows,
     "marketing_campaigns": get_marketing_campaigns_rows,
 }

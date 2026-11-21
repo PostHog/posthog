@@ -43,8 +43,6 @@ FORECASTS_SCOPE = "crm.objects.forecasts.read"
 CONVERSATIONS_SCOPE = "conversations.read"
 USERS_SCOPE = "crm.objects.users.read"
 TEAMS_SCOPE = "settings.users.teams.read"
-# HubSpot's scope list documents no narrower read scope for marketing emails.
-MARKETING_EMAILS_SCOPE = "content"
 # Marketing Hub Professional+ only.
 MARKETING_CAMPAIGNS_SCOPE = "marketing.campaigns.read"
 
@@ -121,7 +119,6 @@ ENDPOINTS = (
     "owners",
     "conversation_threads",
     "teams",
-    "marketing_emails",
     "marketing_campaigns",
 )
 
@@ -647,62 +644,6 @@ HUBSPOT_METADATA_ENDPOINTS: dict[str, HubspotMetadataEndpointConfig] = {
         should_sync_default=False,
         required_scope=TEAMS_SCOPE,
     ),
-    # `updatedAfter` exists, but the send statistics change without moving `updatedAt`, so an
-    # incremental sync would keep stale stats.
-    "marketing_emails": HubspotMetadataEndpointConfig(
-        name="marketing_emails",
-        primary_keys=["id"],
-        columns=[
-            "id",
-            "name",
-            "subject",
-            "type",
-            "subcategory",
-            "state",
-            "isPublished",
-            "isTransactional",
-            "isAb",
-            "archived",
-            "language",
-            "campaign",
-            "campaignName",
-            "campaignUtm",
-            "allEmailCampaignIds",
-            "primaryEmailCampaignId",
-            "emailCampaignGroupId",
-            "businessUnitId",
-            "clonedFrom",
-            "feedbackSurveyId",
-            "folderIdV2",
-            "activeDomain",
-            "emailTemplateMode",
-            "from",
-            "to",
-            "subscriptionDetails",
-            "testing",
-            "rssData",
-            "webversion",
-            "stats",
-            "jitterSendTime",
-            "sendOnPublish",
-            "teamsWithAccess",
-            "usersWithAccess",
-            "workflowNames",
-            "createdAt",
-            "createdById",
-            "updatedAt",
-            "updatedById",
-            "publishDate",
-            "publishedAt",
-            "publishedById",
-            "publishedByName",
-            "publishedByEmail",
-            "unpublishedAt",
-            "deletedAt",
-        ],
-        should_sync_default=False,
-        required_scope=MARKETING_EMAILS_SCOPE,
-    ),
     "marketing_campaigns": HubspotMetadataEndpointConfig(
         name="marketing_campaigns",
         primary_keys=["id"],
@@ -727,12 +668,6 @@ def teams_path(api_version: str) -> str:
     if api_version == HUBSPOT_API_VERSION_V3:
         return "/settings/v3/users/teams"
     return f"/settings/users/{HUBSPOT_API_VERSION_2026_03}/teams"
-
-
-def marketing_emails_path(api_version: str) -> str:
-    if api_version == HUBSPOT_API_VERSION_V3:
-        return "/marketing/v3/emails"
-    return f"/marketing/emails/{api_version}"
 
 
 def marketing_campaigns_path(api_version: str) -> str:

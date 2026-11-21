@@ -780,7 +780,7 @@ class OauthIntegration:
                         "crm.objects.products.read crm.objects.invoices.read crm.objects.orders.read "
                         "crm.objects.subscriptions.read crm.objects.commercepayments.read "
                         "crm.objects.forecasts.read conversations.read crm.objects.users.read "
-                        "settings.users.teams.read content marketing.campaigns.read"
+                        "settings.users.teams.read marketing.campaigns.read"
                     )
                 },
                 id_path="hub_id",

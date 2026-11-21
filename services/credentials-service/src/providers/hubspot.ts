@@ -37,7 +37,6 @@ export const hubspot: ProviderSpec = {
                     'conversations.read',
                     'crm.objects.users.read',
                     'settings.users.teams.read',
-                    'content',
                     'marketing.campaigns.read',
                 ].join(' '),
             ],

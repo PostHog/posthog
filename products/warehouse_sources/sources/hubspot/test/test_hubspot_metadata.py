@@ -10,7 +10,6 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.sources.hubspot.metadata import (
     get_conversation_threads_rows,
     get_marketing_campaigns_rows,
-    get_marketing_emails_rows,
     get_owners_rows,
     get_pipeline_stages_rows,
     get_pipelines_rows,
@@ -144,18 +143,6 @@ class TestMetadataFetchers:
                 "/conversations/v3/conversations/threads",
                 {"limit": 100, "association": "TICKET"},
             ),
-            (
-                get_marketing_emails_rows,
-                HUBSPOT_API_VERSION_2026_09,
-                "/marketing/emails/2026-09",
-                {"limit": 100, "includeStats": "true"},
-            ),
-            (
-                get_marketing_emails_rows,
-                HUBSPOT_API_VERSION_V3,
-                "/marketing/v3/emails",
-                {"limit": 100, "includeStats": "true"},
-            ),
             # The 2026-09 Campaigns release is a public beta, so that pin reads the stable 2026-03 one.
             (
                 get_marketing_campaigns_rows,
@@ -216,23 +203,6 @@ class TestMetadataFetchers:
             rows = _call(get_teams_rows, api_version)
 
         assert rows == [{"id": "7", "name": "Sales EMEA", "userIds": '["101", "102"]', "secondaryUserIds": None}]
-
-    def test_marketing_emails_drops_the_design_and_preview_key(self) -> None:
-        payload = {
-            "id": "55",
-            "name": "Spring launch",
-            "isAb": False,
-            "content": {"widgets": {"body": {"html": "<p>hello</p>"}}},
-            "previewKey": "fake-preview-key",
-            "folderId": 3,
-            "stats": {"counters": {"sent": 40, "open": 12}},
-        }
-        with patch(_FETCH_DATA, new=_fetch_data_returning({"/marketing/emails/2026-03": [[payload]]})):
-            rows = _call(get_marketing_emails_rows)
-
-        assert not {"content", "previewKey", "folderId"} & set(rows[0])
-        assert rows[0]["stats"] == '{"counters": {"sent": 40, "open": 12}}'
-        assert set(rows[0]) == set(HUBSPOT_METADATA_ENDPOINTS["marketing_emails"].columns)
 
     def test_marketing_campaigns_lifts_properties_and_keeps_the_envelope(self) -> None:
         payload = {
