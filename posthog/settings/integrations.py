@@ -35,6 +35,8 @@ MESSAGING_RESEND_API_URL = get_from_env("MESSAGING_RESEND_API_URL", "https://api
 MESSAGING_POSTMARK_API_URL = get_from_env("MESSAGING_POSTMARK_API_URL", "https://api.postmarkapp.com")
 MESSAGING_SENDGRID_API_URL = get_from_env("MESSAGING_SENDGRID_API_URL", "https://api.sendgrid.com")
 MESSAGING_SENDGRID_EU_API_URL = get_from_env("MESSAGING_SENDGRID_EU_API_URL", "https://api.eu.sendgrid.com")
+MESSAGING_MAILGUN_US_API_URL = get_from_env("MESSAGING_MAILGUN_US_API_URL", "https://api.mailgun.net")
+MESSAGING_MAILGUN_EU_API_URL = get_from_env("MESSAGING_MAILGUN_EU_API_URL", "https://api.eu.mailgun.net")
 
 # Apple Ads service provider OAuth. Apple issues no static client secret: the client secret is an
 # ES256 JWT this app signs per token request with the private key whose public half was registered

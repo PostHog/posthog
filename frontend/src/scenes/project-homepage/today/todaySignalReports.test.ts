@@ -10,6 +10,13 @@ describe('todaySignalReports', () => {
     })
 
     test.each([
+        ['Checkout latency', 'Checkout latency scout'],
+        ['Checkout scout', 'Checkout scout'],
+    ])('names the scout by the name %s the team set', (displayName, expected) => {
+        expect(scoutLabel('signals-scout-apm', { 'signals-scout-apm': displayName })).toEqual(expected)
+    })
+
+    test.each([
         ['one source', { source_products: ['error_tracking'] }, { line: 'Error tracking', title: 'Error tracking' }],
         [
             'a scout by its skill',

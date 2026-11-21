@@ -135,6 +135,8 @@ from products.signals.backend.scout_harness.run_gates import (
     check_fleet_gates,
     check_run_in_flight,
     check_spend_gates,
+    live_lane_runs,
+    scout_lane_runs,
 )
 from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, allocate_scout_slug
 from products.signals.backend.scout_harness.serializers import (
@@ -450,6 +452,12 @@ def _remember_conflict_response(conflict: ScratchpadConflictError) -> Response:
         RememberConflictSerializer({"detail": str(conflict), "updated_at": conflict.current_updated_at}).data,
         status=status.HTTP_409_CONFLICT,
     )
+
+
+class StopUnavailable(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Could not reach the run's workflow. Try again."
+    default_code = "stop_unavailable"
 
 
 def _raise_rejection(rejection: ScoutRunRejection) -> None:
@@ -2091,7 +2099,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Search the scout scratchpad",
         description=(
             "Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` "
-            "and `key`; pass `key` instead for an exact single-entry lookup, and `skill_name` to keep the entries "
+            "and `key`; pass `key` instead for an exact single-entry lookup, `key_prefix` to keep the entries "
+            "whose key starts with a prefix, and `skill_name` to keep the entries "
             "one scout (or `pipeline:*` stage) created. "
             "`date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls "
@@ -2100,7 +2109,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "more than two weeks in the past. Pass `keys_only=true` to scan keys without pulling entry bodies, or "
             "`content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan "
             "from returning every entry's full prose. Pass `include_revisions=true` with `key` to also get the "
-            "entry's earlier versions, newest first, including those of a deleted key. Results capped at 1000."
+            "entry's earlier versions, newest first, including those of a deleted key. A `key` search also reports who last "
+            "changed the entry, and returns an entry hidden only by its expiry as an `expired` marker with blank "
+            "`content` instead of nothing. Results capped at 1000."
         ),
         operation_id="signals_scout_scratchpad_search",
     )
@@ -2121,6 +2132,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else {
                 "team_id": _canonical_team_id(self),
                 "include_revisions": bool(validated.get("include_revisions", False)),
+                "include_change_hints": True,
             }
         )
         with trial_state_errors():
@@ -2128,6 +2140,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 **team_kwargs,
                 text=text,
                 key=validated.get("key") or None,
+                key_prefix=validated.get("key_prefix") or None,
                 skill_name=validated.get("skill_name") or None,
                 date_from=date_from,
                 date_to=date_to,
@@ -2161,7 +2174,8 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place. "
             "A write carries the entry's whole state, so `expires_at` is set when passed and cleared when omitted. "
-            "Pass `if_updated_at` to write only when the entry is still the one you read."
+            "Pass `if_updated_at` to write only when the entry is still the one you read. A write onto an expired "
+            "entry succeeds, and the response's `revived_expiry` reports the expiry it replaced."
         ),
         operation_id="signals_scout_scratchpad_remember",
     )
@@ -4199,6 +4213,81 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
                 {"skill_name": skill_name, "workflow_id": workflow_id, "started": True}
             ).data,
             status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutRunDetailSerializer,
+                description="The run finished before the stop reached it. It is returned unchanged.",
+            ),
+            202: OpenApiResponse(response=SignalScoutRunDetailSerializer, description="The stop was accepted."),
+            400: OpenApiResponse(description="The run is not a cloud run, so it cannot be stopped here."),
+            404: OpenApiResponse(
+                description="Config not found for this project (or the scout is withheld), or the scout has no run in progress."
+            ),
+            503: OpenApiResponse(description="The stop could not reach the run's workflow. It is safe to try again."),
+        },
+        summary="Stop a scout's run",
+        description=(
+            "Stop the run of this scout that is in progress now. The run is cancelled the same way as a "
+            "task run cancel: the agent is interrupted, the sandbox is torn down, and the run is marked "
+            "cancelled, so the scout can run again. Idempotent: a run that already finished is returned "
+            "unchanged. Returns 404 when the scout has no run in progress."
+        ),
+        operation_id="signals_scout_config_stop",
+    )
+    @action(detail=True, methods=["post"], url_path="stop", required_scopes=["signal_scout:write"])
+    def stop(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
+        if config is None or config.skill_name in withheld_skills_for_team(team_id):
+            raise exceptions.NotFound()
+        live_run = (
+            live_lane_runs(scout_lane_runs(team_id, config.skill_name))
+            .order_by("-created_at")
+            .values_list("id", "task_run_id", "task_run__task_id")
+            .first()
+        )
+        if live_run is None:
+            raise exceptions.NotFound("This scout has no run in progress.")
+        run_id, task_run_id, task_id = live_run
+
+        # Deferred: the cancellation facade imports the Tasks Temporal workflow graph. See `run`.
+        from products.tasks.backend.facade import cancellation as tasks_cancellation  # noqa: PLC0415
+
+        user = cast(User, request.user)
+        outcome, _ = tasks_cancellation.cancel_task_run(
+            task_run_id,
+            task_id,
+            team_id,
+            source="scout_stop",
+            requested_by_user_id=user.id,
+            requested_by_distinct_id=user.distinct_id,
+        )
+        if outcome == "not_cloud":
+            raise exceptions.ValidationError("Only cloud runs can be stopped.")
+        if outcome == "unavailable":
+            raise StopUnavailable()
+        detail = get_run(team_id=team_id, run_id=str(run_id))
+        if outcome == "not_found" or detail is None:
+            raise exceptions.NotFound()
+        logger.info(
+            "signals_scout: run stop requested",
+            team_id=team_id,
+            skill_name=config.skill_name,
+            run_id=str(run_id),
+            outcome=outcome,
+            user_id=user.pk,
+        )
+        return Response(
+            SignalScoutRunDetailSerializer(
+                detail.as_dict(),
+                context={"may_read_reports": _may_read_reports(request, self, self.team.parent_team or self.team)},
+            ).data,
+            status=status.HTTP_202_ACCEPTED if outcome == "accepted" else status.HTTP_200_OK,
         )
 
     @validated_request(

@@ -160,7 +160,7 @@ export type fooLogicType = MakeLogicType<fooLogicValues, fooLogicActions>
 export const fooLogic = kea<fooLogicType>([...])
 ```
 
-Inline type blocks are produced by `kea-typegen` 3.8.3. Commands:
+Inline type blocks are produced by `kea-typegen`. Commands:
 
 - `pnpm --filter=@posthog/frontend typegen:watch` — watch mode while writing logics
 - `pnpm --filter=@posthog/frontend typegen:write` — one-shot write
@@ -176,7 +176,7 @@ logic, scope typegen to that file:
 pnpm --filter=@posthog/frontend typegen:file frontend/src/scenes/foo/fooLogic.ts
 ```
 
-Use this loop while writing the logic. The current `tsgo` does not support combining
+Use this loop while writing the logic. The current `tsc` does not support combining
 the project config with a file argument, so run the full `typegen:check` and
 `typescript:check` once at the end to confirm nothing else broke.
 

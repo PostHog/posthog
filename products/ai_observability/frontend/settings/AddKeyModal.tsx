@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import { FoundryEndpointField } from './FoundryEndpointField'
@@ -16,6 +17,7 @@ import {
     llmProviderKeysLogic,
 } from './llmProviderKeysLogic'
 import { endpointErrorFieldFromResult } from './providerKeyStateUtils'
+import { QuillAddKeyDialog } from './QuillAddKeyDialog'
 import { SystemOneConnectionFields } from './SystemOneConnectionFields'
 
 function getKeyPlaceholder(provider: LLMProvider, usesFoundry = false): string {
@@ -53,6 +55,7 @@ export function AddKeyModal(): JSX.Element {
         useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, createProviderKey, preValidateKey, clearPreValidation } =
         useActions(llmProviderKeysLogic)
+    const todayRailNav = useQuillSurface()
 
     const [provider, setProvider] = useState<LLMProvider>('openai')
     const [name, setName] = useState('')
@@ -82,6 +85,8 @@ export function AddKeyModal(): JSX.Element {
     const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
     const endpointErrorField =
         hasEndpointField && validationFailed ? endpointErrorFieldFromResult(preValidationResult) : null
+    const usesFoundry = isAnthropic && azureEndpoint.length > 0
+    const apiKeyInvalid = validationFailed && (!hasEndpointField || endpointErrorField === 'key')
 
     // Reset form when modal closes
     useEffect(() => {
@@ -213,6 +218,44 @@ export function AddKeyModal(): JSX.Element {
         clearPreValidation()
     }
 
+    if (todayRailNav) {
+        return (
+            <QuillAddKeyDialog
+                open={newKeyModalOpen}
+                onClose={handleClose}
+                onSubmit={handleSubmit}
+                submitLoading={providerKeysLoading || preValidationResultLoading}
+                submitDisabled={!isValid}
+                restrictionReason={restrictionReason}
+                providerKeysLoading={providerKeysLoading}
+                provider={provider}
+                onProviderChange={handleProviderChange}
+                isAzure={isAzure}
+                isAnthropic={isAnthropic}
+                isSystemOne={isSystemOne}
+                isOpenAICompatible={isOpenAICompatible}
+                azureEndpoint={azureEndpoint}
+                onAzureEndpointChange={setAzureEndpoint}
+                onFoundryEndpointChange={handleEndpointChange(setAzureEndpoint)}
+                apiVersion={apiVersion}
+                onApiVersionChange={setApiVersion}
+                baseUrl={baseUrl}
+                onBaseUrlChange={handleEndpointChange(setBaseUrl)}
+                name={name}
+                onNameChange={setName}
+                apiKey={apiKey}
+                onApiKeyChange={handleApiKeyChange}
+                onApiKeyBlur={handleApiKeyBlur}
+                apiKeyPlaceholder={getKeyPlaceholder(provider, usesFoundry)}
+                apiKeyInvalid={apiKeyInvalid}
+                usesFoundry={usesFoundry}
+                endpointErrorField={endpointErrorField}
+                preValidationResult={preValidationResult}
+                preValidationResultLoading={preValidationResultLoading}
+            />
+        )
+    }
+
     return (
         <LemonModal
             isOpen={newKeyModalOpen}
@@ -338,23 +381,19 @@ export function AddKeyModal(): JSX.Element {
                         value={apiKey}
                         onChange={handleApiKeyChange}
                         onBlur={handleApiKeyBlur}
-                        placeholder={getKeyPlaceholder(provider, isAnthropic && azureEndpoint.length > 0)}
+                        placeholder={getKeyPlaceholder(provider, usesFoundry)}
                         type="password"
                         autoComplete="off"
                         className="mt-1"
                         fullWidth
-                        status={
-                            validationFailed && (!hasEndpointField || endpointErrorField === 'key')
-                                ? 'danger'
-                                : undefined
-                        }
+                        status={apiKeyInvalid ? 'danger' : undefined}
                     />
                     <KeyValidationStatus
                         result={preValidationResult}
                         isValidating={preValidationResultLoading}
                         provider={provider}
                         suppressError={endpointErrorField === 'endpoint'}
-                        usesFoundry={isAnthropic && azureEndpoint.length > 0}
+                        usesFoundry={usesFoundry}
                     />
                     {isSystemOne && (
                         <p className="text-xs text-muted">

@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, sele
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import type { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { DataWarehouseViewLink, PropertyDefinition, PropertyType } from '~/types'
 
@@ -36,7 +37,7 @@ export interface joinsLogicActions {
         tableNames: string[]
     } // databaseTableListLogic
     loadDatabaseSuccess: (
-        database: Required<import('~/queries/schema').DatabaseSchemaQueryResponse> | null,
+        database: Required<DatabaseSchemaQueryResponse> | null,
         payload?:
             | {
                   force?: boolean
@@ -44,7 +45,7 @@ export interface joinsLogicActions {
               }
             | undefined
     ) => {
-        database: Required<import('~/queries/schema').DatabaseSchemaQueryResponse> | null
+        database: Required<DatabaseSchemaQueryResponse> | null
         payload?: {
             force?: boolean
             shallow?: boolean

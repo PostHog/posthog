@@ -188,6 +188,13 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
 
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
 
+
+class _S3Credentials(TypedDict):
+    access_key: str | None
+    access_secret: str | None
+    credential_required: bool
+
+
 # Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
@@ -590,6 +597,24 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return None
         return parse_hosted_upload(self.team_id, self.url_pattern or "")
 
+    @property
+    def team_credential(self) -> DataWarehouseCredential | None:
+        """The table's credential, or None when the row points at a credential of another team.
+
+        The foreign key alone does not hold the two teams equal."""
+        credential = self.credential
+        if credential is None or credential.team_id != self.team_id:
+            return None
+        return credential
+
+    def _s3_credentials(self) -> _S3Credentials:
+        credential = self.team_credential
+        return _S3Credentials(
+            access_key=credential.access_key if credential else None,
+            access_secret=credential.access_secret if credential else None,
+            credential_required=self.credential_id is not None,
+        )
+
     def adopt_into_source(self, source: "ExternalDataSource") -> list[str]:
         """Make a self-managed table one that `source` syncs. Returns the fields this changed.
 
@@ -812,8 +837,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=read_format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=placeholder_context,
             table_size_mib=0,
             compression=compression,
@@ -843,8 +867,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=describe_format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
@@ -918,8 +941,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key if self.credential else None,
-                access_secret=self.credential.access_secret if self.credential else None,
+                **self._s3_credentials(),
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -972,8 +994,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
             compression=compression,
@@ -1012,8 +1033,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=placeholder_context,
             # The real size, so a table too large for one node is counted across the cluster
             # instead of on the node chdb already could not finish on.
@@ -1069,8 +1089,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key if self.credential else None,
-                access_secret=self.credential.access_secret if self.credential else None,
+                **self._s3_credentials(),
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -1381,8 +1400,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
@@ -1442,8 +1460,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=ctx,
             table_size_mib=0,
         )

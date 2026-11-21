@@ -680,6 +680,7 @@ export function makeToolExecutorState(
             trackEvent: vi.fn(),
         } as any,
         useSingleExec: false,
+        splitWrites: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
         oauthClientId: undefined,

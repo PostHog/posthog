@@ -154,7 +154,7 @@ export interface issueQueryOptionsLogicActions {
         severity: ErrorTrackingQuerySeverity
     }
     setStatus: (status: ErrorTrackingQueryStatus) => {
-        status: ErrorTrackingQueryStatus | undefined
+        status: import('~/queries/schema/schema-general').ErrorTrackingQueryStatus | undefined
     }
 }
 
