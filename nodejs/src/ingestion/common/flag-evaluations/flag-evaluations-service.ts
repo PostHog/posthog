@@ -18,7 +18,8 @@ export interface FlagEvaluationsConfig {
  * Gate for the $feature_flag_called fork that writes flag evaluations to the
  * ClickHouse flag_evaluations table (via the clickhouse_flag_evaluations
  * topic). The event continues to the events table unless the team's
- * organization is on FLAG_EVALUATIONS_ONLY.
+ * organization is on FLAG_EVALUATIONS_ONLY and does not keep writing flag
+ * calls to events.
  *
  * The fork write is never load-bearing for a dual-written event, but the batch
  * does not commit its offsets until the broker answers. See
