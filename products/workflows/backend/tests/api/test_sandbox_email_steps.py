@@ -628,17 +628,27 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("mcp_with_a_verified_sender", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, True, True, "function_email"),
             ("mcp_without_the_adoption_flag", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, False, False, "function_email"),
             ("web_editor", {}, True, False, "function_email"),
+            ("mcp_with_an_empty_sender", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, True, False, "email_sandbox", ""),
         ]
     )
     def test_a_new_email_step_from_the_api_starts_on_the_sandbox_sender_without_a_verified_sender(
-        self, _name: str, headers: dict, enabled: bool, verified: bool, expected_type: str
+        self,
+        _name: str,
+        headers: dict,
+        enabled: bool,
+        verified: bool,
+        expected_type: str,
+        sender: Any = None,
     ) -> None:
         if verified:
             self._verified_sender()
+        step = _own_email_step(None)
+        if sender is not None:
+            step["config"]["inputs"]["email"]["value"]["from"] = sender
 
         with _flag(enabled):
             response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows", _flow(_own_email_step(None)), format="json", **headers
+                f"/api/projects/{self.team.id}/hog_flows", _flow(step), format="json", **headers
             )
 
         assert response.status_code == 201, response.json()

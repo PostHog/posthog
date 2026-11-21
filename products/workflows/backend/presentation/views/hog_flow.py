@@ -1184,7 +1184,7 @@ def _has_no_sender(action: dict) -> bool:
     ):
         return False
     sender = _email_value(action["config"]).get("from")
-    if sender is None:
+    if sender is None or sender == "":
         return True
     return (
         isinstance(sender, dict)
