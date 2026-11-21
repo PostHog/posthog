@@ -583,6 +583,9 @@ build:
     build:openapi-mcp-tools:
         cmd: pnpm --filter=@posthog/mcp run generate-tools
         description: Generate MCP tool handlers from YAML definitions + Orval schemas
+    build:openapi-sdk:
+        cmd: pnpm --filter=@posthog/sdk generate
+        description: Generate the typed SDK and offline discovery from the MCP tool registry
     build:openapi-cli-agent-scopes:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
@@ -647,6 +650,7 @@ build:
                   rm -rf "$log_dir"
                   trap - INT TERM
                   exit "$generation_status"
+            - build:openapi-sdk
             - build:openapi-cli-agent-scopes
             - build:openapi-webmcp-exec-tool
             - build:desktop-api-client

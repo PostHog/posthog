@@ -659,6 +659,11 @@ jobs:
                         # resolver at tools/owners.
                         - 'tools/owners/**'
                       openapi_types:
+                        - 'packages/sdk/src/generated/**'
+                        - 'packages/sdk/*.tsv'
+                        - 'packages/sdk/coverage.json'
+                        - 'services/mcp/src/tools/**/*.ts'
+                        - 'frontend/src/queries/schema.json'
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
                         - 'frontend/src/lib/agentScopes.generated.ts'
@@ -2824,7 +2829,7 @@ jobs:
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/sdk... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install desktop API client generator
               working-directory: products/desktop

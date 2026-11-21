@@ -20,8 +20,13 @@ export interface ApiToolSummary {
 
 export interface ApiConnection {
     apiKey: string
+    publicBaseUrl?: string
+    taskId?: string
+    authMode?: 'token' | 'proxy'
     host: string
     projectId?: string
+    /** Initial selection for an embedded client that supports switch-project. */
+    initialProjectId?: string
     organizationId?: string
     /** Names the calling CLI in the user agent and in analytics, for example "hog". */
     clientName: string
@@ -81,6 +86,8 @@ export interface ApiCatalogStatus {
 
 export interface ApiToolLibraryOptions {
     catalog?: unknown
+    onProjectSelected?: (projectId: string, organizationId?: string) => void
+    fetch?: typeof globalThis.fetch
 }
 
 export interface ApiToolLibrary {
@@ -98,7 +105,8 @@ export interface ApiToolLibrary {
         tool: string,
         input: Record<string, unknown>,
         connection: ApiConnection,
-        confirm: boolean
+        confirm: boolean,
+        options?: { signal?: AbortSignal }
     ): Promise<ApiToolResult<unknown>>
     flush(): Promise<void>
 }

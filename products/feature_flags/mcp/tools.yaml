@@ -22,6 +22,9 @@ tools:
     create-feature-flag:
         operation: feature_flags_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: create
         scopes:
             - feature_flag:write
         annotations:
@@ -110,6 +113,9 @@ tools:
     feature-flag-archive:
         operation: feature_flags_archive_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: archive
         scopes:
             - feature_flag:write
         annotations:
@@ -165,6 +171,9 @@ tools:
     feature-flag-disable:
         operation: feature_flags_disable_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: disable
         scopes:
             - feature_flag:write
         annotations:
@@ -224,6 +233,9 @@ tools:
     feature-flag-enable:
         operation: feature_flags_enable_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: enable
         scopes:
             - feature_flag:write
         annotations:
@@ -279,6 +291,9 @@ tools:
     feature-flag-get-all:
         operation: feature_flags_list
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: list
         scopes:
             - feature_flag:read
         annotations:
@@ -326,6 +341,9 @@ tools:
     feature-flag-get-definition:
         operation: feature_flags_retrieve
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: get
         scopes:
             - feature_flag:read
         annotations:
@@ -463,6 +481,9 @@ tools:
     feature-flag-roll-out-to-everyone:
         operation: feature_flags_roll_out_to_everyone_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: rollOutToEveryone
         scopes:
             - feature_flag:write
         annotations:
@@ -601,6 +622,9 @@ tools:
     feature-flag-set-release-condition-rollout:
         operation: feature_flags_set_release_condition_rollout_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: setReleaseConditionRollout
         scopes:
             - feature_flag:write
         annotations:
@@ -662,6 +686,9 @@ tools:
     feature-flag-unarchive:
         operation: feature_flags_unarchive_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: unarchive
         scopes:
             - feature_flag:write
         annotations:
@@ -814,6 +841,9 @@ tools:
     feature-flags-dependent-flags-retrieve:
         operation: feature_flags_dependent_flags_list
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: dependentFlags
         scopes:
             - feature_flag:read
         annotations:
@@ -870,6 +900,9 @@ tools:
     feature-flags-status-retrieve:
         operation: feature_flags_status_retrieve
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: status
         scopes:
             - feature_flag:read
         annotations:
