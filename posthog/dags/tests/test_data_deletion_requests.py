@@ -45,6 +45,7 @@ from posthog.dags.data_deletion_requests import (
     _shard_predicate,
     _ShardStaging,
     _target_presence_clause,
+    _TypedColumns,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
     cleanup_property_removal_staging,
@@ -4358,7 +4359,7 @@ def test_property_removal_refusal_counts_a_typed_column_that_kept_the_value():
     request = _flag_call_removal_request(["$feature_flag_request_id"], hogql_predicate="properties.plan = 'pro'")
     cluster = Mock()
     cluster.any_host_by_role.side_effect = lambda fn, role: Mock(
-        result=lambda: fn(_ColumnCommentClient()) if role is NodeRole.DATA else ([], [])
+        result=lambda: fn(_ColumnCommentClient()) if role is NodeRole.DATA else _TypedColumns([], [])
     )
 
     with patch("posthog.dags.data_deletion_requests._refuse_unsweepable") as refuse:
