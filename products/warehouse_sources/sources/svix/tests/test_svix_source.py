@@ -47,6 +47,7 @@ class TestSvixSource:
             ("messages", True),
             ("message_attempts", False),
             ("endpoint_stats", False),
+            ("stream_sinks", True),
         ]
     )
     def test_resume_covers_only_tables_that_save_state(self, schema_name: str, expected: bool) -> None:

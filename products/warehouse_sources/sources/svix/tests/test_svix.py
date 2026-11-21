@@ -137,6 +137,41 @@ class TestFanout:
 
         assert result.rows == [{**stats, "app_id": "app_1", "endpoint_id": "ep_1"}]
 
+    @parameterized.expand(
+        [
+            ("integrations", "/api/v1/app", "/app/{}/integration", "app_id", {}),
+            # The sink config can carry connection secrets, so it never reaches the table.
+            (
+                "stream_sinks",
+                "/api/v1/stream",
+                "/stream/{}/sink",
+                "stream_id",
+                {"type": "postgres", "config": {"url": "postgres://user:fake-password@db.example.com/events"}},
+            ),
+        ]
+    )
+    def test_one_level_fan_out_walks_every_parent_and_carries_its_id(
+        self, schema: str, parent_path: str, child_path: str, id_column: str, extra: dict[str, Any]
+    ) -> None:
+        result = _driver().run(
+            schema,
+            route(
+                {
+                    parent_path: [_response([{"id": "p_1"}, {"id": "p_2"}], iterator="p_2", done=True)],
+                    child_path.format("p_1"): [
+                        _response([{"id": "c_1", **extra}], iterator="c_1", done=False),
+                        _response([{"id": "c_2", **extra}], iterator="c_2", done=True),
+                    ],
+                    child_path.format("p_2"): [_response([{"id": "c_3", **extra}], iterator="c_3", done=True)],
+                }
+            ),
+        )
+
+        assert [(row[id_column], row["id"]) for row in result.rows] == [("p_1", "c_1"), ("p_1", "c_2"), ("p_2", "c_3")]
+        assert all("config" not in row for row in result.rows)
+        assert all(row.get("type") == extra.get("type") for row in result.rows)
+        assert result.params("iterator") == [None, None, "c_1", None]
+
 
 class TestIncremental:
     @parameterized.expand(
