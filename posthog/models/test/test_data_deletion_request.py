@@ -25,7 +25,7 @@ from posthog.models.data_deletion_request import (
     invalidate_compiled_predicate_cache,
     uncopied_rows_predicate,
 )
-from posthog.models.deletion_targets import FLAG_EVALUATIONS, FLAG_EVALUATIONS_HOGQL_TABLE
+from posthog.models.deletion_targets import FLAG_EVALUATIONS, FLAG_EVALUATIONS_HOGQL_TABLE, FLAG_EVALUATIONS_JSON
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -463,6 +463,12 @@ def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answe
 
     assert uncopied.compiled is None
     assert error_match in uncopied.error
+
+
+def test_uncopied_rows_predicate_refuses_for_the_json_table_until_it_has_a_hogql_table(team):
+    uncopied = uncopied_rows_predicate(_flag_call_request(team, "properties.plan = 'pro'"), FLAG_EVALUATIONS_JSON)
+
+    assert uncopied.compiled is None
 
 
 # A missing key, a JSON null and an escaped quote are the rows where two ways of reading a property can
