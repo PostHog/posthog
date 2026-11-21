@@ -4321,6 +4321,18 @@ class _ColumnCommentClient:
         return _TYPED_COLUMN_ROWS
 
 
+def _flag_call_removal_request(properties: list[str], **overrides) -> DeletionRequestContext:
+    return DeletionRequestContext(
+        request_id="r",
+        team_id=1,
+        start_time=datetime(2026, 1, 1, tzinfo=UTC),
+        end_time=datetime(2026, 2, 1, tzinfo=UTC),
+        events=["$feature_flag_called"],
+        properties=properties,
+        **overrides,
+    )
+
+
 @pytest.mark.parametrize(
     "properties,expected_reset",
     [
@@ -4331,14 +4343,7 @@ class _ColumnCommentClient:
     ids=["derived from properties", "derived from temporary_properties", "no typed column derives from it"],
 )
 def test_shard_predicate_resets_the_typed_columns_derived_from_removed_properties(properties, expected_reset):
-    request = DeletionRequestContext(
-        request_id="r",
-        team_id=1,
-        start_time=datetime(2026, 1, 1, tzinfo=UTC),
-        end_time=datetime(2026, 2, 1, tzinfo=UTC),
-        events=["$feature_flag_called"],
-        properties=properties,
-    )
+    request = _flag_call_removal_request(properties)
 
     predicate = _shard_predicate(
         _ColumnCommentClient(), request, FLAG_EVALUATIONS_JSON, "2026-03-01 00:00:00.000000", ("", {})
@@ -4350,15 +4355,7 @@ def test_shard_predicate_resets_the_typed_columns_derived_from_removed_propertie
 
 
 def test_property_removal_refusal_counts_a_typed_column_that_kept_the_value():
-    request = DeletionRequestContext(
-        request_id="r",
-        team_id=1,
-        start_time=datetime(2026, 1, 1, tzinfo=UTC),
-        end_time=datetime(2026, 2, 1, tzinfo=UTC),
-        events=["$feature_flag_called"],
-        properties=["$feature_flag_request_id"],
-        hogql_predicate="properties.plan = 'pro'",
-    )
+    request = _flag_call_removal_request(["$feature_flag_request_id"], hogql_predicate="properties.plan = 'pro'")
     cluster = Mock()
     cluster.any_host.side_effect = lambda fn: Mock(result=lambda: fn(_ColumnCommentClient()))
 
@@ -4367,6 +4364,7 @@ def test_property_removal_refusal_counts_a_typed_column_that_kept_the_value():
             cluster, [FLAG_EVALUATIONS_JSON], request, "2026-03-01 00:00:00.000000", log=logging.getLogger()
         )
 
+    # The second call gates the targets that a HogQL predicate excludes.
     hogql_excluded_call = refuse.call_args_list[1]
     predicate, _ = hogql_excluded_call.args[3](FLAG_EVALUATIONS_JSON)
     assert "`request_id` != ''" in predicate
