@@ -637,6 +637,30 @@ export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
+ * unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Check which sending domains an import would add
+ */
+export const messagingProviderImportsDomainSetupCheckCreateBodyApiKeyMax = 512
+
+export const MessagingProviderImportsDomainSetupCheckCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['customerio', 'resend', 'postmark', 'sendgrid', 'mailgun'])
+        .describe(
+            '\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun'
+        )
+        .describe(
+            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun'
+        ),
+    api_key: zod
+        .string()
+        .max(messagingProviderImportsDomainSetupCheckCreateBodyApiKeyMax)
+        .describe("The provider's API key, the same one you'd start the import with. It isn't stored."),
+})
+
+/**
  * Send a Supabase project's auth emails through transactional email templates.
  * @summary Update the Supabase auth email settings
  */

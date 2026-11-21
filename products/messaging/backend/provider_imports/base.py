@@ -64,6 +64,21 @@ class ImportStepSpec:
     requires: tuple[str, ...] = ()
     # Steps the run must include for this one to do anything, such as contacts for new people.
     needs: tuple[str, ...] = ()
+    # Left unselected until the person picks it, because it changes more than what PostHog stores about the import.
+    opt_in: bool = False
+    # A step this one does everything of. Selecting both runs only this one.
+    replaces: str | None = None
+
+
+@frozen
+class DomainSetupCheck:
+    """What the domain setup step would add, given the organization's limit on domains waiting for verification."""
+
+    # In the order the step adds them. Domains another project in the organization already has don't use a slot.
+    fits: tuple[str, ...]
+    wont_fit: tuple[str, ...]
+    unverified_slots_left: int
+    unverified_limit: int
 
 
 @frozen
@@ -200,6 +215,11 @@ class ImportProvider(ABC):
         not run for a provider with `retains_credentials = False`.
         """
         raise NotImplementedError(f"{self.key} keeps its credentials on the run.")
+
+    def check_domain_setup(self, team_id: int, organization_id: str, api_key: str | None) -> DomainSetupCheck:
+        """Say which domains the domain setup step would add. Raises the ImportCredentials* errors like
+        `check_credentials`, and ImportProviderUnavailable."""
+        raise UnknownImportStep(f"{self.label} can't add sending domains.")
 
     @abstractmethod
     def run_step(self, step: str, context: ImportContext, checkpoint: StepCheckpoint | None) -> Iterator[ImportPage]:

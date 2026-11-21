@@ -28471,6 +28471,40 @@ export namespace Schemas {
       available: boolean;
     }
 
+    /**
+     * * `customerio` - Customer.io
+     * * `resend` - Resend
+     * * `postmark` - Postmark
+     * * `sendgrid` - SendGrid
+     * * `mailgun` - Mailgun
+     */
+    export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
+
+
+    export const ImportProviderKeyEnum = {
+      Customerio: 'customerio',
+      Resend: 'resend',
+      Postmark: 'postmark',
+      Sendgrid: 'sendgrid',
+      Mailgun: 'mailgun',
+    } as const;
+
+    export interface CheckDomainSetup {
+      /** The provider to import from.
+       *
+       * * `customerio` - Customer.io
+       * * `resend` - Resend
+       * * `postmark` - Postmark
+       * * `sendgrid` - SendGrid
+       * * `mailgun` - Mailgun */
+      provider: ImportProviderKeyEnum;
+      /**
+         * The provider's API key, the same one you'd start the import with. It isn't stored.
+         * @maxLength 512
+         */
+      api_key: string;
+    }
+
     export interface CheckFailedSignalExtra {
       check_id: string;
       report_id: string;
@@ -40898,6 +40932,17 @@ export namespace Schemas {
       All: 'all',
       Selected: 'selected',
     } as const;
+
+    export interface DomainSetupCheck {
+      /** Domains the Add sending domains step would add, in the order it adds them. */
+      fits: string[];
+      /** Domains the step would leave out, because the organization reached its limit of domains waiting for verification. Add them once a domain verifies. */
+      wont_fit: string[];
+      /** How many more domains the organization can add before its domains waiting for verification reach the limit. */
+      unverified_slots_left: number;
+      /** How many domains an organization can have waiting for verification at a time. */
+      unverified_limit: number;
+    }
 
     export interface LeadTimeBucket {
       /** Bucket start, aligned to series_granularity (top of hour, midnight, or Monday). Keyed on deploy time: a PR lands in the bucket its first post-merge deploy succeeded in. */
@@ -65299,24 +65344,6 @@ export namespace Schemas {
       Listed: 'listed',
     } as const;
 
-    /**
-     * * `customerio` - Customer.io
-     * * `resend` - Resend
-     * * `postmark` - Postmark
-     * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun
-     */
-    export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
-
-
-    export const ImportProviderKeyEnum = {
-      Customerio: 'customerio',
-      Resend: 'resend',
-      Postmark: 'postmark',
-      Sendgrid: 'sendgrid',
-      Mailgun: 'mailgun',
-    } as const;
-
     export interface ImportStepOption {
       /** Step key to send in `steps` when starting an import, for example `suppressions`. */
       key: string;
@@ -65324,6 +65351,8 @@ export namespace Schemas {
       label: string;
       /** What the step imports and where it lands in PostHog. */
       description: string;
+      /** Whether the step changes more than imported data, such as adding sending domains. Leave it out unless the person asks for it. */
+      opt_in: boolean;
     }
 
     export interface ImportSettingChoice {

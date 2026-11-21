@@ -313,7 +313,8 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
         missing = [labels[key] for key in spec.needs if key not in steps]
         if spec.key in steps and missing:
             raise InvalidImportSteps(f"{spec.label} needs {', '.join(missing)} selected too.")
-    return [key for key in known if key in steps]
+    replaced = {spec.replaces for spec in provider.steps if spec.key in steps and spec.replaces}
+    return [key for key in known if key in steps and key not in replaced]
 
 
 def _resolve_settings(provider: ImportProvider, settings: Mapping[str, str]) -> dict[str, str]:

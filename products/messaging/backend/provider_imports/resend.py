@@ -7,7 +7,7 @@ email; the other contact steps read only who opted out.
 
 import re
 from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime
@@ -16,10 +16,22 @@ from functools import partial
 from typing import Any
 from urllib.parse import quote
 
+from django.conf import settings
 from django.utils.dateparse import parse_datetime
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models import Team, User
+from posthog.models.integration.email import (
+    MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION,
+    EmailIntegration,
+    UnverifiedEmailDomainLimitReached,
+    disposable_email_domains_list,
+    free_email_domains_list,
+    organization_email_domains,
+)
 
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -30,6 +42,7 @@ from products.messaging.backend.models.message_suppression import SuppressionSou
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ImportProviderKey
 from products.messaging.backend.provider_imports.base import (
+    DomainSetupCheck,
     ImportContext,
     ImportCredentials,
     ImportCredentialsInvalid,
@@ -106,6 +119,11 @@ TEMPLATE_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,256}")
 IMPORT_TAG = "imported-from-resend"
 # The label PostHog uses for a sender's MAIL FROM subdomain unless the person picks another.
 MAIL_FROM_DEFAULT = "feedback"
+# Tried in order when Resend already has a record on the default label.
+MAIL_FROM_ALTERNATIVES = ("bounce", "posthog-bounce", "ph-feedback")
+# The address the add-domain flow suggests. A sender sends from any address on its domain.
+SENDER_LOCAL_PART = "hello"
+DOMAIN_SETUP_STEP = "domain_setup"
 
 _SUPPRESSION_ORIGINS: dict[str, tuple[SuppressionSource, str]] = {
     "bounce": (SuppressionSource.BOUNCE, "Imported from Resend (bounced)"),
@@ -129,8 +147,8 @@ class ResendImportProvider(ImportProvider):
     api_key_url = "https://resend.com/api-keys"
     not_imported = "API keys, webhooks, send history and stats stay in Resend, so rebuild what you need."
     next_steps = (
-        "Add each sending domain in PostHog and publish its DNS records. PostHog signs mail with its own keys, so "
-        "this needs new records. Leave your Resend records in place, because both tools can sign mail for one domain "
+        "Add each sending domain in PostHog, unless the import added it, and publish its DNS records. PostHog signs "
+        "mail with its own keys, so this needs new records. Leave your Resend records in place, because both tools can sign mail for one domain "
         "while you move.",
         "Open each template with notes and fix what they mention, then send yourself a test.",
         "Make a template transactional and change your app to send it through PostHog. Start with a low-risk email "
@@ -201,6 +219,24 @@ class ResendImportProvider(ImportProvider):
         ),
         new_people_step("Resend"),
         ImportStepSpec(
+            key=DOMAIN_SETUP_STEP,
+            label="Add sending domains",
+            description=(
+                "Adds each domain Resend verified to PostHog, so you get the DNS records to publish. Templates and "
+                "draft workflows from this import use it, and can send once PostHog verifies it."
+            ),
+            count_labels=(
+                ("created", "Added to PostHog"),
+                ("ready", "Already in PostHog and ready to send"),
+                ("pending", "Already in PostHog, waiting for DNS records"),
+                ("not_verified", "Not verified in Resend, left out"),
+                ("over_limit", "Add later, once a domain verifies"),
+                ("failed", "Couldn't be added"),
+            ),
+            opt_in=True,
+            replaces="domains",
+        ),
+        ImportStepSpec(
             key="templates",
             label="Templates",
             description=(
@@ -264,6 +300,48 @@ class ResendImportProvider(ImportProvider):
             client.check_access()
         return ImportCredentials(api_key=api_key)
 
+    def check_domain_setup(self, team_id: int, organization_id: str, api_key: str | None) -> DomainSetupCheck:
+        if not api_key:
+            raise ImportCredentialsMissing(MISSING_KEY_MESSAGE)
+        if not api_key.isascii():
+            raise ImportCredentialsInvalid(INVALID_KEY_MESSAGE)
+        client = ResendClient(
+            api_key,
+            timeout=CREDENTIAL_CHECK_TIMEOUT_SECONDS,
+            max_rate_limit_waits=0,
+            max_transient_retries=0,
+        )
+        team_domains = set(_senders_by_domain(team_id))
+        with _translated_errors():
+            names = [
+                name
+                for page in client.pages("/domains")
+                for domain in page.data
+                if (name := str(domain.get("name") or "").strip().lower())
+                and domain.get("status") == "verified"
+                and name not in team_domains
+                and name not in free_email_domains_list
+                and name not in disposable_email_domains_list
+            ]
+        organization_domains = organization_email_domains(organization_id)
+        slots_left = organization_domains.unverified_slots_left
+        fits: list[str] = []
+        wont_fit: list[str] = []
+        for name in dict.fromkeys(names):
+            if not organization_domains.takes_unverified_slot(name):
+                fits.append(name)
+            elif slots_left > 0:
+                slots_left -= 1
+                fits.append(name)
+            else:
+                wont_fit.append(name)
+        return DomainSetupCheck(
+            fits=tuple(fits),
+            wont_fit=tuple(wont_fit),
+            unverified_slots_left=organization_domains.unverified_slots_left,
+            unverified_limit=MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION,
+        )
+
     def run_step(self, step: str, context: ImportContext, checkpoint: StepCheckpoint | None) -> Iterator[ImportPage]:
         if not context.api_key:
             raise ImportCredentialsMissing(EXPIRED_KEY_MESSAGE)
@@ -289,7 +367,9 @@ class ResendImportProvider(ImportProvider):
                 case "automations":
                     yield from _fetch_automations(client, context, checkpoint)
                 case "domains":
-                    yield from _fetch_domains(client, context, checkpoint)
+                    yield from _fetch_domains(client, context, checkpoint, _save_domains)
+                case "domain_setup":
+                    yield from _fetch_domains(client, context, checkpoint, _save_domain_setup)
                 case _:
                     raise UnknownImportStep(f"Resend has no import step named {step}.")
 
@@ -953,21 +1033,33 @@ def _step_email(config: dict[str, Any], senders: Mapping[str, IntegrationRecord]
 
 
 def _fetch_domains(
-    client: ResendClient, context: ImportContext, checkpoint: StepCheckpoint | None
+    client: ResendClient,
+    context: ImportContext,
+    checkpoint: StepCheckpoint | None,
+    save: Callable[[ImportContext, list[dict[str, Any]]], SavedPage],
 ) -> Iterator[ImportPage]:
     for page in client.pages("/domains", _after(checkpoint)):
         details = [client.get(f"/domains/{_path_part(domain['id'])}") for domain in page.data if domain.get("id")]
         yield ImportPage(
             processed=len(page.data),
-            save=partial(_save_domains, context, details),
+            save=partial(save, context, details),
             checkpoint=_next_checkpoint(page.next_after),
         )
 
 
-def _save_domains(context: ImportContext, domains: list[dict[str, Any]]) -> SavedPage:
+def _senders_by_domain(team_id: int) -> dict[str, list[IntegrationRecord]]:
     senders_by_domain: dict[str, list[IntegrationRecord]] = {}
-    for sender in IntegrationManager.email.credentials.list(context.team_id):
+    for sender in IntegrationManager.email.credentials.list(team_id):
         senders_by_domain.setdefault(str(sender.config.get("domain", "")).lower(), []).append(sender)
+    return senders_by_domain
+
+
+def _sender_url(senders: list[IntegrationRecord]) -> str:
+    return f"/workflows/channels/email/{senders[0].id}" if senders else "/workflows/channels"
+
+
+def _save_domains(context: ImportContext, domains: list[dict[str, Any]]) -> SavedPage:
+    senders_by_domain = _senders_by_domain(context.team_id)
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
     for domain in domains:
@@ -991,11 +1083,124 @@ def _save_domains(context: ImportContext, domains: list[dict[str, Any]]) -> Save
             ImportItem(
                 label=name,
                 status="listed",
-                url=f"/workflows/channels/email/{senders[0].id}" if senders else "/workflows/channels",
+                url=_sender_url(senders),
                 notes=tuple(notes),
             )
         )
     return SavedPage(imported=0, counts=dict(counts), items=tuple(items))
+
+
+def _save_domain_setup(context: ImportContext, domains: list[dict[str, Any]]) -> SavedPage:
+    """Add each domain Resend verified through the same path as adding one by hand, so its limits and checks apply.
+
+    Templates and automations run after this step, so they find the new sender by the domain they send from.
+    """
+    senders_by_domain = _senders_by_domain(context.team_id)
+    team = (
+        Team.objects.select_related("organization")
+        .only("organization__id", "organization__name")
+        .get(id=context.team_id)
+    )
+    created_by = User.objects.filter(id=context.created_by_id).first() if context.created_by_id else None
+    items: list[ImportItem] = []
+    counts: Counter[str] = Counter()
+    for domain in domains:
+        name = str(domain.get("name") or "").strip().lower()
+        if not name:
+            continue
+        senders = senders_by_domain.get(name, [])
+        if senders:
+            ready = any(sender.config.get("verified") for sender in senders)
+            counts["ready" if ready else "pending"] += 1
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="skipped",
+                    url=_sender_url(senders),
+                    notes=() if ready else ("Already in PostHog. Publish its DNS records so PostHog can verify it.",),
+                )
+            )
+            continue
+        if domain.get("status") != "verified":
+            counts["not_verified"] += 1
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="listed",
+                    url=_sender_url([]),
+                    notes=(
+                        "Resend hasn't verified this domain, so it wasn't added. Add it yourself if you send from it.",
+                    ),
+                )
+            )
+            continue
+        mail_from = _free_mail_from_label(domain)
+        try:
+            sender = EmailIntegration.create_native_integration(
+                {
+                    "email": f"{SENDER_LOCAL_PART}@{name}",
+                    "name": team.organization.name,
+                    # A local stack has no SES, so it adds domains on Maildev like the add-domain flow does there.
+                    "provider": "maildev" if settings.DEBUG else "ses",
+                    "mail_from_subdomain": mail_from,
+                },
+                team_id=context.team_id,
+                organization_id=str(team.organization_id),
+                created_by=created_by,
+            )
+        except UnverifiedEmailDomainLimitReached:
+            counts["over_limit"] += 1
+            items.append(
+                ImportItem(
+                    label=name,
+                    status="listed",
+                    url=_sender_url([]),
+                    notes=(
+                        f"Your organization can have {MAX_UNVERIFIED_EMAIL_DOMAINS_PER_ORGANIZATION} domains waiting "
+                        "for verification. Add this one once one of them verifies.",
+                    ),
+                )
+            )
+            continue
+        except ValidationError as e:
+            counts["failed"] += 1
+            items.append(ImportItem(label=name, status="failed", url=_sender_url([]), notes=(_error_text(e),)))
+            continue
+        senders_by_domain[name] = [sender]
+        notes = ["Publish the DNS records below so PostHog can verify this domain."]
+        # Another project in the organization may already have the domain, and then its label wins.
+        mail_from = str(sender.config.get("mail_from_subdomain") or mail_from)
+        if mail_from != MAIL_FROM_DEFAULT and _uses_mail_from_label(domain, MAIL_FROM_DEFAULT):
+            notes.append(
+                f"Resend already uses the {MAIL_FROM_DEFAULT} subdomain here, so PostHog uses {mail_from} for "
+                "bounces instead."
+            )
+        counts["created"] += 1
+        items.append(ImportItem(label=name, status="created", url=_sender_url([sender]), notes=tuple(notes)))
+    return SavedPage(imported=counts["created"], counts=dict(counts), items=tuple(items))
+
+
+def _free_mail_from_label(domain: dict[str, Any]) -> str:
+    taken = {
+        str(record.get("name", "")).split(".")[0].lower()
+        for record in domain.get("records") or []
+        if isinstance(record, dict)
+    }
+    return next(
+        (label for label in (MAIL_FROM_DEFAULT, *MAIL_FROM_ALTERNATIVES) if label not in taken),
+        MAIL_FROM_ALTERNATIVES[-1],
+    )
+
+
+def _error_text(error: ValidationError) -> str:
+    detail = error.detail
+    if isinstance(detail, dict):
+        return " ".join(
+            " ".join(map(str, messages)) if isinstance(messages, list) else str(messages)
+            for messages in detail.values()
+        )
+    else:
+        return " ".join(map(str, detail))
 
 
 def _uses_mail_from_label(domain: dict[str, Any], label: str) -> bool:

@@ -16,11 +16,12 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
 from products.messaging.backend.facade.provider_imports import (
     CONTACT_STEPS,
+    DOMAIN_SETUP_STEP,
     IMPORT_PROVIDER_CHOICES,
     IMPORT_STEP_STATUS_CHOICES,
     PROVIDER_IMPORT_STATUS_CHOICES,
@@ -28,6 +29,7 @@ from products.messaging.backend.facade.provider_imports import (
     ProviderImportConflict,
     ProviderImportRejected,
     ProviderImportUnavailable,
+    check_domain_setup,
     get_provider_import_run,
     list_import_providers,
     list_provider_import_runs,
@@ -41,6 +43,9 @@ class ImportStepOptionSerializer(serializers.Serializer):
     )
     label = serializers.CharField(help_text="Display name of the step.")  # type: ignore[assignment]  # field named `label` shadows DRF Field.label
     description = serializers.CharField(help_text="What the step imports and where it lands in PostHog.")
+    opt_in = serializers.BooleanField(
+        help_text="Whether the step changes more than imported data, such as adding sending domains. Leave it out unless the person asks for it."
+    )
 
 
 class ImportSettingChoiceSerializer(serializers.Serializer):
@@ -170,6 +175,32 @@ class StartProviderImportSerializer(serializers.Serializer):
     )
 
 
+class CheckDomainSetupSerializer(serializers.Serializer):
+    provider = serializers.ChoiceField(choices=IMPORT_PROVIDER_CHOICES, help_text="The provider to import from.")
+    api_key = serializers.CharField(
+        write_only=True,
+        max_length=512,
+        help_text="The provider's API key, the same one you'd start the import with. It isn't stored.",
+    )
+
+
+class DomainSetupCheckSerializer(serializers.Serializer):
+    fits = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Domains the Add sending domains step would add, in the order it adds them.",
+    )
+    wont_fit = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Domains the step would leave out, because the organization reached its limit of domains waiting for verification. Add them once a domain verifies.",
+    )
+    unverified_slots_left = serializers.IntegerField(
+        help_text="How many more domains the organization can add before its domains waiting for verification reach the limit."
+    )
+    unverified_limit = serializers.IntegerField(
+        help_text="How many domains an organization can have waiting for verification at a time."
+    )
+
+
 class ProviderUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "provider_unavailable"
@@ -254,6 +285,17 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
             if not self.user_access_control.check_access_level_for_resource("person", "editor"):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
+        if DOMAIN_SETUP_STEP in data["steps"]:
+            # Adding a domain by hand needs these too, so the import can't add one for someone who couldn't.
+            if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["integration:write"]):
+                raise PermissionDenied(
+                    "Adding sending domains creates email senders, so this key needs the integration:write scope. "
+                    "Leave out Add sending domains, or use a key that has it."
+                )
+            if not TeamMemberStrictManagementPermission().has_permission(request, self):
+                raise PermissionDenied(
+                    "You need permission to add integrations in this project to add sending domains."
+                )
         if data["provider"] not in {provider.key for provider in self._providers()}:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
         try:
@@ -302,6 +344,31 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["get"], required_scopes=["hog_flow:read"])
     def providers(self, request: Request, **kwargs: Any) -> Response:
         return Response(ImportProviderOptionSerializer(self._providers(), many=True).data)
+
+    @validated_request(
+        request_serializer=CheckDomainSetupSerializer,
+        responses={
+            200: OpenApiResponse(response=DomainSetupCheckSerializer),
+            400: OpenApiResponse(
+                description="The provider can't add sending domains, or the API key is missing or rejected."
+            ),
+            503: OpenApiResponse(description="The provider did not respond."),
+        },
+        summary="Check which sending domains an import would add",
+    )
+    @action(detail=False, methods=["post"], url_path="domain_setup_check", required_scopes=["hog_flow:read"])
+    def domain_setup_check(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        self._require_project_access("editor")
+        data = request.validated_data
+        if data["provider"] not in {provider.key for provider in self._providers()}:
+            raise ValidationError(f"Unknown import provider: {data['provider']}.")
+        try:
+            check = check_domain_setup(self.team_id, str(self.team.organization_id), data["provider"], data["api_key"])
+        except ProviderImportRejected as e:
+            raise ValidationError(str(e)) from e
+        except ProviderImportUnavailable as e:
+            raise ProviderUnavailable(str(e)) from e
+        return Response(DomainSetupCheckSerializer(check).data)
 
     def _providers(self) -> Sequence[ImportProviderOption]:
         return list_import_providers(str(self.team.uuid), str(self.team.organization_id))

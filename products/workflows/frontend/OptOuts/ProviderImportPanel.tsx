@@ -9,11 +9,12 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { ImportProviderOptionApi, ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { ImportedDomainsDnsTable } from './ImportedDomainsDnsTable'
 import { providerImportLogic } from './providerImportLogic'
 import { ProviderImportRunProgress } from './ProviderImportRunProgress'
 
 function ImportStepPicker({ provider }: { provider: ImportProviderOptionApi }): JSX.Element {
-    const { deselectedImportSteps } = useValues(providerImportLogic)
+    const { selectedImportSteps } = useValues(providerImportLogic)
     const { toggleImportStep } = useActions(providerImportLogic)
 
     return (
@@ -22,7 +23,7 @@ function ImportStepPicker({ provider }: { provider: ImportProviderOptionApi }): 
             {provider.steps.map((step) => (
                 <div key={step.key}>
                     <LemonCheckbox
-                        checked={!deselectedImportSteps.includes(step.key)}
+                        checked={selectedImportSteps.includes(step.key)}
                         onChange={() => toggleImportStep(step.key)}
                         label={step.label}
                         data-attr={`${provider.key}-import-step-${step.key}`}
@@ -30,6 +31,49 @@ function ImportStepPicker({ provider }: { provider: ImportProviderOptionApi }): 
                     <div className="text-xs text-secondary ml-6">{step.description}</div>
                 </div>
             ))}
+        </div>
+    )
+}
+
+function DomainSetupCheckBanner({ provider }: { provider: ImportProviderOptionApi }): JSX.Element | null {
+    const { domainSetupCheck, isDomainSetupSelected } = useValues(providerImportLogic)
+
+    if (!isDomainSetupSelected || !domainSetupCheck) {
+        return null
+    }
+    const { fits, wont_fit, unverified_slots_left, unverified_limit } = domainSetupCheck
+    const total = fits.length + wont_fit.length
+    const domainCount = (count: number): string => `${count} sending ${count === 1 ? 'domain' : 'domains'}`
+    const room = `Your organization can have ${unverified_limit} domains waiting for verification at a time, and has room for ${unverified_slots_left} more.`
+    // A domain another project in the organization already has joins it, so it needs no room.
+    const alreadyInOrganization =
+        fits.length > unverified_slots_left ? " Domains another project already has don't need room." : ''
+
+    return (
+        <div data-attr={`${provider.key}-import-domain-check`}>
+            {wont_fit.length === 0 ? (
+                <LemonBanner type="info" className="text-sm">
+                    {total === 0
+                        ? `No sending domains to add. ${provider.label} has no verified domains that this project doesn't have yet.`
+                        : `Adds ${domainCount(total)}. ${room}${alreadyInOrganization}`}
+                </LemonBanner>
+            ) : (
+                <LemonBanner type="warning" className="text-sm">
+                    <p className="m-0">
+                        {fits.length === 0
+                            ? `Adds none of your ${domainCount(total)}. `
+                            : `Adds ${fits.length} of your ${domainCount(total)}. `}
+                        {room}
+                        {alreadyInOrganization} You can still start the import.
+                    </p>
+                    <p className="m-0 mt-1">Add these later, once a domain verifies:</p>
+                    <ul className="m-0 pl-5 list-disc">
+                        {wont_fit.map((domain) => (
+                            <li key={domain}>{domain}</li>
+                        ))}
+                    </ul>
+                </LemonBanner>
+            )}
         </div>
     )
 }
@@ -87,6 +131,7 @@ function ImportRunResult({
                 </p>
             )}
             <ProviderImportRunProgress run={run} onOpenLink={closeImportModal} />
+            <ImportedDomainsDnsTable />
             {run.finished_at && (
                 <div className="flex items-center justify-between text-sm">
                     <span>Finished</span>
@@ -208,6 +253,8 @@ function ImportForm({
                     <ApiKeyHelp provider={provider} />
                 </Form>
             )}
+
+            <DomainSetupCheckBanner provider={provider} />
 
             {importError && (
                 <LemonBanner type="error" className="text-sm">
