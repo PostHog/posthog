@@ -232,6 +232,7 @@ class UsageSnapshotSummary:
 @dataclass(frozen=True)
 class UsageSnapshotDetail(UsageSnapshotSummary):
     payload: UsageSnapshotPayload
+    topics_hidden: bool = False
 
 
 @dataclass(frozen=True)

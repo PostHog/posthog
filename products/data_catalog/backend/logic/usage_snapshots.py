@@ -262,13 +262,19 @@ def visible_payload(payload: UsageSnapshotPayload, reader: UsageReader) -> Usage
     )
 
 
+def topics_hidden_from(payload: UsageSnapshotPayload, reader: UsageReader) -> bool:
+    """An empty topic list after `visible_payload` cannot tell a withheld list from a scan with no topics, so the
+    read reports the withheld case on its own."""
+    return bool(reader.denied_tables) and bool(payload.topics or payload.topic_definitions)
+
+
 def latest_usage_snapshot(team_id: int, reader: UsageReader) -> UsageSnapshotDetail | None:
     row = _latest_done(team_id)
     if row is None:
         return None
     detail = _detail(row)
     payload = _viewable_charts(visible_payload(detail.payload, reader), reader)
-    return dataclasses.replace(detail, payload=payload)
+    return dataclasses.replace(detail, payload=payload, topics_hidden=topics_hidden_from(detail.payload, reader))
 
 
 def _charts_the_reader_may_open(

@@ -223,7 +223,7 @@ function ScanWindow({ scan }: { scan: UsageSnapshotApi }): JSX.Element {
 }
 
 function TopicsSection(): JSX.Element {
-    const { topics, topicSessionsSummary, failureReasons } = useValues(usageLogic)
+    const { topics, topicsEmptyMessage, topicSessionsSummary, failureReasons } = useValues(usageLogic)
     return (
         <section className="flex min-w-0 flex-col gap-2">
             <h3 className="m-0 flex min-h-6 items-center gap-1">
@@ -246,7 +246,7 @@ function TopicsSection(): JSX.Element {
                         rowKey="title"
                         size="small"
                         pagination={{ pageSize: HALF_TABLE_PAGE_SIZE, hideOnSinglePage: true }}
-                        emptyState="No agent session analyzed data in this window."
+                        emptyState={topicsEmptyMessage}
                         data-attr="data-catalog-usage-topics"
                     />
                 </>

@@ -42,6 +42,7 @@ from products.data_catalog.backend.logic.usage_snapshots import (
     _denied_tables_and_views,
     _viewable_charts,
     payload_to_json,
+    topics_hidden_from,
     visible_payload,
 )
 from products.data_catalog.backend.models import Metric, UsageSnapshot
@@ -155,15 +156,24 @@ class TestVisiblePayload(SimpleTestCase):
 
         assert [source.name for source in visible.table_sources or []] == ["revenue_daily"]
 
-    @parameterized.expand([("open_reader", frozenset(), 1), ("reader_with_a_denied_table", frozenset({"billing"}), 0)])
+    @parameterized.expand(
+        [
+            ("open_reader", frozenset(), True, 1, False),
+            ("reader_with_a_denied_table", frozenset({"billing"}), True, 0, True),
+            ("reader_with_a_denied_table_and_no_topics", frozenset({"billing"}), False, 0, False),
+        ]
+    )
     def test_topic_titles_reach_only_readers_without_denied_tables(
-        self, _name: str, denied: frozenset[str], kept: int
+        self, _name: str, denied: frozenset[str], has_topics: bool, kept: int, hidden: bool
     ) -> None:
-        payload = UsageSnapshotPayload(topic_definitions=[TopicDefinition(title="Payroll", description="Salaries.")])
+        definitions = [TopicDefinition(title="Payroll", description="Salaries.")] if has_topics else []
+        payload = UsageSnapshotPayload(topic_definitions=definitions)
+        reader = UsageReader(visible_metric_ids=frozenset(), denied_tables=denied)
 
-        visible = visible_payload(payload, UsageReader(visible_metric_ids=frozenset(), denied_tables=denied))
+        visible = visible_payload(payload, reader)
 
         assert len(visible.topic_definitions or []) == kept
+        assert topics_hidden_from(payload, reader) is hidden
 
     def test_reader_does_not_see_measures_or_proposals_over_denied_tables_or_hidden_metrics(self) -> None:
         payload = UsageSnapshotPayload(
@@ -335,6 +345,7 @@ class TestUsageSnapshotAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["id"] == str(newest.id)
         assert response.json()["payload"]["metric_runs"] is None
+        assert response.json()["topics_hidden"] is False
 
     def test_metric_usage_returns_only_that_metrics_slice(self) -> None:
         mrr = upsert_metric(team=self.team, user=self.user, name="mrr", description="Monthly revenue")
