@@ -608,9 +608,14 @@ describe('Self-driving activation guidance', () => {
             )
             if (enabled) {
                 expect(notice?.text).toContain(
-                    'poll `self-driving-status-get` for the same project every 10 seconds for up to five minutes'
+                    'If they start setup or ask you to check it, use `self-driving-status-get`'
                 )
-                expect(notice?.text).toContain('Continue helping with the current task')
+                expect(notice?.text).toContain('Agents triaged errors in this project on 29 of the past 30 days.')
+                expect(notice?.text).toContain("Answer the customer's current question first")
+                expect(notice?.text).toContain('PostHog Self-driving can investigate new errors in the background')
+                expect(notice?.text).toContain('The primary setup route connects GitHub.')
+                expect(notice?.text).not.toContain('poll')
+                expect(notice?.text).not.toContain('inbox-reports-list')
                 expect(notice?.text?.includes('https://example.com/project/2/inbox/activate/without-github')).toBe(
                     githubOptional === true
                 )
@@ -624,6 +629,18 @@ describe('Self-driving activation guidance', () => {
             })
         }
     )
+
+    it.each(['production', 'staging', undefined])('does not offer simulated guidance in %s', async (environment) => {
+        vi.stubEnv('NODE_ENV', environment)
+        try {
+            const state = activationState()
+            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)
+            expect(notice).toBeUndefined()
+            expect(state.context.api.request).not.toHaveBeenCalled()
+        } finally {
+            vi.unstubAllEnvs()
+        }
+    })
 
     it.each([
         [true, 'error-tracking-sd-activation:shown'],

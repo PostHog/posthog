@@ -14,6 +14,9 @@ import type { GuidanceCall, GuidanceNotice } from './engine'
 import type { GuidanceProductState } from './product-state'
 import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from './rules'
 
+const TRIAGE_LOOKBACK_DAYS = 30
+const DISTINCT_TRIAGE_DAYS = 29
+
 const RULE_ID = 'error-tracking-sd-activation'
 const SESSION_TTL_SECONDS = 24 * 60 * 60
 const CALLER_TTL_SECONDS = 30 * 60
@@ -73,7 +76,11 @@ function ineligibleKey(state: ResolvedState, projectId: string): string {
 }
 
 function activationText(projectUrl: string, githubOptional: boolean): string {
-    const vars = { project_url: projectUrl }
+    const vars = {
+        project_url: projectUrl,
+        lookback_days: String(TRIAGE_LOOKBACK_DAYS),
+        distinct_triage_days: String(DISTINCT_TRIAGE_DAYS),
+    }
     return formatPrompt(ACTIVATION_PROMPT, {
         ...vars,
         github_optional_offer: githubOptional ? formatPrompt(WITHOUT_GITHUB_OFFER, vars) : '',
@@ -175,6 +182,9 @@ export async function selfDrivingActivationGuidance(
     productState: GuidanceProductState,
     firstSessionCall: boolean
 ): Promise<GuidanceNotice | undefined> {
+    if (process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test') {
+        return undefined
+    }
     if (!isEligibleCall(state, call)) {
         return undefined
     }
