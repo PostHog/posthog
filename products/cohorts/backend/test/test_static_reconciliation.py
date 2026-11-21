@@ -17,7 +17,7 @@ from redis.exceptions import RedisError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE, REPLACE_ROW_OFFSET
 from posthog.redis import get_client
 from posthog.tasks.calculate_cohort import (
     dispatch_static_cohort_reconciliations,
@@ -27,10 +27,7 @@ from posthog.tasks.calculate_cohort import (
 from posthog.test.persons import create_person
 
 from products.cohorts.backend import static_reconciliation
-from products.cohorts.backend.models import (
-    cohort as cohort_models,
-    util as cohort_util,
-)
+from products.cohorts.backend.models import util as cohort_util
 from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode
 from products.cohorts.backend.models.util import (
     StaticCohortReadBackIncomplete,
@@ -498,7 +495,7 @@ class TestStaticCohortReconciliation(BaseTest):
             return result
 
         skipped_before = REGISTRY.get_sample_value("cohort_static_reconcile_total", {"outcome": "skipped_replace"}) or 0
-        with patch.object(cohort_models, "insert_cohort_members", side_effect=claim_replace_after_first_page):
+        with patch.object(cohort_util, "insert_cohort_members", side_effect=claim_replace_after_first_page):
             reconcile_static_cohort(target)
 
         skipped_after = REGISTRY.get_sample_value("cohort_static_reconcile_total", {"outcome": "skipped_replace"}) or 0
@@ -525,7 +522,7 @@ class TestStaticCohortReconciliation(BaseTest):
                 Cohort.objects.filter(pk=cohort.pk).update(pending_population_mode=CohortPopulationMode.APPEND)
             return result
 
-        with patch.object(cohort_models, "insert_cohort_members", side_effect=claim_append_after_first_page):
+        with patch.object(cohort_util, "insert_cohort_members", side_effect=claim_append_after_first_page):
             reconcile_static_cohort(StaticCohortToReconcile(team_id=self.team.pk, cohort_id=cohort.pk))
 
         cohort.refresh_from_db()
@@ -545,7 +542,7 @@ class TestStaticCohortReconciliation(BaseTest):
                     "cohort_id": cohort.pk,
                     "team_id": self.team.pk,
                     "_timestamp": self.now - timedelta(days=6),
-                    "_offset": cohort_util.REPLACE_OFFSET,
+                    "_offset": REPLACE_ROW_OFFSET,
                 }
             ],
         )

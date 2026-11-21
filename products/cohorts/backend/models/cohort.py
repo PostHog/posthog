@@ -1482,15 +1482,15 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if processing_error is None:
             return {
                 "is_calculating": False,
-                "count": self.count,
                 "last_calculation": timezone.now(),
                 "errors_calculating": 0,
+                "count": self.count,
             }
         return {
             "is_calculating": False,
-            "count": self.count,
             "errors_calculating": F("errors_calculating") + 1,
             "last_error_at": timezone.now(),
+            "count": self.count,
         }
 
     def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
