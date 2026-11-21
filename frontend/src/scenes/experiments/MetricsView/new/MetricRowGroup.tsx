@@ -7,13 +7,16 @@ import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { getMetricRecordingModes } from 'scenes/experiments/ExperimentView/experimentRecordingModes'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { MetricBreakdownError } from 'scenes/experiments/MetricBreakdowns/MetricBreakdownError'
 import { MetricBreakdowns } from 'scenes/experiments/MetricBreakdowns/MetricBreakdowns'
+import { viewRecordingsLinkabilityLogic } from 'scenes/experiments/viewRecordingsLinkabilityLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -74,6 +77,7 @@ import { DetailsButton } from './DetailsButton'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
 import { useAxisScale } from './useAxisScale'
+import { VariantActionsMenu } from './VariantActionsMenu'
 
 interface CollapsibleBreakdownSectionProps {
     breakdownResults: any[]
@@ -118,6 +122,7 @@ function CollapsibleBreakdownSection({
     handleTooltipMouseMove,
 }: CollapsibleBreakdownSectionProps): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
     const [isExpanded, setIsExpanded] = useState(false)
     const mainTableRef = useRef<HTMLTableRowElement>(null)
     const nestedTableRef = useRef<HTMLTableElement>(null)
@@ -140,6 +145,7 @@ function CollapsibleBreakdownSection({
         {
             parentRowRef: mainTableRef,
             nestedTableRef,
+            columnCount: resultsRedesign ? 6 : 7,
         },
         [breakdownResults, axisRange, isExpanded]
     )
@@ -161,7 +167,10 @@ function CollapsibleBreakdownSection({
 
     return (
         <tr ref={mainTableRef} data-breakdown-row className="hover:bg-bg-hover group">
-            <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+            <td
+                colSpan={resultsRedesign ? 6 : 7}
+                className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+            >
                 <LemonCollapse
                     multiple={false}
                     embedded
@@ -217,7 +226,7 @@ function CollapsibleBreakdownSection({
                                                                     )}
                                                                 </td>
                                                                 <td
-                                                                    colSpan={6}
+                                                                    colSpan={resultsRedesign ? 5 : 6}
                                                                     className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                                                                     // eslint-disable-next-line react/forbid-dom-props
                                                                     style={FIXED_HEIGHT_STYLE}
@@ -307,12 +316,13 @@ function CollapsibleBreakdownSection({
                                                                     <div />
                                                                 </td>
 
-                                                                {/* Empty Details column for alignment (per-row; variant rows render their own) */}
-                                                                <td
-                                                                    className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                                                                    // eslint-disable-next-line react/forbid-dom-props
-                                                                    style={FIXED_HEIGHT_STYLE}
-                                                                />
+                                                                {!resultsRedesign && (
+                                                                    <td
+                                                                        className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                                        style={FIXED_HEIGHT_STYLE}
+                                                                    />
+                                                                )}
 
                                                                 <td
                                                                     className={`p-0 align-top text-center relative overflow-hidden ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
@@ -478,15 +488,17 @@ function CollapsibleBreakdownSection({
                                                                                 </span>
                                                                             </td>
 
-                                                                            {/* Details (empty, for alignment) */}
-                                                                            <td
-                                                                                className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
-                                                                                // eslint-disable-next-line react/forbid-dom-props
-                                                                                style={{
-                                                                                    ...FIXED_HEIGHT_STYLE,
-                                                                                    backgroundImage: rowBackgroundImage,
-                                                                                }}
-                                                                            />
+                                                                            {!resultsRedesign && (
+                                                                                <td
+                                                                                    className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${isLastRow ? 'border-b' : ''}`}
+                                                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                                                    style={{
+                                                                                        ...FIXED_HEIGHT_STYLE,
+                                                                                        backgroundImage:
+                                                                                            rowBackgroundImage,
+                                                                                    }}
+                                                                                />
+                                                                            )}
 
                                                                             <ChartCell
                                                                                 variantResult={variant}
@@ -577,6 +589,7 @@ export function MetricRowGroup({
     showDetailsModal,
 }: MetricRowGroupProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
     const [timeseriesModalState, setTimeseriesModalState] = useState<{
         isOpen: boolean
         variantResult: ExperimentVariantResult | null
@@ -599,6 +612,8 @@ export function MetricRowGroup({
     const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const ownsOpenTooltipRef = useRef(false)
     const colors = useChartColors()
+    const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
+    const recordingModes = getMetricRecordingModes(metric, linkabilityLoaded ? unlinkableEventNames : new Set<string>())
 
     const clearTooltipCloseTimer = (): void => {
         if (tooltipCloseTimerRef.current !== null) {
@@ -824,7 +839,7 @@ export function MetricRowGroup({
                     >
                         <MetricHeader
                             dragHandle={dragHandle}
-                            displayOrder={displayOrder}
+                            displayOrder={resultsRedesign ? undefined : displayOrder}
                             metric={metric}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
@@ -840,23 +855,25 @@ export function MetricRowGroup({
                         className={clsx(bg, skeletonVariantKeys.length === 1 && 'border-b')}
                         chartCell={retryChartCell}
                         detailsCell={
-                            <td
-                                className={clsx(
-                                    'w-20 pt-3 align-top relative overflow-hidden',
-                                    !isLastMetric && 'border-b',
-                                    bg
-                                )}
-                                rowSpan={skeletonVariantKeys.length}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={getScaledHeightStyle(skeletonVariantKeys.length)}
-                            >
-                                {/* Reserve the Details button's footprint so the chart column doesn't shift when results land */}
-                                {showDetailsModal && (
-                                    <div className="flex justify-end">
-                                        <LemonSkeleton className="h-6 w-[74px]" />
-                                    </div>
-                                )}
-                            </td>
+                            resultsRedesign ? undefined : (
+                                <td
+                                    className={clsx(
+                                        'w-20 pt-3 align-top relative overflow-hidden',
+                                        !isLastMetric && 'border-b',
+                                        bg
+                                    )}
+                                    rowSpan={skeletonVariantKeys.length}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={getScaledHeightStyle(skeletonVariantKeys.length)}
+                                >
+                                    {/* Reserve the Details button's footprint so the chart column doesn't shift when results land */}
+                                    {showDetailsModal && (
+                                        <div className="flex justify-end">
+                                            <LemonSkeleton className="h-6 w-[74px]" />
+                                        </div>
+                                    )}
+                                </td>
+                            )
                         }
                     />
                 </tr>
@@ -900,7 +917,7 @@ export function MetricRowGroup({
                     >
                         <MetricHeader
                             dragHandle={dragHandle}
-                            displayOrder={displayOrder}
+                            displayOrder={resultsRedesign ? undefined : displayOrder}
                             metric={metric}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
@@ -913,7 +930,7 @@ export function MetricRowGroup({
 
                     {/* Combined columns for error/empty state */}
                     <td
-                        colSpan={6}
+                        colSpan={resultsRedesign ? 5 : 6}
                         className={`p-3 text-center ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                             !isLastMetric ? 'border-b' : ''
                         }`}
@@ -1013,7 +1030,7 @@ export function MetricRowGroup({
                 >
                     <MetricHeader
                         dragHandle={dragHandle}
-                        displayOrder={displayOrder}
+                        displayOrder={resultsRedesign ? undefined : displayOrder}
                         metric={metric}
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
@@ -1021,6 +1038,9 @@ export function MetricRowGroup({
                         onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                         onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
+                        onViewDetailsClick={
+                            resultsRedesign && showDetailsModal ? () => setIsModalOpen(true) : undefined
+                        }
                     />
                 </td>
 
@@ -1032,7 +1052,31 @@ export function MetricRowGroup({
                     // eslint-disable-next-line react/forbid-dom-props
                     style={FIXED_HEIGHT_STYLE}
                 >
-                    <VariantTag variantKey={baselineResult.key} />
+                    {resultsRedesign ? (
+                        <div className="flex items-center gap-1">
+                            <VariantTag variantKey={baselineResult.key} />
+                            <VariantActionsMenu
+                                experiment={experiment}
+                                metric={metric}
+                                variantKey={baselineResult.key}
+                                isBaseline
+                                modes={recordingModes}
+                                hogql={result.hogql}
+                                clickhouseSql={result.clickhouse_sql}
+                            />
+                        </div>
+                    ) : (
+                        <VariantTag variantKey={baselineResult.key} />
+                    )}
+                    {resultsRedesign && showDetailsModal && (
+                        <DetailsModal
+                            isOpen={isModalOpen}
+                            onClose={() => setIsModalOpen(false)}
+                            metric={metric}
+                            result={result}
+                            experiment={experiment}
+                        />
+                    )}
                 </td>
 
                 {/* Value */}
@@ -1071,29 +1115,31 @@ export function MetricRowGroup({
                     <div />
                 </td>
 
-                {/* Details column (per-row cells so significant-row tints align pixel-perfectly; variant rows render their own) */}
-                <td
-                    className={`w-20 pt-3 align-top relative overflow-hidden ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    } ${variantResults.length === 0 ? 'border-b' : ''}`}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={FIXED_HEIGHT_STYLE}
-                >
-                    {showDetailsModal && (
-                        <>
-                            <div className="flex justify-end">
-                                <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
-                            </div>
-                            <DetailsModal
-                                isOpen={isModalOpen}
-                                onClose={() => setIsModalOpen(false)}
-                                metric={metric}
-                                result={result}
-                                experiment={experiment}
-                            />
-                        </>
-                    )}
-                </td>
+                {!resultsRedesign && (
+                    // Details column (per-row cells so significant-row tints align pixel-perfectly; variant rows render their own)
+                    <td
+                        className={`w-20 pt-3 align-top relative overflow-hidden ${
+                            isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                        } ${variantResults.length === 0 ? 'border-b' : ''}`}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={FIXED_HEIGHT_STYLE}
+                    >
+                        {showDetailsModal && (
+                            <>
+                                <div className="flex justify-end">
+                                    <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
+                                </div>
+                                <DetailsModal
+                                    isOpen={isModalOpen}
+                                    onClose={() => setIsModalOpen(false)}
+                                    metric={metric}
+                                    result={result}
+                                    experiment={experiment}
+                                />
+                            </>
+                        )}
+                    </td>
+                )}
 
                 {/* Chart (grid lines only for baseline) */}
                 <td
@@ -1162,7 +1208,28 @@ export function MetricRowGroup({
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
                         >
-                            <VariantTag variantKey={variant.key} />
+                            {resultsRedesign ? (
+                                <div className="flex items-center gap-1">
+                                    <VariantTag variantKey={variant.key} />
+                                    <span
+                                        className="inline-flex"
+                                        onMouseEnter={closeTooltipNow}
+                                        onMouseMove={(e) => e.stopPropagation()}
+                                    >
+                                        <VariantActionsMenu
+                                            experiment={experiment}
+                                            metric={metric}
+                                            variantKey={variant.key}
+                                            isBaseline={false}
+                                            modes={recordingModes}
+                                            hogql={result.hogql}
+                                            clickhouseSql={result.clickhouse_sql}
+                                        />
+                                    </span>
+                                </div>
+                            ) : (
+                                <VariantTag variantKey={variant.key} />
+                            )}
                         </td>
 
                         {/* Value */}
@@ -1229,14 +1296,16 @@ export function MetricRowGroup({
                             </span>
                         </td>
 
-                        {/* Details (button lives in the baseline row's cell) */}
-                        <td
-                            className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
-                                isLastRow ? 'border-b' : ''
-                            }`}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
-                        />
+                        {!resultsRedesign && (
+                            // Details (button lives in the baseline row's cell)
+                            <td
+                                className={`w-20 ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                                    isLastRow ? 'border-b' : ''
+                                }`}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ ...FIXED_HEIGHT_STYLE, backgroundImage: rowBackgroundImage }}
+                            />
+                        )}
 
                         {/* Chart */}
                         <ChartCell

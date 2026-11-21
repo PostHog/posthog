@@ -7,6 +7,7 @@ import { LemonButton, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { ExperimentFunnelChart } from 'scenes/experiments/charts/funnel/ExperimentFunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -129,6 +130,7 @@ export function ResultDetails({
 }): JSX.Element {
     const { featureFlags } = useValues(experimentLogic)
     const { baseCurrency } = useValues(teamLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
     const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
 
     const baselineKey = result.baseline?.key
@@ -218,22 +220,26 @@ export function ResultDetails({
                 return formatIntervalPercent(item)
             },
         },
-        {
-            key: 'recordings',
-            title: '',
-            render: (_, item) => (
-                <div className="flex justify-end">
-                    <VariantRecordingsButton
-                        experiment={experiment}
-                        metric={metric}
-                        variantKey={item.key}
-                        isBaseline={item.key === baselineKey}
-                        surface={surface}
-                        modes={recordingModes}
-                    />
-                </div>
-            ),
-        },
+        ...(resultsRedesign
+            ? []
+            : [
+                  {
+                      key: 'recordings',
+                      title: '',
+                      render: (_: unknown, item: ExperimentVariantResult & { key: string }) => (
+                          <div className="flex justify-end">
+                              <VariantRecordingsButton
+                                  experiment={experiment}
+                                  metric={metric}
+                                  variantKey={item.key}
+                                  isBaseline={item.key === baselineKey}
+                                  surface={surface}
+                                  modes={recordingModes}
+                              />
+                          </div>
+                      ),
+                  },
+              ]),
     ]
 
     const dataSource = [
@@ -262,12 +268,14 @@ export function ResultDetails({
                     embedded={embedded}
                 />
             )}
-            <SqlCollapsible
-                hogql={result.hogql}
-                clickhouseSql={result.clickhouse_sql}
-                showClickhouseSql={!!featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL]}
-                embedded={embedded}
-            />
+            {!resultsRedesign && (
+                <SqlCollapsible
+                    hogql={result.hogql}
+                    clickhouseSql={result.clickhouse_sql}
+                    showClickhouseSql={!!featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL]}
+                    embedded={embedded}
+                />
+            )}
         </div>
     )
 }

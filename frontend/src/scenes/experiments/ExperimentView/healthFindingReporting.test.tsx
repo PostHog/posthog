@@ -19,6 +19,7 @@ import { ExperimentHealthTab } from 'products/experiments/frontend/health/Experi
 
 import { experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
+import { ClassicExposures } from './ClassicExposures'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { Exposures } from './Exposures'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -78,7 +79,10 @@ describe('health finding reporting', () => {
             ])
 
     // A running experiment whose flag is off, so the flag-state banner renders with its flag link.
-    const renderWarnings = (exposures: Record<string, unknown>): void => {
+    const renderWarnings = (
+        exposures: Record<string, unknown>,
+        ExposuresCard: () => JSX.Element = ClassicExposures
+    ): void => {
         logic.actions.setExperiment({
             ...NEW_EXPERIMENT,
             id: EXPERIMENT_ID,
@@ -91,7 +95,7 @@ describe('health finding reporting', () => {
             <Provider>
                 <BindLogic logic={experimentLogic} props={{ experimentId: EXPERIMENT_ID }}>
                     <ExperimentWarningBanner />
-                    <Exposures />
+                    <ExposuresCard />
                     <MultiVariantBiasWarning />
                 </BindLogic>
             </Provider>
@@ -337,6 +341,14 @@ describe('health finding reporting', () => {
         expect(findingEvents()).toEqual([
             ['experiment health finding shown', 'zero_exposures', undefined],
             ['experiment health finding opened', 'zero_exposures', 'evidence'],
+        ])
+    })
+
+    it('reports zero exposures from the redesigned card as shown, and the edit as acted on', async () => {
+        renderWarnings(NO_EXPOSURES, Exposures)
+        expect(findingEvents()).toEqual([
+            ['experiment health finding shown', 'flag_off_while_running', undefined],
+            ['experiment health finding shown', 'zero_exposures', undefined],
         ])
         captureSpy.mockClear()
 

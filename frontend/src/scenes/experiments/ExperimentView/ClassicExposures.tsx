@@ -1,0 +1,487 @@
+import { useActions, useValues } from 'kea'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
+
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+
+import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
+import {
+    getTotalExposures,
+    reportsMismatch,
+    sampleRatioLine,
+    serverSampleRatioFinding,
+} from 'products/experiments/frontend/health/exposureHealth'
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
+
+import { experimentLogic } from '../experimentLogic'
+import { filterLowMultipleVariant, resolveMultipleVariantHandling } from '../utils'
+import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
+import { MicroChart } from './Exposures'
+import { buildExposureSeries, getExposureCriteriaLabel } from './exposuresTransforms'
+import { VariantTag } from './VariantTag'
+
+// Below this, a load looks like any other; above it, the user has no way to tell a slow query
+// from a stuck one, so we start showing elapsed time and a way to retry.
+const SLOW_LOAD_THRESHOLD_SECONDS = 20
+
+const MISMATCH_LINE_STYLE = {
+    warning: { className: 'text-warning font-semibold', icon: <IconWarning className="text-sm" /> },
+    info: { className: 'text-secondary', icon: <IconInfo className="text-sm" /> },
+}
+
+/** Seconds since `active` last became true, ticking every second, reset to 0 when it goes false. */
+function useElapsedSeconds(active: boolean): number {
+    const [elapsed, setElapsed] = useState(0)
+    const startRef = useRef<number | null>(null)
+
+    useEffect(() => {
+        if (!active) {
+            startRef.current = null
+            setElapsed(0)
+            return
+        }
+        startRef.current = performance.now()
+        setElapsed(0)
+        const intervalId = setInterval(() => {
+            setElapsed(Math.floor((performance.now() - (startRef.current as number)) / 1000))
+        }, 1000)
+        return () => clearInterval(intervalId)
+    }, [active])
+
+    return elapsed
+}
+
+interface ExposuresChartProps {
+    exposures: ExperimentExposureQueryResponse
+}
+
+function ExposuresChart({ exposures }: ExposuresChartProps): JSX.Element {
+    const { timezone } = useValues(teamLogic)
+    const theme = useChartTheme()
+    const { labels, series } = useMemo(() => buildExposureSeries(exposures.timeseries), [exposures.timeseries])
+    const config = useChartConfig<TimeSeriesLineChartConfig>(
+        () => ({ xAxis: { interval: 'day', timezone }, tooltip: { placement: 'cursor' } }),
+        [timezone]
+    )
+
+    return (
+        <div className="relative h-[200px] flex flex-col">
+            <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
+        </div>
+    )
+}
+
+export function ClassicExposures(): JSX.Element {
+    const {
+        exposures,
+        exposuresLoading,
+        exposureCriteria,
+        isExperimentDraft,
+        experiment,
+        excludedVariants,
+        resolvedExposureEvent,
+        healthUi,
+    } = useValues(experimentLogic)
+    const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
+    const { refreshExperimentResults } = useActions(experimentLogic)
+
+    const [isCollapsed, setIsCollapsed] = useState(true)
+    const exposuresElapsedSeconds = useElapsedSeconds(exposuresLoading)
+    const exposuresLoadingSlowly = exposuresLoading && exposuresElapsedSeconds >= SLOW_LOAD_THRESHOLD_SECONDS
+
+    const totalExposures = getTotalExposures(exposures)
+    const variants: Array<{ variant: string; count: number; percentage: number }> = []
+
+    if (exposures?.timeseries) {
+        for (const series of exposures.timeseries) {
+            const count = exposures.total_exposures?.[series.variant] || 0
+            variants.push({
+                variant: series.variant,
+                count: Number(count),
+                percentage: totalExposures ? (Number(count) / totalExposures) * 100 : 0,
+            })
+        }
+    }
+
+    // Collapsed/header: hide `$multiple` below 0.5% for cleanliness
+    // Expanded/table: shows `$multiple` for clarity/investigating
+    const filteredVariantsForHeader = filterLowMultipleVariant(variants)
+
+    const resolvedHandling = resolveMultipleVariantHandling(exposureCriteria?.multiple_variant_handling)
+    const multipleTreatmentLabel =
+        resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
+
+    const srmLine = sampleRatioLine(exposures, healthUi === 'panel')
+    const hasSRM = reportsMismatch(srmLine)
+
+    // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
+    // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
+    // The answer holds a series for every configured variant, with zero counts, so only the total tells.
+    const hasZeroExposures = !isExperimentDraft && !exposuresLoading && exposures != null && totalExposures === 0
+
+    // With the health findings, the health chip reports the finding as shown. The card reports the same finding, so that
+    // opening the card's evidence counts against the chip's "shown" event and not a second one.
+    const srmFinding = healthUi === 'panel' ? serverSampleRatioFinding(exposures) : undefined
+    const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
+        hasSRM && !isExperimentDraft && !exposuresLoading
+            ? srmFinding
+                ? {
+                      code: 'srm',
+                      subcode: srmFinding.subcode ?? undefined,
+                      severity: srmFinding.severity,
+                      reason: srmFinding.reason ?? undefined,
+                  }
+                : { code: 'srm' }
+            : null,
+        !srmFinding
+    )
+    // The collapsed header shows the total only, so the zero-exposure state is on screen in the open panel alone.
+    const { reportOpened: reportZeroExposuresOpened, reportActedOn: reportZeroExposuresActedOn } =
+        useHealthFindingReporting(hasZeroExposures ? { code: 'zero_exposures' } : null, !isCollapsed)
+
+    const handleCollapseChange = useCallback(
+        (activeKey: string | null) => {
+            const isOpen = activeKey === 'cumulative-exposures'
+            setIsCollapsed(!isOpen)
+            if (isOpen) {
+                reportSrmOpened('evidence')
+                reportZeroExposuresOpened('evidence')
+            }
+        },
+        [reportSrmOpened, reportZeroExposuresOpened]
+    )
+
+    const headerContent = {
+        style: { backgroundColor: 'var(--color-bg-table)' },
+        children: (
+            <div className="flex items-center gap-3 metric-cell min-h-[33px]">
+                <span className="metric-cell-header font-bold inline-flex items-center gap-1">
+                    Exposures
+                    <Tooltip title="Cumulative unique users exposed to the experiment. A user is counted once at first exposure, not per event. Each metric counts its own exposures and can exclude users whose conversion or retention window hasn't elapsed, so metric results can show fewer.">
+                        <IconInfo className="text-secondary text-base" />
+                    </Tooltip>
+                </span>
+
+                {!isExperimentDraft && (
+                    // Transitioning visibility delays the hidden flip until the fade-out finishes.
+                    // The fade-out is shorter so it ends before the 200ms panel slide does; at equal
+                    // durations the exit reads as sluggish.
+                    <div
+                        className={`flex items-center gap-3 transition-[opacity,visibility] ease-in-out ${
+                            isCollapsed
+                                ? 'visible opacity-100 pointer-events-auto duration-300'
+                                : 'invisible opacity-0 pointer-events-none duration-150'
+                        }`}
+                    >
+                        {exposuresLoading ? (
+                            <div className="flex items-center gap-2">
+                                <Spinner className="text-lg" />
+                                {exposuresLoadingSlowly && (
+                                    <span className="text-secondary text-xs">
+                                        Still loading ({exposuresElapsedSeconds}s)
+                                    </span>
+                                )}
+                            </div>
+                        ) : (
+                            <>
+                                <span>
+                                    {totalExposures > 100000
+                                        ? humanFriendlyLargeNumber(totalExposures)
+                                        : humanFriendlyNumber(totalExposures)}
+                                </span>
+                                {exposures?.timeseries?.length > 0 && <MicroChart exposures={exposures} />}
+                                {filteredVariantsForHeader.length > 0 && (
+                                    <div className="ml-2 flex items-center gap-4">
+                                        {filteredVariantsForHeader.map(({ variant, percentage }) => (
+                                            <div key={variant} className="flex items-center gap-2">
+                                                <div className="metric-cell">
+                                                    <VariantTag variantKey={variant} />
+                                                </div>
+                                                <span className="metric-cell">{percentage.toFixed(1)}%</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {srmLine?.tone === 'warning' && (
+                                    <Tooltip title={srmLine.tooltip}>
+                                        <IconWarning className="text-warning text-lg" />
+                                    </Tooltip>
+                                )}
+                                {excludedVariants.length > 0 && (
+                                    <Tooltip
+                                        title={`Excluded from analysis: ${excludedVariants.join(', ')}. Manage on the Variants tab.`}
+                                    >
+                                        <span className="text-secondary text-xs">
+                                            {pluralize(
+                                                excludedVariants.length,
+                                                'variant excluded',
+                                                'variants excluded'
+                                            )}
+                                        </span>
+                                    </Tooltip>
+                                )}
+                                {experiment.holdout && (
+                                    <Tooltip title="Users held out of this experiment and not included in analysis.">
+                                        <LemonTag type="option" className="ml-2">
+                                            {experiment.holdout.name}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </>
+                        )}
+                    </div>
+                )}
+            </div>
+        ),
+    }
+
+    return (
+        <LemonCollapse
+            onChange={handleCollapseChange}
+            panels={[
+                {
+                    key: 'cumulative-exposures',
+                    header: headerContent,
+                    content: (
+                        <div className="space-y-4 bg-bg-light -m-4 p-4">
+                            {/* Chart Section */}
+                            {exposuresLoading ? (
+                                <div className="relative border rounded h-[200px] flex flex-col gap-3 justify-center items-center">
+                                    <Spinner className="text-5xl" />
+                                    {exposuresLoadingSlowly && (
+                                        <div className="flex flex-col items-center gap-2">
+                                            <span className="text-secondary text-sm">
+                                                Still loading exposures after {exposuresElapsedSeconds}s
+                                            </span>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => refreshExperimentResults(true, 'manual')}
+                                            >
+                                                Retry
+                                            </LemonButton>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : totalExposures === 0 ? (
+                                <div className="relative border rounded h-[200px] flex justify-center items-center">
+                                    <div className="text-center">
+                                        <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />
+                                        <div className="text-md font-semibold leading-tight mb-2">No exposures yet</div>
+                                        <p className="text-sm text-center text-balance text-tertiary">
+                                            Exposures will appear here once the first participant has been exposed.
+                                        </p>
+                                        <div className="flex justify-center mt-4">
+                                            <LemonButton
+                                                icon={<IconPencil fontSize="12" />}
+                                                size="xsmall"
+                                                className="flex items-center gap-2"
+                                                type="secondary"
+                                                onClick={() => {
+                                                    reportZeroExposuresActedOn('edit_exposure_criteria')
+                                                    openExposureCriteriaModal(exposureCriteria)
+                                                }}
+                                            >
+                                                Edit exposure criteria
+                                            </LemonButton>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <ExposuresChart exposures={exposures} />
+                            )}
+
+                            {/* Exposure Criteria Section */}
+                            <div className="mb-4">
+                                <h3 className="card-secondary">Exposure criteria</h3>
+                                <div className="flex items-center gap-2">
+                                    <div className="text-sm font-semibold">
+                                        {getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}
+                                    </div>
+                                    <LemonButton
+                                        icon={<IconPencil fontSize="12" />}
+                                        size="xsmall"
+                                        className="flex items-center gap-2"
+                                        type="secondary"
+                                        onClick={() => openExposureCriteriaModal(exposureCriteria)}
+                                    />
+                                </div>
+                            </div>
+                            {(exposures?.timeseries?.length ?? 0) > 0 && (
+                                <div>
+                                    <h3 className="card-secondary">Total exposures</h3>
+                                    <LemonTable
+                                        rowClassName={(series) =>
+                                            series.isExcluded || series.isHoldout ? 'opacity-60' : ''
+                                        }
+                                        dataSource={[
+                                            //This includes EXPERIMENT_VARIANT_MULTIPLE
+                                            ...(exposures?.timeseries || []),
+                                            ...excludedVariants.map((variant) => ({
+                                                variant,
+                                                isExcluded: true,
+                                            })),
+                                            ...(experiment.holdout
+                                                ? [
+                                                      {
+                                                          variant: `holdout-${experiment.holdout_id}`,
+                                                          isHoldout: true,
+                                                      },
+                                                  ]
+                                                : []),
+                                            { variant: '__total__', isTotal: true },
+                                        ]}
+                                        columns={[
+                                            {
+                                                title: 'Variant',
+                                                key: 'variant',
+                                                render: function Variant(_, series) {
+                                                    if (series.isTotal) {
+                                                        return <span className="font-semibold">Total</span>
+                                                    }
+                                                    const isMultiple = series.variant === EXPERIMENT_VARIANT_MULTIPLE
+                                                    return (
+                                                        <div className="flex items-center gap-1.5">
+                                                            <VariantTag variantKey={series.variant} />
+                                                            {isMultiple && (
+                                                                <>
+                                                                    <span className="text-xs text-secondary">
+                                                                        ({multipleTreatmentLabel})
+                                                                    </span>
+                                                                    <LemonButton
+                                                                        icon={<IconPencil fontSize="12" />}
+                                                                        size="xsmall"
+                                                                        type="secondary"
+                                                                        onClick={() =>
+                                                                            openExposureCriteriaModal(exposureCriteria)
+                                                                        }
+                                                                    />
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )
+                                                },
+                                            },
+                                            {
+                                                title: 'Exposures',
+                                                key: 'exposures',
+                                                render: function Exposures(
+                                                    _,
+                                                    { variant, isTotal, isExcluded, isHoldout }
+                                                ) {
+                                                    if (isTotal) {
+                                                        return (
+                                                            <span className="font-semibold">
+                                                                {humanFriendlyNumber(totalExposures)}
+                                                            </span>
+                                                        )
+                                                    }
+                                                    if (isExcluded || isHoldout) {
+                                                        return <span className="text-secondary">—</span>
+                                                    }
+                                                    return humanFriendlyNumber(exposures?.total_exposures[variant])
+                                                },
+                                            },
+                                            {
+                                                title: '%',
+                                                key: 'percentage',
+                                                render: function Percentage(
+                                                    _,
+                                                    { variant, isTotal, isExcluded, isHoldout }
+                                                ) {
+                                                    if (isTotal) {
+                                                        return (
+                                                            <span className="font-semibold">
+                                                                {totalExposures > 0 ? '100.0%' : '-%'}
+                                                            </span>
+                                                        )
+                                                    }
+                                                    if (isExcluded) {
+                                                        return (
+                                                            <span className="text-secondary italic">
+                                                                Excluded from analysis
+                                                            </span>
+                                                        )
+                                                    }
+                                                    if (isHoldout) {
+                                                        return (
+                                                            <span className="text-secondary italic">
+                                                                Reserved (holdout)
+                                                            </span>
+                                                        )
+                                                    }
+                                                    let total = 0
+                                                    if (exposures?.total_exposures) {
+                                                        for (const [_, value] of Object.entries(
+                                                            exposures.total_exposures
+                                                        )) {
+                                                            total += Number(value)
+                                                        }
+                                                    }
+                                                    return (
+                                                        <span className="font-semibold">
+                                                            {total ? (
+                                                                <>
+                                                                    {(
+                                                                        (exposures?.total_exposures[variant] / total) *
+                                                                        100
+                                                                    ).toFixed(1)}
+                                                                    %
+                                                                </>
+                                                            ) : (
+                                                                <>-%</>
+                                                            )}
+                                                        </span>
+                                                    )
+                                                },
+                                            },
+                                        ]}
+                                    />
+                                    {srmLine && exposures?.sample_ratio_mismatch != null && (
+                                        <div className="flex items-center gap-1 text-xs mt-2">
+                                            {reportsMismatch(srmLine) ? (
+                                                <>
+                                                    <Tooltip title={srmLine.tooltip}>
+                                                        <span
+                                                            className={`flex items-center gap-1 cursor-pointer ${MISMATCH_LINE_STYLE[srmLine.tone].className}`}
+                                                        >
+                                                            {MISMATCH_LINE_STYLE[srmLine.tone].icon}
+                                                            <span>{srmLine.label}</span>
+                                                        </span>
+                                                    </Tooltip>
+                                                    <span className="text-muted">
+                                                        (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Tooltip title={srmLine.tooltip}>
+                                                        <span className="flex items-center gap-1 text-success cursor-pointer">
+                                                            <IconCheckCircle className="text-sm" />
+                                                            <span>{srmLine.label}</span>
+                                                        </span>
+                                                    </Tooltip>
+                                                    <span className="text-muted">
+                                                        (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
+                                                    </span>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ),
+                },
+            ]}
+        />
+    )
+}

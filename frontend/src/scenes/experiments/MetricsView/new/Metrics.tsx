@@ -3,6 +3,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
@@ -35,6 +36,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
 function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; isSecondary?: boolean }): JSX.Element {
     useMountedLogic(experimentExposuresWindowLogic({ experiment }))
     const { hasMinimumExposureForResults } = useValues(experimentLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
     const {
         primaryMetricsResults,
         primaryMetricsResultsErrors,
@@ -74,7 +76,9 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
-                        {!isSecondary && hasMinimumExposureForResults && <SummarizeExperimentButton />}
+                        {!isSecondary && !resultsRedesign && hasMinimumExposureForResults && (
+                            <SummarizeExperimentButton iconOnly />
+                        )}
                         {hasSomeResults && !isSecondary && <HowToReadTooltip />}
                     </div>
                 </div>

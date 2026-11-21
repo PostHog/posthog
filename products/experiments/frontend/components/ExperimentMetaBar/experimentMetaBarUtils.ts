@@ -12,14 +12,17 @@ export interface ExperimentMetaBarVisibility {
 }
 
 // A completed experiment has final results, so refreshing and counting down make no sense for it.
-export function getExperimentMetaBarVisibility(experiment: ExperimentMetaBarInput): ExperimentMetaBarVisibility {
+export function getExperimentMetaBarVisibility(
+    experiment: ExperimentMetaBarInput,
+    isLegacy: boolean = false
+): ExperimentMetaBarVisibility {
     const launched = isLaunched(experiment)
     const ended = hasEnded(experiment)
 
     return {
         showDateRange: launched,
-        showRemainingTime: !ended,
-        showRefresh: launched && !ended,
+        showRemainingTime: !ended && !isLegacy,
+        showRefresh: launched && !ended && !isLegacy,
         showConclusion: ended && !!experiment.conclusion,
     }
 }

@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBadge, LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -14,6 +15,7 @@ import { ExperimentHealthDebug } from 'products/experiments/frontend/health/debu
 import { ExperimentHealthTab } from 'products/experiments/frontend/health/ExperimentHealthTab'
 import { healthIssues } from 'products/experiments/frontend/health/healthPanelFindings'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
+import { ClassicLegacyExperimentView } from 'products/experiments/frontend/legacy/ClassicLegacyExperimentView'
 import { LegacyExperimentView } from 'products/experiments/frontend/legacy/LegacyExperimentView'
 import { ExperimentMetricModal } from 'products/experiments/frontend/modals/ExperimentMetricModal/ExperimentMetricModal'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
@@ -29,6 +31,9 @@ import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
+import { ClassicExposures } from './ClassicExposures'
+import { ClassicHypothesis } from './ClassicHypothesis'
+import { ClassicSettingsTab } from './ClassicSettingsTab'
 import { DeletedFlagBanner } from './DeletedFlagBanner'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
@@ -49,6 +54,7 @@ import { SettingsTab } from './SettingsTab'
 const MetricsTab = (): JSX.Element => {
     const { experiment, hasMetrics, isExperimentLaunched, healthFindings, browserNoMetricsWarning } =
         useValues(experimentLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
 
     // With health findings, the health tab shows the "No metrics defined" and bias warnings.
     const showsHealthTab = healthFindings !== null
@@ -64,13 +70,23 @@ const MetricsTab = (): JSX.Element => {
 
     return (
         <>
-            <div className="w-full mb-4 flex flex-col gap-4">
-                <Hypothesis />
-                <div>
-                    <Exposures />
-                    {!showsHealthTab && <MultiVariantBiasWarning />}
+            {resultsRedesign ? (
+                <div className="w-full mb-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <Hypothesis />
+                    <div className="flex flex-col gap-4">
+                        <Exposures />
+                        {!showsHealthTab && <MultiVariantBiasWarning />}
+                    </div>
                 </div>
-            </div>
+            ) : (
+                <div className="w-full mb-4 flex flex-col gap-4">
+                    <ClassicHypothesis />
+                    <div>
+                        <ClassicExposures />
+                        {!showsHealthTab && <MultiVariantBiasWarning />}
+                    </div>
+                </div>
+            )}
 
             {hasMetrics && <RecalculationStatus experiment={experiment} />}
 
@@ -150,10 +166,11 @@ export function ExperimentView(): JSX.Element {
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
+    const resultsRedesign = useFeatureFlag('EXPERIMENTS_RESULTS_REDESIGN')
 
     // Branch to legacy view for legacy experiments
     if (!experimentLoading && isLegacyExperiment(experiment)) {
-        return <LegacyExperimentView />
+        return resultsRedesign ? <LegacyExperimentView /> : <ClassicLegacyExperimentView />
     }
 
     const healthIssueCount = healthIssues(healthFindings).length
@@ -165,7 +182,7 @@ export function ExperimentView(): JSX.Element {
     // the URL, and the tracked tab stay in agreement.
     const tabs: LemonTab<ExperimentTab>[] = (
         [
-            { key: 'metrics', label: 'Metrics', content: <MetricsTab /> },
+            { key: 'metrics', label: resultsRedesign ? 'Overview' : 'Metrics', content: <MetricsTab /> },
             {
                 key: 'health',
                 label: (
@@ -186,7 +203,7 @@ export function ExperimentView(): JSX.Element {
                 ),
                 content: <ExperimentHealthTab />,
             },
-            { key: 'settings', label: 'Settings', content: <SettingsTab /> },
+            { key: 'settings', label: 'Settings', content: resultsRedesign ? <SettingsTab /> : <ClassicSettingsTab /> },
             { key: 'code', label: 'Code', content: <CodeTab /> },
             { key: 'variants', label: 'Variants', content: <VariantsTab /> },
             { key: 'recordings', label: 'Recordings', content: <ExperimentReplayTab experiment={experiment} /> },
