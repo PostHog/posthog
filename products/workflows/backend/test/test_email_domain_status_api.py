@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import Integration
 from posthog.models.integration.email import EmailIntegration, lock_sender_domain
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
@@ -38,6 +38,40 @@ SES_STATUS_READS = (
     "sts.get_caller_identity",
     "sesv2.list_resource_tenants",
 )
+
+
+class TestEmailDomainVerifiedEvent(EmailDomainApiTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        home_organization = Organization.objects.create(name="Home organization")
+        OrganizationMembership.objects.create(organization=home_organization, user=self.user)
+        self.user.current_organization = home_organization
+        self.user.current_team = Team.objects.create(organization=home_organization)
+        self.user.save()
+
+    @parameterized.expand(
+        [("browser", {}, "manual"), ("personal_api_key", {"HTTP_AUTHORIZATION": "Bearer admin_key"}, "agent")]
+    )
+    def test_event_is_grouped_by_the_senders_organization_not_the_users_current_one(
+        self, _name: str, headers: dict[str, Any], method: str
+    ) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/integrations/{sender}/email/verify", **headers)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [
+            (call.kwargs["distinct_id"], call.kwargs["properties"]["method"], call.kwargs["groups"])
+            for call in self.analytics_capture.call_args_list
+            if call.kwargs.get("event") == "email domain verified"
+        ] == [
+            (
+                self.user.distinct_id,
+                method,
+                {"instance": ANY, "organization": str(self.organization.id), "project": str(self.team.uuid)},
+            )
+        ]
 
 
 class TestEmailDomainVerification(EmailDomainApiTestCase):

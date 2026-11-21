@@ -3,38 +3,41 @@ import { describe, expect, it, vi } from 'vitest'
 import { GENERATED_TOOLS } from '@/tools/generated/integrations'
 import type { Context } from '@/tools/types'
 
-function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
-    return {
-        api: {
-            request: requestMock,
-            getProjectBaseUrl: (projectId: string) => `https://us.posthog.com/project/${projectId}`,
-        } as any,
-        stateManager: { getProjectId: vi.fn().mockResolvedValue('42') } as any,
-        env: {} as any,
-        sessionManager: {} as any,
-        cache: {} as any,
-        getDistinctId: async () => 'test-distinct-id',
-        trackEvent: async () => {},
-    }
-}
-
 describe('integrations-email-create', () => {
-    const config = { email: 'hello@example.com', name: 'Example', provider: 'ses' }
+    const tool = GENERATED_TOOLS['integrations-email-create']!()
 
-    it('always sends kind email, whatever the caller passes', async () => {
-        const request = vi.fn().mockResolvedValue({ id: 1, kind: 'email' })
-
-        await GENERATED_TOOLS['integrations-email-create']!().handler(createMockContext(request), {
+    it('creates an ses email sender whatever kind the caller passes', async () => {
+        const request = vi.fn().mockResolvedValue({ id: 7 })
+        const context = {
+            api: { request },
+            stateManager: { getProjectId: async () => '42' },
+        } as unknown as Context
+        const params = tool.schema.parse({
             kind: 'slack',
-            config,
-        } as any)
+            config: { email: 'hello@mail.example.com', name: 'Example' },
+        })
+
+        await tool.handler(context, params)
 
         expect(request).toHaveBeenCalledWith(
             expect.objectContaining({
                 method: 'POST',
                 path: '/api/projects/42/integrations/',
-                body: { config, kind: 'email' },
+                body: {
+                    kind: 'email',
+                    config: expect.objectContaining({
+                        email: 'hello@mail.example.com',
+                        name: 'Example',
+                        provider: 'ses',
+                    }),
+                },
             })
         )
+    })
+
+    it.each(['maildev', 'sandbox'])('rejects the %s provider', (provider) => {
+        expect(() =>
+            tool.schema.parse({ config: { email: 'hello@mail.example.com', name: 'Example', provider } })
+        ).toThrow()
     })
 })
