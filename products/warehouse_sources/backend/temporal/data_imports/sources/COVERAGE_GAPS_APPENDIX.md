@@ -2335,12 +2335,12 @@ Today (9): `agents`, `brands`, `contact_groups`, `contacts`, `groups`, `satisfac
 
 Diffed against: <https://storage.googleapis.com/cdn-bolddesk/api-docs/v1.0/openapi.v238.json>
 
-- [ ] `Ticket statuses (GET /api/v1/ticket_collections/statuses); priorities (GET /api/v1/ticket_collections/priorities); sources (GET /api/v1/ticket_collections/sources)` — lookups that resolve the status, priority and source IDs on the tickets we sync (high)
-- [ ] `Ticket metrics (GET /api/v1/tickets/ticket_metrics)` — first response and resolution times per ticket, the headline support metrics (high)
+- [x] `Ticket statuses (GET /api/v1/ticket_collections/statuses); priorities (GET /api/v1/ticket_collections/priorities); sources (GET /api/v1/ticket_collections/sources)` — lookups that resolve the status, priority and source IDs on the tickets we sync (high)
+- [x] `Ticket metrics (GET /api/v1/tickets/ticket_metrics)` — first response and resolution times per ticket, the headline support metrics (high)
 - [ ] `Ticket fields (GET /api/v1/ticket_fields)` — custom field definitions that explain custom values on tickets (medium)
 - [ ] `Ticket histories (GET /api/v1/tickets/histories)` — status, assignee and field change history across tickets (medium)
-- [ ] `SLAs (GET /api/v1/slas)` — SLA policy lookup for breach and compliance analysis (medium)
-- [ ] `Knowledge base articles (GET /api/v1/kb/articles); categories (GET /api/v1/kb/categories); sections (GET /api/v1/kb/sections)` — help center content for deflection and article usage analysis (medium)
+- [x] `SLAs (GET /api/v1/slas)` — SLA policy lookup for breach and compliance analysis (medium)
+- [x] `Knowledge base articles (GET /api/v1/kb/articles); categories (GET /api/v1/kb/categories); sections (GET /api/v1/kb/sections)` — help center content for deflection and article usage analysis (medium)
 - [ ] `Chat conversations (GET /api/v1/chat/conversations)` — the live chat channel, next to tickets (medium)
 - [ ] `Roles (GET /api/v1/roles)` — agent role lookup for the agents we sync (low)
 - [ ] `Canned responses (GET /api/v1/canned_responses)` — saved reply library (low)
