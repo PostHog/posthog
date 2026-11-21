@@ -1,4 +1,5 @@
 {
+  "comment": "Shared run policy contract. Consumed by both packages/agent/packages/agent/src/server/launch/run-policy.test.ts and products/tasks/backend/tests/test_agent_run_policy.py, so the agent's origin table and the server's copy cannot drift while both suites stay green.",
   "policy_from_origin": [
     {
       "name": "a run a person started",
@@ -180,6 +181,48 @@
         "expects_system_prompt": true,
         "thread_link": true,
         "default_client_provenance": "posthog_web"
+      }
+    },
+    {
+      "name": "an unknown origin",
+      "origin_product": null,
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "an empty origin",
+      "origin_product": "",
+      "end_run_when_done": false,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": false,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
+      }
+    },
+    {
+      "name": "an unknown origin with the end-run opt-in",
+      "origin_product": null,
+      "end_run_when_done": true,
+      "caller_ends_run": false,
+      "expected": {
+        "finish_tool": true,
+        "finish_report_required": false,
+        "report_activity_tool": false,
+        "expects_system_prompt": false,
+        "thread_link": false,
+        "default_client_provenance": null
       }
     }
   ]
