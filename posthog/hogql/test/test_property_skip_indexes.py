@@ -652,20 +652,20 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             ("in_multi", PropertyOperator.IN_, ["2", "5"], True),
             # Sentinel-aware IN path bails when ``''`` / ``'null'`` is in the value set (non-nullable mat cols store both as sentinels), so the bloom filter doesn't fire.
             ("in_with_sentinel", PropertyOperator.IN_, ["5", ""], False),
-            # Range rewrite emits ``less(col, 'mango') AND notEquals(col, '') AND notEquals(col, 'null')``; ClickHouse considers each AND-ed clause against every applicable index — minmax fires on ``less``, bloom filter fires on the sentinel ``notEquals`` clauses (granules with no ``''`` / ``'null'`` rows trivially satisfy them). Non-numeric bound: numeric text coerces and skips the rewrite.
-            ("lt", PropertyOperator.LT, "mango", True),
+            # Range rewrite emits ``less(col, 'mango') AND notEquals(col, '') AND notEquals(col, 'null')``. Whether the bloom filter counts as used for the sentinel ``notEquals`` clauses depends on the ClickHouse version: 26.6 reports it, 26.9 does not. A bloom filter cannot serve a range, so neither result is asserted (``None``). Non-numeric bound: numeric text coerces and skips the rewrite.
+            ("lt", PropertyOperator.LT, "mango", None),
         ]
     )
     def test_mat_col_non_nullable_bloom_filter(
-        self, _name: str, operator: PropertyOperator, value: Any, should_use: bool
+        self, _name: str, operator: PropertyOperator, value: Any, should_use: bool | None
     ) -> None:
         self._seed()
         mat_col = self._materialize_with(is_nullable=False, create_bloom_filter_index=True)
         index = get_bloom_filter_index_name(mat_col.name)
         self._assert_indexes(
             self._filter(operator, value),
-            expected_used={index} if should_use else set(),
-            expected_not_used=set() if should_use else {index},
+            expected_used={index} if should_use is True else set(),
+            expected_not_used={index} if should_use is False else set(),
         )
 
     # ----- mat col, NULLABLE, ngrambf_v1 lower index ------------------------
