@@ -8,7 +8,6 @@ import { P, match } from 'ts-pattern'
 import { IconBox, IconEllipsis, IconSpinner, IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { cn } from 'lib/utils/css-classes'
 
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
@@ -24,11 +23,14 @@ export function CollapsibleFrameHeader({
     frame,
     record,
     recordLoading,
+    expanded,
+    onExpandedChange,
 }: {
     frame: ErrorTrackingStackFrame
     record?: ErrorTrackingStackFrameRecord
     recordLoading: boolean
     expanded: boolean
+    onExpandedChange?: (expanded: boolean) => void
 }): JSX.Element {
     const { raw_id, source, line, column, resolved, resolve_failure, in_app, lang } = frame
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
@@ -62,22 +64,51 @@ export function CollapsibleFrameHeader({
         }
     }, [functionRef, sourceContent])
 
+    const expandable = hasRecordContext || recordLoading
+
+    // The header text lives outside a <button> on purpose: browsers do not let
+    // users select text inside buttons, and the function, file and line are
+    // exactly what people need to select and copy from a frame. Clicking still
+    // toggles the frame, unless the user is selecting text (same pattern as
+    // CollapsibleExceptionHeader).
+    const toggleExpanded = (): void => {
+        const selection = window.getSelection()
+        if (selection && selection.toString().length > 0) {
+            return
+        }
+        onExpandedChange?.(!expanded)
+    }
+
     return (
         <div className={cn('flex h-7 w-full bg-surface-popover')}>
-            <Collapsible.Trigger
+            <div
                 className={cn('collapsible-frame-header grow max-w-[calc(100%-30px)]', {
                     'cursor-progress': recordLoading,
+                    'cursor-pointer': expandable && !recordLoading,
                 })}
-                disabled={!hasRecordContext && !recordLoading}
+                role={expandable ? 'button' : undefined}
+                tabIndex={expandable ? 0 : undefined}
+                aria-expanded={expandable ? expanded : undefined}
+                onClick={expandable ? toggleExpanded : undefined}
+                onKeyDown={
+                    expandable
+                        ? (e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  onExpandedChange?.(!expanded)
+                              }
+                          }
+                        : undefined
+                }
             >
                 {functionName && (
-                    <span ref={functionRef} className="font-medium frame-function" title={functionName}>
+                    <span ref={functionRef} className="font-medium frame-function select-text" title={functionName}>
                         {functionName}
                     </span>
                 )}
                 <span
                     ref={sourceRef}
-                    className={cn('font-light frame-source px-1', {
+                    className={cn('font-light frame-source px-1 select-text', {
                         'italic text-muted-foreground': isUnsymbolicated,
                     })}
                     title={sourceContent!}
@@ -103,7 +134,7 @@ export function CollapsibleFrameHeader({
                             .otherwise(() => null)
                     )}
                 </div>
-            </Collapsible.Trigger>
+            </div>
             <div className="border-l-1 border-l-[color:var(--frame-border,var(--color-border-primary))] shrink-0 w-7">
                 <FrameDropDownMenu className="h-full w-7 rounded-none outline-none" frame={frame} record={record}>
                     <IconEllipsis />
