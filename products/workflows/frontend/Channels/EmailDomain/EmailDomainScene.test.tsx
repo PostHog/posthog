@@ -496,14 +496,12 @@ describe('EmailDomainScene', () => {
         expect(backend.requestsTo('email_verify')).toHaveLength(1)
     })
 
-    it('keeps the MAIL FROM subdomain that a repair adopted when the sender name is saved', async () => {
+    it('keeps a MAIL FROM subdomain adopted after the page loaded when the sender name is saved', async () => {
         seedSender()
-        backend.stopsSending(DOMAIN)
-        backend.verifyAtProviderOnly(DOMAIN)
-        backend.providerUsesMailFrom(DOMAIN, 'bounce')
+        backend.verifyDomain(DOMAIN)
         await open(urls.workflowsEmailDomain(SENDER_ID))
-        await flush()
         expectStep(/You can send from/)
+        backend.adoptsMailFrom(DOMAIN, 'bounce')
 
         typeInto('email-domain-sender-name', 'Acme Team')
         click('email-domain-save-sender-name')
