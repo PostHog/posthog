@@ -1,0 +1,465 @@
+"""Turns a parsed Handlebars template into PostHog's Liquid one tag at a time.
+
+A tag with a Liquid form that prints what Handlebars prints converts. Any other tag stays as written, and its source
+lands in `unsupported` so the import can name it. The rest of the template converts around it.
+
+Conditions follow Handlebars, where "", 0 and an empty list are false. In Liquid only nil and false are, so a
+condition reads `x != blank and x != 0`. Two cases still differ: Liquid also treats a string of spaces and an empty
+object as blank, where Handlebars treats both as true.
+
+`{{#each}}` becomes a `for` loop. Over a list it matches. Over an object Handlebars loops over its values and Liquid
+over its key and value pairs, which an import can't tell apart.
+"""
+
+import re
+from collections.abc import Callable, Iterator
+
+from posthog.dataclasses import frozen
+
+from products.messaging.backend.provider_imports.html_context import HtmlContext, Place
+from products.messaging.backend.provider_imports.sendgrid_handlebars import (
+    _Block,
+    _Liquid,
+    _Literal,
+    _Output,
+    _parse_expression,
+    _Path,
+    _Text,
+    _Unconvertible,
+    liquid_literal,
+)
+
+# Liquid reads `size`, `first` and `last` as properties of any list or object, where Handlebars finds nothing.
+_SEGMENT = re.compile(r"(?!(?:size|first|last)$)[^\W\d][\w-]*")
+# Names the send already defines, so a loop variable can't hide them.
+_TAKEN_NAMES = frozenset(
+    {"variables", "person", "event", "groups", "project", "source", "inputs", "now", "record", "forloop"}
+    | {"unsubscribe_url", "unsubscribe_url_one_click", "empty", "blank", "nil", "true", "false"}
+    # Liquid reads these as operators inside a condition.
+    | {"and", "or", "contains", "in"}
+)
+_LOOP_DATA = {"@index": "forloop.index0", "@first": "forloop.first", "@last": "forloop.last"}
+_MAX_OUTPUT_CHARS = 5_000_000
+HTML_ESCAPE = ' | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;"'
+
+
+@frozen
+class TextValue:
+    """A provider tag found in plain text, such as SendGrid's `<%asm_group_unsubscribe_raw_url%>`."""
+
+    source: str
+    # A link URL may sit in a quoted attribute, and a whole link may only sit in page text.
+    in_attribute: bool
+    liquid: str | None = None
+    # A variable the app passes, printed like a Handlebars value.
+    value_path: str | None = None
+
+
+TextSplitter = Callable[[str], Iterator["str | TextValue"]]
+
+
+class OutputTooLarge(Exception):
+    pass
+
+
+class _Unsupported(Exception):
+    pass
+
+
+@frozen
+class _Frame:
+    """A Handlebars context: the Liquid path `this` reads, and the names a loop's `as |item index|` gives."""
+
+    this: str
+    loop: bool = False
+    item_name: str | None = None
+    index_name: str | None = None
+
+
+class HandlebarsToLiquid:
+    def __init__(
+        self,
+        *,
+        is_html: bool,
+        root_value: Callable[[str], str | None] = lambda _name: None,
+        split_text: TextSplitter | None = None,
+    ) -> None:
+        self.is_html = is_html
+        self.unsupported: list[str] = []
+        self.converted: list[str] = []
+        self._root_value = root_value
+        self._split_text = split_text
+        self._html = HtmlContext() if is_html else None
+        self._loop_names: list[str] = []
+        self._after_raw_html = False
+        self._written = 0
+
+    def convert(self, nodes: tuple[object, ...]) -> str:
+        converted = self._nodes(nodes, (_Frame(this="variables"),))
+        # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
+        if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
+            raise OutputTooLarge
+        return converted
+
+    # Nodes ------------------------------------------------------------------------------------------------------------
+
+    def _nodes(self, nodes: tuple[object, ...], frames: tuple[_Frame, ...]) -> str:
+        out: list[str] = []
+        for node in nodes:
+            if isinstance(node, _Text):
+                for piece in self._text(node.text):
+                    _append(out, self._spend(piece))
+            elif isinstance(node, _Liquid):
+                # Handlebars prints an escaped tag as written, so the HTML around the next value sees that text.
+                self._feed(node.liquid.removeprefix("{% raw %}").removesuffix("{% endraw %}"))
+                _append(out, self._spend(node.liquid))
+            elif isinstance(node, _Output):
+                _append(out, self._spend(self._output(node, frames)))
+            elif isinstance(node, _Block):
+                _append(out, self._block(node, frames))
+        return "".join(out)
+
+    def _spend(self, chunk: str) -> str:
+        """Counts what the conversion writes as it goes, so a template whose paths grow with nesting stops early."""
+        self._written += len(chunk)
+        if self._written > _MAX_OUTPUT_CHARS:
+            raise OutputTooLarge
+        return chunk
+
+    def _text(self, text: str) -> Iterator[str]:
+        for piece in self._split_text(text) if self._split_text else (text,):
+            if isinstance(piece, str):
+                self._feed(piece)
+                yield _literal_text(piece)
+            elif (piece.liquid or piece.value_path) and self._value_fits(raw=False, in_attribute=piece.in_attribute):
+                self._feed("x")
+                self.converted.append(piece.source)
+                yield self._print(piece.value_path, False) if piece.value_path else piece.liquid or ""
+            else:
+                self.unsupported.append(piece.source)
+                self._feed(piece.source)
+                yield _literal_text(piece.source)
+
+    def _output(self, node: _Output, frames: tuple[_Frame, ...]) -> str:
+        body, raw = node.body, node.raw
+        if body.startswith("&"):
+            body, raw = body[1:].strip(), True
+        try:
+            liquid, raw = self._output_liquid(body, raw, frames)
+        except (_Unsupported, _Unconvertible):
+            return self._literal(node.source)
+        if not self._value_fits(raw=raw, in_attribute=True):
+            return self._literal(node.source)
+        self._feed("x")
+        self._after_raw_html = self._after_raw_html or (raw and self.is_html)
+        return liquid
+
+    def _output_liquid(self, body: str, raw: bool, frames: tuple[_Frame, ...]) -> tuple[str, bool]:
+        expression = _parse_expression(body)
+        name, params = expression.name, expression.params
+        if expression.hash_args or expression.block_params:
+            raise _Unsupported
+        if not params:
+            if len(frames) == 1 and (special := self._root_value(name)) is not None:
+                return special, False
+            return self._print(self._path(name, frames), raw), raw
+        raise _Unsupported
+
+    def _print(self, value: str, raw: bool) -> str:
+        if not self.is_html:
+            return f"{{{{ {value} }}}}"
+        if raw:
+            return f"{{{{ {value} | raw }}}}"
+        if self._after_raw_html:
+            # Raw HTML can leave a tag open, so this value could land in an unquoted attribute. Handlebars also encodes
+            # = and ` there, so the value can't add an attribute of its own.
+            return f"{{{{ {value}{HTML_ESCAPE} | raw }}}}"
+        return f"{{{{ {value} }}}}"
+
+    def _literal(self, source: str, *, noted: bool = True) -> str:
+        if noted:
+            self.unsupported.append(source)
+        self._feed(source)
+        return liquid_literal(source)
+
+    # Blocks -----------------------------------------------------------------------------------------------------------
+
+    def _block(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
+        try:
+            if block.name == "each" and not block.inverted:
+                return self._each(block, frames)
+            if block.name == "with" and not block.inverted:
+                return self._with(block, frames)
+            self._condition(block, frames)
+        except (_Unsupported, _Unconvertible):
+            return self._literal_block(block, frames)
+        return self._if_chain(block, frames)
+
+    def _if_chain(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
+        start = self._snapshot()
+        parts: list[str] = []
+        ends: list[Place | None] = []
+        current: _Block | None = block
+        keyword = "if"
+        while current is not None:
+            condition = self._condition(current, frames)
+            body = current.body
+            parts.append(f"{{% {keyword} {condition} %}}{self._branch(start, ends, body, frames)}")
+            keyword = "elsif"
+            inverse = current.inverse
+            current = None
+            if len(inverse) == 1 and isinstance(inverse[0], _Block) and inverse[0].chained:
+                chained = inverse[0]
+                try:
+                    self._condition(chained, frames)
+                    current = chained
+                    continue
+                except (_Unsupported, _Unconvertible):
+                    pass
+            if inverse:
+                parts.append(f"{{% else %}}{self._branch(start, ends, inverse, frames)}")
+            else:
+                ends.append(start)
+        self._merge(ends)
+        return "".join(parts) + "{% endif %}"
+
+    def _condition(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
+        params, hash_args = block.params, block.hash_args
+        if not block.parsed or block.block_params:
+            raise _Unsupported
+        # `{{^x}}` skips "" and 0, unlike `{{#unless x}}`, and Liquid has no test that tells "" from an empty list.
+        if block.inverted:
+            raise _Unsupported
+        include_zero = _include_zero(hash_args)
+        if block.name in ("if", "unless") and len(params) == 1:
+            test = self._truthy if block.name == "if" else self._falsy
+            return test(params[0], frames, include_zero=include_zero)
+        raise _Unsupported
+
+    def _each(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
+        if not block.parsed or len(block.params) != 1 or block.hash_args or len(block.block_params) > 2:
+            raise _Unsupported
+        (collection,) = block.params
+        if not isinstance(collection, _Path):
+            raise _Unsupported
+        source = self._path(collection.source, frames)
+        names = block.block_params
+        loop_name = names[0] if names and self._free_name(names[0]) else self._next_loop_name()
+        frame = _Frame(
+            this=loop_name,
+            loop=True,
+            item_name=names[0] if names else None,
+            index_name=names[1] if len(names) == 2 else None,
+        )
+        # The second pass of the body follows whatever raw HTML the first pass printed.
+        self._after_raw_html = self._after_raw_html or (self.is_html and _has_raw_output(block.body))
+        start = self._snapshot()
+        # A loop body that runs zero times or many times has to leave the HTML where it found it.
+        ends: list[Place | None] = [start]
+        self._loop_names.append(loop_name)
+        try:
+            body = self._branch(start, ends, block.body, (*frames, frame))
+        finally:
+            self._loop_names.pop()
+        empty = ""
+        if block.inverse:
+            empty = f"{{% else %}}{self._branch(start, ends, block.inverse, frames)}"
+        self._merge(ends)
+        return f"{{% for {loop_name} in {source} %}}{body}{empty}{{% endfor %}}"
+
+    def _with(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
+        if not block.parsed or len(block.params) != 1 or block.hash_args or len(block.block_params) > 1:
+            raise _Unsupported
+        (target,) = block.params
+        if not isinstance(target, _Path):
+            raise _Unsupported
+        this = self._path(target.source, frames)
+        frame = _Frame(this=this, item_name=block.block_params[0] if block.block_params else None)
+        start = self._snapshot()
+        ends: list[Place | None] = []
+        # Handlebars `with` skips its body only for an empty value, and 0 isn't one.
+        condition = self._truthy(target, frames, include_zero=True)
+        body = self._branch(start, ends, block.body, (*frames, frame))
+        otherwise = ""
+        if block.inverse:
+            otherwise = f"{{% else %}}{self._branch(start, ends, block.inverse, frames)}"
+        else:
+            ends.append(start)
+        self._merge(ends)
+        return f"{{% if {condition} %}}{body}{otherwise}{{% endif %}}"
+
+    def _literal_block(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
+        """Keeps the block's own tags as written. Everything between them converts in the same context, except under
+        an `each` or `with`, whose context isn't known, so values there stay as written too."""
+        body_frames = (*frames, _Frame(this="")) if block.name in ("each", "with") else frames
+        parts = [self._literal(block.source_open), self._nodes(block.body, body_frames)]
+        if block.inverse:
+            chained = block.inverse[0] if len(block.inverse) == 1 and isinstance(block.inverse[0], _Block) else None
+            if chained is not None and chained.chained:
+                # The rest of the chain stays as written, so each `{{else if}}` prints where it was.
+                parts.append(self._literal_block(chained, frames))
+            else:
+                parts.append(self._literal(block.source_else, noted=False))
+                parts.append(self._nodes(block.inverse, frames))
+        if not block.chained:
+            parts.append(self._literal(block.source_close, noted=False))
+        return "".join(parts)
+
+    # Expressions ------------------------------------------------------------------------------------------------------
+
+    def _path(self, source: str, frames: tuple[_Frame, ...]) -> str:
+        if source in _LOOP_DATA:
+            # The innermost loop or kept-as-written block decides, so a kept `each` doesn't borrow an outer index.
+            innermost = next((frame for frame in reversed(frames) if frame.loop or not frame.this), None)
+            if innermost is None or not innermost.loop:
+                raise _Unsupported
+            return _LOOP_DATA[source]
+        if source.startswith("@root."):
+            frames, source = frames[:1], source.removeprefix("@root.")
+        elif source.startswith("@") or source in ("true", "false", "null", "undefined"):
+            raise _Unsupported
+        depth = len(frames) - 1
+        while source.startswith("../"):
+            depth -= 1
+            source = source[3:]
+        if depth < 0:
+            raise _Unsupported
+        frames = frames[: depth + 1]
+        base = frames[-1].this
+        if not base:
+            raise _Unsupported
+        if source in ("this", "."):
+            parts: list[str] = []
+        elif source.startswith(("this.", "./")):
+            parts = source.split("/", 1)[1].split(".") if source.startswith("./") else source.split(".")[1:]
+        else:
+            parts = source.split(".")
+            named = self._block_param(parts[0], frames)
+            if named is not None:
+                base, parts = named, parts[1:]
+        if not all(_SEGMENT.fullmatch(part) for part in parts) or (not parts and base == "variables"):
+            raise _Unsupported
+        return ".".join([base, *parts])
+
+    def _block_param(self, name: str, frames: tuple[_Frame, ...]) -> str | None:
+        innermost_loop = next((frame for frame in reversed(frames) if frame.loop), None)
+        for frame in reversed(frames):
+            if frame.item_name == name:
+                return frame.this
+            if frame.index_name == name:
+                if frame is not innermost_loop:
+                    raise _Unsupported
+                return "forloop.index0"
+        return None
+
+    def _value_path(self, param: object, frames: tuple[_Frame, ...]) -> str:
+        if not isinstance(param, _Path):
+            raise _Unsupported
+        return self._path(param.source, frames)
+
+    def _truthy(self, param: object, frames: tuple[_Frame, ...], *, include_zero: bool) -> str:
+        if isinstance(param, _Literal):
+            return "true" if _literal_truthy(param, include_zero) else "false"
+        path = self._value_path(param, frames)
+        if path == "forloop.index0":
+            return f"{path} != 0"
+        if path.startswith("forloop."):
+            return path
+        return f"{path} != blank" if include_zero else f"{path} != blank and {path} != 0"
+
+    def _falsy(self, param: object, frames: tuple[_Frame, ...], *, include_zero: bool) -> str:
+        if isinstance(param, _Literal):
+            return "false" if _literal_truthy(param, include_zero) else "true"
+        path = self._value_path(param, frames)
+        if path == "forloop.index0":
+            return f"{path} == 0"
+        if path.startswith("forloop."):
+            return f"{path} == false"
+        return f"{path} == blank" if include_zero else f"{path} == blank or {path} == 0"
+
+    def _free_name(self, name: str) -> bool:
+        return bool(_SEGMENT.fullmatch(name)) and name not in _TAKEN_NAMES and name not in self._loop_names
+
+    def _next_loop_name(self) -> str:
+        count = 1
+        while not self._free_name(name := "item" if count == 1 else f"item{count}"):
+            count += 1
+        return name
+
+    # HTML context -----------------------------------------------------------------------------------------------------
+
+    def _value_fits(self, *, raw: bool, in_attribute: bool) -> bool:
+        """Whether a value sits where Liquid escapes it the way Handlebars does: page text, or a quoted attribute
+        that holds no script or style."""
+        if self._html is None:
+            return True
+        where = self._html.where()
+        if self._html.untrusted:
+            return False
+        if where == "text":
+            return True
+        return where == "value" and in_attribute and not raw and self._html.plain_attribute()
+
+    def _feed(self, text: str) -> None:
+        if self._html is not None:
+            self._html.feed(text)
+
+    def _snapshot(self) -> Place | None:
+        return self._html.snapshot() if self._html is not None else None
+
+    def _branch(
+        self, start: Place | None, ends: list[Place | None], nodes: tuple[object, ...], frames: tuple[_Frame, ...]
+    ) -> str:
+        if self._html is not None and start is not None:
+            self._html.restore(start)
+        converted = self._nodes(nodes, frames)
+        ends.append(self._snapshot())
+        return converted
+
+    def _merge(self, ends: list[Place | None]) -> None:
+        """Branches that leave the HTML in different places hide where later values sit, so none of them convert."""
+        if self._html is None or ends[0] is None:
+            return
+        self._html.restore(ends[0])
+        if any(end != ends[0] for end in ends):
+            self._html.untrusted = True
+
+
+def _has_raw_output(nodes: tuple[object, ...]) -> bool:
+    for node in nodes:
+        if isinstance(node, _Output) and (node.raw or node.body.startswith("&")):
+            return True
+        if isinstance(node, _Block) and (_has_raw_output(node.body) or _has_raw_output(node.inverse)):
+            return True
+    return False
+
+
+def _include_zero(hash_args: dict[str, object]) -> bool:
+    if not hash_args:
+        return False
+    value = hash_args.get("includeZero")
+    if set(hash_args) != {"includeZero"} or not isinstance(value, _Literal) or value.text not in ("true", "false"):
+        raise _Unsupported
+    return value.text == "true"
+
+
+def _literal_truthy(literal: _Literal, include_zero: bool) -> bool:
+    if literal.text is None or literal.liquid == "false":
+        return False
+    if literal.liquid == literal.text and literal.text != "true":
+        return include_zero or float(literal.text) != 0
+    return literal.text != ""
+
+
+def _literal_text(text: str) -> str:
+    # Handlebars prints `{%` as it stands. Liquid would read it as a tag.
+    return text.replace("{%", '{{ "{%" }}')
+
+
+def _append(out: list[str], chunk: str) -> None:
+    """Adds a chunk, so a `{` that ends one chunk and a `{` or `%` that starts the next never join into a Liquid tag."""
+    if not chunk:
+        return
+    if out and out[-1].endswith("{") and chunk[0] in "{%":
+        out[-1] = out[-1][:-1] + '{{ "{" }}'
+    out.append(chunk)
