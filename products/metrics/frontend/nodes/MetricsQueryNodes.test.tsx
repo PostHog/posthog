@@ -8,6 +8,7 @@ import { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 
 import { useMocks } from '~/mocks/jest'
 import { Query } from '~/queries/Query/Query'
+import { MetricsHistogramQueryRenderer, MetricsQueryRenderer } from '~/queries/Query/queryNodeRenderers'
 import { MetricsHistogramQuery, MetricsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
@@ -26,6 +27,8 @@ const HISTOGRAM_QUERY: MetricsHistogramQuery = {
 
 describe('metrics query nodes', () => {
     let queryCalls: number
+
+    beforeAll(() => Promise.all([MetricsQueryRenderer.preload(), MetricsHistogramQueryRenderer.preload()]))
 
     beforeEach(() => {
         queryCalls = 0

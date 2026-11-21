@@ -53,7 +53,10 @@ export function MetricsTableDrilldownModal({
 }): JSX.Element | null {
     const { timezone } = useValues(teamLogic)
     // The default query queue runs serially; bound parallel work to this modal so its charts can load together.
-    const [queryContext] = useState(() => ({ loadQueue: new TaskQueue(3) }))
+    const [queryContext] = useState(() => ({
+        loadQueue: new TaskQueue(3),
+        insightProps: { dashboardItemId: undefined, retainResponseOnUnmount: true },
+    }))
     if (names.length === 0) {
         return null
     }

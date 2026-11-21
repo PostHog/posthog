@@ -125,6 +125,7 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
         query: dataQuery,
         key,
         cachedResults: props.cachedResults,
+        retainResponseOnUnmount: props.context.insightProps?.retainResponseOnUnmount,
         loadQueue: props.context.loadQueue,
         loadPriority,
         onData,
