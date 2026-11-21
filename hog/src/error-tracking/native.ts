@@ -5,7 +5,7 @@ import type { Context } from '@/core/context'
 import { canonical } from '@/core/paths'
 
 import { isDsymBundle, isIgnored, type Artifact, type Root } from './discover'
-import type { Skip } from './kinds/js'
+import type { Skip } from './session'
 import { MAX_FILE_SIZE, type SymbolSetFile } from './upload'
 import { commandWorker, type NativeBinary, type NativeProblem, type PackItem, type Worker } from './worker'
 
