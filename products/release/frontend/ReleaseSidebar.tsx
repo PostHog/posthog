@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -27,6 +27,7 @@ const RECENTS_LIMIT = 6
 
 export function ReleaseSidebar(): JSX.Element {
     const { rows, flagCount, experimentCount, earlyAccessCount, dataLoading, releasesEnabled } = useValues(releaseLogic)
+    const { showPinHint } = useActions(releaseLogic)
     const { shortcutData, pinnedShortcutIds } = useValues(sidebarPinsLogic)
     const { recents } = useValues(recentItemsModel)
     const { releaseRecents } = useValues(todayRecentsLogic)
@@ -217,6 +218,7 @@ export function ReleaseSidebar(): JSX.Element {
                             label="Add a pinned item"
                             icon={<IconPlus />}
                             to={urls.releases()}
+                            onClick={showPinHint}
                             dataAttr="release-sidebar-pinned-add"
                         />
                     )}

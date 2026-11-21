@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useState } from 'react'
 
 import { IconArrowUpRight, IconCopy, IconEllipsis, IconExternal, IconPin, IconPinFilled } from '@posthog/icons'
 import {
@@ -13,42 +13,54 @@ import {
     anchoredToast,
 } from '@posthog/quill'
 
+import { cn } from 'lib/utils/css-classes'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 
+import { SidebarPinHint } from '~/layout/today/sidebar/SidebarPinHint'
 import { pinTargetKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 
-import type { ReleaseAllRow } from './releaseAllLogic'
+import { releaseAllLogic, type ReleaseAllRow } from './releaseAllLogic'
+import { releaseLogic } from './releaseLogic'
 
 export function ReleaseAllRowMenu({ row }: { row: ReleaseAllRow }): JSX.Element {
     const { pinnedShortcutIds, shortcutDataLoading } = useValues(sidebarPinsLogic)
     const { togglePinned } = useActions(sidebarPinsLogic)
-    const triggerRef = useRef<HTMLButtonElement>(null)
+    // Read here, not passed in by the column factory: new columns would remount this cell and close its open menu.
+    const { pinHintVisible } = useValues(releaseLogic)
+    const { hidePinHint } = useActions(releaseLogic)
+    const { displayRows } = useValues(releaseAllLogic)
+    const pinHint = pinHintVisible && displayRows[0]?.type === row.type && displayRows[0]?.id === row.id
+    const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null)
     const target = { type: row.type, ref: row.id, name: row.name, href: row.href }
     const pinned = pinnedShortcutIds.has(pinTargetKey(target))
 
     const copyLink = async (): Promise<void> => {
         const outcome = await writeToClipboard(new URL(addProjectIdIfMissing(row.href), window.location.origin).href)
-        if (triggerRef.current) {
+        if (trigger) {
             anchoredToast({
                 description: outcome === 'copied' ? 'Link copied' : 'Couldn’t copy the link',
-                anchor: triggerRef.current,
+                anchor: trigger,
                 side: 'left',
             })
         }
     }
 
     return (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && pinHint && hidePinHint()}>
+            {pinHint && trigger && (
+                <SidebarPinHint anchor={trigger} onClose={hidePinHint} dataAttr="release-pin-hint" />
+            )}
             <DropdownMenuTrigger
                 render={
                     <Button
-                        ref={triggerRef}
+                        ref={setTrigger}
                         variant="default"
                         size="icon-sm"
                         aria-label={`Actions for ${row.name}`}
+                        className={cn(pinHint && 'ring-2 ring-ring')}
                         data-attr="release-all-row-menu"
                     />
                 }
