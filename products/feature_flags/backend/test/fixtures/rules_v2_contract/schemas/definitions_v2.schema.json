@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://posthog.com/contracts/feature_flag_rules_v2/definitions_v2.schema.json",
+  "title": "Definitions ?v=2 feed",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "flags",
+    "cohorts",
+    "group_type_mapping"
+  ],
+  "properties": {
+    "flags": {
+      "type": "array",
+      "items": {
+        "$ref": "https://posthog.com/contracts/feature_flag_rules_v2/definitions_entry.schema.json"
+      }
+    },
+    "cohorts": {
+      "type": "object",
+      "additionalProperties": true,
+      "x-posthog-open-object": "Existing cohort map"
+    },
+    "group_type_mapping": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "x-posthog-open-object": "Group index to name"
+    },
+    "minimal_flag_called_events": {
+      "type": "boolean"
+    },
+    "property_matching_version": {
+      "type": "integer"
+    }
+  }
+}
