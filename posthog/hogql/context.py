@@ -68,9 +68,8 @@ class HogQLContext:
     # Every call site that sets this MUST include an inline comment explaining why.
     bypass_warehouse_access_control: bool = False
 
-    # Lets the lazy database build reuse recently fetched per-team sources (TTL-bounded staleness).
-    # Set ONLY by editor-assist paths (autocomplete, metadata); query execution must build fresh.
-    use_cached_sources: bool = False
+    # True (editor assist only) reuses TTL-bounded cached sources; None lets Database.create_for decide.
+    use_cached_sources: bool | None = None
 
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
