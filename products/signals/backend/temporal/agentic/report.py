@@ -192,6 +192,10 @@ class RunAgenticReportOutput:
     # The suggested prompts to store with the title and summary, already normalized and judged
     # safe. `[]` clears the stored set, which is also what an older workflow history replays as.
     suggested_prompts: list[str] = field(default_factory=list)
+    # Set when the research-written title or summary failed the safety judge, so the workflow fails
+    # the report instead of storing the text. `None` passed the judge, which is also what an older
+    # workflow history replays as.
+    unsafe_prose_explanation: str | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -845,7 +849,15 @@ def _resolve_report_charts_payload(
     return [chart.model_dump(mode="json") for chart in charts]
 
 
-async def _resolve_suggested_prompts(
+@frozen
+class _ResearchOutputVerdict:
+    # Set when the research-written title or summary failed the safety judge, so the workflow fails
+    # the report instead of storing the text.
+    unsafe_prose_explanation: str | None
+    suggested_prompts: list[str]
+
+
+async def _judge_research_output(
     prompts: Sequence[str],
     *,
     team_id: int,
@@ -854,44 +866,73 @@ async def _resolve_suggested_prompts(
     title: str,
     summary: str,
     checks_summary: str | None,
-) -> list[str]:
-    """The suggested prompts to store with the run's title and summary.
+) -> _ResearchOutputVerdict:
+    """Judge the research-written text and the suggested prompts to store with it.
 
-    Returns `[]` rather than `None` when the run keeps none. Research rewrites the prose that the
-    stored prompts were written about, so keeping them would put prompts about the old report under
-    the new one. The presentation prompt shows research the stored prompts, so it can send again the
-    ones that still fit.
+    The prompts are judged with the text in one call, and a safe verdict covers both. When that call
+    rejects the set or cannot run, a second call judges the text alone, so an unsafe prompt drops
+    only the prompts while unsafe text fails the report. A run without prompts takes only the second
+    call.
+
+    The verdict keeps `[]` prompts rather than `None` when the run keeps none. Research rewrites the
+    prose that the stored prompts were written about, so keeping them would put prompts about the
+    old report under the new one. The presentation prompt shows research the stored prompts, so it
+    can send again the ones that still fit.
 
     Never raises. This runs after the whole sandbox research, and Temporal retries a failed activity
-    from the start, so a raise here would repeat the research for prompts the report can do without.
+    from the start, so a raise here would repeat the research. A text judge that refuses or fails
+    counts as unsafe, because unjudged text must not surface or feed autostart.
     """
     normalized = normalize_suggested_prompts(prompts)
-    if not normalized:
-        return []
     log = logger.bind(team_id=team_id, report_id=report_id, prompt_count=len(normalized))
-    if batch_error := suggested_prompts_batch_error(normalized):
+    if normalized and (batch_error := suggested_prompts_batch_error(normalized)):
         log.warning("dropping research suggested prompts", reason=batch_error)
-        return []
+        normalized = []
+    if normalized:
+        try:
+            safety = await report_safety_judge.judge_suggested_prompts(
+                team_id=team_id,
+                report_id=report_id,
+                signal_id=signal_id,
+                title=title,
+                summary=summary,
+                checks_summary=checks_summary,
+                suggested_prompts=normalized,
+            )
+        except LLMRefusalError:
+            log.warning("dropping research suggested prompts", reason="safety model refused")
+        except Exception:
+            log.exception("dropping research suggested prompts", reason="safety judge failed")
+        else:
+            if safety.choice:
+                return _ResearchOutputVerdict(unsafe_prose_explanation=None, suggested_prompts=normalized)
+            log.warning("dropping research suggested prompts", reason="judged unsafe", explanation=safety.explanation)
     try:
-        safety = await report_safety_judge.judge_suggested_prompts(
+        prose_safety = await report_safety_judge.judge_report_prose(
             team_id=team_id,
             report_id=report_id,
             signal_id=signal_id,
             title=title,
             summary=summary,
             checks_summary=checks_summary,
-            suggested_prompts=normalized,
         )
     except LLMRefusalError:
-        log.warning("dropping research suggested prompts", reason="safety model refused")
-        return []
+        log.warning("research report text failed safety review", reason="safety model refused")
+        return _ResearchOutputVerdict(
+            unsafe_prose_explanation="The safety model refused to assess the research output.", suggested_prompts=[]
+        )
     except Exception:
-        log.exception("dropping research suggested prompts", reason="safety judge failed")
-        return []
-    if not safety.choice:
-        log.warning("dropping research suggested prompts", reason="judged unsafe", explanation=safety.explanation)
-        return []
-    return normalized
+        log.exception("research report text failed safety review", reason="safety judge failed")
+        return _ResearchOutputVerdict(
+            unsafe_prose_explanation="The safety check on the research output failed.", suggested_prompts=[]
+        )
+    if not prose_safety.choice:
+        log.warning("research report text failed safety review", explanation=prose_safety.explanation)
+        return _ResearchOutputVerdict(
+            unsafe_prose_explanation=prose_safety.explanation or "The safety judge rejected the research output.",
+            suggested_prompts=[],
+        )
+    return _ResearchOutputVerdict(unsafe_prose_explanation=None, suggested_prompts=[])
 
 
 def _resolve_report_metrics_payload(
@@ -1500,7 +1541,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
         # The judge is an LLM call outside the research heartbeat block, and the activity's heartbeat
         # timeout is shorter than a slow judge call.
         async with Heartbeater():
-            suggested_prompts = await _resolve_suggested_prompts(
+            research_verdict = await _judge_research_output(
                 result.suggested_prompts,
                 team_id=input.team_id,
                 report_id=input.report_id,
@@ -1538,7 +1579,8 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             research_task_id=result.research_task_id,
             charts_enabled=True,
             tags=result.tags,
-            suggested_prompts=suggested_prompts,
+            suggested_prompts=research_verdict.suggested_prompts,
+            unsafe_prose_explanation=research_verdict.unsafe_prose_explanation,
         )
     except AgentStartupFailed as error:
         raise ApplicationError(

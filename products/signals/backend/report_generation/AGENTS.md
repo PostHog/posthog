@@ -155,8 +155,9 @@ The presentation step can also return `tags`, the report's whole slug tag set. T
 
 The presentation step can also return up to three `suggested_prompts`, the follow-ups the inbox offers above the report's Ask AI box. The authoring guidance is `report_prompts.suggested_prompts_guidance`, shared with the scout report tools. The prompt shows the report's stored prompts, including ones a scout wrote, so a run can keep the ones that still fit.
 
-- **Judged before they are stored.** The pipeline judges input signals before research runs, so research-authored prompts need their own pass. A reader's click sends a prompt to an agent run, unlike a chart. `_resolve_suggested_prompts` normalizes the set, checks its bounds, and sends it through `report_safety_judge.judge_suggested_prompts`.
-- **Fails closed, never raises.** An unsafe verdict, a refusal, a judge error, or a set over the bounds stores `[]` and logs why. A raise would make Temporal retry the activity and repeat the whole research.
+- **Judged with the report text before they are stored.** The pipeline judges input signals before research runs, so research-written text and prompts need their own pass. A reader's click sends a prompt to an agent run that reads the report. `_judge_research_output` normalizes the set, checks its bounds, and sends it with the title and summary as one signal through `report_safety_judge.judge_suggested_prompts`. A safe verdict covers both.
+- **Unsafe text fails the report, and unsafe prompts only drop.** When the prompt verdict is unsafe or missing, `judge_report_prose` judges the text alone. Unsafe text, a refusal, or a judge error sets `unsafe_prose_explanation`, and the summary workflow fails the report with `research_safety_judge_rejected`. Otherwise the run stores `[]` and logs why.
+- **Never raises.** A raise would make Temporal retry the activity and repeat the whole research.
 - **Each pass replaces the whole set, atomically with the prose.** The run always returns a list, because stored prompts describe the summary the run replaces. The no-repo branch keeps the prose, so it keeps the prompts.
 
 ### Fleet steering

@@ -712,6 +712,30 @@ class SignalReportSummaryWorkflow:
                     ),
                 )
                 await self._wait_for_task_settlement(inputs)
+                # The pre-research judge saw only the input signals, so research-written text that
+                # fails its own judge must not surface or feed autostart.
+                if (
+                    workflow.patched("signals-research-prose-safety")
+                    and agentic_result.unsafe_prose_explanation is not None
+                ):
+                    log.warning(
+                        "Report research output failed safety review",
+                        explanation=agentic_result.unsafe_prose_explanation,
+                    )
+                    await workflow.execute_activity(
+                        mark_report_failed_activity,
+                        MarkReportFailedInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            error=f"Research output failed safety review: {agentic_result.unsafe_prose_explanation}",
+                            failure_reason="research_safety_judge_rejected",
+                            signal_count=signal_count,
+                            source_products=source_products,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    return False
                 decision = ReportDecision(
                     title=agentic_result.title,
                     summary=agentic_result.summary,

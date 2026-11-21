@@ -258,6 +258,23 @@ class SafetyJudgeOutput:
     explanation: Optional[str]
 
 
+def report_content_signal(title: str, summary: str) -> SignalData:
+    """Wrap the authored `title` + `summary` as a `SignalData` so the safety judge evaluates the exact
+    prose that will surface (and feed autostart), not just the backing evidence. Prompt-injection can
+    land in the report body itself while the evidence descriptions look benign — this makes the judge
+    see the report text too, so an unsafe title/summary suppresses the report."""
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content=f"{title}\n\n{summary}",
+        source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value,
+        source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value,
+        source_id="report_content",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 def suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | None:
     """Wrap the report's suggested prompts as one `SignalData` so the judge sees them too.
 
@@ -314,23 +331,50 @@ async def judge_suggested_prompts(
 
     The pipeline judges a report's input signals before research runs, and research writes its
     prompts after that, so they need their own pass before they are stored. Each set is judged with
-    the generated title and summary (see `report_with_prompts_signal`). `checks_summary` goes in too
-    when it differs, because the ready transition stores it in place of `summary` when the checks
-    reconcile. Raises `LLMRefusalError` when the safety model
+    the generated title and summary (see `report_with_prompts_signal`), and with `checks_summary`
+    when it differs. Raises `LLMRefusalError` when the safety model
     refuses, so the caller decides what a refusal costs.
     """
     prompts_signal = suggested_prompts_signal(suggested_prompts)
     if prompts_signal is None:
         return SafetyJudgeResponse(choice=True, explanation="")
-    summaries = [summary]
-    if checks_summary is not None and checks_summary != summary:
-        summaries.append(checks_summary)
     return await judge_report_safety(
         team_id=team_id,
-        signals=[report_with_prompts_signal(title, report_summary, prompts_signal) for report_summary in summaries],
+        signals=[
+            report_with_prompts_signal(title, report_summary, prompts_signal)
+            for report_summary in _stored_summaries(summary, checks_summary)
+        ],
         report_id=report_id,
         signal_id=signal_id,
     )
+
+
+async def judge_report_prose(
+    *, team_id: int, report_id: str, signal_id: str | None, title: str, summary: str, checks_summary: str | None
+) -> SafetyJudgeResponse:
+    """Run the safety judge over a research-written title and summary on their own.
+
+    The pipeline judges the input signals before research, and research writes the report text
+    after that, so the text needs its own pass before the report can surface or feed autostart.
+    Raises `LLMRefusalError` when the safety model refuses, so the caller decides what a refusal costs.
+    """
+    return await judge_report_safety(
+        team_id=team_id,
+        signals=[
+            report_content_signal(title, report_summary)
+            for report_summary in _stored_summaries(summary, checks_summary)
+        ],
+        report_id=report_id,
+        signal_id=signal_id,
+    )
+
+
+def _stored_summaries(summary: str, checks_summary: str | None) -> list[str]:
+    # The ready transition stores `checks_summary` in place of `summary` when the checks reconcile,
+    # so either one can reach the reader.
+    if checks_summary is None or checks_summary == summary:
+        return [summary]
+    return [summary, checks_summary]
 
 
 @temporalio.activity.defn
