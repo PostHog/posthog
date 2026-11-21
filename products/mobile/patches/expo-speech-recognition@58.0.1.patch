@@ -1,0 +1,74 @@
+diff --git a/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt b/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt
+index 4a0604ab8ffd5112ec0bb770be56b3bc62dfcc80..966a4ed2b2812e857e14ea96fdc0eedf9045f1fb 100644
+--- a/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt
++++ b/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt
+@@ -633,7 +633,6 @@ class ExpoSpeechService(
+                 ),
+             )
+         }
+-        log("onResults(), results: $resultsList")
+ 
+         teardownAndEnd()
+     }
+@@ -643,7 +642,6 @@ class ExpoSpeechService(
+         // Avoid sending result event if there was an empty result, or the first result is an empty string
+         val nonEmptyStrings = partialResultsList.filter { it["transcript"]?.toString()?.isNotEmpty() ?: false }
+ 
+-        log("onPartialResults(), results: $nonEmptyStrings")
+         if (nonEmptyStrings.isNotEmpty()) {
+             sendEvent("result", mapOf("results" to nonEmptyStrings, "isFinal" to false))
+         }
+@@ -685,7 +683,6 @@ class ExpoSpeechService(
+                 ),
+             )
+         }
+-        log("onSegmentResults(), transcriptions: $resultsList")
+ 
+         // If the user opted to stop
+         if (recognitionState == RecognitionState.STOPPING) {
+diff --git a/ios/ExpoSpeechRecognizer.swift b/ios/ExpoSpeechRecognizer.swift
+index b27842501f72e1a5a9382636397cbef30d5a2b30..77c7a19559d133d1a325aafeaad03c3825c772dc 100644
+--- a/ios/ExpoSpeechRecognizer.swift
++++ b/ios/ExpoSpeechRecognizer.swift
+@@ -221,11 +221,14 @@ actor ExpoSpeechRecognizer: ObservableObject {
+       return
+     }
+ 
++    guard !options.requiresOnDeviceRecognition || recognizer.supportsOnDeviceRecognition else {
++      errorHandler(RecognizerError.recognizerIsUnavailable)
++      reset(andEmitEnd: true)
++      return
++    }
++
+     do {
+-      let request = Self.prepareRequest(
+-        options: options,
+-        recognizer: recognizer
+-      )
++      let request = Self.prepareRequest(options: options)
+       self.request = request
+       let isSourcedFromFile = options.audioSource?.uri != nil
+ 
+@@ -574,10 +577,7 @@ actor ExpoSpeechRecognizer: ObservableObject {
+     audioEndTimestampMillis = nil
+   }
+ 
+-  private static func prepareRequest(
+-    options: SpeechRecognitionOptions,
+-    recognizer: SFSpeechRecognizer
+-  ) -> SFSpeechRecognitionRequest {
++  private static func prepareRequest(options: SpeechRecognitionOptions) -> SFSpeechRecognitionRequest {
+     let request = SFSpeechAudioBufferRecognitionRequest()
+ 
+     // We also force-enable partial results on non-continuous mode,
+@@ -585,9 +585,7 @@ actor ExpoSpeechRecognizer: ObservableObject {
+     // These won't get emitted to the user, however
+     request.shouldReportPartialResults = options.interimResults || !options.continuous
+ 
+-    if recognizer.supportsOnDeviceRecognition {
+-      request.requiresOnDeviceRecognition = options.requiresOnDeviceRecognition
+-    }
++    request.requiresOnDeviceRecognition = options.requiresOnDeviceRecognition
+ 
+     if let taskHint = options.iosTaskHint {
+       request.taskHint = taskHint.sfSpeechRecognitionTaskHint

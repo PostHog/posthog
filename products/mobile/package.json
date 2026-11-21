@@ -75,6 +75,7 @@
         "expo-notifications": "~58.1.7",
         "expo-router": "~58.0.28",
         "expo-secure-store": "~58.0.2",
+        "expo-speech-recognition": "58.0.1",
         "expo-splash-screen": "~58.0.12",
         "expo-status-bar": "~58.0.4",
         "expo-system-ui": "~58.0.7",

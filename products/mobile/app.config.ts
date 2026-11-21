@@ -50,6 +50,8 @@ const ICONS: Record<AppVariant, { png: string; adaptive: string; ios: string }> 
 }
 
 const APP_LINK_HOSTS = ['us.posthog.com', 'eu.posthog.com']
+const CHAT_DICTATION_MICROPHONE_PERMISSION =
+    'PostHog uses your microphone to turn speech into a chat draft on your device.'
 
 export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     const variant = readVariant()
@@ -175,9 +177,17 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                 'expo-image-picker',
                 {
                     photosPermission: 'PostHog opens your photo library so you can attach images to PostHog AI chats.',
-                    // The composer attaches from the library only.
+                    // Photo attachments come from the library. Dictation uses the microphone.
                     cameraPermission: false,
-                    microphonePermission: false,
+                    microphonePermission: CHAT_DICTATION_MICROPHONE_PERMISSION,
+                },
+            ],
+            [
+                'expo-speech-recognition',
+                {
+                    microphonePermission: CHAT_DICTATION_MICROPHONE_PERMISSION,
+                    speechRecognitionPermission: 'PostHog uses speech recognition to turn speech into a chat draft.',
+                    androidSpeechServicePackages: ['com.google.android.tts', 'com.google.android.googlequicksearchbox'],
                 },
             ],
             ['expo-video', { supportsBackgroundPlayback: false, supportsPictureInPicture: true }],
