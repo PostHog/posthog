@@ -5,12 +5,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Link } from 'lib/lemon-ui/Link'
-import { pluralize } from 'lib/utils/strings'
 
 import { AnomaliesEmptyState } from './AnomaliesEmptyState'
 import { AnomaliesFilters } from './AnomaliesFilters'
-import { ANOMALY_RATE_FILTER_OFF, SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
+import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
 import { AnomalyChartLegend } from './AnomalyChartLegend'
 import { AnomalyInsightGroup } from './AnomalyInsightGroup'
 
@@ -33,7 +31,6 @@ export function AnomaliesTab(): JSX.Element {
         toggleInsightExpanded,
         rateSeries,
         reportCreateAlertOpened,
-        setMaxAnomalyRate,
     } = useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
@@ -95,17 +92,6 @@ export function AnomaliesTab(): JSX.Element {
                                 <>
                                     <span> · Checked through </span>
                                     <TZLabel time={scoredThrough} />
-                                </>
-                            )}
-                            {anomalies.hidden_series > 0 && (
-                                <>
-                                    <span>{` · ${pluralize(anomalies.hidden_series, 'noisy series', 'noisy series')} hidden. `}</span>
-                                    <Link
-                                        onClick={() => setMaxAnomalyRate(ANOMALY_RATE_FILTER_OFF)}
-                                        data-attr="anomalies-tab-show-hidden"
-                                    >
-                                        Show them
-                                    </Link>
                                 </>
                             )}
                         </div>
