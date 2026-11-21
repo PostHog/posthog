@@ -76,7 +76,8 @@ While enforcement is off, these breaches log as `mode="dry_run"` with `transacti
 Its warning email says it is not paused automatically and that staff can pause it by hand.
 Like an exempt workflow, it is judged on its own sends only, and its sends and feedback stay out of the project totals.
 A workflow with one email step that is not transactional, such as a marketing step, is judged like any other.
-The rule matches the quota check, so it reads `function_email` steps only.
+Its `function_email` steps follow the quota check's rule.
+Any other function step that runs the `template-email` template, whatever its category, makes the workflow pausable.
 
 Optionally add the pause metric name to `WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES` afterwards, so an auto-paused workflow also demotes its team's tier at the next daily run.
 
