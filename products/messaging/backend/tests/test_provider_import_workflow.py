@@ -122,29 +122,33 @@ async def test_the_run_deletes_its_stored_contacts_however_it_ends(ending: str) 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fill_fails", [False, True])
-async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(fill_fails: bool) -> None:
+@pytest.mark.parametrize("failure", [None, "fill", "send"])
+async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(failure: str | None) -> None:
     calls: list[str] = []
     recorded: list[ContactsImportOutcome] = []
-    chunk_attempts: dict[int, int] = {}
+    chunk_attempts: dict[tuple[str, int], int] = {}
     plan = PeopleImportPlan(cohort_id=7, storage_prefix="prefix", chunks=2, send_events=True)
+    segment = PeopleImportPlan(cohort_id=8, storage_prefix="segment", chunks=1, send_events=False)
 
     @activity.defn(name="messaging-provider-import.run_step")
     async def run_step(inputs: ProviderImportStepInputs) -> ProviderImportStepResult:
         calls.append(inputs.step)
-        return ProviderImportStepResult(people_imports=[plan] if inputs.step == "contacts" else [])
+        return ProviderImportStepResult(people_imports=[plan, segment] if inputs.step == "contacts" else [])
 
     @activity.defn(name="messaging-provider-import.import_contact_chunk")
     async def import_chunk(inputs: ContactChunkInputs) -> ContactChunkResult:
-        chunk_attempts[inputs.chunk] = chunk_attempts.get(inputs.chunk, 0) + 1
-        if inputs.chunk == 1 and chunk_attempts[1] == 1:
+        key = (inputs.storage_prefix, inputs.chunk)
+        chunk_attempts[key] = chunk_attempts.get(key, 0) + 1
+        if failure == "send" and key == ("prefix", 1):
+            raise ApplicationError("Capture didn't acknowledge 3 events.")
+        if key == ("prefix", 1) and chunk_attempts[key] == 1:
             raise ApplicationError("The worker went away")
-        calls.append(f"chunk {inputs.chunk}")
+        calls.append(f"{inputs.storage_prefix} chunk {inputs.chunk}")
         return ContactChunkResult(people=3, found=2, attempt=activity.info().attempt)
 
     @activity.defn(name="messaging-provider-import.fill_contacts_cohort")
     async def fill_cohort(inputs: ContactsCohortInputs) -> int:
-        if fill_fails:
+        if failure == "fill" and inputs.cohort_id == 7:
             raise ApplicationError("The cohort was deleted", non_retryable=True)
         calls.append(f"fill {inputs.cohort_id}")
         return 1
@@ -182,10 +186,21 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(fill_f
                 execution_timeout=timedelta(minutes=5),
             )
 
-    ending = ["fail 7"] if fill_fails else ["fill 7"]
-    assert calls == ["contacts", "chunk 0", "chunk 1", *ending, "contact_properties", "finish", "discard"]
-    assert recorded == [
-        ContactsImportOutcome(
-            people=6, found=4, removed=0 if fill_fails else 1, failed_lists=int(fill_fails), retried_chunks=1
-        )
-    ]
+    # A segment only waits for people the first list's events create, so it is skipped once those didn't go out.
+    expected = {
+        None: (
+            ["prefix chunk 1", "fill 7", "segment chunk 0", "fill 8"],
+            ContactsImportOutcome(people=9, found=6, removed=2, failed_lists=0, retried_chunks=1),
+        ),
+        "fill": (
+            ["prefix chunk 1", "fail 7", "segment chunk 0", "fill 8"],
+            ContactsImportOutcome(people=9, found=6, removed=1, failed_lists=1, retried_chunks=1),
+        ),
+        "send": (
+            ["fail 7", "fail 8"],
+            ContactsImportOutcome(people=3, found=2, removed=0, failed_lists=2, retried_chunks=0),
+        ),
+    }
+    ending, outcome = expected[failure]
+    assert calls == ["contacts", "prefix chunk 0", *ending, "contact_properties", "finish", "discard"]
+    assert recorded == [outcome]

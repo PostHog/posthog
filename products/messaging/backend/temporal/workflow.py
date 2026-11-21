@@ -54,6 +54,7 @@ STEP_RETRY_POLICY = RetryPolicy(
 FINISH_RETRY_POLICY = RetryPolicy(maximum_attempts=5, initial_interval=timedelta(seconds=5))
 CONTACTS_IMPORT_PATCH = "provider-contacts-import-2026-11"
 STAGED_CONTACTS_CLEANUP_PATCH = "provider-import-staged-contacts-cleanup-2026-11"
+SKIP_LISTS_WITHOUT_PEOPLE_PATCH = "provider-contacts-skip-lists-without-people-2026-11"
 # The hourly sweep deletes whatever this leaves behind, so it gives up after about two hours.
 CLEANUP_RETRY_POLICY = RetryPolicy(
     maximum_attempts=20,
@@ -162,6 +163,7 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: ProviderContactsImportInputs) -> ContactsImportOutcome:
         people = found = removed = failed_lists = retried_chunks = 0
+        people_not_sent = False
         for plan in inputs.people_imports:
             cohort = ContactsCohortInputs(
                 team_id=inputs.team_id,
@@ -170,6 +172,18 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                 chunks=plan.chunks,
                 created_by_id=plan.created_by_id,
             )
+            if workflow.patched(SKIP_LISTS_WITHOUT_PEOPLE_PATCH) and people_not_sent and not plan.send_events:
+                # This list waits for people from a list whose events didn't go out, so each part would wait out
+                # its full timeout for people who aren't coming.
+                failed_lists += 1
+                await workflow.execute_activity(
+                    fail_contacts_cohort_activity,
+                    cohort,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=FINISH_RETRY_POLICY,
+                )
+                continue
+            sending = True
             try:
                 for chunk in range(plan.chunks):
                     sent = await workflow.execute_activity(
@@ -188,6 +202,7 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                     people += sent.people
                     found += sent.found
                     retried_chunks += sent.attempt > 1
+                sending = False
                 removed += await workflow.execute_activity(
                     fill_contacts_cohort_activity,
                     cohort,
@@ -199,6 +214,7 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                 # The lists fill separate cohorts, so one that fails does not stop the others.
                 workflow.logger.warning("Contact list import failed", extra={"cohort_id": plan.cohort_id})
                 failed_lists += 1
+                people_not_sent = people_not_sent or (sending and plan.send_events)
                 await workflow.execute_activity(
                     fail_contacts_cohort_activity,
                     cohort,
