@@ -132,7 +132,8 @@ It is a genuine `electron-forge package` build, not a rebuild with electron-buil
 
 ### Run it locally
 
-You need the same Developer ID signing setup as the baseline leg (`CSC_LINK` / `CSC_KEY_PASSWORD`, or an identity in a keychain), full git history, and the `2.0.0` feed from `build-pair.sh`:
+You need the same Developer ID signing setup as the baseline leg (`CSC_LINK` / `CSC_KEY_PASSWORD`, or an identity in a keychain) and the `2.0.0` feed from `build-pair.sh`.
+A shallow monorepo checkout is sufficient because the script fetches the pinned Forge commit from the archived repository:
 
 ```bash
 bash apps/code/scripts/dev-update/build-pair.sh        # the 2.0.0 feed
