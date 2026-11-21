@@ -89,6 +89,13 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
         evaluation_timeout=dt.timedelta(seconds=120),
         discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
     ),
+    # Postgres reads of the issue change log, plus an exception property fetch per filtered change.
+    SourceKind.ERROR_TRACKING: SourceBinding(
+        workflow="error-tracking-alert-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        evaluation_timeout=dt.timedelta(seconds=120),
+        discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+    ),
 }
 
 

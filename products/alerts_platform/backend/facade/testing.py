@@ -156,8 +156,12 @@ def start_firing(
     delivered_via: DeliveryPath | None = None,
     sent_natively: bool = False,
     grouping_key: str = "",
+    notified_at: datetime | None = None,
 ) -> None:
     """Put a configuration's instance inside a firing, as live delivery can leave one.
+
+    With `notified_at`, the firing was already announced then. Without it, the firing is still owed an
+    announcement.
 
     With `delivered_via`, the firing's first delivery took that path, so its resolve takes it too.
     With `sent_natively`, a native transport sent the firing, as live delivery does for an alert
@@ -167,7 +171,7 @@ def start_firing(
         team_id=team_id,
         configuration_id=configuration_id,
         grouping_key=grouping_key,
-        defaults={"state": "firing", "firing_started_at": at},
+        defaults={"state": "firing", "firing_started_at": at, "last_notified_at": notified_at},
     )
     if delivered_via is not None:
         PlatformAlertDeliveryPath.objects.for_team(team_id).create(
