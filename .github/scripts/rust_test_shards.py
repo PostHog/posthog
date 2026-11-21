@@ -2,6 +2,7 @@
 import os
 import json
 import math
+import subprocess
 from pathlib import Path
 
 # Approximate marginal compile and test durations, fitted by non-negative least
@@ -27,15 +28,18 @@ PACKAGE_WEIGHTS: dict[str, int] = {
     "common-database": 35,
     "common-dns": 18,
     "common-geoip": 5,
+    "common-grpc": 11,
     "common-hypercache": 36,
     "common-ingestion-warnings": 59,
     "common-kafka": 5,
+    "common-kafka-consumer": 53,
     "common-liveness": 5,
     "common-metrics": 5,
     "common-posthog": 18,
     "common-profiler": 59,
     "common-redis": 12,
     "common-s3": 5,
+    "common-sqlx-macros": 5,
     "common-temporal": 12,
     "common-types": 16,
     "cymbal": 236,
@@ -51,6 +55,8 @@ PACKAGE_WEIGHTS: dict[str, int] = {
     "hypercache-server": 40,
     "ingestion-consumer": 20,
     "ingestion-control-plane": 41,
+    "ingestion-framework": 19,
+    "ingestion-worker-proto": 5,
     "pgcollector": 45,
     "pgapi": 40,
     "k8s-awareness": 116,
@@ -60,10 +66,13 @@ PACKAGE_WEIGHTS: dict[str, int] = {
     "keyed-stash": 5,
     "lifecycle": 5,
     "limiters": 5,
+    "logs-ingestion": 61,
+    "personhog-changelog-relay": 51,
     "personhog-common": 7,
     "personhog-coordination": 230,
     "personhog-identity": 80,
     "personhog-leader": 113,
+    "personhog-parity-monitor": 14,
     "personhog-proto": 9,
     "personhog-replica": 37,
     "personhog-router": 114,
@@ -72,6 +81,7 @@ PACKAGE_WEIGHTS: dict[str, int] = {
     "personhog-writer": 63,
     "posthog-replay-anonymizer": 147,
     "posthog-symbol-data": 15,
+    "prometheus-rw-proto": 7,
     "property-defs-rs": 74,
     "property-vals-rs": 70,
     "replay-anonymizer-node": 5,
@@ -86,16 +96,26 @@ PACKAGE_WEIGHTS: dict[str, int] = {
 
 DEFAULT_WEIGHT = 60
 TARGET_SECONDS = 8 * 60
+RUST_WORKSPACE = Path(__file__).resolve().parents[2] / "rust"
 
 
-def plan_shards(affected_crates: set[str]) -> list[list[str]]:
-    # An empty affected set means a full build. Affected new crates still receive
-    # coverage before their measured weight has been added to the table.
-    packages = PACKAGE_WEIGHTS.copy()
-    if affected_crates:
-        for name in affected_crates - packages.keys():
-            packages[name] = DEFAULT_WEIGHT
-        packages = {name: weight for name, weight in packages.items() if name in affected_crates}
+def read_workspace_crates() -> set[str]:
+    metadata = subprocess.run(
+        ["cargo", "metadata", "--no-deps", "--format-version", "1"],
+        cwd=RUST_WORKSPACE,
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    return {package["name"] for package in json.loads(metadata)["packages"]}
+
+
+def plan_shards(affected_crates: set[str], workspace_crates: set[str]) -> list[list[str]]:
+    # An empty affected set means a full build of the workspace. The table supplies
+    # weights only, so a new crate receives coverage before its measured weight
+    # has been added, and an entry for a removed crate is not planned.
+    crates = affected_crates or workspace_crates
+    packages = {name: PACKAGE_WEIGHTS.get(name, DEFAULT_WEIGHT) for name in crates}
     shard_count = max(1, math.ceil(sum(packages.values()) / TARGET_SECONDS))
     buckets: list[list[str]] = [[] for _ in range(shard_count)]
     times = [0] * shard_count
@@ -108,16 +128,17 @@ def plan_shards(affected_crates: set[str]) -> list[list[str]]:
 
 def main() -> None:
     affected: set[str] = set(json.loads(os.environ.get("AFFECTED_CRATES", "[]")))
-    unknown = affected - PACKAGE_WEIGHTS.keys()
+    workspace = set() if affected else read_workspace_crates()
+    unknown = (affected or workspace) - PACKAGE_WEIGHTS.keys()
     if unknown:
         print(
-            f"WARNING: affected crates missing from weight table (using {DEFAULT_WEIGHT}s default): {', '.join(sorted(unknown))}"
+            f"WARNING: crates missing from weight table (using {DEFAULT_WEIGHT}s default): {', '.join(sorted(unknown))}"
         )
-        print("Add them to the packages dict in .github/scripts/rust_test_shards.py with measured weights.")
+        print("Add them to PACKAGE_WEIGHTS in .github/scripts/rust_test_shards.py with measured weights.")
     print(
         f"Selective build: testing {len(affected)} of affected crates" if affected else "Full build: testing all crates"
     )
-    shards = plan_shards(affected)
+    shards = plan_shards(affected, workspace)
     total = 0
     for index, shard in enumerate(shards, start=1):
         seconds = sum(PACKAGE_WEIGHTS.get(name, DEFAULT_WEIGHT) for name in shard)
