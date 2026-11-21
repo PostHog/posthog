@@ -5,6 +5,8 @@ export {
   isPostHogExecDescriptor,
   isPostHogExecTool,
   matchesPostHogExecPermission,
+  POSTHOG_GATED_EXEC_TOOLS,
+  postHogExecRuleName,
   posthogExecPermissionRegexSchema,
   resolvePostHogExecPermissionRegex,
 } from "./exec-permission";

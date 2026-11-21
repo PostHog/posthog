@@ -18,6 +18,8 @@ describe("PostHog exec identification", () => {
     expect(isPostHogExecTool("mcp__posthog__exec")).toBe(true);
     expect(isPostHogExecTool("mcp__posthog_posthog__exec")).toBe(true);
     expect(isPostHogExecTool("mcp__posthog_cloud__exec")).toBe(true);
+    expect(isPostHogExecTool("mcp__posthog__exec-write")).toBe(true);
+    expect(isPostHogExecTool("mcp__posthog__exec-read")).toBe(true);
     expect(isPostHogExecDescriptor({ server: "posthog", tool: "exec" })).toBe(
       true,
     );
@@ -26,6 +28,8 @@ describe("PostHog exec identification", () => {
   it("rejects other servers and tools", () => {
     expect(isPostHogExecTool("mcp__posthog__list")).toBe(false);
     expect(isPostHogExecTool("mcp__other__exec")).toBe(false);
+    expect(isPostHogExecTool("mcp__posthog__execute-sql")).toBe(false);
+    expect(isPostHogExecTool("mcp__other__exec-read")).toBe(false);
     expect(isPostHogExecDescriptor({ server: "other", tool: "exec" })).toBe(
       false,
     );
