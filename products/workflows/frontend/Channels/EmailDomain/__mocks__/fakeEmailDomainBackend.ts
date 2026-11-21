@@ -461,11 +461,14 @@ export class FakeEmailDomainBackend {
                 ),
             },
             patch: {
-                '/api/environments/:team_id/integrations/:id/email/': this.serve('email_update', ({ params }, body) =>
-                    this.withSender(Number(params.id), (sender) =>
-                        this.updateSender(sender, (body as { config: Partial<EmailSenderConfig> }).config)
-                    )
-                ),
+                '/api/environments/:team_id/integrations/:id/email/': this.serve('email_update', ({ params }, body) => {
+                    const config = (body as { config: Partial<EmailSenderConfig> }).config
+                    // Like the server's serializer, an update must name the email, the sender name and the provider.
+                    if (!config.email || !config.name || !config.provider) {
+                        return [400, { detail: 'This field is required.' }]
+                    }
+                    return this.withSender(Number(params.id), (sender) => this.updateSender(sender, config))
+                }),
             },
         }
     }
