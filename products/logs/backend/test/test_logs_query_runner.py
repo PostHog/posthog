@@ -35,7 +35,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 from posthog.test.persons import create_person
 
-from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.logs_query_runner import PRESENCE_OPERATORS, LogsQueryRunner
 from products.logs.backend.models import TeamLogsConfig
 from products.logs.backend.presentation.views.api import LogsViewSet
 
@@ -886,7 +886,12 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual({result["body"] for result in response["results"]}, {"other", "non_semver", "absent"})
 
-    def _run_log_attribute_filter(self, operator: PropertyOperator, mode: PropertyGroupsMode) -> list[dict]:
+    def _run_log_attribute_filter(
+        self,
+        operator: PropertyOperator,
+        mode: PropertyGroupsMode,
+        key: str = "logtag",
+    ) -> list[dict]:
         query = LogsQuery(
             dateRange=DateRange(date_from="2025-12-14T00:00:00Z", date_to="2025-12-18T03:00:00Z"),
             limit=2000,
@@ -899,10 +904,10 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         type=FilterLogicalOperator.AND_,
                         values=[
                             LogPropertyFilter(
-                                key="logtag",
+                                key=key,
                                 operator=operator,
                                 type=LogPropertyFilterType.LOG_ATTRIBUTE,
-                                value=["F"],
+                                value=None if operator in PRESENCE_OPERATORS else ["F"],
                             ),
                         ],
                     )
@@ -934,6 +939,25 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # The "= F" filter must match the 1000 logtag="F" rows — not return nothing.
         self.assertTrue(all(r["attributes"].get("logtag") == "F" for r in exact_results))
         self.assertEqual(len(exact_results), 1000)
+
+    @parameterized.expand(
+        [
+            # 477 of the 1011 seed logs carry `msg`; 100 carry `x_forwarded_host` as an empty string, which is still set.
+            ("present_key_is_set", "msg", PropertyOperator.IS_SET, 477),
+            ("present_key_is_not_set", "msg", PropertyOperator.IS_NOT_SET, 534),
+            ("empty_string_is_set", "x_forwarded_host", PropertyOperator.IS_SET, 100),
+            ("empty_string_is_not_set", "x_forwarded_host", PropertyOperator.IS_NOT_SET, 911),
+            ("absent_key_is_set", "no_such_attribute", PropertyOperator.IS_SET, 0),
+            ("absent_key_is_not_set", "no_such_attribute", PropertyOperator.IS_NOT_SET, 1011),
+        ]
+    )
+    @time_machine.travel("2025-12-18T03:00:00Z", tick=False)
+    def test_log_attribute_presence_filters(self, _name: str, key: str, operator: PropertyOperator, expected: int):
+        results = self._run_log_attribute_filter(operator, PropertyGroupsMode.OPTIMIZED, key=key)
+
+        self.assertEqual(len(results), expected)
+        expect_present = operator == PropertyOperator.IS_SET
+        self.assertTrue(all((key in r["attributes"]) == expect_present for r in results))
 
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_resource_negative_attribute_filters(self):
