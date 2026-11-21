@@ -299,6 +299,20 @@ class PromptSetTopicCounts(PromptSetCounts):
 
 
 @frozen
+class PromptSetEngineTopicCounts:
+    """Answered checks of one engine that ran with one topic in the window. A pair with no answer has no row."""
+
+    engine: str
+    topic: str
+    answers: int
+    mentioned: int
+
+    @property
+    def mention_rate(self) -> float:
+        return self.mentioned / self.answers
+
+
+@frozen
 class PromptSetDomain:
     """How many answers across the set cited a domain in the window."""
 
@@ -350,6 +364,7 @@ class PromptSetOverview:
     engines: tuple[PromptSetEngineCounts, ...]
     daily: tuple[PromptDailyEngineStats, ...]
     topics: tuple[PromptSetTopicCounts, ...]
+    engine_topics: tuple[PromptSetEngineTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
     top_searches: tuple[PromptSetSearch, ...]
 
