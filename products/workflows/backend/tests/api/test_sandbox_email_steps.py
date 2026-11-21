@@ -723,6 +723,8 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("an_address_list", {"integrationId": None, "email": ["hi@mail0.example.com"]}),
             ("false", False),
             ("an_empty_list", []),
+            ("a_list_for_the_sender_name", {"integrationId": None, "name": []}),
+            ("text_for_the_sender_list", {"integrationId": None, "integrationIds": ""}),
             ("an_empty_address_list_with_only_stopped_senders", {"integrationId": None, "email": []}, True),
             (
                 "an_address_list_with_only_stopped_senders",

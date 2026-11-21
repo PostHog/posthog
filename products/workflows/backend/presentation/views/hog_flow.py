@@ -1209,6 +1209,14 @@ def _has_custom_address(action: dict) -> bool:
     return isinstance(sender, dict) and bool(sender.get("email"))
 
 
+def _is_empty_sender_field(key: str, field: Any) -> bool:
+    if field is None:
+        return True
+    if key in ("email", "name"):
+        return isinstance(field, str) and field == ""
+    return key == "integrationIds" and isinstance(field, list) and not field
+
+
 def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id: int) -> Any:
     if not new_steps:
         return data
@@ -1220,7 +1228,7 @@ def _with_own_sender(data: dict, actions: list, new_steps: list[int], sender_id:
         email: dict = inputs["email"] if isinstance(inputs.get("email"), dict) else {}
         value = _email_value(config)
         sender: dict = value["from"] if isinstance(value.get("from"), dict) else {}
-        kept = {key: field for key, field in sender.items() if field not in (None, "", [])}
+        kept = {key: field for key, field in sender.items() if not _is_empty_sender_field(key, field)}
         config["inputs"] = {
             **inputs,
             "email": {**email, "value": {**value, "from": {**kept, "integrationId": sender_id}}},
