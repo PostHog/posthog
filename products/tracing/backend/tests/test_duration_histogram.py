@@ -9,12 +9,15 @@ from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DAT
 # Root durations chosen to straddle 1-2-5 bucket boundaries: 1.5ms → 1ms bucket, 3ms and
 # 3.5ms → 2ms bucket, 700ms → 500ms bucket. Trace 0 also gets a 5s child span, which must
 # not appear anywhere — the histogram counts traces by ROOT duration (what the list shows).
+# The "worker" root ends before it starts (clock skew): its UInt64 duration_nano wraps to ~1.8e19
+# and must land in the 1ns bucket like a zero duration, not overflow the Int64 bucket cast.
 TRACES = [
     # (root duration, child duration, service)
     (dt.timedelta(milliseconds=1.5), dt.timedelta(seconds=5), "web"),
     (dt.timedelta(milliseconds=3), None, "web"),
     (dt.timedelta(milliseconds=3.5), None, "web"),
     (dt.timedelta(milliseconds=700), None, "api"),
+    (dt.timedelta(milliseconds=-2), None, "worker"),
 ]
 
 MS = 1_000_000  # ns per ms
@@ -69,6 +72,7 @@ class TestTraceSpansDurationHistogram(_TraceSpansTestBase):
                 (1 * MS, "web"): 1,  # 1.5ms → 1ms bucket
                 (2 * MS, "web"): 2,  # 3ms + 3.5ms → 2ms bucket
                 (500 * MS, "api"): 1,  # 700ms → 500ms bucket
+                (1, "worker"): 1,  # end_time before timestamp → 1ns bucket
             },
         )
         # Implicit in the equality above, but make the design constraint loud: the 5s child span
@@ -85,7 +89,7 @@ class TestTraceSpansDurationHistogram(_TraceSpansTestBase):
             side_effect=Exception("analytics unavailable"),
         ):
             rows = {(row["bucket_ns"], row["service"]): row["count"] for row in self._histogram()}
-        self.assertEqual(rows, {(1 * MS, "web"): 1, (2 * MS, "web"): 2, (500 * MS, "api"): 1})
+        self.assertEqual(rows, {(1 * MS, "web"): 1, (2 * MS, "web"): 2, (500 * MS, "api"): 1, (1, "worker"): 1})
 
     def test_root_spans_false_counts_child_spans_for_operation_scope(self):
         # The operation detail page scopes by span name and needs child spans counted: the 5s
