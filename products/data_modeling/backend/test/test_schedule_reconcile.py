@@ -593,6 +593,36 @@ class TestMaybeReconcileDag(BaseTest):
         clamp = get_plan_floor_clamp(node.properties)
         self.assertEqual(clamp.previous_target if clamp is not None else None, expected)
 
+    def test_a_second_plan_floor_clamp_keeps_the_cadence_a_person_chose(self):
+        dag = DAG.get_or_create_default(self.team)
+        node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, M15)
+
+        clamped_at = []
+        for plan_minutes in (360, 1440):
+            _grant_refresh_interval(self.organization, plan_minutes)
+            with (
+                mock.patch(FLOOR_FLAG, return_value=True),
+                mock.patch(f"{RECONCILE}.reconcile_dag_schedules"),
+                mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+                mock.patch(f"{RECONCILE}.ph_background_capture"),
+            ):
+                self.assertEqual(clamp_dag_targets_to_plan_floor(self.team.pk, str(dag.id)), 1)
+            node.refresh_from_db()
+            clamp = get_plan_floor_clamp(node.properties)
+            assert clamp is not None
+            clamped_at.append(clamp.at)
+
+        self.assertEqual((clamp.previous_target, clamp.plan_floor, get_declared_target(node)), (M15, DAY, DAY))
+        self.assertGreater(clamped_at[1], clamped_at[0])
+        rows = ActivityLog.objects.filter(
+            scope="DataWarehouseSavedQuery", activity="sync_frequency_plan_floor"
+        ).order_by("created_at")
+        self.assertEqual(
+            [(row.detail["changes"][0]["before"], row.detail["changes"][0]["after"]) for row in rows],
+            [("0:15:00", "6:00:00"), ("6:00:00", "1 day, 0:00:00")],
+        )
+
     def test_a_pin_on_its_own_keeps_the_stored_target(self):
         node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
         set_declared_target(node, H6)
