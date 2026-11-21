@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.renderers import SafeJSONRenderer
 
 
@@ -111,6 +113,33 @@ class TestCleanDataForJSON(SimpleTestCase):
 
         self.assertEqual(json.loads(data), nested({"key": "platform", "value": None}))
         mock_capture.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("uint128", 2**100, str(2**100)),
+            ("negative_int128", -(2**100), str(-(2**100))),
+            ("largest_uint64_stays_a_number", 2**64 - 1, 2**64 - 1),
+            ("smallest_int64_stays_a_number", -(2**63), -(2**63)),
+            ("bool_untouched", True, True),
+        ]
+    )
+    def test_renders_integers_wider_than_64_bits_as_strings(self, _, wide_value, expected):
+        response = {
+            "columns": ["session_id_v7", "count"],
+            "results": [(wide_value, 1), [2**127, float("nan")]],
+            "nested": {"id": 2**64},
+        }
+
+        data = SafeJSONRenderer().render(response)
+
+        self.assertEqual(
+            json.loads(data),
+            {
+                "columns": ["session_id_v7", "count"],
+                "results": [[expected, 1], [str(2**127), None]],
+                "nested": {"id": str(2**64)},
+            },
+        )
 
     def test_unserializable_payload_raises_without_the_fallback(self):
         with patch("posthog.renderers.capture_exception") as mock_capture, self.assertRaises(TypeError):
