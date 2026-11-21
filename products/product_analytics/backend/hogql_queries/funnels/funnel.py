@@ -338,6 +338,59 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         s.settings = HogQLQuerySettings(join_algorithm=JOIN_ALGOS)
         return s
 
+    def get_table_function_query(self) -> ast.SelectQuery:
+        # The SQL form of `_format_single_funnel`: one row per step and breakdown value, instead of
+        # one wide row per breakdown value. Keep the two in sync, because SQL users expect the
+        # numbers that the insight shows.
+        max_steps = self.context.max_steps
+        step_names = [
+            self._serialize_step(step, 0, index)["name"] for index, step in enumerate(self.context.query.series)
+        ]
+        counts = ast.Array(exprs=[ast.Field(chain=[f"step_{i + 1}"]) for i in range(max_steps)])
+        average_times = ast.Array(
+            exprs=[
+                ast.Constant(value=None),
+                *[ast.Field(chain=[f"step_{i}_average_conversion_time"]) for i in range(1, max_steps)],
+            ]
+        )
+        median_times = ast.Array(
+            exprs=[
+                ast.Constant(value=None),
+                *[ast.Field(chain=[f"step_{i}_median_conversion_time"]) for i in range(1, max_steps)],
+            ]
+        )
+        breakdown_value: ast.Expr = (
+            ast.Field(chain=["final_prop"]) if self.context.breakdown else ast.Constant(value=None)
+        )
+        funnel_order = ", ".join(f"step_{i + 1} DESC" for i in reversed(range(max_steps)))
+
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
+                SELECT
+                    step_index + 1 AS step,
+                    {{step_names}}[step_index + 1] AS step_name,
+                    {{breakdown_value}} AS breakdown_value,
+                    {{counts}}[step_index + 1] AS count,
+                    if(step_1 = 0, NULL, count / step_1) AS conversion_rate,
+                    {{average_times}}[step_index + 1] AS average_conversion_time,
+                    {{median_times}}[step_index + 1] AS median_conversion_time
+                FROM {{funnel}}
+                ARRAY JOIN range({max_steps}) AS step_index
+                ORDER BY {funnel_order}, breakdown_value, step
+                """,
+                {
+                    "funnel": self.get_query(),
+                    "step_names": ast.Array(exprs=[ast.Constant(value=name) for name in step_names]),
+                    "breakdown_value": breakdown_value,
+                    "counts": counts,
+                    "average_times": average_times,
+                    "median_times": median_times,
+                },
+            ),
+        )
+
     def _get_funnel_person_step_condition(self) -> ast.Expr:
         actorsQuery, breakdownType = (
             self.context.actorsQuery,
