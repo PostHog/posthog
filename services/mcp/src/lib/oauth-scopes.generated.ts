@@ -222,6 +222,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'tracing:write',
     'transactional_email:read',
     'transactional_email:write',
+    'transactional_push:read',
+    'transactional_push:write',
     'field_note:read',
     'field_note:write',
     'uploaded_media:read',
@@ -280,6 +282,7 @@ export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([
     ['inbox', 'task'],
     ['messaging_preference', 'hog_flow'],
     ['transactional_email', 'hog_flow'],
+    ['transactional_push', 'hog_flow'],
 ])
 
 // What each risky scope lets a token do (mirrors RISKY_SCOPE_WARNINGS in posthog/scopes/exposure.py).

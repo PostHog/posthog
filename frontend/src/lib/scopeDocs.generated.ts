@@ -854,6 +854,14 @@ export const SCOPE_DOCS: Readonly<Record<string, ScopeObjectDoc>> = {
         actions: ['read', 'write'],
         docsUrl: 'https://posthog.com/docs/workflows/transactional-emails',
     },
+    transactional_push: {
+        name: 'Transactional push notification',
+        plural: 'transactional push notifications',
+        description: 'Sending a push notification from a push template made transactional with a project secret key.',
+        group: 'Messaging',
+        actions: ['read', 'write'],
+        docsUrl: 'https://posthog.com/docs/workflows/push-notifications',
+    },
     uploaded_media: {
         name: 'Uploaded media',
         plural: 'uploaded media',
