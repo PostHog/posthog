@@ -1,4 +1,5 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from importlib import import_module
 
@@ -7,8 +8,9 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
+from django.db import connection, transaction
 from django.http import HttpResponse
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from loginas import settings as la_settings
@@ -17,7 +19,15 @@ from parameterized import parameterized
 from posthog.models import User
 from posthog.session.middleware import SessionRiskMiddleware
 from posthog.session.models import Session
-from posthog.session.risk import Context, RiskFlags, RiskTier, _baseline_for_session, evaluate_session_risk
+from posthog.session.risk import (
+    Baseline,
+    Context,
+    RiskFlags,
+    RiskTier,
+    _baseline_for_session,
+    advance_baseline,
+    evaluate_session_risk,
+)
 
 IMPOSSIBLE_TRAVEL_CTX = Context(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="chrome|mac os x|pc")
 # Network anomaly *and* device anomaly — the cross-axis pair that reaches HIGH.
@@ -397,6 +407,27 @@ class TestEvaluateSessionRisk(BaseTest):
         assert row.baseline_at is not None
         self.assertAlmostEqual(row.baseline_at.timestamp(), recent.timestamp(), delta=1)  # not refreshed to now
 
+    @parameterized.expand([("new", None), ("expired", 600)])
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
+    def test_older_request_does_not_replace_refreshed_baseline(
+        self, _name: str, age_seconds: int | None, _flags: object
+    ) -> None:
+        user = self._make_user()
+        key = self._login_session(user)
+        self._seed_baseline(key)
+        baseline_at = timezone.now() - timedelta(seconds=age_seconds) if age_seconds is not None else None
+        Session.objects.filter(session_key=key).update(baseline_at=baseline_at)
+        requests = [self._request(user, key), self._request(user, key)]
+        for request in requests:
+            request.session[SESSION_KEY]
+
+        with patch("posthog.session.risk.current_request_context", side_effect=[NEARBY_CTX, STABLE_CTX]):
+            for request in requests:
+                self.assertEqual(evaluate_session_risk(request), RiskTier.NONE)
+
+        row = Session.objects.get(session_key=key)
+        self.assertEqual((row.latitude, row.longitude), (NEARBY_CTX.latitude, NEARBY_CTX.longitude))
+
     @patch("posthog.session.risk.current_request_context", return_value=NO_GEO_CTX)
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
     def test_no_geo_request_does_not_corrupt_baseline(self, _flags, _ctx):
@@ -408,6 +439,51 @@ class TestEvaluateSessionRisk(BaseTest):
 
         row = Session.objects.get(session_key=request.session.session_key)
         self.assertEqual(row.latitude, 40.7)
+
+
+class TestAdvanceBaselineLocking(TransactionTestCase):
+    @parameterized.expand([("new", None), ("expired", 600)])
+    def test_locked_session_keeps_baseline_until_next_request(self, _name: str, age_seconds: int | None) -> None:
+        now = timezone.now()
+        baseline_at = now - timedelta(seconds=age_seconds) if age_seconds is not None else None
+        row = Session.objects.create(
+            session_key="baseline-lock-test",
+            session_data="",
+            expire_date=now + timedelta(days=1),
+            latitude=STABLE_CTX.latitude,
+            longitude=STABLE_CTX.longitude,
+            country_code=STABLE_CTX.country_code,
+            ua_signature=STABLE_CTX.ua_signature,
+            baseline_at=baseline_at,
+        )
+        baseline = Baseline(
+            latitude=row.latitude,
+            longitude=row.longitude,
+            country_code=row.country_code,
+            ua_signature=row.ua_signature,
+            baseline_at=row.baseline_at,
+        )
+
+        def refresh_from_another_connection() -> None:
+            try:
+                with transaction.atomic():
+                    with connection.cursor() as cursor:
+                        cursor.execute("SET LOCAL lock_timeout = '1s'")
+                    advance_baseline(row.session_key, baseline, NEARBY_CTX, now=now)
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            with transaction.atomic():
+                Session.objects.select_for_update().get(session_key=row.session_key)
+                executor.submit(refresh_from_another_connection).result(timeout=10)
+                row.refresh_from_db()
+                self.assertEqual((row.latitude, row.longitude, row.baseline_at), (40.7, -74.0, baseline_at))
+
+        advance_baseline(row.session_key, baseline, NEARBY_CTX, now=now)
+
+        row.refresh_from_db()
+        self.assertEqual((row.latitude, row.longitude, row.baseline_at), (41.0, -74.5, now))
 
 
 @override_settings(SESSION_RISK_ENABLED=True)
