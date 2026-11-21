@@ -29,6 +29,7 @@ import type { Logger } from "../../../utils/logger";
 import { tryParsePartialJson } from "../../../utils/partial-json";
 import { classifyAgentError } from "../../error-classification";
 import { type EnrichedReadCache, registerHookCallback } from "../hooks";
+import { memoryFileFromPath } from "../memory-reads";
 import { traceIdFromHookStderr } from "../session/traceparent-hook";
 import type {
   Session,
@@ -788,6 +789,16 @@ export async function handleSystemMessage(
       // Skip empty recalls — they're the dominant source of UI clutter on
       // memory-heavy turns and carry no signal (no paths, no content).
       if (!isSynthesis && message.memories.length === 0) break;
+      for (const memory of message.memories) {
+        const memoryFile = memoryFileFromPath(memory.path);
+        if (!memoryFile) continue;
+        await client.extNotification(POSTHOG_NOTIFICATIONS.MEMORY_READ, {
+          sessionId,
+          ...memoryFile,
+          tool: "memory_recall",
+          toolCallId: message.uuid,
+        });
+      }
       const locations = isSynthesis
         ? []
         : message.memories.map((m) => ({ path: m.path }));

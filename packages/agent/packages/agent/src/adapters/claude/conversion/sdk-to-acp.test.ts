@@ -704,6 +704,39 @@ describe("handleSystemMessage model_refusal_fallback", () => {
       expect(notifications).toEqual([]);
     },
   );
+
+  it("reports each recalled memory file, apart from the index", async () => {
+    const { context, notifications } = createHandlerContext();
+    const dir = "/root/.claude/projects/-tmp-workspace/memory";
+
+    await handleSystemMessage(
+      {
+        type: "system",
+        subtype: "memory_recall",
+        mode: "select",
+        memories: [
+          { path: `${dir}/feedback_test_runner.md`, scope: "personal" },
+          { path: `${dir}/MEMORY.md`, scope: "personal" },
+        ],
+        uuid: "00000000-0000-0000-0000-00000000000a",
+        session_id: "test-session",
+      },
+      context,
+    );
+
+    expect(notifications).toEqual([
+      {
+        method: "_posthog/memory_read",
+        params: {
+          sessionId: "test-session",
+          slug: "-tmp-workspace",
+          file: "feedback_test_runner.md",
+          tool: "memory_recall",
+          toolCallId: "00000000-0000-0000-0000-00000000000a",
+        },
+      },
+    ]);
+  });
 });
 
 describe("tool_use blocks for an already-emitted tool call", () => {
