@@ -614,6 +614,7 @@ def _record_agent_startup_attempt(ctx: TaskProcessingContext, runtime: str) -> N
         },
         remove_keys=["startup_failure", "startup_completed_at", "startup_provider"],
     )
+    TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).update(agent_status=TaskRun.AgentStatus.STARTING)
 
 
 def _record_agent_startup_success(ctx: TaskProcessingContext) -> None:
@@ -630,6 +631,9 @@ def _record_agent_startup_success(ctx: TaskProcessingContext) -> None:
             run.error_message = None
             update_fields.append("error_message")
         run.save(update_fields=update_fields)
+        TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id, agent_status=TaskRun.AgentStatus.STARTING).update(
+            agent_status=TaskRun.AgentStatus.READY
+        )
 
 
 def _invoke_start_agent_server(
