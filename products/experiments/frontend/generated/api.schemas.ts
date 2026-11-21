@@ -2702,6 +2702,7 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
  * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
  * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+ * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters
  */
 export type ExperimentHealthValueKeyEnumApi =
     (typeof ExperimentHealthValueKeyEnumApi)[keyof typeof ExperimentHealthValueKeyEnumApi]
@@ -2765,6 +2766,7 @@ export const ExperimentHealthValueKeyEnumApi = {
     OtherRunningExperimentCount: 'other_running_experiment_count',
     AssignedOutsideCount: 'assigned_outside_count',
     OtherDraftExperimentCount: 'other_draft_experiment_count',
+    FiltersTestAccounts: 'filters_test_accounts',
 } as const
 
 /**
@@ -2849,7 +2851,8 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
-     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
     value: ExperimentHealthValueKeyEnumApi
     /** The value that the key must reach. Below it, the check reports no finding. */
     threshold: number
@@ -2915,7 +2918,8 @@ export interface ExperimentHealthCheckRuleApi {
      * * `baseline_variant` - The key of the variant that the analysis compares the others with, or null when the analysis picks one
      * * `other_running_experiment_count` - Other experiments that run on the same feature flag and are not archived
      * * `assigned_outside_count` - Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout
-     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived */
+     * * `other_draft_experiment_count` - Other draft experiments on the same feature flag that are not archived
+     * * `filters_test_accounts` - Whether the counts leave out internal and test users, because the experiment applies the test account filters */
     value: ExperimentHealthValueKeyEnumApi
     /** The threshold, in the unit that the suffix of the key gives. */
     threshold: number
@@ -3013,6 +3017,29 @@ export interface ExperimentHealthReleaseConditionApi {
      * @nullable
      */
     aggregation_group_type_index: number | null
+    /**
+     * The key of the variant that the condition set serves to every user it matches, its variant override. Null when the flag's split picks the variant, or when the override names no variant of the flag, which the flag service ignores.
+     * @nullable
+     */
+    variant: string | null
+}
+
+export interface ExperimentHealthExposureSetupApi {
+    /**
+     * The event that the exposure criteria count. Null when they count the flag's calls or an action.
+     * @nullable
+     */
+    event: string | null
+    /**
+     * The name of the action that the exposure criteria count. Null when they count an event.
+     * @nullable
+     */
+    action: string | null
+    /**
+     * The event, or the name of the action, that has to follow a user's flag call before the user counts as exposed. Null without one.
+     * @nullable
+     */
+    activation: string | null
 }
 
 export interface ExperimentHealthSetupApi {
@@ -3040,6 +3067,8 @@ export interface ExperimentHealthSetupApi {
     evaluation_contexts: string[]
     /** The flag's 'Persist flag across authentication steps' setting. */
     ensure_experience_continuity: boolean
+    /** What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come from a data warehouse table. */
+    exposure: ExperimentHealthExposureSetupApi | null
 }
 
 export interface ExperimentHealthApi {

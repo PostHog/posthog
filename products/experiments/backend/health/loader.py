@@ -6,13 +6,19 @@ from posthog.models.user import User
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
+    ExperimentHealthExposureSetup,
     ExperimentHealthReaderAccess,
     ExperimentHealthReleaseCondition,
     ExperimentHealthSetup,
 )
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
-from products.experiments.backend.health.context import HealthContext, flag_calls_readable, load_health_context
+from products.experiments.backend.health.context import (
+    ExposureEvents,
+    HealthContext,
+    flag_calls_readable,
+    load_health_context,
+)
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
@@ -25,7 +31,12 @@ from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECK
 from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
-from products.feature_flags.backend.facade.filters import condition_aggregation, condition_rollout_percentage
+from products.feature_flags.backend.facade.edits import parse_variants
+from products.feature_flags.backend.facade.filters import (
+    condition_aggregation,
+    condition_rollout_percentage,
+    pinned_variant,
+)
 
 
 @frozen
@@ -52,8 +63,8 @@ def evaluate_experiment_health(
         # The checks and the setup read the release conditions and the variants of a v1 flag, and none reads a
         # feature flag rule yet.
         return not_checked_health(EXPERIMENT_HEALTH_CHECKS, NOT_ON_FLAG_RULE)
-    health = evaluate(_health_context(experiment, reader_access, user), EXPERIMENT_HEALTH_CHECKS)
-    return replace(health, setup=_health_setup(experiment))
+    ctx = _health_context(experiment, reader_access, user)
+    return replace(evaluate(ctx, EXPERIMENT_HEALTH_CHECKS), setup=_health_setup(experiment, ctx.exposure_events))
 
 
 def load_experiment_health_inputs(
@@ -78,18 +89,19 @@ def load_experiment_health_inputs(
     )
 
 
-def _health_setup(experiment: Experiment) -> ExperimentHealthSetup | None:
+def _health_setup(experiment: Experiment, exposure_events: ExposureEvents | None) -> ExperimentHealthSetup | None:
     # django-stubs types the id as int, but an unsaved instance can carry None.
     feature_flag_id: int | None = experiment.feature_flag_id
     if feature_flag_id is None:
         return None
     flag = experiment.feature_flag
     conditions = flag.conditions if isinstance(flag.conditions, list) else []
+    variant_keys = {variant.key for variant in parse_variants(flag.variants) if variant.key}
     # The sets as stored, not the users they reach: the checks judge what the configuration does.
     # A null column means the model default, which the flag service applies too.
     return ExperimentHealthSetup(
         release_conditions=tuple(
-            _release_condition(condition, flag.aggregation_group_type_index)
+            _release_condition(condition, flag.aggregation_group_type_index, variant_keys)
             for condition in conditions
             if isinstance(condition, dict)
         ),
@@ -99,15 +111,25 @@ def _health_setup(experiment: Experiment) -> ExperimentHealthSetup | None:
         evaluation_runtime=flag.evaluation_runtime or "all",
         evaluation_contexts=tuple(sorted(flag.evaluation_tag_names or ())),
         ensure_experience_continuity=bool(flag.ensure_experience_continuity),
+        exposure=ExperimentHealthExposureSetup(
+            event=exposure_events.custom_event,
+            action=exposure_events.action,
+            activation=exposure_events.activation,
+        )
+        if exposure_events
+        else None,
     )
 
 
-def _release_condition(condition: dict[str, Any], flag_aggregation: int | None) -> ExperimentHealthReleaseCondition:
+def _release_condition(
+    condition: dict[str, Any], flag_aggregation: int | None, variant_keys: set[str]
+) -> ExperimentHealthReleaseCondition:
     properties = condition.get("properties")
     return ExperimentHealthReleaseCondition(
         rollout_percentage=float(condition_rollout_percentage(condition)),
         property_count=len(properties) if isinstance(properties, list) else 0,
         aggregation_group_type_index=condition_aggregation(condition, flag_aggregation),
+        variant=pinned_variant(condition, variant_keys),
     )
 
 

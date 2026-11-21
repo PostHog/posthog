@@ -107,6 +107,20 @@ _WITH_A_SECOND_CONDITION = {
         },
     }
 }
+_WITH_AN_OVERRIDE_CONDITION = {
+    "filters": {
+        "groups": [
+            {"properties": [], "rollout_percentage": 100},
+            {
+                "properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}],
+                "variant": "test",
+            },
+        ],
+        "multivariate": {
+            "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+        },
+    }
+}
 _HEALTH_TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 12, tzinfo=UTC),
     until=datetime(2026, 10, 19, tzinfo=UTC),
@@ -784,6 +798,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [_HEALTH_PAUSED, ("release_conditions_changed_mid_run", "conditions_changed")],
                 (timedelta(days=1), _WITH_A_SECOND_CONDITION),
             ),
+            (
+                "override_set_before_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED],
+                (-timedelta(days=1), _WITH_AN_OVERRIDE_CONDITION),
+            ),
         ]
     )
     def test_health_reports_findings(
@@ -869,17 +890,30 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "rule": None,
             },
         )
-        # The condition set added after launch has no rollout percentage, which the flag service reads as 100.
+        # The added condition set has no rollout percentage, which the flag service reads as 100.
+        added_variant = {"condition_added_after_launch": None, "override_set_before_launch": "test"}
         added_condition = (
-            [{"rollout_percentage": 100.0, "property_count": 1, "aggregation_group_type_index": None}]
-            if _name == "condition_added_after_launch"
+            [
+                {
+                    "rollout_percentage": 100.0,
+                    "property_count": 1,
+                    "aggregation_group_type_index": None,
+                    "variant": added_variant[_name],
+                }
+            ]
+            if _name in added_variant
             else []
         )
         self.assertEqual(
             health["setup"],
             {
                 "release_conditions": [
-                    {"rollout_percentage": 100.0, "property_count": 0, "aggregation_group_type_index": None},
+                    {
+                        "rollout_percentage": 100.0,
+                        "property_count": 0,
+                        "aggregation_group_type_index": None,
+                        "variant": None,
+                    },
                     *added_condition,
                 ],
                 "early_exit": False,
@@ -888,6 +922,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "evaluation_runtime": "all",
                 "evaluation_contexts": ["web-app"],
                 "ensure_experience_continuity": False,
+                "exposure": {"event": None, "action": None, "activation": None},
             },
         )
         if _name == "condition_added_after_launch":

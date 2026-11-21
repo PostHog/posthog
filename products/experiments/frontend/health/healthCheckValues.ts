@@ -261,6 +261,14 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
             'flag_service_call_percentage',
             formatHealthPercentage
         ),
+        reading(
+            'Internal and test users',
+            typeof values?.filters_test_accounts === 'boolean'
+                ? values.filters_test_accounts
+                    ? 'Left out'
+                    : 'Counted'
+                : null
+        ),
     ].filter((line): line is HealthReading => line !== null)
 }
 

@@ -421,6 +421,32 @@ class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
             "it assigns them by user."
         ),
     )
+    variant = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The key of the variant that the condition set serves to every user it matches, its variant override. Null "
+            "when the flag's split picks the variant, or when the override names no variant of the flag, which the "
+            "flag service ignores."
+        ),
+    )
+
+
+class ExperimentHealthExposureSetupSerializer(serializers.Serializer):
+    event = serializers.CharField(
+        allow_null=True,
+        help_text="The event that the exposure criteria count. Null when they count the flag's calls or an action.",
+    )
+    action = serializers.CharField(
+        allow_null=True,
+        help_text="The name of the action that the exposure criteria count. Null when they count an event.",
+    )
+    activation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The event, or the name of the action, that has to follow a user's flag call before the user counts as "
+            "exposed. Null without one."
+        ),
+    )
 
 
 class ExperimentHealthSetupSerializer(serializers.Serializer):
@@ -462,6 +488,13 @@ class ExperimentHealthSetupSerializer(serializers.Serializer):
     )
     ensure_experience_continuity = serializers.BooleanField(
         help_text="The flag's 'Persist flag across authentication steps' setting.",
+    )
+    exposure = ExperimentHealthExposureSetupSerializer(
+        allow_null=True,
+        help_text=(
+            "What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come "
+            "from a data warehouse table."
+        ),
     )
 
 
