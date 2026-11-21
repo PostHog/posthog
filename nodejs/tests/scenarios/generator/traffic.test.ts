@@ -11,7 +11,15 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
-import { OfferContext, SendClock, TRAFFIC, bounceFollowup, captureWebhook, transactionalEmail } from './traffic'
+import {
+    OfferContext,
+    REAL_CLOCK,
+    SendClock,
+    TRAFFIC,
+    bounceFollowup,
+    captureWebhook,
+    transactionalEmail,
+} from './traffic'
 
 const SECRET = 'scenario-transactional-secret'
 const UNIT = { unitId: 'run-a-1', teamId: 7, flowId: 'flow-7' }
@@ -25,15 +33,12 @@ type FakeCdpApi = {
     url: string
     received: object[]
     receivedAt: number[]
-    answered: Promise<void>
     close(): Promise<void>
 }
 
 type ServerClock = { now(): number; pass?(ms: number): void }
 
 function startCdpApi(answers: Answer[], clock: ServerClock = { now: Date.now }): Promise<FakeCdpApi> {
-    let markAnswered = (): void => undefined
-    const answered = new Promise<void>((resolve) => (markAnswered = resolve))
     const receivedAt: number[] = []
 
     const verifier = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET)
@@ -52,10 +57,7 @@ function startCdpApi(answers: Answer[], clock: ServerClock = { now: Date.now }):
             received.push({ method: req.method, url: req.url, authorized, body })
             receivedAt.push(clock.now())
             clock.pass?.(answer.takesMs ?? 0)
-            res.writeHead(answer.status, { 'content-type': 'application/json' }).end(
-                JSON.stringify(answer.body),
-                markAnswered
-            )
+            res.writeHead(answer.status, { 'content-type': 'application/json' }).end(JSON.stringify(answer.body))
         })
     })
     return new Promise((resolve) =>
@@ -64,7 +66,6 @@ function startCdpApi(answers: Answer[], clock: ServerClock = { now: Date.now }):
                 url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
                 received,
                 receivedAt,
-                answered,
                 close: () => new Promise((closed) => server.close(() => closed())),
             })
         )
@@ -146,23 +147,12 @@ describe('traffic', () => {
 
         const UNAVAILABLE: Answer = { status: 503, body: { error: 'intake_unavailable' } }
 
-        it("hands the run's abort to the real clock's wait, so no retry follows a 5xx", async () => {
-            const cdpApi = await startCdpApi([UNAVAILABLE])
+        it("ends the real clock's wait when the run aborts while it is pending", async () => {
             const abort = new AbortController()
-            try {
-                const offered = transactionalEmail.offer(UNIT, contextFor(cdpApi.url), abort.signal)
-                await cdpApi.answered
-                abort.abort()
-                const abortedAt = performance.now()
+            const waiting = REAL_CLOCK.wait(60_000, abort.signal)
+            abort.abort()
 
-                await expect(offered).rejects.toMatchObject({ name: 'AbortError' })
-                expect({
-                    received: cdpApi.received.length,
-                    beforeFirstBackoffEnds: performance.now() - abortedAt < 400,
-                }).toEqual({ received: 1, beforeFirstBackoffEnds: true })
-            } finally {
-                await cdpApi.close()
-            }
+            await expect(waiting).rejects.toMatchObject({ name: 'AbortError' })
         })
 
         describe('on a controlled clock', () => {

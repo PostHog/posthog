@@ -2021,13 +2021,10 @@ describe('runner through seed, drive and judge', () => {
         }
     }, 30_000)
 
-    it('ends the drive window on schedule and leaves a valve due after it unapplied while an intake answer is still pending', async () => {
-        const answeredAt: number[] = []
-        const slowIntake = http.createServer((_request, response) => {
-            setTimeout(() => {
-                answeredAt.push(Date.now())
-                response.writeHead(422).end()
-            }, 3_000)
+    it('ends the drive window with its last step and leaves a valve due after it unapplied while an intake answer is still pending', async () => {
+        let requests = 0
+        const slowIntake = http.createServer(() => {
+            requests += 1
         })
         await new Promise<void>((resolve) => slowIntake.listen(0, '127.0.0.1', resolve))
         try {
@@ -2047,9 +2044,9 @@ describe('runner through seed, drive and judge', () => {
             ])
             expect(exits).toEqual([])
             const { drive } = evidenceOf(result, 'probes.json') as { drive: { startedAt: number; endedAt: number } }
-            expect({ answered: answeredAt.length > 0, endedFirst: drive.endedAt < Math.min(...answeredAt) }).toEqual({
-                answered: true,
-                endedFirst: true,
+            expect({ pending: requests > 0, endedAt: drive.endedAt }).toEqual({
+                pending: true,
+                endedAt: result.units?.steps.at(-1)?.endedAt,
             })
         } finally {
             slowIntake.closeAllConnections()
