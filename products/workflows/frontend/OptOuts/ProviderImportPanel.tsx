@@ -170,8 +170,10 @@ function keyNoun(provider: ImportProviderOptionApi): 'token' | 'API key' {
 }
 
 // Catches a value copied with extra characters before Start sends it to the tool.
-const API_KEY_FORMATS: Record<string, { pattern: RegExp; hint: string }> = {
+// The hint waits for `length` characters, because a shorter value is usually still being typed.
+const API_KEY_FORMATS: Record<string, { pattern: RegExp; length: number; hint: string }> = {
     postmark: {
+        length: 36,
         pattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
         hint: "This doesn't look like a Postmark token, which has 36 characters in five groups, like 1b2c3d4e-0000-0000-0000-123456789abc. Check that you copied the whole token and nothing else.",
     },
@@ -181,8 +183,7 @@ function ApiKeyFormatHint({ provider }: { provider: ImportProviderOptionApi }): 
     const { importForm } = useValues(providerImportLogic)
     const format = API_KEY_FORMATS[provider.key]
     const value = importForm.api_key.trim()
-    // Shorter values are still being typed, and Postmark itself rejects a token that's too short.
-    if (!format || value.length < 36 || format.pattern.test(value)) {
+    if (!format || value.length < format.length || format.pattern.test(value)) {
         return null
     }
     return (

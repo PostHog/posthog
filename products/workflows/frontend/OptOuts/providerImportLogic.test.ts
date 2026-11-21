@@ -194,6 +194,11 @@ describe('providerImportLogic', () => {
 
         logic.actions.toggleImportStep('opt_outs')
         expect(logic.values.cannotStartImportReason).toBeNull()
+
+        logic.actions.setImportFormValue('api_key', '   ')
+        logic.actions.submitImportForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(startBodies).toEqual([])
     })
 
     it('reloads the suppression list behind the window when it closes during an import', async () => {
