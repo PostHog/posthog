@@ -682,6 +682,8 @@ jobs:
                         - 'ee/billing/**'
                         - 'posthog/entitlements/**'
                         - 'posthog/temporal/entitlement_reactions/**'
+                        - 'products/*/backend/entitlement_reactors.py'
+                        - 'posthog/models/team/logs_retention.py'
                         - 'products/billing_alerts/**'
                         - 'posthog/temporal/quota_limiting/**'
                         - 'posthog/temporal/salesforce_enrichment/**'

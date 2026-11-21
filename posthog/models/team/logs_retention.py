@@ -1,5 +1,5 @@
 import math
-from collections.abc import Sequence
+from collections.abc import Sequence, Set
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -122,7 +122,12 @@ def reset_revoked_logs_retention(organization: Organization, revoked_feature_key
     newly ingested logs. The Temporal `retention_entitlements` workflow remains
     available for org-wide manual reconciliation.
     """
-    if LOGS_RETENTION_PAID_FEATURE.value not in revoked_feature_keys:
+    return reset_logs_retention_for_missing_features(organization, revoked_feature_keys)
+
+
+def reset_logs_retention_for_missing_features(organization: Organization, missing_feature_keys: Set[str]) -> int:
+    """Reset Logs and traces retention to the default when the paid retention feature is among the missing keys."""
+    if LOGS_RETENTION_PAID_FEATURE.value not in missing_feature_keys:
         return 0
 
     teams = list(
