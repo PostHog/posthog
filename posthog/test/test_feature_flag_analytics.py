@@ -14,7 +14,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_postgres_queries_context,
 )
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -1345,6 +1345,21 @@ class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):
             get_evaluations_7d_by_team("my_flag", [self.team.id], from_flag_evaluations=True)
 
         assert f"FROM {expected_table}\n" in mock_execute.call_args.args[0]
+
+    def test_queries_each_source_table_for_only_its_own_teams(self):
+        tables = {1: "flag_evaluations", 2: "flag_evaluations_json"}
+        with patch(
+            "products.feature_flags.backend.flag_analytics.sync_execute", side_effect=[[(1, 2)], [(2, 5)]]
+        ) as mock_execute:
+            counts = get_evaluations_7d_by_team("my_flag", [1, 2], from_flag_evaluations=True, tables=tables)
+
+        assert [(call.args[0], call.args[1]["team_ids"]) for call in mock_execute.call_args_list] == [
+            (ANY, (1,)),
+            (ANY, (2,)),
+        ]
+        assert "FROM flag_evaluations\n" in mock_execute.call_args_list[0].args[0]
+        assert "FROM flag_evaluations_json\n" in mock_execute.call_args_list[1].args[0]
+        assert counts == {1: 2, 2: 5}
 
     def test_returns_empty_dict_when_no_team_ids(self):
         assert get_evaluations_7d_by_team("any_flag", [], from_flag_evaluations=False) == {}
