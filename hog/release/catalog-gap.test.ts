@@ -11,7 +11,9 @@ import {
     findCatalogGaps,
     type GapResult,
     outsideCheckout,
+    outsideReleasePaths,
     readAt,
+    releaseBuildInputs,
     releaseCheckoutPatterns,
     UNNAMED_IMPORT,
     untriggeredFiles,
@@ -662,5 +664,51 @@ test('lists compiled files the workflow trigger paths miss', () => {
     expect(untriggeredFiles(compiled, workflow)).toEqual([
         'products/notebooks/README.md',
         'products/notebooks/frontend/widget.ts',
+    ])
+})
+
+test('lists the files the release paths of the approver check miss', () => {
+    const paths = ['hog', ':(glob)products/*/mcp/**', 'pnpm-lock.yaml']
+
+    expect(
+        outsideReleasePaths(
+            [
+                'hog/src/cli.ts',
+                'hogwarts/spell.ts',
+                'products/surveys/mcp/tools.yaml',
+                'products/surveys/backend/api.py',
+                'pnpm-lock.yaml',
+            ],
+            paths
+        )
+    ).toEqual(['hogwarts/spell.ts', 'products/surveys/backend/api.py'])
+})
+
+test('lists the release build inputs the release paths miss', () => {
+    const workflow = [
+        'env:',
+        '    HOG_SOURCE_PATHS: >-',
+        '        hog',
+        '        packages/quill',
+        '        pnpm-lock.yaml',
+        'jobs:',
+        '    build:',
+        '        steps:',
+        '            - uses: actions/checkout@0000000000000000000000000000000000000000',
+        '              with:',
+        '                  sparse-checkout: |',
+        '                      /*',
+        '                      !/*/',
+        '                      /hog/',
+        '                      /products/surveys/mcp/',
+        '                      /bin/fix-rdkafka-paths',
+        '            - uses: ./.github/actions/pnpm-install',
+    ].join('\n')
+    const paths = ['hog', ':(glob)products/*/mcp/**', 'pnpm-lock.yaml', '.github/actions/pnpm-install']
+
+    expect(outsideReleasePaths(releaseBuildInputs(workflow), paths)).toEqual([
+        'bin/fix-rdkafka-paths',
+        'packages/quill',
+        '.github/workflows/release-hog.yml',
     ])
 })

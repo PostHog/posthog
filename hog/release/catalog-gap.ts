@@ -1,6 +1,7 @@
 // Whether the commits since <base> change code compiled into hog that the downloadable tool catalog can't
 // deliver. The compiled files come from the build metafiles. Run with --base <commit>, usually the last release
-// tag; prints the result as JSON.
+// tag; prints the result as JSON. --list-compiled prints only the compiled files, one per line, for the release
+// build, whose sparse checkout has no git history or workflow to compare.
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -18,6 +19,8 @@ export const CATALOG_SCHEMA = 'services/mcp/src/cli/catalog/schema.ts'
 const RELEASE_WORKFLOW = '.github/workflows/release-hog.yml'
 const CHANGESET_WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
 const RELEASE_BUILD_JOB = 'build'
+const GLOB_PATHSPEC = ':(glob)'
+const HOG_SOURCE_PATHS = 'HOG_SOURCE_PATHS'
 const GENERATED_TOOLS_DIR = 'services/mcp/src/tools/generated/'
 const GENERATED_REGISTRY = `${GENERATED_TOOLS_DIR}index.ts`
 // Generated, but code rather than catalog data: the barrel, the hook registry and the query wrappers.
@@ -134,6 +137,7 @@ const Metafile = z.object({
 })
 const TriggerWorkflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
 const Workflow = z.object({
+    env: z.record(z.string(), z.unknown()).optional(),
     jobs: z.record(
         z.string(),
         z.object({
@@ -924,6 +928,45 @@ export function untriggeredFiles(compiled: Set<string>, workflow: string): strin
     )
 }
 
+// The workflow passes HOG_SOURCE_PATHS to the approver check as extra paths, so they must cover everything the
+// release builds from.
+export function hogSourcePaths(workflow: string): string[] {
+    const sources = String(Workflow.parse(parseYaml(workflow)).env?.[HOG_SOURCE_PATHS] ?? '')
+        .split(/\s+/)
+        .filter(Boolean)
+    if (sources.length === 0) {
+        throw new Error(`${RELEASE_WORKFLOW} sets no ${HOG_SOURCE_PATHS} to check.`)
+    }
+    return sources
+}
+
+// The release build's inputs that a path names: what its sparse checkout names without a wildcard, the workflow's
+// HOG_SOURCE_PATHS, the local actions the workflow runs, and the workflow itself.
+export function releaseBuildInputs(workflow: string): string[] {
+    const parsed = Workflow.parse(parseYaml(workflow))
+    const named = releaseCheckoutPatterns(workflow)
+        .filter((pattern) => !pattern.startsWith('!') && !pattern.includes('*'))
+        .map((pattern) => pattern.replace(/^\//, '').replace(/\/$/, ''))
+    const sources = hogSourcePaths(workflow)
+    const actions = Object.values(parsed.jobs)
+        .flatMap((job) => job.steps)
+        .flatMap((step) => (step.uses?.startsWith('./') ? [step.uses.slice(2)] : []))
+    return [...new Set([...named, ...sources, ...actions, RELEASE_WORKFLOW])]
+}
+
+// The paths check-approvers.sh doesn't count, given the git pathspecs it prints with --list-paths: a plain path
+// covers itself and everything under it, and `:(glob)` matches as a glob. A path may name a folder, which a glob
+// covers when it matches what the folder holds.
+export function outsideReleasePaths(files: string[], releasePaths: string[]): string[] {
+    const covers = (path: string, file: string): boolean =>
+        path.startsWith(GLOB_PATHSPEC)
+            ? [file, `${file}/file`].some((candidate) =>
+                  new Bun.Glob(path.slice(GLOB_PATHSPEC.length)).match(candidate)
+              )
+            : file === path || file.startsWith(`${path}/`)
+    return files.filter((file) => !releasePaths.some((path) => covers(path, file)))
+}
+
 export function releaseCheckoutPatterns(workflow: string): string[] {
     const steps = Workflow.parse(parseYaml(workflow)).jobs[RELEASE_BUILD_JOB]?.steps ?? []
     const sparse = steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.with?.['sparse-checkout']
@@ -984,6 +1027,9 @@ if (import.meta.main) {
     const { values } = parseArgs({
         options: {
             base: { type: 'string' },
+            'list-compiled': { type: 'boolean', default: false },
+            // What `check-approvers.sh --list-paths` prints for the checker the release will run.
+            'release-paths': { type: 'string' },
             'hog-metafile': { type: 'string', default: resolve(repoRoot, 'hog/dist/hog.metafile.json') },
             'mcp-metafile': {
                 type: 'string',
@@ -995,7 +1041,7 @@ if (import.meta.main) {
             },
         },
     })
-    if (!values.base) {
+    if (!values.base && !values['list-compiled']) {
         console.error('Pass the commit to compare with, usually the last release tag, with --base.')
         process.exit(1)
     }
@@ -1012,6 +1058,16 @@ if (import.meta.main) {
         process.exit(1)
     }
 
+    if (values['list-compiled'] || !values.base) {
+        process.stdout.write(
+            [...compiled.files]
+                .sort()
+                .map((file) => `${file}\n`)
+                .join('')
+        )
+        process.exit(0)
+    }
+
     const read = readAt(repoRoot)
     const result = findCatalogGaps({
         changed: git(repoRoot, 'diff', '--name-only', `${values.base}...HEAD`).split('\n').filter(Boolean),
@@ -1022,7 +1078,18 @@ if (import.meta.main) {
     })
     const patterns = releaseCheckoutPatterns(readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8'))
     const untriggered = untriggeredFiles(compiled.files, readFileSync(resolve(repoRoot, CHANGESET_WORKFLOW), 'utf8'))
+    const releasePaths = values['release-paths']
+        ? readFileSync(values['release-paths'], 'utf8').split('\n').filter(Boolean)
+        : undefined
+    const releaseWorkflow = readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8')
+    const buildsFrom = [...compiled.files, ...releaseBuildInputs(releaseWorkflow)]
     process.stdout.write(
-        `${JSON.stringify({ ...result, untriggered, outsideReleaseCheckout: outsideCheckout(compiled.files, patterns) })}\n`
+        `${JSON.stringify({
+            ...result,
+            untriggered,
+            outsideReleaseCheckout: outsideCheckout(compiled.files, patterns),
+            outsideSourcePaths: outsideReleasePaths(buildsFrom, hogSourcePaths(releaseWorkflow)),
+            ...(releasePaths && { outsideReleasePaths: outsideReleasePaths(buildsFrom, releasePaths) }),
+        })}\n`
     )
 }
