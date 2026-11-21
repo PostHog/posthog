@@ -80,7 +80,7 @@ function StepItems({ step, onOpenLink }: { step: ImportStepProgressApi; onOpenLi
                     </LemonButton>
                 </li>
             )}
-            {expanded && step.items_omitted > 0 && (
+            {step.items_omitted > 0 && (
                 <li className="py-1.5 text-xs text-secondary">And {step.items_omitted.toLocaleString()} more.</li>
             )}
         </ul>

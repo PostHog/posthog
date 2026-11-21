@@ -415,7 +415,8 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 api_key: '',
             } as ImportFormValues,
             submit: ({ api_key }) => {
-                if (values.startedImportRunLoading || values.selectedImportSteps.length === 0) {
+                // Enter in the key field submits the form even while Start is disabled.
+                if (values.startedImportRunLoading || values.cannotStartImportReason || !api_key.trim()) {
                     return
                 }
                 actions.startImport({ apiKey: api_key.trim() })
@@ -638,8 +639,10 @@ export const providerImportLogic = kea<providerImportLogicType>([
         closeImportModal: () => {
             actions.resetImportForm()
             actions.resetImport()
-            // A step can finish while the window is open, so the page behind it may be out of date.
-            actions.importedDataChanged()
+            // A running import writes as each step finishes, so the page behind the window may be out of date.
+            if (values.trackedImportRunIds.length > 0) {
+                actions.importedDataChanged()
+            }
         },
         importedDataChanged: () => {
             optOutCategoriesLogic.findMounted()?.actions.loadCategories()

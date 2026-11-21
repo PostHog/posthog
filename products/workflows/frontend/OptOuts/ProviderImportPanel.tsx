@@ -66,7 +66,13 @@ function ImportStepPicker({ provider }: { provider: ImportProviderOptionApi }): 
                             {summary}
                             {detail && (
                                 <Tooltip title={detail}>
-                                    <IconInfo className="ml-1 align-text-bottom text-sm text-muted" />
+                                    <span
+                                        tabIndex={0}
+                                        aria-label={detail}
+                                        className="ml-1 inline-flex align-text-bottom"
+                                    >
+                                        <IconInfo className="text-sm text-muted" />
+                                    </span>
                                 </Tooltip>
                             )}
                         </div>
@@ -175,7 +181,8 @@ function ApiKeyFormatHint({ provider }: { provider: ImportProviderOptionApi }): 
     const { importForm } = useValues(providerImportLogic)
     const format = API_KEY_FORMATS[provider.key]
     const value = importForm.api_key.trim()
-    if (!format || !value || format.pattern.test(value)) {
+    // Shorter values are still being typed, and Postmark itself rejects a token that's too short.
+    if (!format || value.length < 36 || format.pattern.test(value)) {
         return null
     }
     return (

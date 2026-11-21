@@ -184,6 +184,10 @@ describe('providerImportLogic', () => {
         expect(logic.values.cannotStartImportReason).toEqual(
             'Contacts needs Suppression list and Unsubscribed contacts selected too'
         )
+        logic.actions.setImportFormValue('api_key', 're_key')
+        logic.actions.submitImportForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(startBodies).toEqual([])
 
         logic.actions.toggleImportStep('suppressions')
         expect(logic.values.unmetStepNeeds).toEqual({ contacts: ['Unsubscribed contacts'] })
@@ -192,7 +196,7 @@ describe('providerImportLogic', () => {
         expect(logic.values.cannotStartImportReason).toBeNull()
     })
 
-    it('reloads the suppression list behind the window when it closes', async () => {
+    it('reloads the suppression list behind the window when it closes during an import', async () => {
         let suppressionLoads = 0
         useMocks({
             get: {
@@ -208,6 +212,11 @@ describe('providerImportLogic', () => {
         }).toDispatchActions(['loadSuppressionsSuccess'])
         expect(suppressionLoads).toBe(1)
 
+        logic.actions.closeImportModal()
+        await expectLogic(suppressions).toFinishAllListeners()
+        expect(suppressionLoads).toBe(1)
+
+        logic.actions.setTrackedImportRunIds(['run-1'])
         await expectLogic(suppressions, () => logic.actions.closeImportModal()).toDispatchActions([
             'loadSuppressionsSuccess',
         ])
