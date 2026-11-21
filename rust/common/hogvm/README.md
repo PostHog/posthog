@@ -14,6 +14,20 @@ program corpus, diffed against committed Node output) and `tests/stl_parity.rs` 
   (destinations): on a registered async function (`fetch`, `sleep`, …) the VM suspends and returns a
   serializable `VmSnapshot`; the host performs the side effect and resumes.
 
+### Driving the VM from a host
+
+A host can step `HogVM` itself instead of calling `sync_execute`, as the logs transformations in
+`logs-ingestion` do to stop a program at a wall-clock deadline:
+
+- `ExecutionContext::with_ordered_globals` takes globals as `OrderedJson`, whose objects keep their
+  key order. `serde_json` sorts object keys, and the reference VM iterates a global object in
+  JavaScript order, so `keys()` and `for (k, v in obj)` differ without it.
+- `ExecutionContext::with_raw_result` keeps the finished value for `HogVM::take_result`, so the host
+  reads it from the heap with its key order, and a value that JSON cannot hold does not fail the run.
+- `HogVM::push_stack` answers a `StepOutcome::NativeCall` that the host handles itself.
+- `HogVM::memory_bytes` is the heap plus the operand stack. Strings on the stack are outside the
+  heap limit, so a host that must bound memory checks this after each native call.
+
 ## Node interop status (`VmSnapshot` / `VMState`)
 
 The snapshot JSON is designed to be byte-compatible with the reference VM's `VMState` so a snapshot

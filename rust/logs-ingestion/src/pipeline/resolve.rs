@@ -12,6 +12,7 @@ use crate::pattern::{stamp_pattern_batch, MESSAGE_KEYS};
 use crate::pii::PiiScrubStats;
 use crate::retention::{can_hold_expired_row, make_retention_expired_stage, make_retention_stage};
 use crate::sampling::SAMPLING_STAGE_NAME;
+use crate::transformations::TransformationBatchBudget;
 
 use super::buffer::{process_log_message_buffer, BufferValue, RecordsVisitor};
 use super::context::{applies_team_log_rules, team_id_matches_csv, AppSource, LogsPipelineContext};
@@ -60,6 +61,7 @@ pub fn is_pattern_masking_enabled_for_team(context: &LogsPipelineContext, team_i
 struct TransformStage {
     transformer: Arc<dyn LogsTransformer>,
     team_id: i64,
+    batch_budget: Option<Arc<TransformationBatchBudget>>,
 }
 
 #[async_trait]
@@ -74,7 +76,7 @@ impl FilterStage for TransformStage {
         _batch: &BatchContext,
     ) -> anyhow::Result<FilterResult> {
         self.transformer
-            .transform_records(self.team_id, &mut records)
+            .transform_records(self.team_id, &mut records, self.batch_budget.clone())
             .await?;
         Ok(FilterResult {
             kept: records,
@@ -105,6 +107,7 @@ impl MutateStage for PatternMaskingStage {
 async fn build_transform_stage(
     context: &LogsPipelineContext,
     message: &LogsIngestionMessage,
+    batch_budget: Option<Arc<TransformationBatchBudget>>,
 ) -> anyhow::Result<Option<PipelineStage>> {
     let Some(transformer) = context.deps.logs_transformer.clone() else {
         return Ok(None);
@@ -123,6 +126,7 @@ async fn build_transform_stage(
     Ok(Some(PipelineStage::Filter(Box::new(TransformStage {
         transformer,
         team_id: message.team_id,
+        batch_budget,
     }))))
 }
 
@@ -132,6 +136,7 @@ pub async fn resolve_log_buffer(
     settings: &LogsSettings,
     default_retention_days: f64,
     visitor: Option<RecordsVisitor<'_>>,
+    batch_budget: Option<Arc<TransformationBatchBudget>>,
 ) -> anyhow::Result<ResolvedLogBuffer> {
     let deps = &context.deps;
     let team_id = message.team_id;
@@ -143,7 +148,7 @@ pub async fn resolve_log_buffer(
         }
     }
     let use_sampling = rule_set.as_ref().is_some_and(|r| !r.rules.is_empty());
-    let transform_stage = build_transform_stage(context, message).await?;
+    let transform_stage = build_transform_stage(context, message, batch_budget).await?;
 
     let mut retention_rules = None;
     if let Some(cache) = &deps.retention_rules {
