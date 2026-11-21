@@ -41,7 +41,16 @@ For a session list, first copy the file into the pod with `kubectl cp`.
 
 ### 1. Pin down the selection
 
-You need the team ID, the region (US or EU), the date range (UTC days, inclusive) or a file of session IDs, and the bucket's AWS region.
+You need the team ID, the region (US or EU), the date range (UTC days, inclusive) and the bucket's AWS region.
+To export only some sessions in the range, you also need one of:
+
+- a saved recordings filter (`--playlist <short id>`), for a selection like "sessions that visited this URL" or "sessions from this country". Have the customer, or the person, build the filter in the recordings list and save it, so the customer sees exactly what they get. The short ID is in the filter's URL (`savedFilterId=`). The filter's own date range is ignored: the quote's range applies.
+- a file of session IDs (`--session-ids-file`).
+
+Filters on event properties, such as country, scan events over the whole range and can take minutes on a large team.
+The quote saves the list of sessions it priced, and the run exports exactly that list. Sessions that arrive after the quote are not exported.
+Each day is split into `--shards-per-day` shards (default 16), and a shard holds at most 100,000 sessions. When the quote names a shard that goes over, quote again with a higher `--shards-per-day`.
+A session ID file or saved filter can select at most 1,000,000 sessions per quote. Split a larger selection by date range.
 A session belongs to the day it started on.
 The range must end before today (UTC). The command refuses a range that includes today.
 Recordings past their retention are gone and cannot be exported.
@@ -50,7 +59,7 @@ Recordings past their retention are gone and cannot be exported.
 
 ```sh
 python manage.py export_recordings_to_s3 --quote --team-id <id> --region <bucket region> \
-    --date-from <yyyy-mm-dd> --date-to <yyyy-mm-dd> [--session-ids-file ids.txt]
+    --date-from <yyyy-mm-dd> --date-to <yyyy-mm-dd> [--playlist <short id> | --session-ids-file ids.txt]
 ```
 
 Report the quote ID, the session count, our cost, the estimated duration, the best-effort session count and the valid-until time.
@@ -92,7 +101,7 @@ A failure on credentials or a missing integration is permanent: the customer mus
 Other shard failures retry on their own and resume from their last checkpoint.
 
 A shard that still fails after its retries does not stop the run. The run writes its summary and then ends as failed, with the failed shards in the error and in `summary.json` under `failed_shards`.
-Ask the person before you rerun them. Then start the same quote again with `--shards <the failed list>` and the same `--shards-per-day`.
+Ask the person before you rerun them. Then start the same quote again with `--shards <the failed list>`.
 The command refuses `--shards` unless the quote's last run failed, so a first start always covers the whole selection.
 A quote can start again only after a failed run, so a second start of a running or finished export is refused.
 

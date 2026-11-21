@@ -8,14 +8,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 from posthog.storage import object_storage
@@ -33,17 +34,29 @@ from products.replay.backend.temporal.export_recordings.activities import (
     fetch_blocks_in_order,
     list_shard_sessions,
     load_session_metadata,
+    load_shard_session_ids,
     policy_statements,
     quote_storage_key,
     write_summary,
 )
-from products.replay.backend.temporal.export_recordings.quote import create_quote, current_cost, measure_usage
+from products.replay.backend.temporal.export_recordings.quote import (
+    Quote,
+    SelectionError,
+    create_quote,
+    playlist_session_ids,
+    select_sessions,
+)
 from products.replay.backend.temporal.export_recordings.types import (
     ExportDestination,
     ExportShardInput,
     ExportTotals,
     WriteSummaryInput,
 )
+
+
+def _list(input: ExportShardInput) -> list[SessionRow]:
+    return list_shard_sessions(input, load_shard_session_ids(input))
+
 
 ACTIVITIES = "products.replay.backend.temporal.export_recordings.activities"
 EXPECTED_BLOCKS = b"\x00\x00\x00\x0abb:100-149" + b"\x00\x00\x00\x06aa:0-9"
@@ -119,6 +132,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         self.destination = ExportDestination(integration_id=1, bucket="customer", region="us-east-1", prefix="exports")
         self.s3 = FakeS3()
+        self.quote = self._quote(None)
         self.file_key = f"customer/exports/{self.team.pk}/run-1/{self.day.date().isoformat()}/s1.phrec"
 
     def _run(
@@ -156,16 +170,14 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         ):
             return async_to_sync(self._run_activity)(env, self._shard_input())
 
-    def _shard_input(self, day: datetime | None = None, session_ids_key: str | None = None) -> ExportShardInput:
+    def _shard_input(self, day: datetime | None = None, quote: Quote | None = None, shard: int = 0) -> ExportShardInput:
         return ExportShardInput(
             team_id=self.team.pk,
             destination=self.destination,
             run_id="run-1",
             day=(day or self.day).date().isoformat(),
-            shard=0,
-            shards_per_day=1,
-            session_ids_key=session_ids_key,
-            quoted_at=(datetime.now(UTC) - timedelta(days=1)).isoformat(),
+            shard=shard,
+            session_ids_prefix=(quote or self.quote).session_ids_prefix,
         )
 
     async def _run_activity(self, env: ActivityEnvironment, input: ExportShardInput) -> ExportTotals:
@@ -207,14 +219,102 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
         assert parts == [f"{day}-0000-0000.jsonl", f"{day}-0000-0001.jsonl"]
         assert [(m["session_id"], m["status"]) for m in self._manifest()] == [("s1", "exported"), ("s2", "deleted")]
 
-    def test_session_list_limits_the_listing(self) -> None:
-        key = f"session_recording_exports/session_ids/test-{self.team.pk}.txt"
-        object_storage.write(key, "s2\nnot-in-this-team")
-        activities.load_session_ids.cache_clear()
+    def _quote(self, session_ids: list[str] | None, shards_per_day: int = 1) -> Quote:
+        return create_quote(
+            team_id=self.team.pk,
+            date_from=self.day.date().isoformat(),
+            date_to=(self.day + timedelta(days=1)).date().isoformat(),
+            session_ids=session_ids,
+            region="us-east-1",
+            cross_region=False,
+            shards_per_day=shards_per_day,
+            max_parallel_shards=1,
+            selection="test",
+        )
 
-        listed = [s.session_id for s in list_shard_sessions(self._shard_input(session_ids_key=key))]
+    def _listed_by_day(self, quote: Quote) -> list[list[str]]:
+        return [
+            [s.session_id for s in _list(self._shard_input(day, quote))]
+            for day in (self.day, self.day + timedelta(days=1))
+        ]
 
-        assert listed == ["s2"]
+    def test_session_list_is_split_by_start_day_and_limits_each_shard(self) -> None:
+        quote = self._quote(["s4", "s2", "not-in-this-team"])
+
+        assert self._listed_by_day(quote) == [["s2"], ["s4"]]
+        assert quote.usage.sessions == 2
+
+    def test_each_quoted_session_is_in_exactly_one_shard(self) -> None:
+        quote = self._quote(None, shards_per_day=4)
+
+        listed = [s.session_id for shard in range(4) for s in _list(self._shard_input(quote=quote, shard=shard))]
+
+        assert sorted(listed) == ["s1", "s2"]
+
+    def test_a_lost_shard_list_fails_the_shard_without_retrying(self) -> None:
+        with pytest.raises(ApplicationError) as error:
+            load_shard_session_ids(self._shard_input(quote=dataclasses.replace(self.quote, session_ids_prefix="gone")))
+
+        assert error.value.non_retryable
+
+    def test_saved_filter_selects_its_matches_in_the_quote_range(self) -> None:
+        for session_id, start in (
+            ("s5", self.day + timedelta(hours=3)),
+            ("s7", self.day + timedelta(hours=4)),
+            ("s6", self.day + timedelta(days=1)),
+        ):
+            produce_replay_summary(
+                team_id=self.team.pk,
+                session_id=session_id,
+                distinct_id=f"d-{session_id}",
+                first_timestamp=start,
+                last_timestamp=start + timedelta(seconds=30),
+                all_urls=["https://example.com/checkout"],
+                block_urls=["s3://replay-bucket/session_recordings/30d/1-00000000000000ab?range=bytes=0-9"],
+                block_first_timestamps=[start],
+                block_last_timestamps=[start + timedelta(seconds=30)],
+                ensure_analytics_event_in_session=False,
+            )
+        # The filter's own range ends before the quote's sessions, so it must not apply.
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            type=SessionRecordingPlaylist.PlaylistType.FILTERS,
+            filters={
+                "date_from": "-1h",
+                "filter_group": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "recording",
+                                    "key": "visited_page",
+                                    "value": "/checkout",
+                                    "operator": "icontains",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        )
+        with patch("products.replay.backend.temporal.export_recordings.quote.PLAYLIST_PAGE_SIZE", 1):
+            session_ids = playlist_session_ids(
+                self.team,
+                playlist.short_id,
+                self.day.date().isoformat(),
+                (self.day + timedelta(days=1)).date().isoformat(),
+            )
+
+        quote = self._quote(session_ids)
+
+        assert self._listed_by_day(quote) == [["s5", "s7"], ["s6"]]
+        with (
+            patch("products.replay.backend.temporal.export_recordings.quote.MAX_LISTED_SESSIONS", 1),
+            pytest.raises(SelectionError),
+        ):
+            playlist_session_ids(self.team, playlist.short_id, quote.date_from, quote.date_to)
 
     @parameterized.expand([("complete_run", True, 0), ("run_with_skipped_shards", False, None)])
     def test_summary_keeps_our_cost_out_of_the_customer_bucket(
@@ -324,13 +424,17 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
                 ensure_analytics_event_in_session=False,
             )
 
+        quote = self._quote(None)
+
         def listed(day: datetime) -> dict[str, int]:
-            return {s.session_id: len(s.blocks or []) for s in list_shard_sessions(self._shard_input(day))}
+            return {s.session_id: len(s.blocks or []) for s in _list(self._shard_input(day, quote))}
 
         assert listed(self.day)["s5"] == 2
         assert "s5" not in listed(midnight)
         next_day = midnight.date().isoformat()
-        assert measure_usage(self.team.pk, next_day, next_day, None, datetime.now(UTC)).sessions == 1
+        assert (
+            select_sessions(self.team.pk, next_day, next_day, None, 1, datetime.now(UTC), lambda *_: None).sessions == 1
+        )
 
     def test_viewport_batches_that_hit_the_row_limit_are_split(self) -> None:
         _create_event(
@@ -341,7 +445,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$viewport_width": 800, "$viewport_height": 600},
         )
         flush_persons_and_events()
-        sessions = [s for s in list_shard_sessions(self._shard_input()) if s.session_id in ("s1", "s2")]
+        sessions = [s for s in _list(self._shard_input()) if s.session_id in ("s1", "s2")]
 
         with patch.object(activities, "VIEWPORT_ROW_LIMIT", 1):
             viewports, _ = load_session_metadata(self.team.pk, sessions)
@@ -351,7 +455,7 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
     def test_quote_usage_counts_stored_bytes_and_glacier_blocks(self) -> None:
         day = self.day.date().isoformat()
 
-        usage = measure_usage(self.team.pk, day, day, None, datetime.now(UTC))
+        usage = select_sessions(self.team.pk, day, day, None, 1, datetime.now(UTC), lambda *_: None)
 
         # s1 and s2 count. s3 is deleted and s4 started the next day. Only the 90d block is in Glacier IR.
         assert (usage.sessions, usage.blocks, usage.bytes, usage.glacier_blocks, usage.glacier_bytes) == (
@@ -362,62 +466,32 @@ class TestExportRecordings(ClickhouseTestMixin, APIBaseTest):
             50,
         )
 
-    def test_an_unchanged_quote_keeps_its_price_as_days_pass(self) -> None:
-        day = self.day.date().isoformat()
-        # A 90d block at 20.5 days old, outside the quote's Glacier IR horizon today but inside it a day later.
-        file_ms = int((datetime.now(UTC) - timedelta(days=20, hours=12)).timestamp() * 1000)
+    def test_the_run_lists_the_quoted_sessions_still_present(self) -> None:
+        # s1 is deleted and s6 arrives after the quote.
         produce_replay_summary(
             team_id=self.team.pk,
-            session_id="s7",
-            distinct_id="d-s7",
-            first_timestamp=self.day + timedelta(hours=2),
-            last_timestamp=self.day + timedelta(hours=2, seconds=30),
-            block_urls=[
-                f"s3://replay-bucket/session_recordings/90d/{file_ms}-00000000000000aa?range=bytes=0-999999999"
-            ],
-            block_first_timestamps=[self.day + timedelta(hours=2)],
-            block_last_timestamps=[self.day + timedelta(hours=2, seconds=30)],
+            session_id="s1",
+            first_timestamp=self.day,
+            last_timestamp=self.day + timedelta(seconds=30),
+            is_deleted=True,
             ensure_analytics_event_in_session=False,
         )
-        quote = create_quote(
-            team_id=self.team.pk,
-            date_from=day,
-            date_to=day,
-            session_ids=None,
-            region="us-east-1",
-            cross_region=False,
-            max_parallel_shards=1,
-        )
-
-        with time_machine.travel(datetime.now(UTC) + timedelta(days=1), tick=False):
-            assert current_cost(quote) == quote.cost
-
-    def test_a_session_ingested_after_the_quote_raises_the_current_cost(self) -> None:
-        day = self.day.date().isoformat()
-        quote = create_quote(
-            team_id=self.team.pk,
-            date_from=day,
-            date_to=day,
-            session_ids=None,
-            region="us-east-1",
-            cross_region=True,
-            max_parallel_shards=1,
-        )
-        assert current_cost(quote).total_usd == quote.cost.total_usd
-
         produce_replay_summary(
             team_id=self.team.pk,
             session_id="s6",
             distinct_id="d-s6",
             first_timestamp=self.day + timedelta(hours=1),
             last_timestamp=self.day + timedelta(hours=1, seconds=30),
-            block_urls=["s3://replay-bucket/session_recordings/30d/1-00000000000000ff?range=bytes=0-999999999"],
+            block_urls=["s3://replay-bucket/session_recordings/30d/1-00000000000000ff?range=bytes=0-9"],
             block_first_timestamps=[self.day + timedelta(hours=1)],
             block_last_timestamps=[self.day + timedelta(hours=1, seconds=30)],
             ensure_analytics_event_in_session=False,
         )
 
-        assert current_cost(quote).total_usd > quote.cost.total_usd
+        assert [s.session_id for s in _list(self._shard_input())] == ["s2"]
+        # A page whose sessions were all deleted does not end the shard.
+        with patch.object(activities, "SESSIONS_PER_CHECKPOINT", 1):
+            assert [s.session_id for s in _list(self._shard_input())] == ["s2"]
 
 
 ROLE_ARN = "arn:aws:iam::123456789012:role/replay-export"
@@ -484,9 +558,7 @@ async def test_a_session_that_expires_while_the_shard_runs_is_not_exported() -> 
         run_id="run-1",
         day="2026-01-01",
         shard=0,
-        shards_per_day=1,
-        session_ids_key=None,
-        quoted_at=(now - timedelta(days=2)).isoformat(),
+        session_ids_prefix="unused",
     )
 
     line = await export_session(MagicMock(), MagicMock(), ByteBudget(1), input, session, [], None)
