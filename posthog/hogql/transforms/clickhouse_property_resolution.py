@@ -36,9 +36,12 @@ from posthog.hogql.constants import (
     is_virtual_feature_flag_key,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_PROPERTY_COLUMNS, FlagEvaluationsTable
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField, Table
-from posthog.hogql.database.schema.flag_evaluations import reads_flag_evaluations_json_table
+from posthog.hogql.database.schema.flag_evaluations import (
+    FLAG_EVALUATIONS_PROPERTY_COLUMNS,
+    FlagEvaluationsTable,
+    reads_flag_evaluations_json_table,
+)
 from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
