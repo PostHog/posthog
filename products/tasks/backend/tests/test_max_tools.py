@@ -498,11 +498,11 @@ class TestGetTaskRunToolMessageFields(BaseTaskToolTest):
 
 
 class TestGetTaskRunLogsTool(BaseTaskToolTest):
-    @patch("products.tasks.backend.max_tools.object_storage")
+    @patch("posthog.storage.object_storage.get_presigned_url")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_get_logs_success(self, mock_storage):
-        mock_storage.get_presigned_url.return_value = "https://s3.example.com/logs/test.jsonl?signed=true"
+    async def test_get_logs_success(self, mock_presigned):
+        mock_presigned.return_value = "https://s3.example.com/logs/test.jsonl?signed=true"
 
         task = await self._create_task()
         await self._create_task_run(task, status=TaskRun.Status.IN_PROGRESS)
@@ -515,11 +515,11 @@ class TestGetTaskRunLogsTool(BaseTaskToolTest):
         assert "https://s3.example.com" in artifact["log_url"]
         assert artifact["expires_in"] == 3600
 
-    @patch("products.tasks.backend.max_tools.object_storage")
+    @patch("posthog.storage.object_storage.get_presigned_url")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_get_logs_presign_failed(self, mock_storage):
-        mock_storage.get_presigned_url.return_value = None
+    async def test_get_logs_presign_failed(self, mock_presigned):
+        mock_presigned.return_value = None
 
         task = await self._create_task()
         await self._create_task_run(task, status=TaskRun.Status.IN_PROGRESS)
@@ -566,11 +566,11 @@ class TestGetTaskRunLogsTool(BaseTaskToolTest):
         assert "not found" in content
         assert artifact["error"] == "run_not_found"
 
-    @patch("products.tasks.backend.max_tools.object_storage")
+    @patch("posthog.storage.object_storage.get_presigned_url")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_get_logs_specific_run(self, mock_storage):
-        mock_storage.get_presigned_url.return_value = "https://s3.example.com/logs/specific.jsonl"
+    async def test_get_logs_specific_run(self, mock_presigned):
+        mock_presigned.return_value = "https://s3.example.com/logs/specific.jsonl"
 
         task = await self._create_task()
         run1 = await self._create_task_run(task, status=TaskRun.Status.COMPLETED)
@@ -1146,8 +1146,8 @@ class TestTaskRunAnalyticsAccess(BaseTaskToolTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    @patch("products.tasks.backend.max_tools.object_storage")
-    async def test_protected_runs_require_the_viewers_analytics_access(self, storage):
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    async def test_protected_runs_require_the_viewers_analytics_access(self, presign):
         task = await self._create_task()
         run = await self._create_task_run(task, output="Protected findings", error_message="Protected error")
         query = {
@@ -1175,11 +1175,11 @@ class TestTaskRunAnalyticsAccess(BaseTaskToolTest):
         restriction = await restrict()
         _, denied = await self._create_tool(self.tool_class)._arun_impl(task_id=str(task.id))
         assert denied == {"error": "permission_denied"}
-        storage.get_presigned_url.assert_not_called()
+        presign.assert_not_called()
         await sync_to_async(restriction.delete)()
         _, allowed = await self._create_tool(self.tool_class)._arun_impl(task_id=str(task.id))
         assert "error" not in allowed
         if self.tool_class == GetTaskRunLogsTool:
             assert allowed["logs_api_url"].endswith(f"/runs/{run.id}/logs/")
             assert "log_url" not in allowed
-            storage.get_presigned_url.assert_not_called()
+            presign.assert_not_called()

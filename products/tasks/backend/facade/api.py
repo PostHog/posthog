@@ -256,6 +256,7 @@ from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
     read_run_log_size,
+    run_log_download_url,
 )
 from products.tasks.backend.task_done import (
     TaskDoneError as TaskDoneError,
@@ -731,8 +732,6 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
 
 def _task_run_log_url(run: TaskRun, *, has_analytics_context: bool) -> str | None:
     """Presigned S3 URL for a run's log, cached. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
     from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
 
     # Protected traces must go through the permission-checked logs endpoint.
@@ -743,7 +742,7 @@ def _task_run_log_url(run: TaskRun, *, has_analytics_context: bool) -> str | Non
     if cached_url:
         return cached_url
 
-    presigned_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
+    presigned_url = run_log_download_url(run.log, expiration_seconds=3600)
     if presigned_url:
         get_tasks_cache().set(cache_key, presigned_url, timeout=_TASK_RUN_LOG_URL_CACHE_TTL)
     return presigned_url
@@ -11213,8 +11212,6 @@ def _admin_change_url(instance: Model, *, build_url) -> str:
 def _slack_repo_research_dto(
     team_id: int, state: dict, repo_research_runs_by_id: dict, *, build_task_view_url
 ) -> contracts.SlackThreadContextRepoResearchDTO | None:
-    from posthog.storage import object_storage  # noqa: PLC0415
-
     research_task_id = state.get("repo_research_task_id")
     research_run_id = state.get("repo_research_run_id")
     if not research_task_id or not research_run_id:
@@ -11227,7 +11224,7 @@ def _slack_repo_research_dto(
         sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
         run_status = research_run.status
         try:
-            log_url = object_storage.get_presigned_url(research_run.log_url, expiration=3600)
+            log_url = run_log_download_url(research_run.log, expiration_seconds=3600)
         except Exception:
             logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
             log_url = None
@@ -11260,8 +11257,6 @@ def resolve_slack_thread_context(
     (``request.build_absolute_uri``) so the facade stays request-agnostic. The mapping is filtered
     through the backing task's visibility after the caller enforces the internal-debug gate.
     """
-    from posthog.storage import object_storage  # noqa: PLC0415
-
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
@@ -11312,7 +11307,7 @@ def resolve_slack_thread_context(
         task_processing_workflow_id = run.workflow_id
         mention_workflow_id = state.get("slack_mention_workflow_id")
         try:
-            presigned_log_url = object_storage.get_presigned_url(run.log_url, expiration=3600)
+            presigned_log_url = run_log_download_url(run.log, expiration_seconds=3600)
         except Exception:
             logger.exception("slack_thread_context_log_presign_failed", extra={"run_id": str(run.id)})
             presigned_log_url = None
