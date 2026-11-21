@@ -180,6 +180,8 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                             chunk=chunk,
                             send_events=plan.send_events,
                             created_by_id=plan.created_by_id,
+                            provider=plan.provider,
+                            step=plan.step,
                         ),
                         start_to_close_timeout=CHUNK_TIMEOUT,
                         heartbeat_timeout=CHUNK_HEARTBEAT_TIMEOUT,

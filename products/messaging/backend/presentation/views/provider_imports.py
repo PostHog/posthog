@@ -281,13 +281,6 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         report_user_action(
             request.user,
-            "messaging provider import started",
-            {"provider": run.provider, "steps": [step.key for step in run.steps]},
-            team=self.team,
-            request=request,
-        )
-        report_user_action(
-            request.user,
             "workflows import run",
             {"source": run.provider, "stage": "started", "steps": [step.key for step in run.steps], "dry_run": False},
             team=self.team,
