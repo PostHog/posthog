@@ -7,7 +7,14 @@ import math
 import logging
 import builtins
 import functools
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+    Set as AbstractSet,
+)
 from contextlib import nullcontext
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -97,7 +104,7 @@ from posthog.rate_limit import (
     ProjectSecretApiKeyTeamRateThrottle,
 )
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
-from posthog.utils import is_valid_regex, str_to_bool
+from posthog.utils import is_valid_regex, safe_int, str_to_bool
 from posthog.views import format_bytes
 
 from products.access_control.backend.facade.api import (
@@ -136,7 +143,11 @@ from products.feature_flags.backend.api.filters_schema import (
     FinitePercentageField,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
-from products.feature_flags.backend.dependency_formats import DependencyConfigFormatError, validate_dependency_formats
+from products.feature_flags.backend.dependency_formats import (
+    DependencyConfigFormatError,
+    dependency_ids as flag_dependency_ids,
+    validate_dependency_formats,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     apply_approved_encrypted_payloads,
@@ -176,6 +187,7 @@ from products.feature_flags.backend.flag_status import (
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
+    jsonb_array_or_empty,
 )
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
@@ -207,6 +219,8 @@ from products.surveys.backend.models import Survey
 
 if TYPE_CHECKING:
     from pydantic import JsonValue
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = logging.getLogger(__name__)
 # Dedicated logger name (not `__name__`) so the underlying stdlib logger is created
@@ -600,6 +614,10 @@ def flag_version_conflict_message(sent_version: int, current_version: int) -> st
     )
 
 
+# Legacy rows can hold a non-array `groups` or `properties`. jsonb_array_elements raises on those values.
+_GROUP_PROPERTIES = jsonb_array_or_empty("grp->'properties'")
+
+
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
     """Find all active flags that depend on the given flag via flag-type filter properties."""
     return list(
@@ -608,10 +626,10 @@ def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         .exclude(id=flag_to_check.id)
         .extra(
             where=[
-                """
+                f"""
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
-                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
+                        SELECT 1 FROM jsonb_array_elements({jsonb_array_or_empty("filters->'groups'")}) AS grp
+                        CROSS JOIN jsonb_array_elements({_GROUP_PROPERTIES}) AS prop
                         WHERE prop->>'type' = 'flag'
                         AND prop->>'key' = %s
                     )
@@ -632,13 +650,47 @@ def raise_if_flag_has_dependents(flag: FeatureFlag, action: str = "disable") -> 
     dependent_flags = find_dependent_flags(flag)
     if not dependent_flags:
         return
-    names = ", ".join(f"{f.key} (ID: {f.id})" for f in dependent_flags[:5])
-    if len(dependent_flags) > 5:
-        names += f", and {len(dependent_flags) - 5} more"
     raise exceptions.ValidationError(
-        f"Cannot {action} this feature flag because other flags depend on it: {names}. "
+        f"Cannot {action} this feature flag because other flags depend on it: {_describe_flags(dependent_flags)}. "
         "Please update or disable the dependent flags first."
     )
+
+
+def _describe_flags(flags: list[FeatureFlag]) -> str:
+    names = ", ".join(f"{f.key} (ID: {f.id})" for f in flags[:5])
+    if len(flags) > 5:
+        names += f", and {len(flags) - 5} more"
+    return names
+
+
+DEPENDENCY_RUNTIME_MISMATCH = "dependency_runtime_mismatch"
+
+_RUNTIME_DESCRIPTIONS = {
+    "client": "client-side only",
+    "server": "server-side only",
+    "all": "on both client and server",
+}
+
+
+def _runtime(flag_runtime: str | None) -> str:
+    return flag_runtime or "all"
+
+
+def _describe_runtime(flag_runtime: str | None) -> str:
+    runtime = _runtime(flag_runtime)
+    return _RUNTIME_DESCRIPTIONS.get(runtime, runtime)
+
+
+def _runtime_supports_dependency(dependent_runtime: str | None, dependency_runtime: str | None) -> bool:
+    # The flags service drops a flag outside the request's runtime and evaluates a dependency on it
+    # as false. The dependency must therefore evaluate everywhere the dependent does.
+    dependency = _runtime(dependency_runtime)
+    return dependency == "all" or dependency == _runtime(dependent_runtime)
+
+
+def _missing_dependency_error(flag_id: int) -> serializers.ValidationError:
+    # A flag the caller cannot read raises this error too, so both cases must produce the same message.
+    return serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
 
 
 def find_dependent_flags_batch(
@@ -668,8 +720,8 @@ def find_dependent_flags_batch(
             where=[
                 f"""
                     EXISTS (
-                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS grp
-                        CROSS JOIN jsonb_array_elements(grp->'properties') AS prop
+                        SELECT 1 FROM jsonb_array_elements({jsonb_array_or_empty("filters->'groups'")}) AS grp
+                        CROSS JOIN jsonb_array_elements({_GROUP_PROPERTIES}) AS prop
                         WHERE prop->>'type' = 'flag'
                         AND ({or_conditions})
                     )
@@ -685,14 +737,20 @@ def find_dependent_flags_batch(
     flag_id_strs = {str(fid) for fid in flag_ids}
 
     for dep_flag in dependent_flags:
-        groups = dep_flag.filters.get("groups", [])
-        for group in groups:
-            properties = group.get("properties", [])
-            for prop in properties:
-                if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
-                    dep_flag_id = int(prop["key"])
-                    if dep_flag_id in result and dep_flag not in result[dep_flag_id]:
-                        result[dep_flag_id].append(dep_flag)
+        try:
+            conditions = dep_flag.conditions
+        except ConfigFormatError:
+            # The SQL candidate query matched this row on a flag reference, so keep it as a dependent of
+            # every flag it names: deleting one of them would break a dependency we cannot read.
+            for flag_id in set(flag_dependency_ids(dep_flag.filters or {})) & result.keys():
+                result[flag_id].append(dep_flag)
+            continue
+        for located in _iter_flag_filter_properties(conditions):
+            prop = located.prop
+            if prop.get("type") == "flag" and prop.get("key") in flag_id_strs:
+                dep_flag_id = int(prop["key"])
+                if dep_flag_id in result and dep_flag not in result[dep_flag_id]:
+                    result[dep_flag_id].append(dep_flag)
 
     return result
 
@@ -1846,6 +1904,7 @@ class FeatureFlagSerializer(
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
         self._validate_reactivated_references(attrs)
+        self._validate_dependency_runtimes(attrs)
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -1878,6 +1937,113 @@ class FeatureFlagSerializer(
         self._validate_tags_requirement(attrs, team, creation_context)
 
         return attrs
+
+    def _validate_dependency_runtimes(self, attrs: dict) -> None:
+        # The check reads only the dependencies this write adds, or all of them when the write changes the runtime.
+        # An edit to a flag that already holds a mismatched dependency therefore still saves.
+        if self._v2_write:
+            return
+        stored_runtime = self.instance.evaluation_runtime if self.instance is not None else None
+        runtime = attrs.get("evaluation_runtime", stored_runtime)
+        runtime_changed = self.instance is not None and _runtime(runtime) != _runtime(stored_runtime)
+
+        if self.instance is not None and runtime_changed:
+            # A dependent the caller cannot read is ignored, so the write reveals neither its runtime nor its existence.
+            dependents = find_dependent_flags(self.instance)
+            readable_ids = set(
+                self._readable_flags(
+                    FeatureFlag.objects.filter(
+                        id__in=[d.id for d in dependents], team__project_id=self.context["project_id"]
+                    )
+                ).values_list("id", flat=True)
+            )
+            broken_dependents = [
+                dependent
+                for dependent in dependents
+                if dependent.id in readable_ids
+                and not _runtime_supports_dependency(dependent.evaluation_runtime, runtime)
+            ]
+            if broken_dependents:
+                raise serializers.ValidationError(
+                    {
+                        "evaluation_runtime": ErrorDetail(
+                            f"Cannot make this flag evaluate {_describe_runtime(runtime)} because "
+                            f"{len(broken_dependents)} flag(s) that evaluate elsewhere depend on it. Remove the "
+                            f"dependency from those flags, or set this flag to evaluate {_RUNTIME_DESCRIPTIONS['all']}.",
+                            code=DEPENDENCY_RUNTIME_MISMATCH,
+                        )
+                    }
+                )
+
+        stored_filters = (self.instance.filters if self.instance is not None else None) or {}
+        stored_dependency_ids = set(flag_dependency_ids(stored_filters))
+        checked_ids = set(flag_dependency_ids(attrs.get("get_filters", stored_filters) or {}))
+        if not runtime_changed:
+            checked_ids -= stored_dependency_ids
+        if not checked_ids:
+            return
+
+        readable = list(
+            self._readable_flags(
+                FeatureFlag.objects.filter(id__in=checked_ids, team__project_id=self.context["project_id"])
+            )
+            .only("id", "key", "evaluation_runtime")
+            .order_by("key")
+        )
+        readable_ids = {dependency.id for dependency in readable}
+        # A flag the caller cannot read looks missing. This covers a stored dependency too, but only when the
+        # runtime changes: an unrelated edit does not check stored dependencies, so it saves.
+        if hidden_ids := checked_ids - readable_ids:
+            raise _missing_dependency_error(min(hidden_ids))
+        for dependency in readable:
+            if _runtime_supports_dependency(runtime, dependency.evaluation_runtime):
+                continue
+            # A dependency the flag already stores fails only because this write changes the runtime.
+            attr = "evaluation_runtime" if dependency.id in stored_dependency_ids else "filters"
+            message = (
+                f"Cannot depend on flag (ID: {dependency.id}) because it evaluates "
+                f"{_describe_runtime(dependency.evaluation_runtime)} and this flag evaluates "
+                f"{_describe_runtime(runtime)}. Where flag {dependency.id} doesn't evaluate, this flag reads it "
+                f"as false. Set flag {dependency.id} to evaluate {_RUNTIME_DESCRIPTIONS['all']}, or set this "
+                f"flag to evaluate {_describe_runtime(dependency.evaluation_runtime)}."
+            )
+            raise serializers.ValidationError({attr: ErrorDetail(message, code=DEPENDENCY_RUNTIME_MISMATCH)})
+
+    @functools.cached_property
+    def _read_access_control(self) -> Optional[UserAccessControl]:
+        """The caller's access control in the write team's organization, built once per serializer.
+
+        None for a system write, which has no caller to narrow for.
+        """
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+        view_access_control = self.context.get("user_access_control") or getattr(
+            self.context.get("view"), "user_access_control", None
+        )
+        if view_access_control is not None:
+            return view_access_control
+        user = getattr(self.context.get("request"), "user", None)
+        if user is None:
+            return None
+        team: Optional[Team]
+        if "get_team" in self.context or "team_id" in self.context or self.instance is not None:
+            team = self._write_team
+        else:
+            team = Team.objects.filter(project_id=self.context["project_id"]).order_by("id").first()
+        return UserAccessControl(user, team)
+
+    def _readable_flags(self, queryset: QuerySet[FeatureFlag]) -> QuerySet[FeatureFlag]:
+        """Narrow a flag queryset to the flags the caller can read, as the retrieve and keys endpoints do."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is not None and user.is_anonymous:
+            return queryset.none()
+        access_control = self._read_access_control
+        if access_control is None:
+            return queryset
+        return access_control.filter_queryset_by_access_level(
+            queryset, include_all_if_admin=True, resource="feature_flag"
+        )
 
     def _validate_evaluation_contexts_requirement(
         self, attrs: dict, request: Any, team: Team, creation_context: str | None
@@ -2684,10 +2850,12 @@ class FeatureFlagSerializer(
                 code="unsupported_dependency_config_version",
             ) from exc
 
-    def _validate_flag_reference(self, flag_reference):
-        """Validate and convert flag reference to flag key."""
-        from posthog.utils import safe_int
+    def _validate_flag_reference(self, flag_reference, *, required: bool) -> Optional[str]:
+        """Validate a flag reference and return the referenced flag's key.
 
+        A flag the caller cannot read is an error when ``required`` (a dependency this write adds) and is
+        skipped otherwise (a stored reference), so a stored reference reveals nothing about a hidden flag.
+        """
         flag_id = safe_int(flag_reference)
         if flag_id is None:
             raise serializers.ValidationError(
@@ -2695,20 +2863,22 @@ class FeatureFlagSerializer(
                 f"Invalid reference: '{flag_reference}'"
             )
 
+        queryset = FeatureFlag.objects.filter(id=flag_id, team__project_id=self.context["project_id"])
         try:
-            flag = FeatureFlag.objects.get(id=flag_id, team__project_id=self.context["project_id"])
-
-            # Check if the referenced flag is active
-            if not flag.active:
-                raise serializers.ValidationError(
-                    f"Cannot create dependency on disabled flag '{flag.key}' (ID: {flag_id}). "
-                    f"Flag dependencies must reference active flags only."
-                )
-
-            self._validate_dependency_formats(flag.filters, flag_id=flag_id)
-            return flag.key
+            flag = self._readable_flags(queryset).get()
         except FeatureFlag.DoesNotExist:
-            raise serializers.ValidationError(f"Flag dependency references non-existent flag with ID {flag_id}")
+            if required or not queryset.exists():
+                raise _missing_dependency_error(flag_id)
+            return None
+
+        if not flag.active:
+            raise serializers.ValidationError(
+                f"Cannot create dependency on disabled flag '{flag.key}' (ID: {flag_id}). "
+                f"Flag dependencies must reference active flags only."
+            )
+
+        self._validate_dependency_formats(flag.filters, flag_id=flag_id)
+        return flag.key
 
     def _get_properties_from_filters(self, filters: dict, property_type: PropertyFilterType | None = None):
         """
@@ -2734,14 +2904,18 @@ class FeatureFlagSerializer(
             if prop.get("key") == "$group_key"
         ]
 
-    def _extract_flag_dependencies(self, filters):
-        """Extract flag dependencies from filters."""
+    def _extract_flag_dependencies(self, filters, *, added_ids: AbstractSet[int] = frozenset()) -> set[str]:
+        """Extract flag dependency keys from filters, skipping stored references the caller cannot read.
+
+        A reference in ``added_ids`` must point at a flag the caller can read.
+        """
         dependencies = set()
         for flag_prop in self._get_properties_from_filters(filters, PropertyFilterType.FLAG):
             flag_reference = flag_prop.get("key")
             if flag_reference:
-                flag_key = self._validate_flag_reference(flag_reference)
-                dependencies.add(flag_key)
+                flag_key = self._validate_flag_reference(flag_reference, required=safe_int(flag_reference) in added_ids)
+                if flag_key is not None:
+                    dependencies.add(flag_key)
         return dependencies
 
     def _check_flag_circular_dependencies(self, filters):
@@ -2751,35 +2925,60 @@ class FeatureFlagSerializer(
         if not current_flag_key:
             return
 
-        flag_dependencies = self._extract_flag_dependencies(filters)
-        if not flag_dependencies:
+        # Only the dependencies this write adds must be readable. A stored dependency, or a dependency of a
+        # dependency, that the caller cannot read must not fail the active or format checks of an edit the
+        # caller is allowed to make. The cycle walk still follows such a flag, so a cycle through it is refused.
+        stored_filters = (self.instance.filters if self.instance is not None else None) or {}
+        added_ids = set(flag_dependency_ids(filters)) - set(flag_dependency_ids(stored_filters))
+        project_flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"])
+        unchecked_keys: set[str] = set()
+
+        def unchecked_dependency_keys(flag_filters: dict, checked_keys: set[str]) -> set[str]:
+            dependency_ids = set(flag_dependency_ids(flag_filters))
+            if len(dependency_ids) == len(checked_keys):
+                return set()
+            keys = set(
+                project_flags.filter(id__in=dependency_ids).exclude(key__in=checked_keys).values_list("key", flat=True)
+            )
+            unchecked_keys.update(keys)
+            return keys
+
+        flag_dependencies = self._extract_flag_dependencies(filters, added_ids=added_ids)
+        hidden_dependencies = unchecked_dependency_keys(filters, flag_dependencies)
+        if not flag_dependencies and not hidden_dependencies:
             return
 
         # Check for self-reference
         if current_flag_key in flag_dependencies:
             raise serializers.ValidationError(f"Feature flag '{current_flag_key}' cannot depend on itself")
 
-        # Check for cycles using DFS
-        def has_cycle(flag_key, path):
+        # A flag that is hidden, or that is reached only through a hidden flag, skips the active and format
+        # checks because their messages would name it or reveal the hidden flag's dependencies.
+        def has_cycle(flag_key, path, checked):
             if flag_key in path:
                 cycle_path = [*path[path.index(flag_key) :], flag_key]
+                if unchecked_keys.intersection(cycle_path):
+                    raise serializers.ValidationError(
+                        "Circular dependency detected. Remove this dependency to continue."
+                    )
                 cycle_display = " → ".join(cycle_path)
                 raise serializers.ValidationError(f"Circular dependency detected: {cycle_display}")
 
             try:
-                flag = FeatureFlag.objects.get(
-                    key=flag_key,
-                    team__project_id=self.context["project_id"],
-                )
-                flag_deps = self._extract_flag_dependencies(flag.filters or {})
-                for dep_key in flag_deps:
-                    has_cycle(dep_key, [*path, flag_key])
+                flag = project_flags.get(key=flag_key)
             except FeatureFlag.DoesNotExist:
                 return  # Non-existent flags have no dependencies
+            flag_filters = flag.filters or {}
+            checked_deps = self._extract_flag_dependencies(flag_filters) if checked else set()
+            for dep_key in checked_deps:
+                has_cycle(dep_key, [*path, flag_key], checked=True)
+            for dep_key in unchecked_dependency_keys(flag_filters, checked_deps):
+                has_cycle(dep_key, [*path, flag_key], checked=False)
 
-        # Check each dependency for cycles
         for dep_flag_key in flag_dependencies:
-            has_cycle(dep_flag_key, [current_flag_key])
+            has_cycle(dep_flag_key, [current_flag_key], checked=True)
+        for dep_flag_key in hidden_dependencies:
+            has_cycle(dep_flag_key, [current_flag_key], checked=False)
 
     def _free_key_held_by_soft_deleted_flags(self, key: str, exclude_pk: int | None = None) -> None:
         # The (team, key) unique constraint spans soft-deleted rows, so we must
@@ -2988,11 +3187,8 @@ class FeatureFlagSerializer(
             # Check if this flag depends on any disabled flags
             disabled_dependencies = self._find_disabled_dependencies(instance)
             if disabled_dependencies:
-                disabled_flag_names = [f"{flag.key} (ID: {flag.id})" for flag in disabled_dependencies[:5]]
-                if len(disabled_dependencies) > 5:
-                    disabled_flag_names.append(f"and {len(disabled_dependencies) - 5} more")
                 raise exceptions.ValidationError(
-                    f"Cannot enable this feature flag because it depends on disabled flags: {', '.join(disabled_flag_names)}. "
+                    f"Cannot enable this feature flag because it depends on disabled flags: {_describe_flags(disabled_dependencies)}. "
                     f"Please enable the dependency flags first."
                 )
 

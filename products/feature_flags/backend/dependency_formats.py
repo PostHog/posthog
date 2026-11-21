@@ -17,7 +17,7 @@ class DependencyConfigFormatError(ConfigFormatError):
         self.flag_id = flag_id
 
 
-def _dependency_ids(filters: Mapping[str, JsonValue]) -> Iterator[int]:
+def dependency_ids(filters: Mapping[str, JsonValue]) -> Iterator[int]:
     # Unlike facade.references.flag_dependency_properties, this walk skips malformed
     # stored groups and properties so format checks do not change their validation policy.
     groups = filters.get("groups")
@@ -44,7 +44,7 @@ def validate_dependency_formats(filters: Mapping[str, JsonValue], *, project_id:
     Resolve IDs in project scope before inspecting any target configuration.
     """
     require_v1_config(filters)
-    pending = set(_dependency_ids(filters))
+    pending = set(dependency_ids(filters))
     visited: set[int] = set()
     while pending:
         batch = set(islice(pending, DEPENDENCY_BATCH_SIZE))
@@ -57,5 +57,5 @@ def validate_dependency_formats(filters: Mapping[str, JsonValue], *, project_id:
                 require_v1_config(target_filters)
             except ConfigFormatError as exc:
                 raise DependencyConfigFormatError(exc, flag_id=target_id) from exc
-            pending.update(_dependency_ids(target_filters or {}))
+            pending.update(dependency_ids(target_filters or {}))
         pending.difference_update(visited)
