@@ -97,6 +97,9 @@ describe('sidepanelTicketsLogic', () => {
             message: 'It broke',
             ticket_context: 'Project ID: 997',
             target: 'sidePanel',
+            ai_conversation_id: 'conv-1',
+            ai_trace_id: 'trace-1',
+            ai_feedback_rating: 'bad',
         })
 
         logic = sidepanelTicketsLogic.build()
@@ -107,6 +110,7 @@ describe('sidepanelTicketsLogic', () => {
         expect(JSON.stringify(logic.values.newTicketDraft)).toContain('It broke')
         expect(supportLogic.values.isEmailFormOpen).toBe(false)
 
+        ;(posthog.capture as jest.Mock).mockClear()
         await expectLogic(logic, () => {
             logic.actions.sendMessage('It broke badly', jest.fn())
         }).toFinishAllListeners()
@@ -115,6 +119,21 @@ describe('sidepanelTicketsLogic', () => {
             {},
             true
         )
+        // Resetting the support request must not lose the PostHog AI handover, or /ticket goes unmeasured
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'posthog_ai_support_ticket_created')
+        ).toEqual([
+            [
+                'posthog_ai_support_ticket_created',
+                {
+                    $ai_conversation_id: 'conv-1',
+                    $ai_session_id: 'conv-1',
+                    $ai_trace_id: 'trace-1',
+                    $ai_support_ticket_id: 't1',
+                    $ai_feedback_rating: 'bad',
+                },
+            ],
+        ])
         // The new ticket must show up now, so it skips the shared freshness window
         expect(loadTicketsAcrossTabs).toHaveBeenLastCalledWith(
             expect.any(Function),
@@ -125,6 +144,7 @@ describe('sidepanelTicketsLogic', () => {
         logic.actions.setView('list')
         expect(logic.values.newTicketDraft).toBeNull()
         expect(logic.values.newTicketContext).toBeNull()
+        expect(logic.values.newTicketAiAttribution).toBeNull()
     })
 
     it('switches to the composer when the support form opens while already mounted', async () => {
