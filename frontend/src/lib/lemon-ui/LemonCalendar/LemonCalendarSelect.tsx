@@ -38,7 +38,8 @@ function proposedDate(
             if (use24HourFormat) {
                 date = date.hour(Number(value))
             } else {
-                date = date.hour(date.format('a') === 'am' || value === 12 ? Number(value) : Number(value) + 12)
+                const isPM = date.format('a') === 'pm'
+                date = date.hour((Number(value) % 12) + (isPM ? 12 : 0))
             }
         } else if (unit === 'm') {
             date = date.minute(Number(value))
