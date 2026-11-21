@@ -120,7 +120,7 @@ export function AddAICreditsModal(): JSX.Element {
                 {!settings?.automatic_reload.enabled && cardOnFile && <AutomaticReloadChoice />}
 
                 {purchaseStatus === 'processing' && (
-                    <LemonBanner type="info">We're processing your payment. This takes a few seconds.</LemonBanner>
+                    <LemonBanner type="info">We're confirming your payment. You won't be charged again.</LemonBanner>
                 )}
                 {purchaseStatus === 'still_processing' && unansweredPurchase && (
                     <LemonBanner type="info">

@@ -1817,6 +1817,14 @@ class TestAICreditsBillingAPI(APILicensedTest):
         assert response.json()["results"][0]["status"] == "pending"
         assert response.json()["in_progress"] == [in_progress]
 
+    @patch("ee.billing.billing_manager.http_session.request")
+    def test_history_loads_when_billing_lists_no_purchases_in_progress(self, mock_request: MagicMock) -> None:
+        mock_request.return_value = _billing_answer(200, {"results": [], "has_more": False})
+
+        response = self.client.get("/api/billing/ai_credits/history", {"organization_id": str(self.organization.id)})
+
+        assert (response.status_code, response.json()["in_progress"]) == (status.HTTP_200_OK, [])
+
     @patch("ee.billing.billing_manager.http_session.request", side_effect=requests.Timeout("read timed out"))
     def test_a_purchase_billing_never_answered_asks_for_a_retry(self, mock_request: MagicMock) -> None:
         response = self.client.post(

@@ -1683,6 +1683,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         answer = self._ai_credits(
             lambda manager, organization: manager.ai_credit_history(organization, query["limit"], query["offset"])
         )
+        # The history still loads when billing's answer has no `in_progress`.
+        answer = {**answer, "in_progress": answer.get("in_progress") or []}
         return Response(AICreditHistoryResponseSerializer(answer).data)
 
     @validated_request(
