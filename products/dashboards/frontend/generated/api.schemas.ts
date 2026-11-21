@@ -312,6 +312,88 @@ export interface CopyDashboardTemplateApi {
 }
 
 /**
+ * * `insight` - Insight
+ * * `hogql` - HogQL
+ */
+export type QueryBatchLanguageEnumApi = (typeof QueryBatchLanguageEnumApi)[keyof typeof QueryBatchLanguageEnumApi]
+
+export const QueryBatchLanguageEnumApi = {
+    Insight: 'insight',
+    Hogql: 'hogql',
+} as const
+
+export interface QueryBatchTargetApi {
+    /**
+     * The panel's ID for this query. Not used for caching.
+     * @maxLength 200
+     */
+    refId: string
+    /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+     *
+     * * `insight` - Insight
+     * * `hogql` - HogQL */
+    language: QueryBatchLanguageEnumApi
+    /**
+     * The query text, read according to `language`.
+     * @maxLength 200000
+     */
+    query: string
+}
+
+export interface QueryBatchTimeApi {
+    /**
+     * End of the range: `now`, `now-1h`, or ISO 8601.
+     * @maxLength 100
+     */
+    to: string
+    /**
+     * Start of the range: `now-7d`, `now-30m`, or ISO 8601.
+     * @maxLength 100
+     */
+    from: string
+}
+
+/**
+ * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+ * @nullable
+ */
+export type QueryBatchQueryApiVariables = { [key: string]: unknown } | null
+
+export interface QueryBatchQueryApi {
+    /** What to run. */
+    target: QueryBatchTargetApi
+    /** The panel's time range. Relative expressions keep the cache key the same across reloads. */
+    time: QueryBatchTimeApi
+    /**
+     * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+     * @nullable
+     */
+    variables?: QueryBatchQueryApiVariables
+    /**
+     * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+     * @maxLength 20
+     */
+    interval?: string
+    /** Serve a stale cached result at once and recompute it in the background for the next read. */
+    swr?: boolean
+    /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
+    cacheOnly?: boolean
+}
+
+export interface QueryBatchRequestApi {
+    /**
+     * The panels' queries, at most 500.
+     * @maxItems 500
+     */
+    queries: QueryBatchQueryApi[]
+    /**
+     * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
+     * @nullable
+     */
+    dashboard?: number | null
+}
+
+/**
  * * `default` - Default
  * * `template` - Template
  * * `duplicate` - Duplicate
