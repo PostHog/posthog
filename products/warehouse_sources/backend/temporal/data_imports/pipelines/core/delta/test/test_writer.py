@@ -2104,7 +2104,8 @@ class TestDeleteWhere:
             rows = deltalake.DeltaTable(tmp).to_pyarrow_table().sort_by("id").to_pydict()
             assert deleted == 4
             assert rows == {"_file_name": ["c.csv", None], "id": [5, 6]}
-            assert await writer.distinct_values("_file_name") == {"c.csv"}
+            locations = await writer.value_locations("_file_name")
+            assert locations is not None and locations.values == {"c.csv"}
             deletes = [c for c in deltalake.DeltaTable(tmp).history() if c["operation"] == "DELETE"]
             assert len(deletes) == expected_commits == before_commit.call_count
             # A delete that carried a batch tag would make a redelivered batch skip its own write.
@@ -2128,8 +2129,131 @@ class TestDeleteWhere:
 
     @parameterized.expand([("no_table", False), ("no_such_column", True)])
     @pytest.mark.asyncio
-    async def test_distinct_values_are_unknown_without_the_column(self, _name: str, table_exists: bool) -> None:
+    async def test_value_locations_are_unknown_without_the_column(self, _name: str, table_exists: bool) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             if table_exists:
                 deltalake.write_deltalake(tmp, pa.table({"id": [1]}))
-            assert await DeltaWriter(make_local_table_ref(tmp)).distinct_values("_file_name") is None
+            assert await DeltaWriter(make_local_table_ref(tmp)).value_locations("_file_name") is None
+
+    @pytest.mark.asyncio
+    async def test_value_locations_name_the_partitions_of_each_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            # A file from before the column existed must read as nulls, not fail the scan.
+            deltalake.write_deltalake(tmp, pa.table({"id": [0], "week": ["w0"]}), partition_by=["week"])
+            deltalake.write_deltalake(
+                tmp,
+                pa.table(
+                    {
+                        "id": [1, 2, 3, 4],
+                        "week": ["w1", "w2", "w2", None],
+                        "_file_name": ["a.csv", "a.csv", "b.csv", "b.csv"],
+                    }
+                ),
+                partition_by=["week"],
+                mode="append",
+                schema_mode="merge",
+            )
+
+            locations = await DeltaWriter(make_local_table_ref(tmp)).value_locations("_file_name")
+
+            assert locations is not None
+            assert locations.partition_columns == ("week",)
+            assert locations.partitions_by_value == {
+                "a.csv": frozenset({("w1",), ("w2",)}),
+                "b.csv": frozenset({("w2",), (None,)}),
+            }
+            assert locations.files_read == 4
+
+    @parameterized.expand(
+        [
+            (
+                "one_partition_column",
+                ["week"],
+                {"week": ["w1", "w2", "w2", "w3", None, None]},
+                [["a.csv"], ["c.csv"]],
+            ),
+            (
+                "two_partition_columns",
+                ["week", "region"],
+                {"week": ["w1", "w2", "w2", "w3", None, None], "region": ["eu", "us", "eu", None, "us", "eu"]},
+                [["a.csv"], ["c.csv"]],
+            ),
+            (
+                "unpartitioned",
+                [],
+                {},
+                [["a.csv"], ["c.csv"]],
+            ),
+            (
+                "one_commit_for_all_values",
+                ["week"],
+                {"week": ["w1", "w2", "w2", "w3", None, None]},
+                [["a.csv", "c.csv"]],
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_a_delete_scoped_by_locations_removes_the_named_values_from_every_partition(
+        self,
+        _name: str,
+        partition_by: list[str],
+        partition_values: dict[str, list[str | None]],
+        commits: list[list[str]],
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            # "a.csv" and "c.csv" each sit in two partitions, one of them a null partition value.
+            seed = pa.table(
+                {
+                    "_file_name": ["a.csv", "a.csv", "b.csv", "c.csv", "c.csv", "b.csv"],
+                    "id": [1, 2, 3, 4, 5, 6],
+                    **{name: pa.array(values, pa.string()) for name, values in partition_values.items()},
+                }
+            )
+            deltalake.write_deltalake(tmp, seed, partition_by=partition_by or None)
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            locations = await writer.value_locations("_file_name")
+            assert locations is not None
+
+            deleted = await writer.delete_where(
+                "_file_name",
+                ["a.csv", "c.csv", "not_in_the_table.csv"],
+                locations=locations,
+                chunk_size=len(commits[0]),
+            )
+
+            rows = deltalake.DeltaTable(tmp).to_pyarrow_table(columns=["_file_name", "id"]).sort_by("id").to_pydict()
+            assert deleted == 4
+            assert rows == {"_file_name": ["b.csv", "b.csv"], "id": [3, 6]}
+            deletes = [c for c in deltalake.DeltaTable(tmp).history() if c["operation"] == "DELETE"]
+            assert len(deletes) == len(commits)
+
+    @pytest.mark.asyncio
+    async def test_a_delete_scoped_by_locations_reads_only_the_partitions_of_its_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(
+                tmp,
+                pa.table(
+                    {"_file_name": [f"{week}.csv" for week in range(20)], "week": [f"w{week}" for week in range(20)]}
+                ),
+                partition_by=["week"],
+            )
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            locations = await writer.value_locations("_file_name")
+            assert locations is not None
+            delete = MagicMock(wraps=deltalake.DeltaTable.delete)
+
+            with patch.object(deltalake.DeltaTable, "delete", autospec=True, side_effect=delete):
+                await writer.delete_where("_file_name", ["3.csv"], locations=locations)
+
+            assert delete.call_args.args[1] == """"_file_name" IN ('3.csv') AND ("week" IN ('w3'))"""
+            assert deltalake.DeltaTable(tmp).to_pyarrow_table().num_rows == 19
+
+    @pytest.mark.asyncio
+    async def test_a_delete_of_values_the_table_does_not_hold_makes_no_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            deltalake.write_deltalake(tmp, self._SEED)
+            writer = DeltaWriter(make_local_table_ref(tmp))
+            locations = await writer.value_locations("_file_name")
+
+            assert await writer.delete_where("_file_name", ["gone.csv"], locations=locations) == 0
+            assert [c for c in deltalake.DeltaTable(tmp).history() if c["operation"] == "DELETE"] == []

@@ -93,7 +93,12 @@ function isAccountSqlQueryAstScoped(value: unknown, aliases: Set<string>): boole
                       ...(source.alias ? [[source.alias, 'external_id']] : []),
                   ]
                 : undefined
-        if (source?.next_join || !source || !isAccountSqlQueryFilter(node.where, aliases, allowedFields)) {
+        const readsValidatedSubquery = ['SelectQuery', 'SelectSetQuery'].includes(source?.table?.node)
+        if (
+            source?.next_join ||
+            !source ||
+            (!readsValidatedSubquery && !isAccountSqlQueryFilter(node.where, aliases, allowedFields))
+        ) {
             return false
         }
     }

@@ -24,7 +24,12 @@ type RateCheck = { what: string; measured: number | undefined; target: number }
 const percent = (share: number): string => `${Number((share * 100).toFixed(1))}%`
 const rate = (perSecond: number): string => `${Number(perSecond.toFixed(2))}/s`
 
-export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, baseline: Baseline): Admission[] {
+// A profile measures its load targets at 1x, and a ramp that opens higher drives that many times the load.
+export function admissionsOf(
+    { load, host }: Pick<Profile, 'load' | 'host'>,
+    baseline: Baseline,
+    openingScale = 1
+): Admission[] {
     const admissions: Admission[] = []
     const unmeasurable =
         baseline.seconds <= 0
@@ -38,11 +43,17 @@ export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, bas
             ...Object.entries(targets.claimsPerSecond).map(([queue, target]) => ({
                 what: `${queue} claims`,
                 measured: baseline.claimsPerSecond[queue] ?? 0,
-                target,
+                target: target * openingScale,
             })),
             ...(targets.newJobsPerSecond === undefined
                 ? []
-                : [{ what: 'new jobs', measured: baseline.newJobsPerSecond, target: targets.newJobsPerSecond }]),
+                : [
+                      {
+                          what: 'new jobs',
+                          measured: baseline.newJobsPerSecond,
+                          target: targets.newJobsPerSecond * openingScale,
+                      },
+                  ]),
         ]
         const misses = checks
             .filter(
