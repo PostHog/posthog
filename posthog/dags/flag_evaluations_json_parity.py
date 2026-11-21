@@ -15,6 +15,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags
 from posthog.dags.flag_evaluations_backfill import shard_workload, tagged
+from posthog.dataclasses import frozen
 from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
     FLAG_EVALUATIONS_JSON_DATA_TABLE,
@@ -75,10 +76,17 @@ HAVING count() > uniqExact(uuid)
 """
 
 
-def compare_counts(legacy: Mapping[tuple, int], new: Mapping[tuple, int]) -> list[tuple[tuple, int, int]]:
-    """Return each key whose count differs, as (key, legacy count, new count), keys sorted."""
+@frozen
+class CountDiff:
+    key: tuple
+    legacy: int
+    new: int
+
+
+def compare_counts(legacy: Mapping[tuple, int], new: Mapping[tuple, int]) -> list[CountDiff]:
+    """Return each key whose count differs, keys sorted."""
     return [
-        (key, legacy.get(key, 0), new.get(key, 0))
+        CountDiff(key=key, legacy=legacy.get(key, 0), new=new.get(key, 0))
         for key in sorted({*legacy, *new})
         if legacy.get(key, 0) != new.get(key, 0)
     ]
@@ -88,19 +96,30 @@ def _read_counts(query: str, params: dict[str, str], client: Client) -> dict[tup
     return {tuple(row[:-1]): row[-1] for row in sync_execute(query, params, sync_client=client)}
 
 
-def flags_cluster(cluster: ClickhouseCluster) -> tuple[ClickhouseCluster, Workload, NodeRole]:
+@frozen
+class FlagsCluster:
+    cluster: ClickhouseCluster
+    workload: Workload
+    node_role: NodeRole
+
+
+def flags_cluster(cluster: ClickhouseCluster) -> FlagsCluster:
     """The handle for the flags cluster, where sharded_flag_evaluations_json lives, with its workload and role.
 
     The cluster resource addresses the posthog cluster. A development stack has no flags cluster and holds the
     table on its one host.
     """
     try:
-        return cluster.sibling(settings.CLICKHOUSE_FLAGS_CLUSTER, NodeRole.FLAGS), Workload.DEFAULT, NodeRole.FLAGS
+        return FlagsCluster(
+            cluster=cluster.sibling(settings.CLICKHOUSE_FLAGS_CLUSTER, NodeRole.FLAGS),
+            workload=Workload.DEFAULT,
+            node_role=NodeRole.FLAGS,
+        )
     except ServerException as exc:
         if exc.code != _CLUSTER_DOESNT_EXIST or is_cloud():
             raise
         workload, node_role = shard_workload()
-        return cluster, workload, node_role
+        return FlagsCluster(cluster=cluster, workload=workload, node_role=node_role)
 
 
 @dagster.op(tags=OWNER_TAG)
@@ -124,13 +143,13 @@ def compare_flag_evaluations_json_parity(
     end = date.fromisoformat(config.end_date) if config.end_date else today
     if start >= end:
         raise dagster.Failure(description=f"start_date {start} must be before end_date {end}.")
-    flags, workload, node_role = flags_cluster(cluster)
-    host = flags.any_host_in_shard_by_roles(min(flags.shards), [node_role], workload)
+    flags = flags_cluster(cluster)
+    host = flags.cluster.any_host_in_shard_by_roles(min(flags.cluster.shards), [flags.node_role], flags.workload)
     query_tags = dagster_tags(context)
     params = {"start": f"{start:%Y-%m-%d} 00:00:00", "end": f"{end:%Y-%m-%d} 00:00:00"}
 
     def counts(query: str) -> dict[tuple, int]:
-        return flags.on_host(host, tagged(query_tags, partial(_read_counts, query, params))).result()
+        return flags.cluster.on_host(host, tagged(query_tags, partial(_read_counts, query, params))).result()
 
     legacy, new = FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_JSON_DATA_TABLE
     day_diffs = compare_counts(counts(_day_query(legacy)), counts(_day_query(new)))
@@ -147,8 +166,8 @@ def compare_flag_evaluations_json_parity(
     )
     problems: list[str] = []
     if day_diffs or flag_diffs:
-        listed = [f"{key[0]}: {a} in {legacy}, {b} in {new}" for key, a, b in day_diffs] + [
-            f"{key[0]} {key[1]} {key[2]}: {a} in {legacy}, {b} in {new}" for key, a, b in flag_diffs
+        listed = [f"{d.key[0]}: {d.legacy} in {legacy}, {d.new} in {new}" for d in day_diffs] + [
+            f"{d.key[0]} {d.key[1]} {d.key[2]}: {d.legacy} in {legacy}, {d.new} in {new}" for d in flag_diffs
         ]
         problems.append(
             f"{len(day_diffs)} day(s) and {len(flag_diffs)} (day, flag_key, response) group(s) differ. "

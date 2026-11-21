@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -7,7 +8,7 @@ import dagster
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.dags.flag_evaluations_json_parity import compare_counts, flag_evaluations_json_parity_job
+from posthog.dags.flag_evaluations_json_parity import CountDiff, compare_counts, flag_evaluations_json_parity_job
 
 WINDOW_DAYS = 3
 
@@ -21,15 +22,47 @@ def call_uuid(label: str) -> UUID:
     return uuid5(NAMESPACE_URL, label)
 
 
-def seed(
+def seed_legacy(
     cluster: ClickhouseCluster,
-    table: str,
     label: str,
     when: datetime,
     *,
     flag_key: str = "flag-a",
     response: str = "control",
 ) -> None:
+    properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": response})
+    row = (
+        1,
+        f"{label}-user",
+        uuid5(NAMESPACE_URL, f"{label}-user"),
+        call_uuid(label),
+        "$feature_flag_called",
+        properties,
+        when,
+        when,
+    )
+
+    def insert(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_flag_evaluations
+            (team_id, distinct_id, person_id, uuid, event, properties, timestamp, _timestamp)
+            VALUES""",
+            [row],
+        )
+
+    cluster.any_host(insert).result()
+
+
+def seed_json(
+    cluster: ClickhouseCluster,
+    label: str,
+    when: datetime,
+    *,
+    flag_key: str = "flag-a",
+    response: str = "control",
+) -> None:
+    # The flag_key, response and request_id defaults read JSON columns that this insert leaves out, so each is
+    # set here. The writable table has no flag_key column to insert into, so the insert goes to the shard.
     row = (
         1,
         f"{label}-user",
@@ -44,21 +77,13 @@ def seed(
 
     def insert(client: Client) -> None:
         client.execute(
-            f"""INSERT INTO {table}
+            """INSERT INTO sharded_flag_evaluations_json
             (team_id, distinct_id, person_id, uuid, timestamp, flag_key, response, request_id, _timestamp)
             VALUES""",
             [row],
         )
 
     cluster.any_host(insert).result()
-
-
-def seed_legacy(cluster: ClickhouseCluster, label: str, when: datetime, **kwargs: str) -> None:
-    seed(cluster, "writable_flag_evaluations", label, when, **kwargs)
-
-
-def seed_json(cluster: ClickhouseCluster, label: str, when: datetime, **kwargs: str) -> None:
-    seed(cluster, "writable_flag_evaluations_json", label, when, **kwargs)
 
 
 def run_parity(cluster: ClickhouseCluster, now: datetime) -> dagster.ExecuteInProcessResult:
@@ -81,7 +106,11 @@ def test_compare_counts_lists_each_key_whose_count_differs() -> None:
     legacy = {("a",): 3, ("b",): 2, ("c",): 1}
     new = {("a",): 3, ("b",): 5, ("d",): 4}
 
-    assert compare_counts(legacy, new) == [(("b",), 2, 5), (("c",), 1, 0), (("d",), 0, 4)]
+    assert compare_counts(legacy, new) == [
+        CountDiff(key=("b",), legacy=2, new=5),
+        CountDiff(key=("c",), legacy=1, new=0),
+        CountDiff(key=("d",), legacy=0, new=4),
+    ]
 
 
 @pytest.mark.django_db
