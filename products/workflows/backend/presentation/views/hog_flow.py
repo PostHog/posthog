@@ -1076,7 +1076,6 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
 
 
-MOVES_STEPS_TO_SANDBOX_SENDER = "moves_steps_to_sandbox_sender"
 SANDBOX_SENDER_SET_UP_IN_WRITE = "sandbox_sender_set_up_in_write"
 SANDBOX_SENDER_SETUP_FAILURES = Counter(
     "workflows_sandbox_sender_setup_failures_total",
@@ -1141,8 +1140,32 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
             moved = True
     if not moved:
         return data
-    context[MOVES_STEPS_TO_SANDBOX_SENDER] = True
     return {**data, "actions": converted}
+
+
+def _steps_moved_to_sandbox_sender(data: Any, defaulted: Any) -> list[str]:
+    if defaulted is data:
+        return []
+    return [
+        moved["id"]
+        for original, moved in zip(data["actions"], defaulted["actions"])
+        if isinstance(original, dict)
+        and original.get("type") != SANDBOX_EMAIL_ACTION_TYPE
+        and moved.get("type") == SANDBOX_EMAIL_ACTION_TYPE
+    ]
+
+
+def _set_up_sandbox_sender_before_the_move(context: dict, step_ids: list[str]) -> bool:
+    team = context["get_team"]()
+    user = context["request"].user
+    try:
+        with transaction.atomic():
+            provision_sandbox_sender(team, user)
+    except Exception as error:
+        logger.warning("sandbox_sender_setup_kept_steps_off", team_id=team.id, action_ids=step_ids, exc_info=True)
+        capture_exception(error)
+        return False
+    return True
 
 
 def _has_no_sender(action: dict) -> bool:
@@ -1155,7 +1178,12 @@ def _has_no_sender(action: dict) -> bool:
     sender = _email_value(action["config"]).get("from")
     if sender is None:
         return True
-    return isinstance(sender, dict) and not sender.get("integrationId") and not sender.get("integrationIds")
+    return (
+        isinstance(sender, dict)
+        and not sender.get("integrationId")
+        and not sender.get("integrationIds")
+        and (sender.get("email") is None or isinstance(sender.get("email"), str))
+    )
 
 
 def _email_value(config: dict) -> dict:
@@ -4098,7 +4126,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
-        return super().to_internal_value(_with_default_senders_on_new_email_steps(data, instance, self.context))
+        defaulted = _with_default_senders_on_new_email_steps(data, instance, self.context)
+        validated = super().to_internal_value(defaulted)
+        moved = _steps_moved_to_sandbox_sender(data, defaulted)
+        if moved and not _set_up_sandbox_sender_before_the_move(self.context, moved):
+            return super().to_internal_value(data)
+        return validated
 
     class Meta:
         fields = [
@@ -6472,10 +6505,7 @@ class HogFlowViewSet(
 
     def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
         step_ids = _test_sender_step_ids(cast(dict, serializer.validated_data).get("actions"))
-        if serializer.context.get(MOVES_STEPS_TO_SANDBOX_SENDER):
-            provision_sandbox_sender(self.team, cast(User, self.request.user))
-            serializer.context[SANDBOX_SENDER_SET_UP_IN_WRITE] = True
-        elif step_ids and self._set_up_sandbox_sender_in_the_write(getattr(serializer.instance, "id", None), step_ids):
+        if step_ids and self._set_up_sandbox_sender_in_the_write(getattr(serializer.instance, "id", None), step_ids):
             serializer.context[SANDBOX_SENDER_SET_UP_IN_WRITE] = True
         elif serializer.instance is not None:
             self._set_up_sandbox_sender_after_commit(serializer)

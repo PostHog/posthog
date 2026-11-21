@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any
@@ -738,10 +739,18 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("an_address_list", {"integrationId": None, "email": ["hi@mail0.example.com"]}),
             ("false", False),
             ("an_empty_list", []),
+            ("an_empty_address_list_with_only_stopped_senders", {"integrationId": None, "email": []}, True),
+            (
+                "an_address_list_with_only_stopped_senders",
+                {"integrationId": None, "email": ["hi@mail0.example.com"]},
+                True,
+            ),
         ]
     )
-    def test_a_new_api_email_step_with_a_malformed_sender_is_refused(self, _name: str, sender: Any) -> None:
-        self._sender("mail0.example.com", stopped=False)
+    def test_a_new_api_email_step_with_a_malformed_sender_is_refused(
+        self, _name: str, sender: Any, only_stopped: bool = False
+    ) -> None:
+        self._sender("mail0.example.com", stopped=only_stopped)
         step = _own_email_step(None)
         step["config"]["inputs"]["email"]["value"]["from"] = sender
 
@@ -791,10 +800,10 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
     def test_a_test_sender_step_sets_up_the_test_sender_before_it_sends(
         self, path: str, expected: bool, tested_step: str | None, setup_fails: bool = False
     ) -> None:
-        fault = patch.object(
-            IntegrationManager.email_sandbox.credentials,
-            "create",
-            side_effect=self._failing_sql if setup_fails else IntegrationManager.email_sandbox.credentials.create,
+        fault = (
+            patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=self._failing_sql)
+            if setup_fails
+            else nullcontext()
         )
         set_up_at_forward: list[bool] = []
         forwarded: list[dict] = []
@@ -843,8 +852,10 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1 / 0")
 
-    def test_an_api_step_moved_to_the_test_sender_fails_its_save_when_setup_fails(self) -> None:
-        self._sender("mail0.example.com", stopped=True)
+    @parameterized.expand([("only_stopped_senders", True), ("no_sender", False)])
+    def test_a_new_api_step_stays_off_the_test_sender_when_its_setup_fails(self, _name: str, stopped: bool) -> None:
+        if stopped:
+            self._sender("mail0.example.com", stopped=True)
         fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=self._failing_sql)
 
         with _flag(True), fault:
@@ -855,8 +866,12 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
 
-        assert response.status_code == 500
-        assert not HogFlow.objects.filter(team=self.team).exists()
+        assert response.status_code == 201, response.json()
+        stored = HogFlow.objects.get(id=response.json()["id"]).actions[1]
+        assert (stored["type"], stored["config"]["inputs"]["email"]["value"]["from"]) == (
+            "function_email",
+            {"integrationId": None},
+        )
         assert not self._sandbox_sender_is_set_up()
 
     @parameterized.expand(
@@ -975,7 +990,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert not self._sandbox_sender_is_set_up()
 
-    def test_a_stale_api_save_that_adds_an_email_step_sets_up_nothing(self) -> None:
+    def test_a_stale_api_save_that_adds_an_email_step_changes_no_workflow(self) -> None:
         flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger()])
         loaded_before_another_save = (flow.updated_at - timedelta(minutes=1)).isoformat()
 
@@ -989,7 +1004,6 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
         assert response.status_code == 409, response.json()
         assert HogFlow.objects.get(id=flow.id).actions == [_trigger()]
-        assert not self._sandbox_sender_is_set_up()
 
     def test_switching_a_step_in_a_workflow_that_does_not_exist_sets_up_nothing(self) -> None:
         with _flag(True):
