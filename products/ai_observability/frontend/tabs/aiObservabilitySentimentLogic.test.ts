@@ -92,6 +92,37 @@ describe('aiObservabilitySentimentLogic', () => {
         expect(logic!.values.showSentimentEvaluationOnboarding).toBe(false)
     })
 
+    it('groups cards whose otel parts messages have the same text', async () => {
+        const partsGeneration = (uuid: string, traceId: string): SentimentGeneration => ({
+            ...generationWithSentiment,
+            uuid,
+            traceId,
+            generationIds: [uuid],
+            aiInput: [{ role: 'user', parts: [{ type: 'text', content: 'this keeps failing' }] }],
+            sentiment: {
+                label: 'negative',
+                score: 0.9,
+                scores: { positive: 0.02, neutral: 0.08, negative: 0.9 },
+                messages: {
+                    '0': { label: 'negative', score: 0.9, scores: { positive: 0.02, neutral: 0.08, negative: 0.9 } },
+                },
+                message_count: 1,
+            },
+        })
+        mockFetchSentimentGenerationsPage.mockResolvedValue({
+            generations: [partsGeneration('generation-a', 'trace-a'), partsGeneration('generation-b', 'trace-b')],
+            rawCount: 2,
+            hasMore: false,
+        })
+        mountLogics()
+
+        await expectLogic(logic!, () => {
+            logic!.actions.activate()
+        }).toFinishAllListeners()
+
+        expect(logic!.values.groupedSentimentCards).toEqual([expect.objectContaining({ traceCount: 2 })])
+    })
+
     it('does not automatically load another page when more results are available', async () => {
         mockFetchSentimentGenerationsPage.mockResolvedValue({
             generations: [generationWithSentiment],

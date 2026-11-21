@@ -9,10 +9,9 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { urls } from 'scenes/urls'
 
 import { MessageSentimentBar, SENTIMENT_BAR_COLOR } from '../components/SentimentTag'
-import { normalizeMessages } from '../messageNormalization'
-import { extractContentText, formatScore } from '../sentimentUtils'
+import { getMessageAtIndex, getTextContent } from '../sentimentMessageText'
+import { formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
-import type { CompatMessage } from '../types'
 import { getTraceTimestamp } from '../utils'
 import type { GroupedSentimentCard, SentimentCard, SentimentCategory } from './aiObservabilitySentimentLogic'
 import { CLASSIFIER_WINDOW, aiObservabilitySentimentLogic } from './aiObservabilitySentimentLogic'
@@ -27,44 +26,6 @@ function truncateMiddle(text: string, maxChars: number = 500): string {
     }
     const half = Math.floor(maxChars / 2)
     return text.slice(0, half) + ' … ' + text.slice(-half)
-}
-
-/**
- * Retrieves the message at the given index from the raw $ai_input array.
- * The index corresponds to the position in the original messages array
- * (as used by the backend sentiment classifier).
- */
-function getMessageAtIndex(aiInput: unknown, index: number): CompatMessage | null {
-    try {
-        const parsed = typeof aiInput === 'string' ? JSON.parse(aiInput) : aiInput
-        if (!Array.isArray(parsed) || index < 0 || index >= parsed.length) {
-            return null
-        }
-        const normalized = normalizeMessages([parsed[index]], 'user').messages
-        return normalized[0] ?? null
-    } catch {
-        return null
-    }
-}
-
-function getTextContent(message: CompatMessage): string {
-    if (typeof message.content === 'string') {
-        // Detect JSON-encoded structured content (e.g. '{"content":[{"text":"..."}]}')
-        const trimmed = message.content.trim()
-        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-            try {
-                const parsed = JSON.parse(trimmed)
-                const extracted = extractContentText(parsed)
-                if (extracted) {
-                    return extracted
-                }
-            } catch {
-                // Not valid JSON, return as-is
-            }
-        }
-        return message.content
-    }
-    return extractContentText(message.content)
 }
 
 function ContextMessage({ aiInput, index }: { aiInput: unknown; index: number }): JSX.Element | null {

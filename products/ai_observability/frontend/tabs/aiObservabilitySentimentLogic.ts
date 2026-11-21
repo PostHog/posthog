@@ -13,9 +13,9 @@ import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { AIObservabilityTabId } from '../aiObservabilitySharedLogic'
 import type { EvaluationApi } from '../generated/api.schemas'
 import { sentimentEvaluationAvailabilityLogic } from '../sentimentEvaluationAvailabilityLogic'
+import { getMessageAtIndex, getTextContent } from '../sentimentMessageText'
 import { fetchSentimentGenerationsPage, type SentimentCategory, type SentimentGeneration } from '../sentimentQueries'
 import type { MessageSentiment } from '../sentimentResults'
-import { extractContentText } from '../sentimentUtils'
 
 export type { SentimentGeneration, SentimentCategory } from '../sentimentQueries'
 
@@ -42,21 +42,13 @@ export const CLASSIFIER_WINDOW = 2000
 /** Number of other visible cards to sample as negative (impressed) examples per engagement */
 const IMPRESSION_SAMPLE_SIZE = 5
 
-/** Parse aiInput and return the raw content text for the message at the given index, or '' on failure */
-function getRawMessageText(aiInput: unknown, messageIndex: number): string {
-    try {
-        const parsed = typeof aiInput === 'string' ? JSON.parse(aiInput) : aiInput
-        if (!Array.isArray(parsed)) {
-            return ''
-        }
-        return extractContentText(parsed[messageIndex]?.content)
-    } catch {
-        return ''
-    }
+function getMessageText(aiInput: unknown, messageIndex: number): string {
+    const message = getMessageAtIndex(aiInput, messageIndex)
+    return message ? getTextContent(message) : ''
 }
 
 function getCardMessageText(card: SentimentCard): string {
-    const text = getRawMessageText(card.generation.aiInput, card.messageIndex).trim()
+    const text = getMessageText(card.generation.aiInput, card.messageIndex).trim()
     // Group by the same trailing window the classifier processes so messages
     // that differ only in a prefix (e.g. varying system prompt headers) are
     // correctly treated as duplicates.
@@ -64,7 +56,7 @@ function getCardMessageText(card: SentimentCard): string {
 }
 
 function getSnippetFromCard(card: SentimentCard): string {
-    return getRawMessageText(card.generation.aiInput, card.messageIndex).slice(-CLASSIFIER_WINDOW)
+    return getMessageText(card.generation.aiInput, card.messageIndex).slice(-CLASSIFIER_WINDOW)
 }
 
 /** Fisher-Yates shuffle on a copy, return first n elements */
