@@ -1280,11 +1280,11 @@ def _holds_marker(deletion_request: DeletionRequestContext) -> bool:
     ).exists()
 
 
-def _compile_predicate(deletion_request: DeletionRequestContext, json_schema: bool) -> tuple[str, dict]:
+def _compile_predicate(deletion_request: DeletionRequestContext, target: DeletionTarget) -> tuple[str, dict]:
     # HogQL compilation reaches into the Django ORM (Team lookup), so it runs on the op's own thread
     # before the shard work is dispatched to a cluster worker thread. Property access lowers
     # differently on the legacy and native-JSON tables, hence one compilation per schema.
-    return compile_hogql_predicate(deletion_request, use_new_events_schema=json_schema)
+    return compile_hogql_predicate(deletion_request, use_new_events_schema=target.uses_new_events_schema)
 
 
 @frozen
@@ -1739,7 +1739,7 @@ def copy_property_removal_shard(
     ClickHouse, and the write overwrites each monthly file.
     """
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target.uses_new_events_schema)
+    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1764,7 +1764,7 @@ def delete_property_removal_shard(
     """
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target.uses_new_events_schema)
+    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
     # Another removal on the team may rewrite these rows once the marker is gone, so a stale run must not
@@ -1978,7 +1978,7 @@ def verify_property_removal_shard(
     """Fail when this shard kept an original, lost a uuid, or holds a target property on a cleaned row."""
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target.uses_new_events_schema)
+    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -2121,7 +2121,7 @@ def verify_property_removal(
             partial(
                 check,
                 target=target,
-                hogql_compiled=_compile_predicate(deletion_request, target.uses_new_events_schema),
+                hogql_compiled=_compile_predicate(deletion_request, target),
             ),
             NodeRole.DATA,
         )
