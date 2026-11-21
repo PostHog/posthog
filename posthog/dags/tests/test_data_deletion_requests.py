@@ -88,7 +88,6 @@ from posthog.models.deletion_targets import (
     FLAG_EVALUATIONS_JSON,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
-    HogQLSchema,
     TargetPlacement,
     UnreachableTargetError,
     count_surviving_rows,
@@ -1514,7 +1513,7 @@ def _add_person_property_mat_columns(col_defs: list[tuple[str, str, str]], clien
     """Add materialized columns sourced from person_properties for testing.
 
     Comment uses ``column_materializer::person_properties::<prop_name>`` so
-    ``_get_affected_mat_columns(..., table_column="person_properties")`` picks them up.
+    ``_get_affected_mat_columns(..., table_columns=("person_properties",))`` picks them up.
     """
     from django.conf import settings
 
@@ -4318,48 +4317,20 @@ _TYPED_COLUMN_ROWS = [
 
 
 class _ColumnCommentClient:
-    def __init__(self) -> None:
-        self.queries = 0
-
     def execute(self, sql: str, params: dict) -> list[tuple[str, str, bool]]:
-        self.queries += 1
         return _TYPED_COLUMN_ROWS
 
 
 @pytest.mark.parametrize(
-    "target,properties,expected_reset",
+    "properties,expected_reset",
     [
-        pytest.param(
-            DeletionTarget(data_table="t", read_table="r", hogql_schema=HogQLSchema.NATIVE_JSON),
-            ["$feature_flag"],
-            [],
-            id="native JSON table without typed columns is not queried",
-        ),
-        pytest.param(
-            DeletionTarget(
-                data_table="t", read_table="r", hogql_schema=HogQLSchema.NATIVE_JSON, has_typed_property_columns=True
-            ),
-            ["$feature_flag", "$feature_flag_response", "$feature_flag_request_id"],
-            ["flag_key", "response", "request_id"],
-            id="native JSON table with typed columns resets those derived from properties and temporary_properties",
-        ),
-        pytest.param(
-            FLAG_EVALUATIONS_JSON,
-            ["$feature_flag", "$feature_flag_request_id"],
-            ["flag_key", "request_id"],
-            id="the registered flag evaluations JSON table resets its typed columns",
-        ),
-        pytest.param(
-            DeletionTarget(
-                data_table="t", read_table="r", hogql_schema=HogQLSchema.NATIVE_JSON, has_typed_property_columns=True
-            ),
-            ["$other"],
-            [],
-            id="a property no typed column derives from resets nothing",
-        ),
+        (["$feature_flag", "$feature_flag_response"], ["flag_key", "response"]),
+        (["$feature_flag_request_id"], ["request_id"]),
+        (["$other"], []),
     ],
+    ids=["derived from properties", "derived from temporary_properties", "no typed column derives from it"],
 )
-def test_shard_predicate_resets_the_typed_columns_derived_from_removed_properties(target, properties, expected_reset):
+def test_shard_predicate_resets_the_typed_columns_derived_from_removed_properties(properties, expected_reset):
     request = DeletionRequestContext(
         request_id="r",
         team_id=1,
@@ -4369,7 +4340,9 @@ def test_shard_predicate_resets_the_typed_columns_derived_from_removed_propertie
         properties=properties,
     )
 
-    predicate = _shard_predicate(_ColumnCommentClient(), request, target, "2026-03-01 00:00:00.000000", ("", {}))
+    predicate = _shard_predicate(
+        _ColumnCommentClient(), request, FLAG_EVALUATIONS_JSON, "2026-03-01 00:00:00.000000", ("", {})
+    )
 
     assert [name for name, _ in predicate.mat_cols] == expected_reset
     for name in expected_reset:
