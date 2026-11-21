@@ -27,6 +27,7 @@ export type FailoverActuation = {
     observed(signal?: AbortSignal): Promise<boolean>
     release(): Promise<void>
     journal(): FailoverJournal
+    refused(): boolean
 }
 
 export type FailoverOptions = {
@@ -360,6 +361,8 @@ export async function failOver({
                 }
             })()),
 
+        refused: () => answered?.refused !== undefined,
+
         journal: () => ({
             ...journal,
             ...(journal.observations ? { observations: [...journal.observations] } : {}),
@@ -371,6 +374,8 @@ export async function failOver({
         const idleMax =
             manifest.readerIdleMaxAcu ??
             refuse(`the run manifest names no idle limit for ${reader}, so set readerAcu.idleMax in the cloud profile`)
+        const floor =
+            manifest.readerMinAcu ?? refuse(`the run manifest names no minimum for ${reader}, so lease the run again`)
         const startedAt = Date.now()
         const until = startedAt - (startedAt % MINUTE_MS)
         const query = {
@@ -382,7 +387,7 @@ export async function failOver({
                     Dimensions: [{ Name: 'DBInstanceIdentifier', Value: reader }],
                 },
                 Period: 60,
-                Stat: 'Maximum',
+                Stat: 'Average',
             },
         }
         const from = until - 2 * CAPACITY_MINUTES * MINUTE_MS
@@ -400,16 +405,16 @@ export async function failOver({
                 'TimestampAscending',
             ])
         )
-        let sorted: { at: number; max: number }[] = []
+        let sorted: { at: number; acu: number }[] = []
         try {
             sorted = seriesOf(answer, {
                 ids: ['acu'],
                 from,
                 to: until,
                 periodMs: MINUTE_MS,
-                floor: 0,
+                floor,
                 subject: () => `${reader}'s capacity read`,
-            }).acu.map(({ at, value }) => ({ at, max: value }))
+            }).acu.map(({ at, value }) => ({ at, acu: value }))
         } catch (error) {
             refuse(messageOf(error))
         }
@@ -430,10 +435,11 @@ export async function failOver({
         if (Date.now() - newestEnd > CAPACITY_FRESH_WITHIN_MS) {
             refuse(`${reader}'s newest capacity minute ended ${Math.floor((Date.now() - newestEnd) / 1000)}s ago`)
         }
-        const busy = minutes.filter(({ max }) => max > idleMax)
+        const since = new Date().setUTCSeconds(0, 0) - CAPACITY_MINUTES * MINUTE_MS
+        const busy = minutes.filter(({ at, acu }) => at >= since && acu > idleMax)
         if (busy.length > 0) {
             refuse(
-                `${reader} was above its ${idleMax} ACU idle limit in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, max }) => `${max} at ${new Date(at).toISOString()}`).join(', ')}`
+                `${reader} was above its ${idleMax} ACU idle limit in its last ${CAPACITY_MINUTES} minutes: ${busy.map(({ at, acu }) => `${acu} at ${new Date(at).toISOString()}`).join(', ')}`
             )
         }
     }

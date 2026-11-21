@@ -3,6 +3,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { objectsEqual } from 'lib/utils/objects'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import type { SQLEditorPlaceholder } from 'scenes/data-warehouse/editor/sqlEditorPlaceholders'
 
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 
@@ -40,10 +41,8 @@ export interface accountSqlQueryEditorLogicActions {
         account: AccountApi
         payload?: void | undefined
     } // accountPropertyDataLogic
-    setPlaceholders: (
-        placeholders: import('scenes/data-warehouse/editor/sqlEditorPlaceholders').SQLEditorPlaceholder[]
-    ) => {
-        placeholders: import('scenes/data-warehouse/editor/sqlEditorPlaceholders').SQLEditorPlaceholder[]
+    setPlaceholders: (placeholders: SQLEditorPlaceholder[]) => {
+        placeholders: SQLEditorPlaceholder[]
     } // sqlEditorLogic
     setQueryInput: (queryInput: string | null) => {
         queryInput: string | null

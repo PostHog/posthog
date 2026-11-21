@@ -11,7 +11,7 @@ and saves a batch at a time. The last saved address is where a retried step cont
 
 import re
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime
@@ -211,7 +211,9 @@ class PostmarkImportProvider(ImportProvider):
         ),
     )
 
-    def check_credentials(self, team_id: int, api_key: str | None) -> ImportCredentials:
+    def check_credentials(
+        self, team_id: int, api_key: str | None, settings: Mapping[str, str], steps: Sequence[str]
+    ) -> ImportCredentials:
         if not api_key:
             raise ImportCredentialsMissing(MISSING_TOKEN_MESSAGE)
         if not api_key.isascii() or api_key == TEST_TOKEN:

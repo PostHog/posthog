@@ -6,8 +6,9 @@ scored in the range does not appear, so each answer also says how many insights 
 
 import json
 import datetime
-from collections.abc import Collection, Sequence
-from urllib.parse import urlencode
+from collections.abc import Collection, Mapping, Sequence
+from typing import Any
+from urllib.parse import quote
 
 from django.db import models
 
@@ -26,7 +27,11 @@ from products.dashboards.backend.facade.api import (
     viewable_dashboard_ref,
 )
 from products.dashboards.backend.facade.contracts import DashboardRef
-from products.product_analytics.backend.facade.api import insight_ids_named_like, viewable_insights
+from products.product_analytics.backend.facade.api import (
+    insight_ids_named_like,
+    viewable_insights,
+    viewable_saved_queries,
+)
 from products.product_analytics.backend.facade.contracts import ViewableInsight
 from products.signals.backend.anomaly_scores.config import (
     MAX_LIMITS,
@@ -47,8 +52,8 @@ from products.signals.backend.anomaly_scores.read import (
     SeriesSummary,
     bucket_starts,
     chart_from,
+    chart_shares,
     latest_buckets,
-    prior_rate,
     rank_series,
     rollup,
     scored_days,
@@ -95,7 +100,6 @@ class AnomalyGroupBy(models.TextChoices):
 class AnomalyOrder(models.TextChoices):
     UNUSUAL = "unusual", "Unusual"
     RECENT = "recent", "Recent"
-    RATE = "rate", "Rate"
 
 
 class AnomalyDashboardNotFound(Exception):
@@ -157,8 +161,12 @@ class AnomalySearchResult:
     insights: list[InsightRow]
     has_more: bool
     truncated: bool
+    # The series read hit its cap and dropped series this result needed. Narrowing the range or filters fixes it.
+    series_capped: bool
     # Says why the result is empty. None when it is not.
     message: str | None
+    # The newest scored bucket of any series the filters match, so it does not change with the order or the page.
+    scored_through: datetime.datetime | None
 
     @property
     def scored_history_ready(self) -> bool:
@@ -220,18 +228,32 @@ class AnomalyInsightHistory:
 
 
 def insight_url(
-    team: Team, insight: ViewableInsight, flagged: Sequence[datetime.datetime], interval: IntervalType | None
+    team: Team,
+    insight: ViewableInsight,
+    flagged: Sequence[datetime.datetime],
+    interval: IntervalType | None,
+    query: Mapping[str, Any] | None,
 ) -> str:
-    """A link to the insight. With flagged buckets, its date range covers them and the buckets around them."""
+    """A link to the insight. With flagged buckets, its date range covers them and the buckets around them.
+
+    The range goes in a copy of the saved query in the link, as in a shared insight link, so the link needs that
+    query. A `filters_override` would open the insight as if a dashboard's filters were applied.
+    """
     url = absolute_uri(f"/project/{team.project_id}/insights/{insight.short_id}")
-    if not flagged or interval is None:
+    source = query.get("source") if query else None
+    if not flagged or interval is None or query is None or not isinstance(source, dict):
         return url
     period = interval_spec(interval).period
     date_range = {
         "date_from": (min(flagged) - period * URL_BUCKETS_BEFORE).isoformat(),
         "date_to": (bucket_end(max(flagged), interval) + period * URL_BUCKETS_AFTER).isoformat(),
     }
-    return f"{url}?{urlencode({'filters_override': json.dumps(date_range, separators=(',', ':'))})}"
+    linked = {**query, "source": {**source, "dateRange": date_range}}
+    return f"{url}#q={quote(json.dumps(linked, separators=(',', ':')))}"
+
+
+def _saved_queries(team: Team, user: User, insights: Collection[ViewableInsight]) -> dict[str, dict[str, Any]]:
+    return viewable_saved_queries(team=team, user=user, short_ids={insight.short_id for insight in insights})
 
 
 def _flagged_starts(series: Sequence[SeriesSummary]) -> list[datetime.datetime]:
@@ -331,10 +353,17 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
     ]
     ranked = rank_series(
         in_range,
-        prior=prior_rate(readable),
+        chart_shares=chart_shares(
+            team,
+            date_to=filters.date_to,
+            series={
+                (summary.insight_id, summary.series_key): summary.interval
+                for summary in in_range
+                if summary.flagged_buckets
+            },
+        ),
         importance=_importance(team, {summary.insight_id for summary in in_range}, now),
         recent_first=filters.order == AnomalyOrder.RECENT,
-        rate_first=filters.order == AnomalyOrder.RATE,
     )
     scored_in_range = len({summary.insight_id for summary in in_range})
 
@@ -355,12 +384,17 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
             else None
         )
         dashboards = _viewable_dashboards(team, user, {summary.insight_id for summary in page_series})
+        queries = _saved_queries(team, user, [insights[summary.insight_id] for summary in page_series])
         series_rows = [
             SeriesRow(
                 summary=summary,
                 insight=insights[summary.insight_id],
                 insight_url=insight_url(
-                    team, insights[summary.insight_id], _flagged_starts([summary]), summary.interval
+                    team,
+                    insights[summary.insight_id],
+                    _flagged_starts([summary]),
+                    summary.interval,
+                    queries.get(insights[summary.insight_id].short_id),
                 ),
                 expected_buckets=_expected_buckets(summary, filters.date_from, filters.date_to, now),
                 flagged_points=summary.flagged_points[:FLAGGED_POINTS],
@@ -379,17 +413,31 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
             if any(summary.flagged_buckets for summary in series) or not filters.only_flagged
         ]
         matched = len(matching_insights)
+        page_insights = matching_insights[page]
+        queries = _saved_queries(team, user, [insights[insight_id] for insight_id, _ in page_insights])
         insight_rows = [
             InsightRow(
                 insight=insights[insight_id],
-                insight_url=insight_url(team, insights[insight_id], _flagged_starts(series), series[0].interval),
+                insight_url=insight_url(
+                    team,
+                    insights[insight_id],
+                    _flagged_starts(series),
+                    series[0].interval,
+                    queries.get(insights[insight_id].short_id),
+                ),
                 rollup=rollup(series),
                 top_series=[summary for summary in series if summary.flagged_buckets][:TOP_SERIES],
             )
-            for insight_id, series in matching_insights[page]
+            for insight_id, series in page_insights
         ]
 
     has_more = matched > page.stop
+    # Flagged series rows need only flagged series. Insight rollups count every series of an insight.
+    series_capped = (
+        summaries.flagged_truncated
+        if filters.only_flagged and filters.group_by == AnomalyGroupBy.SERIES
+        else summaries.truncated
+    )
     watched_count = len(watched & insights.keys())
     return AnomalySearchResult(
         scoring_enabled=off_message is None,
@@ -399,10 +447,14 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         series=series_rows,
         insights=insight_rows,
         has_more=has_more,
-        truncated=has_more or summaries.truncated,
+        truncated=has_more or series_capped,
+        series_capped=series_capped,
         message=None
         if matched
         else _empty_message(off_message=off_message, watched=watched_count, scored_in_range=scored_in_range),
+        scored_through=max(
+            (summary.scored_through for summary in in_range if summary.scored_through is not None), default=None
+        ),
     )
 
 
@@ -459,9 +511,7 @@ def insight_history(
         insight_ids=[insight.id],
         series_key=filters.series_key,
     )
-    # A series with only baseline rows was not scored in the range at all.
-    in_range = [summary for summary in summaries.series if summary.newest_bucket >= filters.date_from]
-    ranked = rank_series(in_range, prior=prior_rate(summaries.series), importance={})
+    ranked = rank_series(summaries.series, chart_shares={}, importance={})
     truncated = summaries.truncated or len(ranked) > MAX_INSIGHT_SERIES
     ranked = ranked[:MAX_INSIGHT_SERIES]
 
@@ -501,19 +551,25 @@ def insight_history(
             buckets = buckets[-per_series:]
         series.append(SeriesHistory(summary=summary, expected_buckets=len(starts), buckets=buckets))
 
-    newest = max(in_range, key=lambda summary: summary.newest_bucket, default=None)
+    newest = max(summaries.series, key=lambda summary: summary.newest_bucket, default=None)
     message = None
     if newest is None:
         message = off_message or "No bucket of this insight was scored in this range."
     return AnomalyInsightHistory(
         scoring_enabled=off_message is None,
         insight=insight,
-        insight_url=insight_url(team, insight, _flagged_starts(ranked), newest.interval if newest else None),
+        insight_url=insight_url(
+            team,
+            insight,
+            _flagged_starts(ranked),
+            newest.interval if newest else None,
+            _saved_queries(team, user, [insight]).get(insight.short_id),
+        ),
         interval=newest.interval if newest else None,
         profile=newest.profile if newest else None,
         detector=newest.detector if newest else None,
         detector_version=newest.detector_version if newest else None,
-        rollup=rollup(in_range),
+        rollup=rollup(summaries.series),
         series=series,
         truncated=truncated,
         message=message,

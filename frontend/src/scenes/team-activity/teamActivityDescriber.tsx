@@ -173,7 +173,10 @@ const TEAM_PROPERTIES_MAPPING: Record<
     | 'heatmaps_screenshot_allowed_hostnames'
     | 'conversations_signing_secret'
     | 'conversations_signing_secret_previous'
-    | 'events_retention_months',
+    | 'events_retention_months'
+    // Retired fields (#66179) kept so historical activity log entries still render.
+    | 'secret_api_token'
+    | 'secret_api_token_backup',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens

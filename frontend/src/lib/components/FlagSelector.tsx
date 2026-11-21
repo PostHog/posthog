@@ -5,11 +5,13 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 
 import { AccessControlResourceType, FeatureFlagBasicType } from '~/types'
 
 import { flagSelectorLogic } from './flagSelectorLogic'
+import { QuillFlagSelector } from './QuillFlagSelector'
 
 interface FlagSelectorProps {
     value: number | undefined
@@ -58,6 +60,7 @@ export function FlagSelector({
     const [selectedFlag, setSelectedFlag] = useState<PickedFlag | undefined>(undefined)
 
     const { flagKey } = useValues(flagSelectorLogic({ id: value }))
+    const quillSurface = useQuillSurface()
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         groupType: TaxonomicFilterGroupType.FeatureFlags,
@@ -90,6 +93,20 @@ export function FlagSelector({
         initialButtonLabel,
     })
 
+    const buttonDisabledReason = (readOnly && (disabledReason || "I'm read-only")) || noFlagAccessReason
+
+    if (quillSurface) {
+        return (
+            <QuillFlagSelector
+                open={visible}
+                onOpenChange={setVisible}
+                label={buttonLabel}
+                disabledReason={buttonDisabledReason}
+                taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+            />
+        )
+    }
+
     return (
         <Popover
             overlay={<TaxonomicFilter {...taxonomicFilterLogicProps} />}
@@ -98,11 +115,7 @@ export function FlagSelector({
             fallbackPlacements={['left-end', 'bottom']}
             onClickOutside={() => setVisible(false)}
         >
-            <LemonButton
-                type="secondary"
-                onClick={() => setVisible(!visible)}
-                disabledReason={(readOnly && (disabledReason || "I'm read-only")) || noFlagAccessReason}
-            >
+            <LemonButton type="secondary" onClick={() => setVisible(!visible)} disabledReason={buttonDisabledReason}>
                 {buttonLabel}
             </LemonButton>
         </Popover>

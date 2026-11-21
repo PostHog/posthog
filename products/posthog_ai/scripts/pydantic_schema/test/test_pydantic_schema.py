@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import json
 import types
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 
 import pytest
 
@@ -41,25 +41,8 @@ def test_json_schema_type_label(prop: dict, expected: str) -> None:
     assert json_schema_type_label(prop) == expected
 
 
-@pytest.fixture()
-def register_fake_module() -> Generator[Callable[..., None]]:
-    """Factory fixture that registers a Pydantic model as a fake module for import.
-
-    Returns a callable: register(module_name, class_name, model_cls).
-    Automatically cleans up all registered modules after the test.
-    """
-    registered: list[str] = []
-
-    def _register(module_name: str, class_name: str, model_cls: type) -> None:
-        mod = types.ModuleType(module_name)
-        setattr(mod, class_name, model_cls)
-        sys.modules[module_name] = mod
-        registered.append(module_name)
-
-    yield _register
-
-    for name in registered:
-        sys.modules.pop(name, None)
+# A literal module name lets static checks (hoglint) see that the fixture replaces no real module.
+FAKE_MODULE = "_test_schema_models"
 
 
 class SampleModel(BaseModel):
@@ -67,9 +50,18 @@ class SampleModel(BaseModel):
     count: int = Field(default=0, description="A counter")
 
 
-def test_pydantic_schema_renders_json(register_fake_module: Callable[..., None]) -> None:
-    register_fake_module("_test_schema_models", "SampleModel", SampleModel)
-    result = pydantic_schema("_test_schema_models.SampleModel")
+@pytest.fixture()
+def fake_schema_module() -> Generator[None]:
+    module = types.ModuleType(FAKE_MODULE)
+    setattr(module, SampleModel.__name__, SampleModel)
+    sys.modules[FAKE_MODULE] = module
+    yield
+    sys.modules.pop(FAKE_MODULE, None)
+
+
+@pytest.mark.usefixtures("fake_schema_module")
+def test_pydantic_schema_renders_json() -> None:
+    result = pydantic_schema(f"{FAKE_MODULE}.SampleModel")
     schema = json.loads(result)
     assert schema["properties"]["name"]["type"] == "string"
     assert schema["properties"]["count"]["type"] == "integer"

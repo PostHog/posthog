@@ -13,12 +13,17 @@ from products.messaging.backend.provider_imports.base import (
     ImportStepError,
     ImportStepSpec,
     ImportTooLarge,
+    PeopleImportPlan,
     SavedPage,
 )
 from products.messaging.backend.provider_imports.emails import exact_email
 from products.messaging.backend.services.imported_data import carry_opt_outs
 from products.workflows.backend.facade.contracts import ProviderContactsResult
-from products.workflows.backend.facade.people_import import MAX_PEOPLE_IMPORT_ROW_BYTES, import_provider_contacts
+from products.workflows.backend.facade.people_import import (
+    MAX_PEOPLE_IMPORT_ROW_BYTES,
+    send_provider_contact_properties,
+    stage_provider_contacts,
+)
 
 NEW_PEOPLE_STEP = "new_people"
 # Person properties hold short values, so a provider's longer custom field is left out rather than cut.
@@ -55,6 +60,8 @@ class ContactList:
     rows: tuple[dict[str, str], ...]
     # Said instead when the list has no contacts to import.
     empty_note: str = "No contacts to import."
+    # Lowercased addresses whose people stay out of the cohort, such as contacts who unsubscribed.
+    non_members: frozenset[str] = frozenset()
 
 
 def new_people_step(provider_label: str) -> ImportStepSpec:
@@ -158,18 +165,25 @@ def save_contact_lists(
     `ContactCollector.other_spellings`.
     """
     create_people = NEW_PEOPLE_STEP in context.steps
-    result = _import(context, everyone, create_people=create_people, send_events=True)
+    result = _import(context, everyone, 0, create_people=create_people, send_events=True)
     # A send matches an opt-out by exact address, and the person may spell it differently from the provider.
     carry_opt_outs(
         context.team_id,
         [*(row["email"] for row in everyone.rows), *other_spellings, *result.person_emails],
         context.created_by_id,
     )
+    if result.status == "failed":
+        # The lists' contacts never became people, so the step fails rather than leave every list empty.
+        return SavedPage(
+            imported=0,
+            error=f"{everyone.cohort_name} couldn't be imported, so no list was filled. {' '.join(result.notes)}",
+        )
     notes = _notes(everyone, result)
     if result.people:
         notes.append(
-            f"{_contacts(result.people)} sent, {result.new_people:,} of them new people. They join this cohort and "
-            "the ones below once PostHog has processed them, usually within a few minutes."
+            f"{_contacts(result.people)} sent, {result.new_people:,} of them new people. This cohort and the ones "
+            "below hold exactly these contacts once PostHog has processed them, usually within a few minutes. "
+            "Anyone no longer on a list leaves its cohort."
         )
     if result.skipped_new_people:
         notes.append(
@@ -177,19 +191,11 @@ def save_contact_lists(
             "with New people from contacts selected to add them."
         )
     items = [_item(everyone, result, tuple(notes))]
-    for contact_list in lists:
-        if result.status == "failed":
-            # The list's contacts never became people, so filling it would leave them out without saying so.
-            items.append(
-                ImportItem(
-                    label=contact_list.cohort_name,
-                    status="skipped",
-                    notes=(f"Not filled, because {everyone.cohort_name} couldn't be imported.",),
-                )
-            )
-            continue
+    plans = [_plan(result, send_events=True)]
+    for index, contact_list in enumerate(lists, start=1):
         # A list waits on people the import above creates, so it can't have people that import left out.
-        list_result = _import(context, contact_list, create_people=create_people, send_events=False)
+        list_result = _import(context, contact_list, index, create_people=create_people, send_events=False)
+        plans.append(_plan(list_result, send_events=False))
         list_notes = _notes(contact_list, list_result)
         if list_result.people:
             list_notes.append(f"{_contacts(list_result.people)}.")
@@ -205,21 +211,33 @@ def save_contact_lists(
             "dropped": result.dropped,
         },
         items=tuple(items),
+        people_imports=tuple(plan for plan in plans if plan is not None),
     )
 
 
 def _import(
-    context: ImportContext, contact_list: ContactList, *, create_people: bool, send_events: bool
+    context: ImportContext, contact_list: ContactList, index: int, *, create_people: bool, send_events: bool
 ) -> ProviderContactsResult:
-    return import_provider_contacts(
+    return stage_provider_contacts(
         context.team_id,
         context.created_by_id,
         contact_list.rows,
+        import_key=f"{context.run_id}/list-{index}",
         create_people=create_people,
         send_events=send_events,
         cohort_name=contact_list.cohort_name,
         cohort_description=contact_list.cohort_description,
         source=contact_list.source,
+        non_members=contact_list.non_members,
+    )
+
+
+def _plan(result: ProviderContactsResult, *, send_events: bool) -> PeopleImportPlan | None:
+    # A list with no people left still empties its cohort, unless staging failed.
+    if result.status == "failed" or result.cohort_id is None:
+        return None
+    return PeopleImportPlan(
+        cohort_id=result.cohort_id, storage_prefix=result.storage_prefix, chunks=result.chunks, send_events=send_events
     )
 
 
@@ -245,11 +263,15 @@ def _item(contact_list: ContactList, result: ProviderContactsResult, notes: tupl
 
 
 def save_contact_properties(context: ImportContext, everyone: ContactList, contacts_checked: int) -> SavedPage:
-    """Fill in the properties each person in `everyone` lacks. The people join `everyone`'s cohort, which the contacts
-    step of the same run fills too."""
-    if not everyone.rows:
-        return SavedPage(imported=0, counts={"people": 0, "contacts": contacts_checked})
-    result = _import(context, everyone, create_people=NEW_PEOPLE_STEP in context.steps, send_events=True)
+    """Fill in the properties each person in `everyone` lacks. The contacts step of the same run sets
+    `everyone`'s cohort, so this leaves the cohort as it is."""
+    result = send_provider_contact_properties(
+        context.team_id,
+        context.created_by_id,
+        everyone.rows,
+        import_key=f"{context.run_id}/properties",
+        create_people=NEW_PEOPLE_STEP in context.steps,
+    )
     if result.status == "failed":
         raise ImportStepError(" ".join(result.notes))
     return SavedPage(imported=result.people, counts={"people": result.people, "contacts": contacts_checked})
