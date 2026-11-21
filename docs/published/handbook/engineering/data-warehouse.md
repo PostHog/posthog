@@ -80,10 +80,12 @@ Runs that cross midnight include queries from the full run.
 The collector also stores cost inputs that the Usage tab does not show: the result bytes ClickHouse returned to the worker, the bytes ClickHouse read from S3, and its S3 request counts.
 `s3_get_requests` adds GetObject and HeadObject, and `s3_list_requests` counts ListObjects.
 The materialization activities write the worker-side inputs on the same row when they run.
-`attempts` is the Temporal attempt number of the materialize activity, and `worker_seconds` adds the wall-clock time of the materialize and publish activities over all attempts.
-An attempt that Temporal kills counts in `attempts` and adds nothing to `worker_seconds`.
+`attempts` is the Temporal attempt number of the materialize activity, saved when the attempt starts.
+`worker_seconds` adds the wall-clock time of the materialize and publish activities over all attempts.
+An attempt whose worker is killed counts in `attempts` and adds nothing to `worker_seconds`.
 `table_files` and `table_bytes` describe the live files in the Delta table when the run ends, and publishing copies every one of them.
 `written_files` and `written_bytes` cover the live files that the run itself added.
+They stay null when an incremental run retries after an earlier attempt wrote rows, because that attempt's files cannot be separated from older ones.
 
 Unmeasured usage is null, including historical jobs with no archive data, and the tab reports how many runs have measurements.
 The totals cover measured runs only; missing measurements and days without measurements are not shown as zero.

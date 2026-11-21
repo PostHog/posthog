@@ -85,7 +85,8 @@ async def test_record_worker_time_adds_up_over_blocks_and_keeps_a_failed_one(ate
 
     with patch.object(utils, "time", clock):
         async with record_worker_time(ateam.pk, str(ajob.id), attempt=1):
-            pass
+            await database_sync_to_async(ajob.refresh_from_db)()
+            attempts_while_running = ajob.attempts
         with pytest.raises(ValueError, match="query failed"):
             async with record_worker_time(ateam.pk, str(ajob.id), attempt=2):
                 raise ValueError("query failed")
@@ -93,4 +94,14 @@ async def test_record_worker_time_adds_up_over_blocks_and_keeps_a_failed_one(ate
             pass
 
     await database_sync_to_async(ajob.refresh_from_db)()
+    assert attempts_while_running == 1
     assert (ajob.worker_seconds, ajob.attempts) == (13.0, 2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_record_worker_time_keeps_the_block_result_when_its_writes_fail(ateam) -> None:
+    async with record_worker_time(ateam.pk, "not-a-job-id", attempt=1):
+        result = "materialized"
+
+    assert result == "materialized"

@@ -18,8 +18,7 @@ from products.data_modeling.backend.models.data_modeling_job import (
 
 BATCH_SIZE = 500
 
-# Job field -> the archive aggregate that fills it. The SELECT list and the row unpacking are both
-# built from this mapping, so a new measure cannot shift the positions of the others.
+# Job field -> the archive aggregate that fills it. The SELECT list and the row unpacking both follow this order.
 MEASURES = {
     "read_bytes": "sum(read_bytes)",
     "read_rows": "sum(read_rows)",

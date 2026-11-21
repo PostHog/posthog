@@ -1060,49 +1060,47 @@ class _TableFiles:
 
     table_files: int
     table_bytes: int
-    written_files: int
-    written_bytes: int
+    written_files: int | None
+    written_bytes: int | None
 
 
 @frozen
 class _WriteOutcome:
     row_count: int
     file_uris: list[str]
-    # None when the Delta log could not be read back, which leaves the job's file columns unmeasured.
     files: _TableFiles | None
 
 
 def _read_live_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str, int]:
-    # delta-rs returns an arro3 RecordBatch, and pa.table() normalizes it through the Arrow C interface.
     add_actions = pa.table(delta_table.get_add_actions(flatten=True))
     paths = typing.cast(list[str], add_actions.column("path").to_pylist())
     sizes = typing.cast(list[int], add_actions.column("size_bytes").to_pylist())
     return dict(zip(paths, sizes, strict=True))
 
 
-async def _live_file_sizes(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogger) -> dict[str, int] | None:
+async def _live_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str, int] | None:
     """Size in bytes of each live file, keyed by its path in the table, or None when the read fails.
 
     The sizes are a measurement of a write that is already committed, so a failure here must not fail the run.
+    The error goes to error tracking only, because its text can name storage hosts and run logs are customer-visible.
     """
     try:
         return await asyncio.to_thread(_read_live_file_sizes, delta_table)
     except Exception as error:
         capture_exception(error)
-        await logger.awarning(f"Could not read file sizes from the Delta log: {error}")
         return None
 
 
 def _table_files(live: dict[str, int] | None, before: dict[str, int] | None) -> _TableFiles | None:
-    """``before`` holds the files that were live when the run started. A rebuild passes an empty mapping."""
-    if live is None or before is None:
+    """``before`` holds the files that were live when the run started: empty for a rebuild, None when unknown."""
+    if live is None:
         return None
-    written = [size for path, size in live.items() if path not in before]
+    written = None if before is None else [size for path, size in live.items() if path not in before]
     return _TableFiles(
         table_files=len(live),
         table_bytes=sum(live.values()),
-        written_files=len(written),
-        written_bytes=sum(written),
+        written_files=None if written is None else len(written),
+        written_bytes=None if written is None else sum(written),
     )
 
 
@@ -1203,7 +1201,7 @@ async def _materialize_fully(
         await _compact(delta_table)
         await _vacuum(delta_table, logger)
         file_uris = delta_table.file_uris()
-        files = _table_files(await _live_file_sizes(delta_table, logger), before={})
+        files = _table_files(await _live_file_sizes(delta_table), before={})
         if not file_uris and row_count == 0 and pa_schema is not None:
             # delta-rs writes no parquet for an empty batch. emit one so the
             # queryable folder has a file with a schema attached that's queryable
@@ -1249,7 +1247,9 @@ async def _materialize_incrementally(
     # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
     # consumes at runtime even though its stubs don't advertise it.
     target_schema = pa.schema(typing.cast(typing.Any, delta_table.schema().to_arrow()))
-    files_before = await _live_file_sizes(delta_table, logger)
+    # Rows on the job at this point come from an earlier attempt of the same run. That attempt's files are
+    # already live and nothing marks them as this run's, so the files the run wrote stay unmeasured.
+    files_before = None if objects.job.rows_materialized else await _live_file_sizes(delta_table)
     window = IncrementalWindow(incremental_key=config.incremental_key, since=plan.since)
 
     row_count = 0
@@ -1334,7 +1334,7 @@ async def _materialize_incrementally(
     return _WriteOutcome(
         row_count=row_count,
         file_uris=delta_table.file_uris(),
-        files=_table_files(await _live_file_sizes(delta_table, logger), before=files_before),
+        files=_table_files(await _live_file_sizes(delta_table), before=files_before),
     )
 
 
@@ -1369,8 +1369,11 @@ def _record_table_files(job: DataModelingJob, files: _TableFiles | None) -> None
     job.table_bytes = files.table_bytes
     job.written_files = files.written_files
     job.written_bytes = files.written_bytes
-    # updated_at is listed because save() only applies auto_now to the fields it writes.
-    job.save(update_fields=["table_files", "table_bytes", "written_files", "written_bytes", "updated_at"])
+    try:
+        job.save(update_fields=["table_files", "table_bytes", "written_files", "written_bytes", "updated_at"])
+    except Exception as error:
+        # The table and the watermark are committed by now, so a failed save must not make Temporal repeat them.
+        capture_exception(error)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)

@@ -87,7 +87,7 @@ class Migration(migrations.Migration):
             name="written_files",
             field=models.IntegerField(
                 blank=True,
-                help_text="Parquet files this run added to the Delta table that were live when it ended.",
+                help_text="Parquet files this run added to the Delta table that were live when it ended. Null when an earlier attempt of the run had already written rows.",
                 null=True,
             ),
         ),

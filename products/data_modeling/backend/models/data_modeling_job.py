@@ -91,7 +91,10 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         "A killed attempt adds nothing.",
     )
     written_files = models.IntegerField(
-        null=True, blank=True, help_text="Parquet files this run added to the Delta table that were live when it ended."
+        null=True,
+        blank=True,
+        help_text="Parquet files this run added to the Delta table that were live when it ended. "
+        "Null when an earlier attempt of the run had already written rows.",
     )
     written_bytes = models.BigIntegerField(null=True, blank=True, help_text="Total size of written_files.")
     table_files = models.IntegerField(

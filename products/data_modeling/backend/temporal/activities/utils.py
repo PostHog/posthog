@@ -2,8 +2,8 @@ import re
 import time
 import datetime as dt
 import contextlib
-from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncIterator, Awaitable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
@@ -66,18 +66,28 @@ CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 QUALITY_BLOCKED_ERROR_PREFIX = "Not published:"
 
 
+# QuerySet.update skips auto_now, and the warehouse mirror syncs rows by updated_at, so both writes set it.
 @database_sync_to_async_pool
-def _add_worker_time(team_id: int, job_id: str, seconds: float, attempt: int | None) -> None:
+def _record_attempt(team_id: int, job_id: str, attempt: int) -> None:
+    DataModelingJob.objects.filter(id=job_id, team_id=team_id).update(
+        attempts=attempt, updated_at=dt.datetime.now(dt.UTC)
+    )
+
+
+@database_sync_to_async_pool
+def _add_worker_time(team_id: int, job_id: str, seconds: float) -> None:
     # An increment in SQL, because the activities of one run each add their own time and an
     # assignment from a job loaded earlier would drop what another one added.
-    # QuerySet.update skips auto_now, and the warehouse mirror syncs rows by updated_at.
-    updates: dict[str, Any] = {
-        "worker_seconds": Coalesce(F("worker_seconds"), 0.0) + seconds,
-        "updated_at": dt.datetime.now(dt.UTC),
-    }
-    if attempt is not None:
-        updates["attempts"] = attempt
-    DataModelingJob.objects.filter(id=job_id, team_id=team_id).update(**updates)
+    DataModelingJob.objects.filter(id=job_id, team_id=team_id).update(
+        worker_seconds=Coalesce(F("worker_seconds"), 0.0) + seconds, updated_at=dt.datetime.now(dt.UTC)
+    )
+
+
+async def _report_failure(write: Awaitable[None]) -> None:
+    try:
+        await write
+    except Exception as error:
+        capture_exception(error)
 
 
 @contextlib.asynccontextmanager
@@ -85,17 +95,17 @@ async def record_worker_time(team_id: int, job_id: str, *, attempt: int | None =
     """Add the wall-clock time of the block to the job's ``worker_seconds``, however the block ends.
 
     ``attempt`` is the Temporal attempt number of the activity that defines the job's ``attempts``.
-    Temporal counts a killed attempt too, so the number stays right when ``worker_seconds`` misses one.
+    It is saved before the block runs, because a killed worker never reaches the end of the block.
+    Both numbers are measurements, so a failed write is reported and never replaces the block's own
+    result or error.
     """
+    if attempt is not None:
+        await _report_failure(_record_attempt(team_id, job_id, attempt))
     started = time.monotonic()
     try:
         yield
     finally:
-        try:
-            await _add_worker_time(team_id, job_id, time.monotonic() - started, attempt)
-        except Exception as error:
-            # The time is a measurement. A failed write must not replace the activity's own result or error.
-            capture_exception(error)
+        await _report_failure(_add_worker_time(team_id, job_id, time.monotonic() - started))
 
 
 def get_previous_jobs(
