@@ -1,14 +1,16 @@
 import { IconChevronRight } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { isValidRegexp } from 'lib/utils/regexp'
 
 import { PathCleaningFilter } from '~/types'
 
 import { parseAliasToReadable } from './PathCleanFilterItem'
 import { applyPathCleaningRule } from './pathCleaningUtils'
+import { QuillPathCleaningRulesDebugger } from './QuillPathCleaningRulesDebugger'
 
-interface ProcessingStep {
+export interface ProcessingStep {
     stepNumber: number
     filter: PathCleaningFilter
     inputPath: string
@@ -51,7 +53,12 @@ export function PathCleaningRulesDebugger({
     filters,
     finalResult,
 }: PathCleaningRulesDebuggerProps): JSX.Element | null {
+    const quillSurface = useQuillSurface()
     const debugSteps = cleanPathWithDebugSteps(testPath, filters)
+
+    if (quillSurface) {
+        return <QuillPathCleaningRulesDebugger debugSteps={debugSteps} finalResult={finalResult} />
+    }
 
     return (
         <div className="mt-3">

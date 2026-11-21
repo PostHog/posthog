@@ -5,6 +5,7 @@ it once and ARRAY JOINs each call into every dimension a card needs, rather than
 Tool, harness and lab are computed with the dashboard's own expressions, so the two count the same way.
 """
 
+import math
 from collections.abc import Sequence
 from datetime import date, datetime
 from enum import StrEnum
@@ -200,7 +201,8 @@ def _aggregates_from_rows(rows: Sequence[Sequence[Any]]) -> WrappedAggregates:
                 key=str(key),
                 calls=int(calls),
                 errors=int(errors),
-                p95_duration_ms=None if p95 is None else float(p95),
+                # The p95 ends up in a Postgres jsonb payload, which cannot store NaN or infinity.
+                p95_duration_ms=float(p95) if p95 is not None and math.isfinite(p95) else None,
                 calls_without_duration=int(without_duration),
             )
         )

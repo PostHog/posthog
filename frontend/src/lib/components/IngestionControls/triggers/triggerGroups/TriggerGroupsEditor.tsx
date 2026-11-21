@@ -18,7 +18,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS, TeamMembershipLevel } from 'lib/constants'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { TRIGGER_GROUPS_MIN_SDK_VERSION } from 'scenes/settings/environment/ReplayTriggers'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
@@ -28,49 +27,20 @@ import {
     SessionRecordingTriggerGroup,
     TriggerPropertyFilter,
 } from '~/lib/components/IngestionControls/types'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { CreateFromLegacyModal } from './CreateFromLegacyModal'
 import { replayTriggersV2Logic } from './replayTriggersV2Logic'
 import { TriggerGroupCard } from './TriggerGroupCard'
 import { triggerGroupFormLogic } from './triggerGroupFormLogic'
-
-/** Operators supported by the SDK for trigger property evaluation */
-const SUPPORTED_OPERATORS: PropertyOperator[] = [
-    PropertyOperator.Exact,
-    PropertyOperator.IsNot,
-    PropertyOperator.IContains,
-    PropertyOperator.NotIContains,
-    PropertyOperator.Regex,
-    PropertyOperator.NotRegex,
-    PropertyOperator.GreaterThan,
-    PropertyOperator.LessThan,
-]
-
-/** Convert our trigger property filters to the AnyPropertyFilter format PropertyFilters component expects */
-function triggerFiltersToPropertyFilters(filters: TriggerPropertyFilter[]): AnyPropertyFilter[] {
-    return filters.map(
-        (f) =>
-            ({
-                key: f.key,
-                type: f.type === 'person' ? PropertyFilterType.Person : PropertyFilterType.Event,
-                operator: (f.operator as PropertyOperator) || PropertyOperator.Exact,
-                value: f.value ?? '',
-            }) as AnyPropertyFilter
-    )
-}
-
-/** Convert PropertyFilters output back to our trigger property filter format */
-function propertyFiltersToTriggerFilters(filters: AnyPropertyFilter[]): TriggerPropertyFilter[] {
-    return filters
-        .filter((f) => f.key)
-        .map((f) => ({
-            key: f.key!,
-            type: f.type === PropertyFilterType.Person ? ('person' as const) : ('event' as const),
-            operator: 'operator' in f ? (f.operator as TriggerPropertyFilter['operator']) : 'exact',
-            value: 'value' in f ? (f.value as TriggerPropertyFilter['value']) : undefined,
-        }))
-}
+import {
+    confirmDeleteTriggerGroup,
+    propertyFiltersToTriggerFilters,
+    SUPPORTED_OPERATORS,
+    triggerFiltersToPropertyFilters,
+    triggerGroupDisplayName,
+    urlMatchesAnyPattern,
+    withAddedEvents,
+} from './triggerGroupHelpers'
 
 export function TriggerGroupsEditor(): JSX.Element {
     const {
@@ -101,28 +71,8 @@ export function TriggerGroupsEditor(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const handleDeleteTriggerGroup = (id: string): void => {
-        if (triggerGroups.length === 1) {
-            setDeleteModalGroupId(id)
-        } else {
-            // Standard confirmation for non-last groups
-            const group = triggerGroups.find((g) => g.id === id)
-            const displayName = group?.name || `Trigger group ${id.slice(0, 8)}`
-
-            LemonDialog.open({
-                title: 'Delete trigger group?',
-                description: `Are you sure you want to delete "${displayName}"? This cannot be undone.`,
-                primaryButton: {
-                    children: 'Delete',
-                    status: 'danger',
-                    onClick: () => deleteTriggerGroup(id),
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
-            })
-        }
-    }
+    const handleDeleteTriggerGroup = (id: string): void =>
+        confirmDeleteTriggerGroup(triggerGroups, id, setDeleteModalGroupId, deleteTriggerGroup)
 
     return (
         <div className="space-y-4">
@@ -238,10 +188,10 @@ export function TriggerGroupsEditor(): JSX.Element {
                         deleteTriggerGroup(deleteModalGroupId)
                     }
                 }}
-                groupName={
-                    triggerGroups.find((g) => g.id === deleteModalGroupId)?.name ||
-                    `Trigger group ${deleteModalGroupId?.slice(0, 8)}`
-                }
+                groupName={triggerGroupDisplayName(
+                    triggerGroups.find((g) => g.id === deleteModalGroupId)?.name,
+                    deleteModalGroupId
+                )}
             />
         </div>
     )
@@ -332,9 +282,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
     } = useActions(logic)
 
     const handleAddEvent = (events: string[]): void => {
-        const existingNames = new Set(triggerGroup.events.map((e) => e.name))
-        const newEvents = events.filter((name) => !existingNames.has(name)).map((name) => ({ name }))
-        setTriggerGroupValue('events', [...triggerGroup.events, ...newEvents])
+        setTriggerGroupValue('events', withAddedEvents(triggerGroup.events, events))
     }
 
     return (
@@ -472,14 +420,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         />
                                         {testUrl && (
                                             <div className="text-xs mt-1">
-                                                {triggerGroup.urls.some((urlConfig) => {
-                                                    try {
-                                                        const regex = new RegExp(urlConfig.url)
-                                                        return regex.test(testUrl)
-                                                    } catch {
-                                                        return false
-                                                    }
-                                                }) ? (
+                                                {urlMatchesAnyPattern(triggerGroup.urls, testUrl) ? (
                                                     <span className="text-success">Matches at least one pattern</span>
                                                 ) : (
                                                     <span className="text-danger">

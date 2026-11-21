@@ -8,13 +8,16 @@ import {
     LemonSegmentedButton,
     LemonSkeleton,
 } from '@posthog/lemon-ui'
+import { Button, Item, ItemActions, ItemContent, ItemDescription, Skeleton } from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { heatmapCaptureSettingsLogic } from './heatmapCaptureSettingsLogic'
+import { QuillHeatmapCaptureSettings } from './QuillHeatmapCaptureSettings'
 
 export function HeatmapCaptureSettings(): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
@@ -38,8 +41,24 @@ export function HeatmapCaptureSettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (loadError) {
+        if (todayRailNav) {
+            return (
+                <Item tone="destructive" size="sm">
+                    <ItemContent>
+                        <ItemDescription>Could not load heatmap capture settings. Try again.</ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                        <Button variant="outline" onClick={loadSettings}>
+                            Retry
+                        </Button>
+                    </ItemActions>
+                </Item>
+            )
+        }
+
         return (
             <LemonBanner type="error" action={{ children: 'Retry', onClick: loadSettings }}>
                 Could not load heatmap capture settings. Try again.
@@ -47,7 +66,34 @@ export function HeatmapCaptureSettings(): JSX.Element {
         )
     }
     if (!settings) {
-        return <LemonSkeleton />
+        return todayRailNav ? <Skeleton className="h-8 max-w-160" /> : <LemonSkeleton />
+    }
+
+    const handleUrlAllowlistChange = (value: string[]): void => {
+        setUrlAllowlist(captureUrlLimit != null ? value.slice(0, captureUrlLimit) : value)
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillHeatmapCaptureSettings
+                settings={settings}
+                settingsLoading={settingsLoading}
+                captureMode={captureMode}
+                urlAllowlist={urlAllowlist}
+                hasChanges={hasChanges}
+                saveError={saveError}
+                canCaptureAllUrls={canCaptureAllUrls}
+                captureUrlLimit={captureUrlLimit}
+                disabledPages={disabledPages}
+                pagesLoading={pagesLoading}
+                pagesError={pagesError}
+                restrictedReason={restrictedReason}
+                onCaptureModeChange={setCaptureMode}
+                onUrlAllowlistChange={handleUrlAllowlistChange}
+                onRetryPages={loadPages}
+                onSave={saveSettings}
+            />
+        )
     }
 
     const isAllowlist = captureMode === 'url_allowlist'
@@ -106,9 +152,7 @@ export function HeatmapCaptureSettings(): JSX.Element {
                         allowCustomValues
                         value={urlAllowlist}
                         options={urlAllowlist.map((url) => ({ key: url, label: url }))}
-                        onChange={(value) =>
-                            setUrlAllowlist(captureUrlLimit != null ? value.slice(0, captureUrlLimit) : value)
-                        }
+                        onChange={handleUrlAllowlistChange}
                         placeholder="https://example.com/pricing"
                         limit={captureUrlLimit ?? undefined}
                         disabled={!!restrictedReason || settingsLoading}

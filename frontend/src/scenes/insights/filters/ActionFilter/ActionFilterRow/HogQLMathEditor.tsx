@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { QuillHogQLMathPopover } from './QuillHogQLMathPopover'
 
