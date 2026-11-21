@@ -983,10 +983,6 @@ def calculate_cohort_from_list(
     )
 
 
-def _discard_population_history(history: CohortCalculationHistory) -> None:
-    history.delete()
-
-
 def _finalize_population_history(
     history: CohortCalculationHistory,
     *,
@@ -1030,14 +1026,16 @@ def _check_population_ownership(cohort: Cohort, *, mode: str | None) -> bool | N
     """
     from products.cohorts.backend.models.util import owns_population_run
 
-    owns_cohort: bool | None = None
-
-    def _check() -> None:
-        nonlocal owns_cohort
-        owns_cohort = owns_population_run(cohort, marker=cohort.population_marker, mode=mode, claimed_at=cohort.population_claimed_at)
-
-    save_recovery_bookkeeping(_check, cohort_id=cohort.pk, team_id=cohort.team_id)
-    return owns_cohort
+    return save_recovery_bookkeeping(
+        lambda: owns_population_run(
+            cohort,
+            marker=cohort.population_marker,
+            mode=mode,
+            claimed_at=cohort.population_claimed_at,
+        ),
+        cohort_id=cohort.pk,
+        team_id=cohort.team_id,
+    )
 
 
 def _delete_failed_replace_attempt(cohort: Cohort, *, log_prefix: str, replacing: bool) -> bool:
@@ -1071,23 +1069,6 @@ def _delete_failed_replace_attempt(cohort: Cohort, *, log_prefix: str, replacing
     return True
 
 
-def _population_state_update(cohort: Cohort, *, processing_error: BaseException | None) -> dict[str, Any]:
-    """The calculation-state columns a finished population writes, as ``Cohort._safe_save_cohort_state`` writes them."""
-    if processing_error is None:
-        return {
-            "is_calculating": False,
-            "count": cohort.count,
-            "last_calculation": timezone.now(),
-            "errors_calculating": 0,
-        }
-    return {
-        "is_calculating": False,
-        "count": cohort.count,
-        "errors_calculating": F("errors_calculating") + 1,
-        "last_error_at": timezone.now(),
-    }
-
-
 def _release_population_claim(
     cohort: Cohort,
     *,
@@ -1095,30 +1076,27 @@ def _release_population_claim(
     processing_error: BaseException | None,
     finished_replace: tuple[datetime, datetime] | None,
 ) -> bool | None:
-    """Release the run last: clear its fields and save the final cohort state in one update guarded on its mode and marker.
+    """Release the run last: clear its fields and save the final cohort state in one update guarded on its mode, marker and claim time.
 
     Until this update lands every run field stays stored, so a kill anywhere before it leaves the sweep to redispatch
     the run as a replace, with ``population_copy_started`` and ``population_first_marker`` kept. Returns True when
-    the release landed, False when the mode or marker changed since the ownership check and nothing was written, and
-    None when Postgres failed while writing it.
+    the release landed, False when the mode, marker or claim time changed since the ownership check and nothing was
+    written, and None when Postgres failed while writing it.
     """
     from products.cohorts.backend.models.util import clear_population_run_fields
 
-    released: bool | None = None
-
-    def _release() -> None:
-        nonlocal released
-        released = clear_population_run_fields(
+    return save_recovery_bookkeeping(
+        lambda: clear_population_run_fields(
             cohort,
             marker=cohort.population_marker,
             mode=mode,
             claimed_at=cohort.population_claimed_at,
-            state=_population_state_update(cohort, processing_error=processing_error),
+            state=cohort.calculation_state_update(processing_error=processing_error),
             finished_replace=finished_replace,
-        )
-
-    save_recovery_bookkeeping(_release, cohort_id=cohort.pk, team_id=cohort.team_id)
-    return released
+        ),
+        cohort_id=cohort.pk,
+        team_id=cohort.team_id,
+    )
 
 
 def _replace_floor(cohort: Cohort, marker: datetime) -> datetime:
@@ -1436,9 +1414,8 @@ def _populate_static_cohort(
             # otherwise close it (including on a DB failure during the ownership check, where owns_cohort is None).
             if history is not None:
                 if superseded is not None or owns_cohort is False:
-                    lost_history = history
                     save_recovery_bookkeeping(
-                        lambda: _discard_population_history(lost_history),
+                        history.delete,
                         cohort_id=cohort_id,
                         team_id=claimed.team_id,
                     )

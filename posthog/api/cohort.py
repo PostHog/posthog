@@ -2332,23 +2332,18 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # The request time is the floor a replace keeps members from: an add made after it, while the population
         # waits in the queue or between attempts, survives the prune.
         claimed_at = population_timestamp_now()
-        claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(
-            is_calculating=True,
-            pending_population_mode=claim_mode,
-            population_marker=None,
-            population_claimed_at=claimed_at,
-            population_copy_started=False,
-            population_first_marker=None,
-        )
+        claim_update: dict[str, Any] = {
+            **PENDING_POPULATION_CLEARED,
+            "is_calculating": True,
+            "pending_population_mode": claim_mode,
+            "population_claimed_at": claimed_at,
+        }
+        claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(**claim_update)
         if not claimed:
             raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
         # Keep the in-memory instance aligned with the claim update for serialization and callers after update.
-        cohort.is_calculating = True
-        cohort.pending_population_mode = claim_mode
-        cohort.population_marker = None
-        cohort.population_claimed_at = claimed_at
-        cohort.population_copy_started = False
-        cohort.population_first_marker = None
+        for field, value in claim_update.items():
+            setattr(cohort, field, value)
 
     def _enqueue_query_population(self, cohort: Cohort) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query

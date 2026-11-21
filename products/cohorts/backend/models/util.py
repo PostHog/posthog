@@ -304,28 +304,29 @@ def close_open_population_attempts(
     )
 
 
-def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int | None = None) -> None:
+def save_recovery_bookkeeping(save_fn: Callable[[], _T], *, cohort_id: int, team_id: int | None = None) -> _T | None:
     """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
 
     A long recalculation can outlive its connection (the server closes it unexpectedly); the first
     write afterwards then raises a connection error. Left unguarded on the error/finally recovery
     path, that cascades into "the connection is closed" - burying the real root-cause error and
     leaving the cohort stuck with is_calculating=True. Reconnect and retry once so the bookkeeping
-    still lands and the original error is what propagates; if the retry fails too, swallow it (a
-    recovery write must never mask the failure it is recording).
+    still lands and the original error is what propagates; if the retry fails too, swallow it and
+    return None (a recovery write must never mask the failure it is recording).
     """
     try:
-        save_fn()
+        return save_fn()
     except (InterfaceError, OperationalError):
         connections[DEFAULT_DB_ALIAS].close()  # next query opens a fresh connection
         try:
-            save_fn()
+            return save_fn()
         except Exception as retry_error:
             # A swallowed retry means the cohort is stuck with is_calculating=True and no bookkeeping
             # recorded. Surface it to error tracking, matching how other swallowed cohort-calculation
             # errors are captured, so it alerts rather than only living in structured logs.
             logger.warning("cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True)
             capture_exception(retry_error, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
+            return None
 
 
 def _schedule_cohort_stats_collection(

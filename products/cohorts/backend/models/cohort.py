@@ -1476,6 +1476,22 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 additional_properties={"cohort_id": self.id, "team_id": team_id},
             )
 
+    def calculation_state_update(self, *, processing_error: Any = None) -> dict[str, Any]:
+        """The calculation-state columns written when a cohort calculation or population finishes."""
+        if processing_error is None:
+            return {
+                "is_calculating": False,
+                "count": self.count,
+                "last_calculation": timezone.now(),
+                "errors_calculating": 0,
+            }
+        return {
+            "is_calculating": False,
+            "count": self.count,
+            "errors_calculating": F("errors_calculating") + 1,
+            "last_error_at": timezone.now(),
+        }
+
     def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
         """
         Save only the cohort's calculation-state fields with a single retry on failure.
@@ -1489,16 +1505,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             team_id: Team ID for logging context
             processing_error: Error from processing, if any. Used to update error state.
         """
-        self.is_calculating = False
-
-        if processing_error is None:
-            self.last_calculation = timezone.now()
-            self.errors_calculating = 0
-            save_fields = ["is_calculating", "last_calculation", "errors_calculating", "count"]
-        else:
-            self.errors_calculating = F("errors_calculating") + 1
-            self.last_error_at = timezone.now()
-            save_fields = ["is_calculating", "errors_calculating", "last_error_at", "count"]
+        state = self.calculation_state_update(processing_error=processing_error)
+        for field, value in state.items():
+            setattr(self, field, value)
+        save_fields = list(state)
         try:
             self.save(update_fields=save_fields)
         except Exception as save_err:
