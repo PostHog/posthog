@@ -1076,6 +1076,7 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
 
 
+MOVES_STEPS_TO_SANDBOX_SENDER = "moves_steps_to_sandbox_sender"
 SANDBOX_SENDER_SET_UP_IN_WRITE = "sandbox_sender_set_up_in_write"
 SANDBOX_SENDER_SETUP_FAILURES = Counter(
     "workflows_sandbox_sender_setup_failures_total",
@@ -1140,6 +1141,7 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
             moved = True
     if not moved:
         return data
+    context[MOVES_STEPS_TO_SANDBOX_SENDER] = True
     return {**data, "actions": converted}
 
 
@@ -6470,7 +6472,10 @@ class HogFlowViewSet(
 
     def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
         step_ids = _test_sender_step_ids(cast(dict, serializer.validated_data).get("actions"))
-        if step_ids and self._set_up_sandbox_sender_in_the_write(getattr(serializer.instance, "id", None), step_ids):
+        if serializer.context.get(MOVES_STEPS_TO_SANDBOX_SENDER):
+            provision_sandbox_sender(self.team, cast(User, self.request.user))
+            serializer.context[SANDBOX_SENDER_SET_UP_IN_WRITE] = True
+        elif step_ids and self._set_up_sandbox_sender_in_the_write(getattr(serializer.instance, "id", None), step_ids):
             serializer.context[SANDBOX_SENDER_SET_UP_IN_WRITE] = True
         elif serializer.instance is not None:
             self._set_up_sandbox_sender_after_commit(serializer)

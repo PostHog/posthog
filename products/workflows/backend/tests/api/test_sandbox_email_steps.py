@@ -785,11 +785,17 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("real_test", False, "trigger_node"),
             ("real_test", False, None),
             ("mocked_test", False, SANDBOX_STEP_ID),
+            ("real_test", False, SANDBOX_STEP_ID, True),
         ]
     )
     def test_a_test_sender_step_sets_up_the_test_sender_before_it_sends(
-        self, path: str, expected: bool, tested_step: str | None
+        self, path: str, expected: bool, tested_step: str | None, setup_fails: bool = False
     ) -> None:
+        fault = patch.object(
+            IntegrationManager.email_sandbox.credentials,
+            "create",
+            side_effect=self._failing_sql if setup_fails else IntegrationManager.email_sandbox.credentials.create,
+        )
         set_up_at_forward: list[bool] = []
         forwarded: list[dict] = []
 
@@ -798,7 +804,12 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             forwarded.append(json.loads(request.body))
             return 200, {}, json.dumps({"status": "success"})
 
-        with _flag(True), _runtime(True), responses.RequestsMock(assert_all_requests_are_fired=False) as executor:
+        with (
+            _flag(True),
+            _runtime(True),
+            fault,
+            responses.RequestsMock(assert_all_requests_are_fired=False) as executor,
+        ):
             executor.add_callback(
                 responses.POST,
                 f"{settings.CDP_API_URL}/api/projects/{self.team.id}/hog_flows/new/invocations",
@@ -828,21 +839,36 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             [] if path == "web_save" else [(tested_step, path == "mocked_test")]
         )
 
+    def _failing_sql(self, *args: Any, **kwargs: Any) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1 / 0")
+
+    def test_an_api_step_moved_to_the_test_sender_fails_its_save_when_setup_fails(self) -> None:
+        self._sender("mail0.example.com", stopped=True)
+        fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=self._failing_sql)
+
+        with _flag(True), fault:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                _flow(_own_email_step(None)),
+                format="json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == 500
+        assert not HogFlow.objects.filter(team=self.team).exists()
+        assert not self._sandbox_sender_is_set_up()
+
     @parameterized.expand(
         [
-            ("setup_fails", False, False, False),
-            ("already_set_up", True, False, False),
-            ("setup_fails_for_an_api_step_moved_to_the_test_sender", False, True, False),
-            ("setup_fails_once_and_runs_again_after_commit", False, False, True),
+            ("setup_fails", False, False),
+            ("already_set_up", True, False),
+            ("setup_fails_once_and_runs_again_after_commit", False, True),
         ]
     )
-    def test_a_save_never_waits_on_test_sender_setup(
-        self, _name: str, already_set_up: bool, from_api: bool, fails_once: bool
-    ) -> None:
+    def test_a_save_never_waits_on_test_sender_setup(self, _name: str, already_set_up: bool, fails_once: bool) -> None:
         if already_set_up:
             provision_sandbox_sender(self.team, self.user)
-        if from_api:
-            self._sender("mail0.example.com", stopped=True)
         rows_before = list(
             Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True)
         )
@@ -853,11 +879,9 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             attempts.append("create")
             if fails_once and len(attempts) > 1:
                 return create(*args, **kwargs)
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT 1 / 0")
+            self._failing_sql()
 
         fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=create_or_fail)
-        headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT": "mcp"} if from_api else {}
 
         with (
             _flag(True),
@@ -867,10 +891,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows",
-                _flow(_own_email_step(None) if from_api else _sandbox_step()),
-                format="json",
-                **headers,
+                f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
             )
 
         assert response.status_code == 201, response.json()
