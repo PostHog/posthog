@@ -67,6 +67,7 @@ env:
         bin/fix-rdkafka-paths
         .github/actions/pnpm-install
         .github/actions/setup-pnpm
+        .github/actions/setup-rust
         .github/workflows/release-hog.yml
     # The approver checks run hog/release/check-approvers.sh as the last release tag has it, and pass
     # HOG_SOURCE_PATHS, plus the compiled files where a build listed them, as extra paths. Owners are the
