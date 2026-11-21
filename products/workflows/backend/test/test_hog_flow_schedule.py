@@ -536,6 +536,10 @@ class TestProcessDueSchedules(APIBaseTest):
         assert schedule.next_run_at is None
 
 
+def _is_integer(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 class FakeCdpScheduledRuns:
     URL = f"{CDP_API_URL}/api/hog_flows/scheduled_invocations"
 
@@ -548,6 +552,7 @@ class FakeCdpScheduledRuns:
         self.requests: list[list[dict[str, Any]]] = []
         self.schedules_unclaimed_at_request: list[int] = []
         self.claimed_runs_unsent_at_batch_handoff: list[int] = []
+        self.runs_received_at_batch_handoff: list[int] = []
         self.broadcasts_claimed_without_a_job_at_request: list[int] = []
         self.outcome_by_hog_flow: dict[str, str] = {}
         self.status_code = 200
@@ -566,12 +571,13 @@ class FakeCdpScheduledRuns:
             HogFlowSchedule.objects.exclude(hog_flow__trigger__type="batch").exclude(next_run_at=self.UNCLAIMED).count()
         )
         self.claimed_runs_unsent_at_batch_handoff.append(claimed_runs - len(self.received_runs))
+        self.runs_received_at_batch_handoff.append(len(self.received_runs))
         return 200, {}, "{}"
 
     @staticmethod
-    def _token_team_ids(authorization: str) -> set[int]:
+    def _token_team_ids(authorization: str) -> set[int] | None:
         if not authorization.startswith("Bearer "):
-            return set()
+            return None
         try:
             claims = jwt.decode(
                 authorization.removeprefix("Bearer "),
@@ -580,9 +586,9 @@ class FakeCdpScheduledRuns:
                 algorithms=["HS256"],
             )
         except jwt.InvalidTokenError:
-            return set()
-        if not all(isinstance(team_id, int) for team_id in claims["team_ids"]):
-            return set()
+            return None
+        if not all(_is_integer(team_id) for team_id in claims["team_ids"]):
+            return None
         return set(claims["team_ids"])
 
     @property
@@ -600,13 +606,12 @@ class FakeCdpScheduledRuns:
             return 415, {}, json.dumps({"error": "Unsupported media type"})
         runs = json.loads(request.body)["runs"]
         if len(runs) > 100 or not all(
-            isinstance(run["team_id"], int)
-            and isinstance(run["hog_flow_id"], str)
-            and isinstance(run["variables"], dict)
+            _is_integer(run["team_id"]) and isinstance(run["hog_flow_id"], str) and isinstance(run["variables"], dict)
             for run in runs
         ):
             return 400, {}, json.dumps({"error": "Invalid scheduled runs"})
-        if not {run["team_id"] for run in runs} <= self._token_team_ids(request.headers.get("Authorization", "")):
+        token_team_ids = self._token_team_ids(request.headers.get("Authorization", ""))
+        if token_team_ids is None or not {run["team_id"] for run in runs} <= token_team_ids:
             return 401, {}, json.dumps({"error": "Unauthorized: Invalid scheduled runs token"})
         self.requests.append(runs)
         self.schedules_unclaimed_at_request.append(HogFlowSchedule.objects.filter(next_run_at=self.UNCLAIMED).count())
@@ -703,6 +708,7 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
         assert len(response.json()["processed"]) == 3
         assert [len(request) for request in self.cdp.requests] == [2]
+        assert self.cdp.runs_received_at_batch_handoff == [2]
         assert self.cdp.claimed_runs_unsent_at_batch_handoff == [0]
         assert self.cdp.broadcasts_claimed_without_a_job_at_request == [0]
 

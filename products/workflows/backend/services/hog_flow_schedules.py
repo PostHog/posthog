@@ -257,9 +257,11 @@ def process_due_schedules() -> ProcessedSchedules:
         ).values_list("id", "hog_flow__trigger__type")
     )
 
-    due_schedules.sort(key=lambda due: due[1] != "batch")
+    due_schedules.sort(key=lambda due: due[1] == "batch")
 
-    for schedule_id, _ in due_schedules:
+    for schedule_id, trigger_type_at_scan in due_schedules:
+        if trigger_type_at_scan == "batch":
+            dispatch.flush()
         try:
             batch_job_params: dict | None = None
             scheduled_run: ScheduledRun | None = None
