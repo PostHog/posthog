@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 
 from unittest import TestCase
 
@@ -9,12 +10,24 @@ from posthog.schema import MultipleVariantHandling
 
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingSeverity
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthCheckKey,
+    ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
+    ExperimentHealthFindingSeverity,
+)
 from products.experiments.backend.health.checks.srm import reads_segments, srm
-from products.experiments.backend.health.context import ExposureSegment, ExposureTotals, parse_flag_state
+from products.experiments.backend.health.context import (
+    ExposureEvents,
+    ExposureSegment,
+    ExposureTotals,
+    HealthContext,
+    parse_flag_state,
+)
 from products.experiments.backend.health.skips import CheckSkip
-from products.experiments.backend.health.test.factories import RUNNING_CONTEXT
+from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT, flag_history
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
+from products.feature_flags.backend.facade.edits import ConditionsChange, parse_release_conditions
 
 LIBRARY = ExposureSegmentDimension.LIBRARY
 LIBRARY_VERSION = ExposureSegmentDimension.LIBRARY_VERSION
@@ -461,6 +474,11 @@ class TestSrmCauses(TestCase):
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(((outcome.subcode, reads_segments(ctx)), outcome.detail), (expected, detail))
+        # The forced-variant finding names the overrides and how to remove them, which fixes the mismatch too.
+        self.assertEqual(
+            outcome.caused_by,
+            ExperimentHealthCheckKey.FORCED_VARIANT_RELEASE_CONDITION if outcome.subcode else None,
+        )
 
     def test_leaves_a_split_that_assigns_nobody_to_the_variant_override_finding(self) -> None:
         ctx = replace(
@@ -480,3 +498,117 @@ class TestSrmCauses(TestCase):
         self.assertEqual(
             outcome.reason, "The split assigns nobody, because every release condition sets a variant override"
         )
+
+
+OVERRIDE_REMOVED_AT = datetime(2026, 11, 7, 5, 26, 30, tzinfo=UTC)
+TARGETED = {
+    "properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}],
+    "rollout_percentage": 100,
+}
+
+
+def _conditions_changed(before: list[dict[str, object]], after: list[dict[str, object]]) -> HealthContext:
+    change = ConditionsChange(
+        changed_at=OVERRIDE_REMOVED_AT,
+        before=parse_release_conditions(before, variant_keys=["control", "test"]),
+        after=parse_release_conditions(after, variant_keys=["control", "test"]),
+    )
+    return replace(
+        RUNNING_CONTEXT,
+        flag=parse_flag_state(active=True, deleted=False, groups=after, variants=EVEN_SPLIT),
+        flag_history=flag_history([change], start_date=OVERRIDE_REMOVED_AT - timedelta(days=5)),
+    )
+
+
+def _by_day(before: dict[str, int], on_change_day: dict[str, int], after: dict[str, int]) -> ExposureTotals:
+    days = {date(2026, 11, 5): before, date(2026, 11, 7): on_change_day, date(2026, 11, 9): after}
+    total_exposures = {variant: sum(counts[variant] for counts in days.values()) for variant in before}
+    whole_run = sum(total_exposures.values())
+    return replace(
+        _exposures(None),
+        total_exposures=total_exposures,
+        sample_ratio_expected={"control": whole_run / 2, "test": whole_run / 2},
+        daily_exposures={variant: {day: counts[variant] for day, counts in days.items()} for variant in before},
+    )
+
+
+OVERRIDE_REMOVED = _conditions_changed(
+    [_pinned_to("test"), EVERYONE], [{**_pinned_to("test"), "variant": None}, EVERYONE]
+)
+SKEWED_BEFORE = _by_day({"control": 100, "test": 300}, {"control": 20, "test": 20}, {"control": 250, "test": 250})
+
+
+class TestSrmAfterReleaseConditionChange(TestCase):
+    def test_names_an_override_change_that_explains_the_mismatch(self) -> None:
+        ctx = replace(OVERRIDE_REMOVED, exposures=SKEWED_BEFORE)
+
+        outcome = srm(ctx)
+
+        assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual(
+            (outcome.subcode, outcome.title, outcome.actions, outcome.caused_by, reads_segments(ctx)),
+            (
+                "release_conditions_changed",
+                "Users are not split as configured after a release condition change",
+                (ExperimentHealthFindingActionKind.MOVE_START_DATE,),
+                ExperimentHealthCheckKey.RELEASE_CONDITIONS_CHANGED_MID_RUN,
+                False,
+            ),
+        )
+        self.assertEqual(
+            outcome.detail,
+            "The distribution of users across variants doesn't match your current rollout percentages (p < 0.001). "
+            "The release conditions changed on November 7, 2026 at 6:26 AM CET, for example with a variant override "
+            "set or removed, so some users exposed before the change got another variant after it. The users first "
+            "exposed after the day of the change match the current split (p = 1), and those exposed before it are "
+            "split differently, so the change explains the mismatch. Move the start date to November 7, 2026 at "
+            "6:27 AM CET, or reset the experiment. A reset returns the experiment to draft, and once you launch it "
+            "again, the results count only exposures from then on.",
+        )
+        self.assertEqual(outcome.evidence["suggested_start_date"], "2026-11-07T05:27:00+00:00")
+
+    @parameterized.expand(
+        [
+            (
+                "skew_only_on_the_day_of_the_change",
+                OVERRIDE_REMOVED,
+                _by_day({"control": 100, "test": 100}, {"control": 10, "test": 300}, {"control": 250, "test": 250}),
+            ),
+            (
+                "skew_after_the_change_too",
+                OVERRIDE_REMOVED,
+                _by_day({"control": 100, "test": 300}, {"control": 20, "test": 20}, {"control": 150, "test": 350}),
+            ),
+            (
+                "change_that_moves_nobody_to_another_variant",
+                _conditions_changed([EVERYONE], [TARGETED, EVERYONE]),
+                SKEWED_BEFORE,
+            ),
+            (
+                "activation_dates_users_after_their_flag_call",
+                replace(
+                    OVERRIDE_REMOVED,
+                    exposure_events=ExposureEvents(
+                        custom_event=None,
+                        required_flag_key="flag",
+                        variant_property="$feature_flag_response",
+                        flag_key_filters=(),
+                        activation="checkout",
+                    ),
+                ),
+                SKEWED_BEFORE,
+            ),
+            (
+                "change_after_the_end",
+                replace(OVERRIDE_REMOVED, **ENDED, ended_at=OVERRIDE_REMOVED_AT - timedelta(hours=1)),
+                SKEWED_BEFORE,
+            ),
+        ]
+    )
+    def test_names_no_change_that_doesnt_explain_the_mismatch(
+        self, _name: str, ctx: HealthContext, exposures: ExposureTotals
+    ) -> None:
+        outcome = srm(replace(ctx, exposures=exposures))
+
+        assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual((outcome.subcode, outcome.caused_by), (None, None))

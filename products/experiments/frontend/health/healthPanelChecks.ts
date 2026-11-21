@@ -1,7 +1,7 @@
 import type { ExperimentExposureHealthCheck, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../generated/api.schemas'
-import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
+import { type HealthPanelFinding, healthIssueGroups } from './healthPanelFindings'
 
 /** An exposure check from an answer cached before the server added a field has no description, values or rule. */
 export type HealthPanelCheck = ExperimentHealthCheckResultApi | ExperimentExposureHealthCheck
@@ -70,13 +70,13 @@ export function countHealthChecks(checks: HealthPanelCheck[], status: HealthPane
 }
 
 export function healthChipState(findings: HealthPanelFinding[] | null): HealthChipState {
-    const issues = healthIssues(findings)
+    const issues = healthIssueGroups(findings)
     // A note needs no action, so the header marks only an experiment with an issue to fix.
     return issues.length > 0
         ? {
               kind: 'issues',
               count: issues.length,
-              hasCritical: issues.some((finding) => finding.severity === 'critical'),
+              hasCritical: issues.some((group) => group.severity === 'critical'),
           }
         : { kind: 'hidden' }
 }

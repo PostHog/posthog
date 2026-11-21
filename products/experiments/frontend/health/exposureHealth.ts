@@ -67,7 +67,9 @@ export function sampleRatioLine(
             label:
                 finding.subcode === 'split_changed'
                     ? 'Sample ratio mismatch after a split change'
-                    : 'Sample ratio mismatch detected',
+                    : finding.subcode === 'release_conditions_changed'
+                      ? 'Sample ratio mismatch after a release condition change'
+                      : 'Sample ratio mismatch detected',
             tooltip: finding.detail,
         }
     }

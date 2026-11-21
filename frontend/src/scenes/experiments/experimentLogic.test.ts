@@ -2448,6 +2448,7 @@ describe('experimentLogic', () => {
             actions: [],
             diagnostic_ref: null,
             check: 'flag_state',
+            caused_by: null,
         })
 
         const healthCheck = (
@@ -2985,6 +2986,7 @@ describe('experimentLogic', () => {
                         finding_subcode: 'not_started_but_multiple_variants_rolled_out',
                         finding_severity: null,
                         finding_reason: null,
+                        finding_caused_by: null,
                         health_ui: 'warnings',
                         surface: 'experiment_page',
                         source: 'web',
@@ -3026,6 +3028,7 @@ describe('experimentLogic', () => {
                         finding_subcode: null,
                         finding_severity: null,
                         finding_reason: null,
+                        finding_caused_by: null,
                         health_ui: 'panel',
                         surface: 'experiment_page',
                         source: 'web',
@@ -3053,6 +3056,7 @@ describe('experimentLogic', () => {
                 finding_subcode: null,
                 finding_severity: null,
                 finding_reason: null,
+                finding_caused_by: null,
                 health_ui: 'warnings',
                 surface: 'experiment_page',
                 source: 'web',

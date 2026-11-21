@@ -316,6 +316,14 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
             "code doesn't name the check."
         ),
     )
+    caused_by = serializers.ChoiceField(
+        choices=ExperimentHealthCheckKey.choices,
+        allow_null=True,
+        help_text=(
+            "The key of the check whose finding names the cause of this finding, so that fixing that finding fixes "
+            "this one too. Null when the finding names its own cause, or no cause."
+        ),
+    )
 
 
 class ExperimentHealthRuleMinimumSerializer(serializers.Serializer):

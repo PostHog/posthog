@@ -20,7 +20,11 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
-from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
+from products.experiments.backend.health.checks.flag_state import (
+    is_single_variant_shipped,
+    one_variant_title,
+    shipped_variant_key,
+)
 from products.experiments.backend.health.condition_changes import conditions_net_effect
 from products.experiments.backend.health.context import (
     FlagHistory,
@@ -159,7 +163,11 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
         return _finding(
             subcode=CLOSED_TO_MATCHED_USERS,
             severity=ExperimentHealthFindingSeverity.WARNING,
-            title=f"Only users who match {set_names(pinned_numbers)} get a variant",
+            title=(
+                one_variant_title(pinned_keys[0], is_draft=is_draft)
+                if len(pinned_keys) == 1
+                else f"Only users who match {set_names(pinned_numbers)} get a variant"
+            ),
             detail=_closed_detail(pinned_numbers, pinned_keys, is_draft, set_after_launch),
             pinned_numbers=pinned_numbers,
             pinned_keys=pinned_keys,
@@ -175,7 +183,11 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
     return _finding(
         subcode=ALL_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING,
-        title="No users are randomly assigned to a variant",
+        title=(
+            one_variant_title(pinned_keys[0], is_draft=is_draft)
+            if len(pinned_keys) == 1
+            else "No users are randomly assigned to a variant"
+        ),
         detail=_all_pinned_detail(pinned_numbers, pinned_keys, is_draft, set_after_launch),
         pinned_numbers=pinned_numbers,
         pinned_keys=pinned_keys,

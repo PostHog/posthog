@@ -373,6 +373,9 @@ class ExperimentHealthFinding:
     # The check that reported the finding. A code doesn't name its check, because one check can report several codes.
     # The registry sets it, so a check leaves it out.
     check: ExperimentHealthCheckKey | None = None
+    # pinned: the check whose finding names the cause of this one, so that its fix fixes this one too. The exposure
+    # checks name a check of the health endpoint, so the finding it points at can be missing from the same answer.
+    caused_by: ExperimentHealthCheckKey | None = None
 
 
 class ExperimentHealthCheckStatus(LabeledStrEnum):

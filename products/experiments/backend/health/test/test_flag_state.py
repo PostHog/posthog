@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
@@ -555,6 +556,21 @@ class TestFlagState(TestCase):
 
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.detail, dict(finding.evidence)), (detail, evidence))
+
+    def test_a_shipped_variant_names_the_consequence_and_offers_to_end_first(self) -> None:
+        finding = flag_state(_context(RUNNING, active=True, filters=SHIPPED_VARIANT))
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual(
+            (finding.title, finding.actions),
+            (
+                'Users get only "test", so the experiment is not comparing variants',
+                (
+                    ExperimentHealthFindingActionKind.END_EXPERIMENT,
+                    ExperimentHealthFindingActionKind.ADJUST_DISTRIBUTION,
+                ),
+            ),
+        )
 
     def test_variants_assigned_outside_the_flag_service_are_info(self) -> None:
         finding = flag_state(_context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(1234)))

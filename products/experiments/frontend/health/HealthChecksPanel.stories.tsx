@@ -402,3 +402,61 @@ export const FlagChangeDetails: Story = {
         )
     },
 }
+
+const OVERRIDE_REMOVED: HealthPanelFinding = {
+    code: 'release_conditions_changed_mid_run',
+    subcode: 'variant_override_changed',
+    reason: null,
+    severity: 'warning',
+    title: 'A variant override was removed after launch',
+    detail: 'The variant override "test" of Set 1 was set on October 27, 2026 at 9:12 AM UTC and removed on October 28, 2026 at 2:05 PM UTC. Users it matched got "test" while the override was in place and a random variant after, so those exposed while it was in place may have switched variants. Their exposures under "test" stay in the results. Reset the experiment, or move its start date to October 28, 2026 at 2:06 PM UTC. A reset returns the experiment to draft, and once you launch it again, the results count only exposures from then on.',
+    evidence: { suggested_start_date: '2026-10-28T14:06:00+00:00' },
+    actions: ['move_start_date', 'open_feature_flag_history'],
+    check: 'release_conditions_changed_mid_run',
+}
+
+export const IssueWithTheFindingsItCauses: Story = {
+    args: {
+        checks: [
+            ...READ_CHECKS.filter(({ key }) => key !== 'srm' && key !== 'multiple_variants_share'),
+            found('release_conditions_changed_mid_run', 'Release condition changes since launch'),
+            found('srm', 'Split of users across variants'),
+            found('multiple_variants_share', 'Users exposed to multiple variants'),
+        ],
+        findings: [
+            OVERRIDE_REMOVED,
+            {
+                code: 'srm',
+                subcode: 'release_conditions_changed',
+                reason: null,
+                severity: 'warning',
+                title: 'Users are not split as configured after a release condition change',
+                detail: "The distribution of users across variants doesn't match your current rollout percentages (p < 0.001). The release conditions changed on October 28, 2026 at 2:05 PM UTC, for example with a variant override set or removed, so some users exposed before the change got another variant after it. The users first exposed after the day of the change match the current split (p = 0.62), and those exposed before it are split differently, so the change explains the mismatch. Move the start date to October 28, 2026 at 2:06 PM UTC, or reset the experiment. A reset returns the experiment to draft, and once you launch it again, the results count only exposures from then on.",
+                evidence: { suggested_start_date: '2026-10-28T14:06:00+00:00' },
+                actions: ['move_start_date'],
+                check: 'srm',
+                caused_by: 'release_conditions_changed_mid_run',
+            },
+            {
+                code: 'multiple_variants_share',
+                subcode: null,
+                reason: null,
+                severity: 'warning',
+                title: '18.4% of users were exposed to more than one variant, so the results leave them out',
+                detail: '18.4% of users (215) were exposed to multiple variants, so the results leave them out. The exposures table lists them as $multiple. If a variant changes how often users log in, each variant loses a different group of users, and the results can be biased.\n\nAt least 190 of them were first exposed before the release conditions changed on October 28, 2026 at 2:05 PM UTC, and that change can give users who were already exposed another variant. Among the users first exposed after the day of the change, 1.2% were exposed to multiple variants. Move the start date to October 28, 2026 at 2:06 PM UTC so the results count only exposures after the change.\n\nIf the share grows again among users exposed later, one person has more than one ID: an anonymous ID before login and another after, an ID for each device, a new ID after reset(), or a different ID on your server than in the browser. Identify users before your code evaluates the flag, call reset() only at logout, and send the same ID from your server.',
+                evidence: { suggested_start_date: '2026-10-28T14:06:00+00:00' },
+                actions: ['move_start_date'],
+                check: 'multiple_variants_share',
+                caused_by: 'release_conditions_changed_mid_run',
+            },
+        ],
+        exposures: UNEVEN_SPLIT_EXPOSURES,
+        isDraft: false,
+        exposureChecksMissing: false,
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /A variant override was removed after launch/ })
+        )
+    },
+}
