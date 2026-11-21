@@ -9,6 +9,12 @@ database "posthog" {
     }
   }
 
+  patch_table "sharded_flag_evaluations_json" {
+    settings = {
+      storage_policy = "s3_tiered"
+    }
+  }
+
   patch_table "kafka_flag_evaluations" {
     engine "kafka" {
       collection           = "warpstream_ingestion"

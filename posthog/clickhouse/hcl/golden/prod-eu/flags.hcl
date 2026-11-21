@@ -908,6 +908,7 @@ database "posthog" {
       object_serialization_version                           = "v3"
       object_shared_data_serialization_version               = "map_with_buckets"
       propagate_types_serialization_versions_to_nested_types = "1"
+      storage_policy                                         = "s3_tiered"
       string_serialization_version                           = "single_stream"
       ttl_only_drop_parts                                    = "1"
     }

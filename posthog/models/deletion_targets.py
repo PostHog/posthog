@@ -33,6 +33,7 @@ from posthog.models.event.sql import (
 )
 from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
+    FLAG_EVALUATIONS_JSON_DATA_TABLE,
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TTL_DAYS,
@@ -267,7 +268,11 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
 # on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
-TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
+#
+# sharded_flag_evaluations_json is exempt only until the next change in its stack registers it as a
+# sweep target. The migration that creates it does nothing on deployed cloud, so no deployed table
+# holds rows before that change lands.
+TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), FLAG_EVALUATIONS_JSON_DATA_TABLE})
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"
