@@ -32,5 +32,14 @@
   "files": [
     "dist/**/*",
     "src/**/*"
-  ]
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PostHog/posthog.git",
+    "directory": "packages/agent/packages/agent-contracts"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

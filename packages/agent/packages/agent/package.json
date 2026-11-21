@@ -60,6 +60,7 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
     },
+    "./build/native-binary": "./build/native-binary.mjs",
     "./utils/redact-secrets": {
       "types": "./dist/utils/redact-secrets.d.ts",
       "import": "./dist/utils/redact-secrets.js"
@@ -208,6 +209,7 @@
   "files": [
     "dist/**/*",
     "src/**/*",
+    "build/native-binary.mjs",
     "README.md"
   ],
   "publishConfig": {
