@@ -29,8 +29,8 @@ from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_BASE_SQL,
     EVENTS_PROPERTIES_JSON_TYPE,
     PERSON_PROPERTIES_JSON_TYPE,
-    _cast_cleaned_properties,
-    _cast_temporary_properties,
+    cast_cleaned_properties,
+    cast_temporary_properties,
 )
 
 # Flag evaluation telemetry ($feature_flag_called events routed out of the events
@@ -420,25 +420,6 @@ _FLAG_EVALUATIONS_JSON_PROXY_TYPED_COLUMNS = """
     , request_id String COMMENT 'column_materializer::temporary_properties::$feature_flag_request_id'
 """
 
-# The columns the flag topic does not carry. The MV leaves them out, so each takes its type default on insert.
-FLAG_EVALUATIONS_JSON_COLUMNS_NOT_IN_TOPIC = frozenset(
-    {
-        "elements_chain",
-        "group0_properties",
-        "group1_properties",
-        "group2_properties",
-        "group3_properties",
-        "group4_properties",
-        "group0_created_at",
-        "group1_created_at",
-        "group2_created_at",
-        "group3_created_at",
-        "group4_created_at",
-        "consumer_breadcrumbs",
-        "historical_migration",
-    }
-)
-
 
 # The events_json columns, with inserted_at defaulting to the row's own timestamp, as on sharded_flag_evaluations.
 # Only the storage table carries codecs and the temporary_properties TTL.
@@ -468,7 +449,6 @@ def _flag_evaluations_json_table_sql(
     )
 
 
-# The events_json indexes plus the flag lookups.
 def _flag_evaluations_json_indexes() -> str:
     added = [
         "INDEX bloom_filter_session_id properties.`$session_id` TYPE bloom_filter(0.01) GRANULARITY 1",
@@ -536,8 +516,6 @@ def DROP_FLAG_EVALUATIONS_JSON_TABLE_SQL() -> str:
     return f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_JSON_DATA_TABLE} SYNC"
 
 
-# Written out rather than built from the Kafka column list, so each projected column is visible. The
-# JSON columns come from the cleaner, which also lists the null paths the JSON type cannot store.
 # captured_at is created_at because the flag topic does not carry it. An empty person_properties maps to
 # '{}' before the cleaner, as in the legacy MV.
 FLAG_EVALUATIONS_JSON_MV_SELECT_SQL = lambda: (
@@ -549,8 +527,8 @@ FROM
 SELECT
 uuid,
 event,
-{_cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE())} AS properties,
-{_cast_temporary_properties("temporary_properties")} AS temporary_properties,
+{cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE())} AS properties,
+{cast_temporary_properties("temporary_properties")} AS temporary_properties,
 {EVENTS_JSON_CLEANED_ALIAS}.properties_null_keys AS properties_null_keys,
 {EVENTS_JSON_CLEANED_ALIAS}.temporary_properties_null_keys AS temporary_properties_null_keys,
 now64() AS inserted_at,
@@ -559,7 +537,7 @@ team_id,
 distinct_id,
 created_at,
 person_id,
-{_cast_cleaned_properties("person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE())} AS person_properties,
+{cast_cleaned_properties("person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE())} AS person_properties,
 {EVENTS_JSON_CLEANED_ALIAS}.person_properties_null_keys AS person_properties_null_keys,
 person_created_at,
 person_mode,
@@ -583,8 +561,8 @@ SETTINGS {EVENTS_JSON_INSERT_SETTINGS}
 )
 
 
-def FLAG_EVALUATIONS_JSON_MV_SQL(target_table: str = FLAG_EVALUATIONS_JSON_WRITABLE_TABLE) -> str:
+def FLAG_EVALUATIONS_JSON_MV_SQL() -> str:
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {FLAG_EVALUATIONS_JSON_MV_TABLE}
-TO {settings.CLICKHOUSE_DATABASE}.{target_table}
+TO {settings.CLICKHOUSE_DATABASE}.{FLAG_EVALUATIONS_JSON_WRITABLE_TABLE}
 AS {FLAG_EVALUATIONS_JSON_MV_SELECT_SQL()}"""

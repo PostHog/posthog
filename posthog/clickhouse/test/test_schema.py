@@ -37,7 +37,6 @@ from posthog.models.flag_evaluations.sql import (
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     DROP_FLAG_EVALUATIONS_JSON_PROXY_TABLES_SQL,
     DROP_FLAG_EVALUATIONS_JSON_TABLE_SQL,
-    FLAG_EVALUATIONS_JSON_COLUMNS_NOT_IN_TOPIC,
     FLAG_EVALUATIONS_JSON_MV_SELECT_SQL,
     FLAG_EVALUATIONS_JSON_TABLE,
     FLAG_EVALUATIONS_JSON_TABLE_SQL,
@@ -251,12 +250,12 @@ _COLUMN_MODIFIER = re.compile(r"\s+(?:MATERIALIZED|DEFAULT|ALIAS|COMMENT|CODEC|T
 
 
 def _flag_evaluations_table_columns(create_sql: str) -> list[str]:
-    # Fail closed: without the anchor, rpartition would hand back the whole
+    # Fail closed: without the anchor, the split would hand back the whole
     # statement and every caller would compare the same junk list, passing while
     # checking nothing.
-    body, anchor, _ = create_sql.split("(", 1)[1].rpartition(")\nENGINE" if ")\nENGINE" in create_sql else ") ENGINE")
-    assert anchor, f"no column list found in {create_sql[:60]!r}"
-    return [_COLUMN_MODIFIER.split(line, maxsplit=1)[0].rstrip(",") for line in _column_definition_lines(body)]
+    parts = re.split(r"\)\s*ENGINE\b", create_sql.split("(", 1)[1], maxsplit=1)
+    assert len(parts) == 2, f"no column list found in {create_sql[:60]!r}"
+    return [_COLUMN_MODIFIER.split(line, maxsplit=1)[0].rstrip(",") for line in _column_definition_lines(parts[0])]
 
 
 def _mv_projected_names(mv_sql: str) -> list[str]:
@@ -388,6 +387,15 @@ def test_flag_evaluations_hogql_table_matches_the_read_table():
     assert exposed - declared == set()
 
 
+# The flag topic does not carry these columns. The MV leaves them out, so each takes its type default on insert.
+_FLAG_EVALUATIONS_JSON_COLUMNS_NOT_IN_TOPIC = {
+    "elements_chain",
+    "consumer_breadcrumbs",
+    "historical_migration",
+    *(f"group{n}_{suffix}" for n in range(5) for suffix in ("properties", "created_at")),
+}
+
+
 def test_flag_evaluations_json_read_table_declares_every_stored_column():
     stored_columns = _flag_evaluations_table_columns(FLAG_EVALUATIONS_JSON_TABLE_SQL())
     assert stored_columns
@@ -465,7 +473,7 @@ def test_flag_evaluations_json_fills_typed_columns_from_the_cleaned_json() -> No
         column.split()[0] for column in _flag_evaluations_table_columns(WRITABLE_FLAG_EVALUATIONS_JSON_TABLE_SQL())
     ]
     assert set(columns) <= set(writable_columns)
-    assert set(writable_columns) - set(columns) == FLAG_EVALUATIONS_JSON_COLUMNS_NOT_IN_TOPIC
+    assert set(writable_columns) - set(columns) == _FLAG_EVALUATIONS_JSON_COLUMNS_NOT_IN_TOPIC
 
     column_list = ", ".join(f"`{column}`" for column in columns)
     sync_execute(
