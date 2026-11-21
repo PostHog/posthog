@@ -662,6 +662,11 @@ describe('measurements', () => {
             [{ ...VALVE, intentAt: undefined }],
             { baseline: { from: atS(0), to: atS(1500) } },
         ],
+        [
+            'reads the whole drive as baseline when a valve applied only after the drive ended',
+            [{ ...VALVE, intentAt: isoAt(1600), releasedAt: isoAt(1700) }],
+            { baseline: { from: atS(0), to: atS(1500) } },
+        ],
     ])('%s', (_story, timeline, phases) => {
         expect(phasesOf(DRIVE, timeline)).toEqual(phases)
     })

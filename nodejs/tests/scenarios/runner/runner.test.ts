@@ -2047,7 +2047,10 @@ describe('runner through seed, drive and judge', () => {
             ])
             expect(exits).toEqual([])
             const { drive } = evidenceOf(result, 'probes.json') as { drive: { startedAt: number; endedAt: number } }
-            expect(drive.endedAt).toBeLessThan(Math.min(...answeredAt))
+            expect({ answered: answeredAt.length > 0, endedFirst: drive.endedAt < Math.min(...answeredAt) }).toEqual({
+                answered: true,
+                endedFirst: true,
+            })
         } finally {
             slowIntake.closeAllConnections()
             await new Promise((resolve) => slowIntake.close(resolve))

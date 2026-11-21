@@ -166,7 +166,7 @@ export type Phases = { baseline: Phase; valve?: Phase; failback?: Phase }
 export function phasesOf(drive: DriveWindow, timeline: readonly ValveTimelineEntry[]): Phases {
     const applied = timeline.flatMap(({ intentAt, releaseIntentAt, releasedAt }) => {
         const released = releaseIntentAt ?? releasedAt
-        return intentAt === undefined
+        return intentAt === undefined || Date.parse(intentAt) >= drive.endedAt
             ? []
             : [{ intent: Date.parse(intentAt), released: released === undefined ? Infinity : Date.parse(released) }]
     })

@@ -153,9 +153,13 @@ describe('traffic', () => {
                 const offered = transactionalEmail.offer(UNIT, contextFor(cdpApi.url), abort.signal)
                 await cdpApi.answered
                 abort.abort()
+                const abortedAt = performance.now()
 
                 await expect(offered).rejects.toMatchObject({ name: 'AbortError' })
-                expect(cdpApi.received).toHaveLength(1)
+                expect({
+                    received: cdpApi.received.length,
+                    beforeFirstBackoffEnds: performance.now() - abortedAt < 400,
+                }).toEqual({ received: 1, beforeFirstBackoffEnds: true })
             } finally {
                 await cdpApi.close()
             }
