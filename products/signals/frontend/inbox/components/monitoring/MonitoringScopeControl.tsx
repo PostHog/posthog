@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconFilter } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { MONITORING_CONNECTIONS, type MonitoringConnection, monitoringTabLogic } from '../../logics/monitoringTabLogic'
 
@@ -17,6 +17,15 @@ export function MonitoringScopeControl(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
+            <LemonSwitch
+                size="small"
+                bordered
+                label="Needs attention"
+                tooltip="Only show fixes whose readings are off track, or that were closed because they weren't shown to work."
+                checked={!!scope.needsAttention}
+                onChange={(needsAttention) => setScope({ ...scope, needsAttention })}
+                data-attr="inbox-monitoring-needs-attention"
+            />
             <LemonSegmentedButton
                 size="small"
                 value={scope.everyone ? 'everyone' : 'mine'}

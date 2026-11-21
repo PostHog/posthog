@@ -620,6 +620,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .max(signalsReportsListQueryLimitMax)
         .optional()
         .describe('Number of results to return per page.'),
+    needs_attention: zod
+        .boolean()
+        .optional()
+        .describe(
+            "'true' keeps only the reports whose fix has evidence that it is not working: reports in Monitoring whose interim readings are not on track, and closed reports. 'false' leaves those out. Off-track readings the requesting user may not read do not count. Requires Monitoring to be enabled."
+        ),
     needs_you: zod
         .boolean()
         .optional()

@@ -878,6 +878,7 @@ const inboxReportsList = (): ToolBase<
                 include_source_metadata: params.include_source_metadata,
                 include_unlisted: params.include_unlisted,
                 limit: params.limit,
+                needs_attention: params.needs_attention,
                 needs_you: params.needs_you,
                 offset: params.offset,
                 ordering: params.ordering,
