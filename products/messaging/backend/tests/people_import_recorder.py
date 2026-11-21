@@ -21,6 +21,7 @@ class PeopleImportRecorder:
         storage.iter_keys.side_effect = lambda prefix: [key for key in list(self.stored) if key.startswith(prefix)]
         storage.delete_objects.side_effect = lambda keys: [self.stored.pop(key) for key in keys] and []
         self.events: list[dict[str, Any]] = []
+        self.capture_refuses = False
         for target, kwargs in (
             ("products.workflows.backend.services.people_import.object_storage", {"new": storage}),
             (f"{_SERVICE}.object_storage", {"new": storage}),
@@ -39,5 +40,8 @@ class PeopleImportRecorder:
         ]
 
     def _capture(self, *, events: list[dict[str, Any]], **_: Any) -> CaptureInternalResult:
+        uuids = [event["event_uuid"] for event in events]
+        if self.capture_refuses:
+            return CaptureInternalResult(status_code=0, unaccounted=uuids)
         self.events.extend(events)
-        return CaptureInternalResult(status_code=200, ok=[event["event_uuid"] for event in events])
+        return CaptureInternalResult(status_code=200, ok=uuids)
