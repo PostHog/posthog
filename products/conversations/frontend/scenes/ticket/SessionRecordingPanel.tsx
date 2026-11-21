@@ -5,6 +5,8 @@ import { urls } from 'scenes/urls'
 
 import { PersonsTabType } from '~/types'
 
+import { TicketSidebarWidgetTitle } from '../../components/TicketSidebarWidgetTitle/TicketSidebarWidgetTitle'
+
 interface SessionRecordingPanelProps {
     sessionContext?: {
         replay_url?: unknown
@@ -30,7 +32,7 @@ export function SessionRecordingPanel({ sessionContext, distinctId }: SessionRec
             panels={[
                 {
                     key: 'session-recording',
-                    header: 'Session recording',
+                    header: <TicketSidebarWidgetTitle widgetKey="session_recording" />,
                     content: (
                         <div>
                             {!recordingId ? (

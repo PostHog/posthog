@@ -5,6 +5,7 @@ import { LemonCollapse, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { TicketSidebarWidgetTitle } from '../../components/TicketSidebarWidgetTitle/TicketSidebarWidgetTitle'
 import {
     type AITriage,
     type AITriageSource,
@@ -25,11 +26,11 @@ interface AIPanelProps {
 function AITriageHeaderTag({ aiTriage }: { aiTriage?: AITriage }): JSX.Element | null {
     const display = ticketListAiTriage(aiTriage)
     if (display.kind === 'processing') {
-        return <Spinner className="text-sm ml-1" />
+        return <Spinner className="text-sm" />
     }
     if (display.kind === 'tag') {
         return (
-            <LemonTag type={display.tagType} size="small" className="ml-1">
+            <LemonTag type={display.tagType} size="small">
                 {display.label}
             </LemonTag>
         )
@@ -204,10 +205,9 @@ export function AIPanel({ aiTriage }: AIPanelProps): JSX.Element {
                 {
                     key: 'ai_triage',
                     header: (
-                        <span className="flex items-center min-w-0">
-                            AI triage
+                        <TicketSidebarWidgetTitle widgetKey="ai_triage">
                             <AITriageHeaderTag aiTriage={aiTriage} />
-                        </span>
+                        </TicketSidebarWidgetTitle>
                     ),
                     content:
                         hasData && aiTriage ? (

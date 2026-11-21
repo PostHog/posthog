@@ -5,6 +5,8 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 import { AdminLoginButtons } from '~/layout/navigation/ImpersonationNotice/AdminLoginButtons'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 
+import { TicketSidebarWidgetTitle } from '../../components/TicketSidebarWidgetTitle/TicketSidebarWidgetTitle'
+
 export function StaffActionsPanel(): JSX.Element {
     const { ticketContext, adminLoginUrls } = useValues(impersonationNoticeLogic)
 
@@ -15,7 +17,7 @@ export function StaffActionsPanel(): JSX.Element {
             panels={[
                 {
                     key: 'staff-actions',
-                    header: 'Staff actions',
+                    header: <TicketSidebarWidgetTitle widgetKey="staff_actions" />,
                     content: (
                         <div className="space-y-2">
                             <div className="flex flex-col gap-2">

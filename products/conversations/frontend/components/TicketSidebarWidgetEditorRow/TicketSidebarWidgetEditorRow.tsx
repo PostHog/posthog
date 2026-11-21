@@ -7,6 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
 import { TicketSidebarWidgetKey, ticketSidebarWidget } from '../TicketSidebarWidgets/ticketSidebarLayout'
+import { TicketSidebarWidgetTitle } from '../TicketSidebarWidgetTitle/TicketSidebarWidgetTitle'
 
 interface TicketSidebarWidgetEditorRowProps {
     widgetKey: TicketSidebarWidgetKey
@@ -39,7 +40,9 @@ export function TicketSidebarWidgetEditorRow({
                 <SortableDragIcon />
             </span>
             <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold truncate">{title}</div>
+                <div className="text-sm font-semibold">
+                    <TicketSidebarWidgetTitle widgetKey={widgetKey} />
+                </div>
                 <div className="text-xs text-secondary">{description}</div>
                 {unavailableReason && <div className="text-xs text-muted-alt mt-1">{unavailableReason}</div>}
             </div>

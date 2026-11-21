@@ -5,6 +5,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
 
+import { TicketSidebarWidgetTitle } from '../../components/TicketSidebarWidgetTitle/TicketSidebarWidgetTitle'
 import { Ticket } from '../../types'
 
 interface PreviousTicketsPanelProps {
@@ -27,12 +28,11 @@ export function PreviousTicketsPanel({
                 {
                     key: 'previous-tickets',
                     header: (
-                        <>
-                            Previous tickets
+                        <TicketSidebarWidgetTitle widgetKey="previous_tickets">
                             {previousTickets.length > 0 && (
-                                <span className="text-muted-alt font-normal ml-1">({previousTickets.length})</span>
+                                <span className="text-muted-alt font-normal">({previousTickets.length})</span>
                             )}
-                        </>
+                        </TicketSidebarWidgetTitle>
                     ),
                     content: (
                         <div className="space-y-2">
