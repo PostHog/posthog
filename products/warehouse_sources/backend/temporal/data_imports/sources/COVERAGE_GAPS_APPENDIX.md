@@ -2815,10 +2815,10 @@ Diffed against: <https://docs.campfire.ai/llms.txt>
 - [x] `revenue-recognition/list-contract-milestones` — milestone-based recognition triggers on contracts we sync (medium)
 - [x] `core-accounting/list-fixed-assets` — fixed asset register and depreciation, a whole ledger area currently absent (medium)
 - [x] `core-accounting/list-budgets (+ list-budget-accounts)` — budget vs actual reporting against chart_of_accounts we already have (medium)
-- [ ] `revenue-recognition/list-prepaid-commits (+ list-prepaid-commit-consumption)` — committed spend and drawdown, core usage-based revenue analytics (medium)
-- [ ] `revenue-recognition/list-contract-usage-revenue` — usage-driven revenue rows that reconcile to revenue_transactions (medium)
-- [ ] `core-accounting/list-intercompany-journal-entries` — intercompany JEs are excluded from the journal_entries table today (medium)
-- [ ] `financial-statements/get-trial-balance (also get-general-ledger, get-balance-sheet, get-income-statement)` — vendor-computed statement rollups users would otherwise rebuild by hand from chart_transactions (medium)
+- [x] `revenue-recognition/list-prepaid-commits (+ list-prepaid-commit-consumption)` — committed spend and drawdown, core usage-based revenue analytics (medium) Consumption skipped: it is only reachable per contract and per commit, a two-level fan-out.
+- [x] `revenue-recognition/list-contract-usage-revenue` — usage-driven revenue rows that reconcile to revenue_transactions (medium)
+- [x] `core-accounting/list-intercompany-journal-entries` — intercompany JEs are excluded from the journal_entries table today (medium)
+- [ ] `financial-statements/get-trial-balance (also get-general-ledger, get-balance-sheet, get-income-statement)` — vendor-computed statement rollups users would otherwise rebuild by hand from chart_transactions (medium) Skipped: date-range report endpoints with no stable row identity; the rows they roll up already sync as chart_transactions.
 
 Note: Campfire has no public OpenAPI (docs.campfire.ai/openapi.json 404s) but ships a complete llms.txt index of ~330 documented operations. list-contract-products is the product catalog listing (GET /rr/api/v1/product) rather than a per-contract endpoint, so it covers products on its own; list-product-bundles is still a separate gap. list-contract-subscriptions is only reachable per contract (GET /rr/api/v1/contracts/{contract_id}/subscriptions), so contract_subscriptions fans out over the contracts table.
 
@@ -2846,11 +2846,12 @@ Diffed against: <https://developer.capsulecrm.com/v2/operations/Party>
 - [x] `Entry (GET /api/v2/entries/filter or listEntriesByDate)` — the notes, emails and activity timeline on parties, opportunities and projects - the main behavioral history in Capsule (high). Added as `entries` via `listEntriesByDate` (`GET /api/v2/entries`); `/api/v2/entries/filter` does not exist, and the Filter API covers parties, opportunities and kases only.
 - [x] `Tag (GET /api/v2/tags, listTags tag definitions)` — lookup resolving the tag IDs embedded on parties, opportunities and kases we already sync (high). There is no top-level `/api/v2/tags`; tag definitions are scoped per entity, so this landed as `party_tags`, `opportunity_tags` and `kase_tags`.
 - [x] `Stage (GET /api/v2/stages, listStages)` — lookup for the board stage IDs carried on opportunities and projects (high). Stages belong to project boards; opportunities carry milestones, which are already synced.
-- [ ] `Custom Field (GET /api/v2/fields/definitions, listFields)` — field-definition lookup that names the custom field values embedded in parties/opportunities (medium)
+- [x] `Custom Field (GET /api/v2/fields/definitions, listFields)` — field-definition lookup that names the custom field values embedded in parties/opportunities (medium). There is no top-level `/api/v2/fields/definitions`; definitions are scoped per entity (`/{entity}/fields/definitions`) and ids are only unique within one entity, so this landed as `party_field_definitions`, `opportunity_field_definitions` and `kase_field_definitions`.
 - [x] `Board (GET /api/v2/boards, listBoards)` — lookup that groups stages, needed to interpret stage-level funnel data (medium)
-- [ ] `Team (GET /api/v2/teams, listTeams)` — lookup resolving team ownership on users, tasks and opportunities (medium)
-- [ ] `Goal (GET /api/v2/goals, listGoals + listGoalPeriods)` — sales targets per user/period - the denominator for quota attainment reporting (medium)
-- [ ] `Track (GET /api/v2/tracks, listTrack)` — lookup for the task-sequence templates that generate the tasks we sync (medium)
+- [x] `Team (GET /api/v2/teams, listTeams)` — lookup resolving team ownership on users, tasks and opportunities (medium). Added as `teams`, with `memberships` embedded.
+- [x] `Goal (GET /api/v2/goals, listGoals + listGoalPeriods)` — sales targets per user/period - the denominator for quota attainment reporting (medium). `listGoals` added as `goals`; `listGoalPeriods` is a per-goal fan-out and is tracked on its own line below.
+- [ ] `Goal periods (GET /api/v2/goals/{goalId}/periods, listGoalPeriods)` — per-period target and current value of each goal; needs a per-goal fan-out (medium)
+- [x] `Track (GET /api/v2/tracks, listTrack)` — lookup for the task-sequence templates that generate the tasks we sync (medium). There is no top-level `/api/v2/tracks` list (`listTrack` is per party/opportunity/project); the templates are track definitions, added as `track_definitions` via `GET /api/v2/trackdefinitions`.
 - [ ] `Opportunity additional parties (GET /api/v2/opportunities/{id}/parties)` — many-to-many join between opportunities and contacts, otherwise unrecoverable (medium)
 - [ ] `Project additional parties (GET /api/v2/kases/{id}/parties)` — same join for projects/cases we already sync as kases (low)
 - [ ] `Party employees (GET /api/v2/parties/{id}/people, listEmployees)` — organisation-to-person hierarchy for account rollups (low)
@@ -3950,9 +3951,9 @@ Diffed against: <https://raw.githubusercontent.com/CompanyCam/openapi-spec/main/
 - [x] `Assigned users (GET /v2/projects/{project_id}/assigned_users)` — connect projects to assigned staff and compare project workload by person (high)
 - [x] `Photo tags (GET /v2/photos/{photo_id}/tags)` — connect synced photos to synced tags for image classification analysis (high)
 - [x] `Project labels (GET /v2/projects/{project_id}/labels)` — add project classifications that are absent from the project list for reporting (medium)
-- [ ] `Project collaborators (GET /v2/projects/{project_id}/collaborators)` — analyze external collaboration and company participation on projects (medium)
-- [ ] `Project comments (GET /v2/projects/{project_id}/comments)` — analyze project communication and identify unresolved work discussions (medium)
-- [ ] `Photo comments (GET /v2/photos/{photo_id}/comments)` — connect field discussions to documented photos and identify recurring issues (medium)
+- [x] `Project collaborators (GET /v2/projects/{project_id}/collaborators)` — analyze external collaboration and company participation on projects (medium)
+- [x] `Project comments (GET /v2/projects/{project_id}/comments)` — analyze project communication and identify unresolved work discussions (medium)
+- [x] `Photo comments (GET /v2/photos/{photo_id}/comments)` — connect field discussions to documented photos and identify recurring issues (medium)
 - [x] `Project documents (GET /v2/projects/{project_id}/documents)` — measure project documentation and connect document metadata to project activity (medium)
 
 Note: The official OpenAPI specification was parsed for all GET operations and project, photo, group, and checklist schemas. The project list lacks assigned users and labels; photos lack their tag relationships. Groups already embed users, and checklists already embed tasks and sections. Missing resources need requests per project or photo; uploads and webhooks were excluded.
@@ -6993,11 +6994,11 @@ Diffed against: <https://help.getharvest.com/api-v2/>
 
 - [x] `Invoice payments (GET /v2/invoices/{INVOICE_ID}/payments)` — reconcile invoice revenue with actual cash receipts, partial payments, and payment dates (high) Shipped as `invoice_payments`, fanned out over `invoices`.
 - [x] `User cost rates (GET /v2/users/{USER_ID}/cost_rates)` — track effective cost rate changes and analyze labor costs, including periods without logged time (medium) Shipped as `user_cost_rates`, fanned out over `users` (full refresh only).
-- [ ] `User billable rates (GET /v2/users/{USER_ID}/billable_rates)` — track billing rate changes and compare historical pricing across users and projects (medium)
-- [ ] `Invoice messages (GET /v2/invoices/{INVOICE_ID}/messages)` — analyze invoice communication, payment reminders, and collection follow-up activity (medium)
-- [ ] `Estimate messages (GET /v2/estimates/{estimate_ID}/messages)` — connect estimate follow-up activity with acceptance outcomes and sales cycle duration (medium)
+- [x] `User billable rates (GET /v2/users/{USER_ID}/billable_rates)` — track billing rate changes and compare historical pricing across users and projects (medium) Shipped as `user_billable_rates`, fanned out over `users` (full refresh only).
+- [x] `Invoice messages (GET /v2/invoices/{INVOICE_ID}/messages)` — analyze invoice communication, payment reminders, and collection follow-up activity (medium) Shipped as `invoice_messages`, fanned out over `invoices`.
+- [x] `Estimate messages (GET /v2/estimates/{estimate_ID}/messages)` — connect estimate follow-up activity with acceptance outcomes and sales cycle duration (medium) Shipped as `estimate_messages`, fanned out over `estimates`.
 - [x] `Time off requests (GET /v2/pto/requests)` — analyze approved leave, pending requests, absence patterns, and approval delays (medium) Shipped as `pto_requests`.
-- [ ] `Time off balances (GET /v2/pto/balances)` — measure accrued, used, pending, and remaining leave by employee and policy (medium)
+- [x] `Time off balances (GET /v2/pto/balances)` — measure accrued, used, pending, and remaining leave by employee and policy (medium) Shipped as `pto_balances`, fanned out over `users` (current year, full refresh).
 - [x] `Time off policies (GET /v2/pto/types)` — identify leave categories and interpret policy allocation and accrual rules (medium) Shipped as `pto_types` (active policies, full refresh).
 - [ ] `Work schedules (GET /v2/pto/work_schedules)` — compare tracked hours and leave against expected working days and capacity (medium)
 
@@ -9706,10 +9707,10 @@ Note: Endpoint inventory read from the ReadMe nav slug list embedded in the refe
 
 Re-audited 2026-11-19 against: <https://docs.mercury.com/llms.txt>
 
-- [ ] `Transfer approval requests (GET /api/v1/request-transfer)` — approval state and reviews for internal transfers, the twin of the synced SendMoneyApprovalRequests (high)
-- [ ] `Reimbursements (GET /api/v1/spend/reimbursements)` — employee expense reimbursements with review and payment status (high)
-- [ ] `Budgets (GET /api/v1/spend/budgets); Budget expenditures (GET /api/v1/spend/budgets/{budgetId}/expenditures)` — spend limits and the transactions counted against each budget (high)
-- [ ] `Invoice payments (GET /api/v1/ar/invoices/{invoiceId}/payments)` — payments applied to each synced Invoice, for collections and cash application (medium)
+- [x] `Transfer approval requests (GET /api/v1/request-transfer)` — approval state and reviews for internal transfers, the twin of the synced SendMoneyApprovalRequests (high). Added as `TransferApprovalRequests` (primary key `requestId`).
+- [x] `Reimbursements (GET /api/v1/spend/reimbursements)` — employee expense reimbursements with review and payment status (high). Added as `Reimbursements`. The list rows carry no dates other than `submittedAt`; merchant, category and transaction id are only on the detail endpoint.
+- [x] `Budgets (GET /api/v1/spend/budgets); Budget expenditures (GET /api/v1/spend/budgets/{budgetId}/expenditures)` — spend limits and the transactions counted against each budget (high). Added as `Budgets` and `BudgetExpenditures` (fan-out over `Budgets`, keyed on `budgetId` + `id`).
+- [x] `Invoice payments (GET /api/v1/ar/invoices/{invoiceId}/payments)` — payments applied to each synced Invoice, for collections and cash application (medium). Added as `InvoicePayments` (fan-out over `Invoices`, keyed on `invoiceId` + `id`). The endpoint returns one unpaginated page per invoice.
 - [ ] `Invoicing products (GET /api/v1/ar/products)` — product catalog items used on invoices (medium)
 - [ ] `Books ledgers (GET /api/v1/books/ledgers); Books journal entries (GET /api/v1/books/journal-entries)` — chart of accounts and double-entry journal data for accounting analysis (medium)
 - [ ] `Books bills (GET /api/v1/books/bills); Books invoices (GET /api/v1/books/invoices)` — accounts payable and receivable records in the bookkeeping product (medium)
@@ -11189,10 +11190,10 @@ Diffed against: <https://developers.pandadoc.com/llms.txt>
 - [x] `/public/v2/product-catalog/items/search` — lookup table resolving the catalog item / SKU ids referenced by quotes and pricing tables (high)
 - [x] `/public/v1/documents/{id} (detail expansion)` — recipients, tokens, and pricing table line items only appear in document details, not in the list response we sync (high)
 - [x] `/public/v1/documents/{id}/fields` — per-document field values, the structured data captured on each document (high)
-- [ ] `/public/v1/documents/{id}/linked-objects` — CRM linkage (Salesforce/HubSpot object ids) - the join key back to deal data (medium)
-- [ ] `/public/v1/content-library-items` — content library blocks reused across documents and templates (medium)
-- [ ] `/public/v1/workspaces` — lookup resolving the workspace each document, template, and member belongs to (medium)
-- [ ] `/public/v1/users` — account users, distinct from the workspace members table we already sync (medium)
+- [x] `/public/v1/documents/{id}/linked-objects` — CRM linkage (Salesforce/HubSpot object ids) - the join key back to deal data (medium)
+- [x] `/public/v1/content-library-items` — content library blocks reused across documents and templates (medium)
+- [x] `/public/v1/workspaces` — lookup resolving the workspace each document, template, and member belongs to (medium)
+- [x] `/public/v1/users` — account users, distinct from the workspace members table we already sync (medium)
 - [ ] `/public/v1/documents/{id}/sections` — section composition per document (low)
 - [ ] `/public/v1/documents/{id}/attachments` — attachment metadata per document (low)
 - [ ] `/public/v1/notarization-requests` — notarization request status for accounts using notary workflows (low)
@@ -14965,7 +14966,7 @@ Note: The published OpenAPI snapshot supplied all GET operations, parameters, an
 
 ## Thinkific — gaps
 
-Today (13): `chapters`, `collections`, `contents`, `coupons`, `course_reviews`, `courses`, `enrollments`, `groups`, `instructors`, `orders`, `products`, `promotions`, `users`
+Today (17): `bundle_courses`, `bundle_enrollments`, `chapters`, `collection_products`, `collections`, `contents`, `coupons`, `course_reviews`, `courses`, `custom_profile_field_definitions`, `enrollments`, `groups`, `instructors`, `orders`, `products`, `promotions`, `users`
 
 Diffed against: <https://developers.thinkific.com/openapi/thinkific-admin-api-v1.yaml>
 
@@ -14973,10 +14974,10 @@ Diffed against: <https://developers.thinkific.com/openapi/thinkific-admin-api-v1
 - [x] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course, the lookup needed to interpret any lesson-level progress (high)
 - [x] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the finest grain of course content and the join target for completion analysis (high)
 - [x] `GET /course_reviews (+ /course_reviews/{id})` — student ratings and review text per course, a headline course-quality metric (high)
-- [ ] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium)
-- [ ] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium)
-- [ ] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium)
-- [ ] `GET /bundles/{id}/enrollments` — enrollments scoped to a bundle, distinguishing bundle-driven from direct enrollment (medium)
+- [x] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium) → `collection_products` (full refresh, fan-out over `collections`; `/collection_memberships/{id}` is POST/DELETE only)
+- [x] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium) → `custom_profile_field_definitions` (full refresh)
+- [x] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium) → `bundle_courses` (full refresh, fan-out over `products` with `productable_type` Bundle)
+- [x] `GET /bundles/{id}/enrollments` — enrollments scoped to a bundle, distinguishing bundle-driven from direct enrollment (medium) → `bundle_enrollments` (incremental on `updated_at`, fan-out over `products` with `productable_type` Bundle)
 - [ ] `GET /products/{id}/related` — product relationship graph used for cross-sell reporting (low)
 - [ ] `GET /groups/{group_id}/analysts` — who administers each synced group, a small membership lookup (low)
 - [ ] `GET /product_publish_requests` — publication request state per product, useful for content-pipeline reporting (low)
@@ -16376,10 +16377,10 @@ Today (4): `email_analytics`, `raw_data`, `reviews`, `unsubscribers`
 
 Diffed against: <https://docs.yotpo.com/reference/retrieve-orders.md>
 
-- [ ] `Orders (GET /core/v3/stores/{store_id}/orders)` — Order totals, dates and line items to link reviews and review requests to purchases and revenue (high)
-- [ ] `Products (GET /core/v3/stores/{store_id}/products)` — Product catalog to name the products that reviews and Q&A refer to (high)
-- [ ] `Customers (GET /core/v3/stores/{store_id}/customers)` — Customer records to tie reviewers and unsubscribers to purchase history (medium)
-- [ ] `Customer segments (GET /v3/stores/{store_id}/profile_groups)` — Named customer segments used for targeting email and loyalty campaigns (low)
+- [x] `Orders (GET /core/v3/stores/{store_id}/orders)` — Order totals, dates and line items to link reviews and review requests to purchases and revenue (high)
+- [x] `Products (GET /core/v3/stores/{store_id}/products)` — Product catalog to name the products that reviews and Q&A refer to (high)
+- [x] `Customers (GET /core/v3/stores/{store_id}/customers)` — Customer records to tie reviewers and unsubscribers to purchase history (medium)
+- [x] `Customer segments (GET /v3/stores/{store_id}/profile_groups)` — Named customer segments used for targeting email and loyalty campaigns (low)
 - [ ] `Reviews store metrics (GET /v1/atlas/stores/{store_id}/store_metrics)` — Store-level review KPIs such as review volume and rating trends (low)
 
 Note: Read the Yotpo reference pages served as .md, which embed OpenAPI paths. Our four tables use the older app_key API (v1 reviews, analytics emails, unsubscribers). The gaps are on the V3 Core API, which is keyed by store_id and uses an access token, so an implementer must check how our credentials map to it. V3 lists page with page_info and limit, and orders support order_date_min and order_date_max. Excluded webhook targets, filters and subscriptions, storefront widget reads, per-product Q&A (needs a product fan-out) and loyalty endpoints that are per-shopper lookups.
