@@ -473,6 +473,32 @@ export const FirstChampionRolledBack: Story = {
     parameters: { testOptions: { viewportWidths: ['wide'] } },
 }
 
+export const FirstChampionRolledBackAccuracy: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/`]: {
+                    ...pipeline,
+                    status: 'bootstrapping',
+                    champion_holdout_auc: null,
+                    champion_realized_auc: null,
+                    not_promoted_reason:
+                        'The champion fit failed: model.pkl is 14830476 bytes, over the 10485760-byte cap',
+                },
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/models/`]: toPaginatedResponse([challenger]),
+                [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/online_performance/`]: {
+                    ...onlinePerformance,
+                    rows: [],
+                },
+            },
+        }),
+    ],
+    parameters: {
+        pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=accuracy`,
+        testOptions: { viewportWidths: ['wide'] },
+    },
+}
+
 export const Accuracy: Story = {
     parameters: {
         pageUrl: `${urls.autoresearchPipeline(PIPELINE_ID)}?tab=accuracy`,

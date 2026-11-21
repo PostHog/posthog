@@ -23,12 +23,13 @@ import {
 } from './firstRunCheck'
 import {
     autoresearchDestroy,
+    autoresearchLimitsRetrieve,
     autoresearchList,
     autoresearchPauseCreate,
     autoresearchResumeCreate,
     autoresearchTrainCreate,
 } from './generated/api'
-import { AutoresearchPipelineApi } from './generated/api.schemas'
+import { AutoresearchPipelineApi, ProjectLimitsApi } from './generated/api.schemas'
 import { ModelListSort, filterAndSortPipelines } from './modelList'
 
 const SEARCH_CAPTURE_DEBOUNCE_MS = 1000
@@ -42,6 +43,8 @@ export interface autoresearchLogicValues {
     pipelines: AutoresearchPipelineApi[]
     pipelinesLoadFailed: boolean
     pipelinesLoading: boolean
+    projectLimits: ProjectLimitsApi | null
+    projectLimitsLoading: boolean
     searchTerm: string
     sort: ModelListSort
     visiblePipelines: AutoresearchPipelineApi[]
@@ -87,6 +90,21 @@ export interface autoresearchLogicActions {
     ) => {
         pipelines: AutoresearchPipelineApi[]
         payload?: void
+    }
+    loadProjectLimits: () => any
+    loadProjectLimitsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadProjectLimitsSuccess: (
+        projectLimits: ProjectLimitsApi | null,
+        payload?: any
+    ) => {
+        projectLimits: ProjectLimitsApi | null
+        payload?: any
     }
     modelCardOpened: (id: string) => {
         id: string
@@ -235,6 +253,18 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 },
             },
         ],
+        // A card waiting for a training slot says when the project's next one opens.
+        projectLimits: [
+            null as ProjectLimitsApi | null,
+            {
+                loadProjectLimits: async () => {
+                    if (!values.currentTeamId) {
+                        return null
+                    }
+                    return autoresearchLimitsRetrieve(String(values.currentTeamId))
+                },
+            },
+        ],
     })),
     selectors({
         visiblePipelines: [
@@ -247,6 +277,9 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        loadPipelines: () => {
+            actions.loadProjectLimits()
+        },
         setSearchTerm: async ({ searchTerm }, breakpoint) => {
             await breakpoint(SEARCH_CAPTURE_DEBOUNCE_MS)
             if (searchTerm.trim()) {

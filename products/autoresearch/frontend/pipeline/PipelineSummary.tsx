@@ -26,7 +26,7 @@ export function PipelineSummary(): JSX.Element | null {
     const dominant = dominantDriver(champion?.model_explanation?.top_features)
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            <PipelineStatusTag status={pipeline.status} />
+            <PipelineStatusTag pipeline={pipeline} />
             {quality && (
                 <span className="flex items-center gap-1 min-w-0">
                     <ModelQualityTag

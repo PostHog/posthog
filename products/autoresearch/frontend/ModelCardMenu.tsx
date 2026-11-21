@@ -48,7 +48,7 @@ export function ModelCardMenu({ pipeline }: { pipeline: AutoresearchPipelineApi 
                         disabledReason={
                             mutating
                                 ? 'Another change is still saving'
-                                : pipeline.live_training_run || pipeline.status === 'bootstrapping'
+                                : pipeline.live_training_run
                                   ? 'Wait for the training run to finish'
                                   : undefined
                         }

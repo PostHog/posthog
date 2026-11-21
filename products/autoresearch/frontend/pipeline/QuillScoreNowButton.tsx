@@ -6,13 +6,12 @@ import { Button } from '@posthog/quill'
 import { dayjs } from 'lib/dayjs'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { AutoresearchModelRoleEnumApi } from '../generated/api.schemas'
+import { hasLiveModel } from '../modelCardState'
 
 export function QuillScoreNowButton(): JSX.Element | null {
-    const { pipeline, models, scoreResultLoading, activeScoreRun } = useValues(autoresearchPipelineLogic)
+    const { pipeline, scoreResultLoading, activeScoreRun } = useValues(autoresearchPipelineLogic)
     const { scoreNow } = useActions(autoresearchPipelineLogic)
-    const hasChampion = models.some((m) => m.role === AutoresearchModelRoleEnumApi.Champion)
-    if (!pipeline || pipeline.status === 'archived') {
+    if (!pipeline || pipeline.status === 'archived' || !hasLiveModel(pipeline)) {
         return null
     }
     return (
@@ -21,13 +20,7 @@ export function QuillScoreNowButton(): JSX.Element | null {
             onClick={() => scoreNow()}
             data-attr="autoresearch-model-score"
             loading={scoreResultLoading || !!activeScoreRun}
-            disabledReason={
-                pipeline.status === 'paused'
-                    ? 'Resume the model to score it'
-                    : hasChampion
-                      ? undefined
-                      : 'Train a champion model first'
-            }
+            disabledReason={pipeline.status === 'paused' ? 'Resume the model to score it' : undefined}
         >
             <IconRefresh />
             {activeScoreRun
