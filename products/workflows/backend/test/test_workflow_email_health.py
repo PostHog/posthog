@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
+from django.core import mail
 from django.test import override_settings
 from django.utils import timezone
 
@@ -15,7 +16,6 @@ from prometheus_client import REGISTRY
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.settings import ses as ses_settings
-from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.fixtures import create_app_metric2
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -376,7 +376,6 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
-    @patch("posthog.tasks.email.EmailMessage")
     def test_a_transactional_workflow_is_warned_instead_of_paused(
         self,
         _name: str,
@@ -385,13 +384,11 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         sibling_seed: tuple[int, int] | None,
         paused: list[str],
         emails: list[tuple[str, bool, bool]],
-        MockEmailMessage: MagicMock,
     ):
-        set_instance_setting("EMAIL_HOST", "fake_host")
+        set_instance_setting("EMAIL_HOST", "localhost")
         set_instance_setting("EMAIL_ENABLED", True)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        sent_emails = mock_email_messages(MockEmailMessage)
         other_steps: dict[str, dict[str, object]] = {
             "malformed": {"type": "function_email", "config": "not an object"},
             "generic": {
@@ -422,25 +419,22 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             flow.refresh_from_db()
         assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
         paused_flow = sibling if paused == ["sibling"] else self.flow
+        delivered = [(message.subject, message.to, str(message.alternatives[0][0])) for message in mail.outbox]
         assert [
             (
-                next(
-                    (label for label in ("needs attention", "is paused") if label in message.subject), message.subject
-                ),
-                "we don't pause it automatically" in message.html_body
-                and "only emails the person who triggered it" in message.html_body,
-                "never open anything" in message.html_body,
+                next((label for label in ("needs attention", "is paused") if label in subject), subject),
+                "we don't pause it automatically" in html and "only emails the person who triggered it" in html,
+                "never open anything" in html,
             )
-            for message in sent_emails
+            for subject, _to, html in delivered
         ] == emails
         assert [
             (
-                [self.user.email in recipient["recipient"] for recipient in message.to],
-                f"/project/{self.team.id}/workflows/{paused_flow.id}/workflow" in message.html_body,
-                message.send.call_count,
+                [self.user.email in recipient for recipient in to],
+                f"/project/{self.team.id}/workflows/{paused_flow.id}/workflow" in html,
             )
-            for message in sent_emails
-        ] == [([True], True, 1)] * len(emails)
+            for _subject, to, html in delivered
+        ] == [([True], True)] * len(emails)
 
     def test_a_project_pause_counts_late_bounces_apart_from_sends(self):
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
