@@ -155,7 +155,6 @@ async fn setup_router_with_limits(
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
-        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );
@@ -1194,7 +1193,6 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
-        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );
@@ -1286,7 +1284,6 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
-        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );
@@ -1382,7 +1379,6 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
-        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );
@@ -1815,7 +1811,6 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
-        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );

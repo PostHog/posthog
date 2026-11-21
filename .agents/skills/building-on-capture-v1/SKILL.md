@@ -80,10 +80,10 @@ Every step is required. A consumer that skips its step loses the setting, and no
 
 Change all of these in one PR, or in an ordered stack where consumers ship before capture sends the key:
 
-1. Capture, [`analytics/types.rs`](../../../rust/capture/src/v1/analytics/types.rs): `Options`, `ExpectedOption` (`ALL`, `as_str`), the coercer and branch in `RawOptions::validate`, `OutboundOptions` and `outbound_options`, and `build_property_injections` while the splice code exists. Act on the value where capture needs it (for example `process.rs`, or `has_property` for a quota predicate).
+1. Capture, [`analytics/types.rs`](../../../rust/capture/src/v1/analytics/types.rs): `Options`, `ExpectedOption` (`ALL`, `as_str`), the coercer and branch in `RawOptions::validate`, `OutboundOptions` and `outbound_options`. Act on the value where capture needs it (for example `process.rs`, or `has_property` for a quota predicate).
 2. Capture tests: the option tests in `analytics/types.rs`, [`test_utils.rs`](../../../rust/capture/src/v1/test_utils.rs) and [`tests/v1_publish.rs`](../../../rust/capture/tests/v1_publish.rs).
 3. Consumers of the Kafka `options`: `CAPTURE_OPTION_OVERRIDES` in [`parse-kafka-message.ts`](../../../nodejs/src/ingestion/common/steps/event-preprocessing/parse-kafka-message.ts) and its test, and [`livestream/events/kafka.go`](../../../livestream/events/kafka.go).
-   Services that read and re-produce capture messages must keep the `options` field and the `legacy_property_splice` header (`CapturedEvent` and `CapturedEventHeaders` in [`common/types/src/event.rs`](../../../rust/common/types/src/event.rs), used by kafka-deduplicator).
+   Services that read and re-produce capture messages must keep the `options` field (`CapturedEvent` in [`common/types/src/event.rs`](../../../rust/common/types/src/event.rs), used by kafka-deduplicator).
 4. Internal senders: `_OPTIONS_TO_LEGACY_PROPERTY` and the docstring table in [`posthog/api/capture.py`](../../../posthog/api/capture.py) (test: `posthog/api/test/test_capture_internal.py`), and `OPTIONS_TO_LEGACY_PROPERTY` in [`push-capture.ts`](../../../nodejs/src/messaging/push-subscriptions/push-capture.ts). Only a key that replaces a legacy property needs an entry.
 5. Docs and specs: the `invalid_options` entry in [`resolving-ingestion-warnings`](../../../products/ingestion/skills/resolving-ingestion-warnings/SKILL.md), the options table in the v1 README, the sdk-specs `capture` spec, and the public capture v1 API docs.
    SDKs change only when an SDK sets the option itself or has a typed options class, such as posthog-kmp's `PostHogEventOptions`. SDK behavior changes need the capture v1 suites in the SDK test harness.
@@ -96,7 +96,7 @@ This applies to the legacy handlers and to the v1 handlers.
 - Capture request handlers and processing code must not deserialize `event.properties`, read a value from it or write a value into it.
 - The v1 endpoints (`/i/v1/*`) must not gain a new use of `event.properties`. A value capture must read, act on or change is an option: see [Choose an option or a property](#choose-an-option-or-a-property).
 - Only the ingestion processors that consume the events capture publishes read or change `event.properties`.
-- The uses that capture has today are being removed, such as the legacy handlers that read `$` option properties and the v1 legacy property splice. Do not copy them or add to them.
+- The uses that capture has today are being removed, such as the legacy handlers that read `$` option properties. Do not copy them or add to them.
 
 ## Rules for every capture change
 

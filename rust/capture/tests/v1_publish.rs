@@ -85,12 +85,16 @@ async fn v1_single_pageview_round_trip() -> Result<()> {
     let data: RawEvent = serde_json::from_str(&captured.data)?;
     assert_eq!(data.event, "$pageview");
     assert_eq!(data.properties["$browser"], "Chrome");
+    assert_eq!(data.properties["custom_prop"], 42);
+    assert!(!data.properties.contains_key("$session_id"));
+    assert!(!data.properties.contains_key("$process_person_profile"));
+
+    let options = captured.options.expect("v1 publishes options");
     assert_eq!(
-        data.properties["$session_id"],
+        options["session_id"],
         "01jq9abc-def0-1234-5678-9abcdef01234"
     );
-    assert_eq!(data.properties["$process_person_profile"], true);
-    assert_eq!(data.properties["custom_prop"], 42);
+    assert_eq!(options["process_person_profile"], true);
 
     topic.assert_empty();
     Ok(())
@@ -292,11 +296,11 @@ async fn v1_cookieless_mode_partition_key() -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Event with all options fields set — property injection round-trip
+// Event with all options fields set — options round-trip, properties untouched
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn v1_all_options_property_injection() -> Result<()> {
+async fn v1_all_options_round_trip() -> Result<()> {
     setup_tracing();
     let topic = EphemeralTopic::new().await;
     let outputs = v1_outputs(topic.topic_name()).await;
@@ -323,12 +327,19 @@ async fn v1_all_options_property_injection() -> Result<()> {
     let captured: CapturedEvent = serde_json::from_value(event_json)?;
     let data: RawEvent = serde_json::from_str(&captured.data)?;
 
-    assert_eq!(data.properties["$session_id"], "sess-opt-test");
-    assert_eq!(data.properties["$window_id"], "win-opt-test");
-    assert_eq!(data.properties["$cookieless_mode"], true);
-    assert_eq!(data.properties["$ignore_sent_at"], true);
-    assert_eq!(data.properties["$product_tour_id"], "tour_abc123");
-    assert_eq!(data.properties["$process_person_profile"], false);
+    for property in [
+        "$session_id",
+        "$window_id",
+        "$cookieless_mode",
+        "$ignore_sent_at",
+        "$product_tour_id",
+        "$process_person_profile",
+    ] {
+        assert!(
+            !data.properties.contains_key(property),
+            "capture must not write {property} into properties"
+        );
+    }
 
     let options = captured.options.expect("v1 publishes options");
     assert_eq!(options["session_id"], "sess-opt-test");
