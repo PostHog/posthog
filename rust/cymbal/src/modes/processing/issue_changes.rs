@@ -116,6 +116,17 @@ pub struct ExceptionRef {
     pub timestamp: DateTime<Utc>,
 }
 
+// An idle writer can strand rows outside the alert reader's settling margin.
+pub async fn cap_idle_time<'c, E>(executor: E) -> Result<(), UnhandledError>
+where
+    E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+{
+    sqlx::query("SET LOCAL idle_in_transaction_session_timeout = '10s'")
+        .execute(executor)
+        .await?;
+    Ok(())
+}
+
 pub async fn record_issue_change<'c, E>(
     executor: E,
     issue: &Issue,
