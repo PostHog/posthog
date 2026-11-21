@@ -413,7 +413,7 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             wait_for_people=False,
         )
 
-        assert outcome == ContactChunkOutcome(people=2, found=1)
+        assert outcome == ContactChunkOutcome(people=2, found=1, new_people=1)
 
     @patch.object(provider_contacts, "capture_batch_internal")
     def test_a_part_resends_only_what_capture_didnt_acknowledge(self, capture: MagicMock) -> None:

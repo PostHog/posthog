@@ -123,18 +123,21 @@ def stage_provider_contacts(
         )
 
     storage_prefix = f"{_STORAGE_FOLDER}/team-{team_id}/{import_key}"
+    existing = existing_distinct_ids(team_id, [person["distinct_id"] for person in people])
+    for person in people:
+        if person["distinct_id"] not in existing:
+            person["new"] = True
     chunks = 0
     for chunks, start in enumerate(range(0, len(people), CONTACT_CHUNK_SIZE), start=1):
         object_storage.write(
             _chunk_key(storage_prefix, chunks - 1), json.dumps(people[start : start + CONTACT_CHUNK_SIZE])
         )
-    existing = existing_distinct_ids(team_id, [person["distinct_id"] for person in people])
     return ProviderContactsResult(
         status="created" if people else "skipped",
         cohort_id=cohort.cohort_id,
         cohort_name=cohort.name,
         people=len(people),
-        new_people=sum(1 for person in people if person["distinct_id"] not in existing),
+        new_people=sum(1 for person in people if person.get("new")),
         skipped_new_people=skipped_new_people,
         dropped=dropped,
         person_emails=tuple(sorted(person_emails)),
@@ -224,7 +227,9 @@ def import_contact_chunk(
     while True:
         found = existing_distinct_ids(team_id, distinct_ids)
         if not wait_for_people or len(found) >= len(distinct_ids) or time.monotonic() >= deadline:
-            return ContactChunkOutcome(people=len(people), found=len(found))
+            return ContactChunkOutcome(
+                people=len(people), found=len(found), new_people=sum(1 for person in people if person.get("new"))
+            )
         time.sleep(delay)
         delay = min(delay * 2, WAIT_MAX_DELAY_SECONDS)
 

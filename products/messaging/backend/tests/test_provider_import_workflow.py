@@ -146,7 +146,7 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(failur
         calls.append(
             f"{inputs.storage_prefix} chunk {inputs.chunk}{'' if inputs.wait_for_people else ' without waiting'}"
         )
-        return ContactChunkResult(people=3, found=2, attempt=activity.info().attempt)
+        return ContactChunkResult(people=3, found=2, attempt=activity.info().attempt, new_people=1)
 
     @activity.defn(name="messaging-provider-import.fill_contacts_cohort")
     async def fill_cohort(inputs: ContactsCohortInputs) -> int:
@@ -192,15 +192,15 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(failur
     expected = {
         None: (
             ["prefix chunk 1", "fill 7", "segment chunk 0", "fill 8"],
-            ContactsImportOutcome(people=9, found=6, removed=2, failed_lists=0, retried_chunks=1),
+            ContactsImportOutcome(people=9, found=6, removed=2, failed_lists=0, retried_chunks=1, sent=6, new_people=2),
         ),
         "fill": (
             ["prefix chunk 1", "fail 7", "segment chunk 0", "fill 8"],
-            ContactsImportOutcome(people=9, found=6, removed=1, failed_lists=1, retried_chunks=1),
+            ContactsImportOutcome(people=9, found=6, removed=1, failed_lists=1, retried_chunks=1, sent=6, new_people=2),
         ),
         "send": (
             ["fail 7", "segment chunk 0 without waiting", "fill 8"],
-            ContactsImportOutcome(people=6, found=4, removed=1, failed_lists=1, retried_chunks=0),
+            ContactsImportOutcome(people=6, found=4, removed=1, failed_lists=1, retried_chunks=0, sent=3, new_people=1),
         ),
     }
     ending, outcome = expected[failure]

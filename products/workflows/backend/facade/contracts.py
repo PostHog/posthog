@@ -362,6 +362,8 @@ class ContactChunkOutcome:
     people: int
     # Of them, the people PostHog had once ingestion caught up.
     found: int
+    # Of them, the people PostHog didn't have when the list was stored.
+    new_people: int = 0
 
 
 @frozen

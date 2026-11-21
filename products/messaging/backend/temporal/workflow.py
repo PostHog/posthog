@@ -161,7 +161,7 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ProviderContactsImportInputs) -> ContactsImportOutcome:
-        people = found = removed = failed_lists = retried_chunks = 0
+        people = found = removed = failed_lists = retried_chunks = sent_people = new_people = 0
         people_not_sent = False
         for plan in inputs.people_imports:
             cohort = ContactsCohortInputs(
@@ -193,6 +193,9 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                     people += sent.people
                     found += sent.found
                     retried_chunks += sent.attempt > 1
+                    if plan.send_events:
+                        sent_people += sent.people
+                        new_people += sent.new_people
                 sending = False
                 removed += await workflow.execute_activity(
                     fill_contacts_cohort_activity,
@@ -213,5 +216,11 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                     retry_policy=FINISH_RETRY_POLICY,
                 )
         return ContactsImportOutcome(
-            people=people, found=found, removed=removed, failed_lists=failed_lists, retried_chunks=retried_chunks
+            people=people,
+            found=found,
+            removed=removed,
+            failed_lists=failed_lists,
+            retried_chunks=retried_chunks,
+            sent=sent_people,
+            new_people=new_people,
         )

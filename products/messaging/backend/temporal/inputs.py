@@ -51,6 +51,7 @@ class ContactChunkResult:
     found: int
     # The activity attempt that finished the part, so the run can count retried parts.
     attempt: int
+    new_people: int = 0
 
 
 @frozen
@@ -69,6 +70,10 @@ class ContactsImportOutcome:
     removed: int = 0
     failed_lists: int = 0
     retried_chunks: int = 0
+    # The contacts capture took from the lists that create people, and how many of them were new. None from a
+    # workflow that didn't count them.
+    sent: int | None = None
+    new_people: int | None = None
 
 
 @frozen

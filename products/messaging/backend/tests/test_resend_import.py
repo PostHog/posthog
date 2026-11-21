@@ -48,6 +48,8 @@ from products.messaging.backend.temporal import (
     workflow as temporal_workflow,
 )
 from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
+from products.workflows.backend.facade.contracts import ContactsCaptureFailed
+from products.workflows.backend.facade.people_import import import_contact_chunk
 from products.workflows.backend.facade.workflows import get_workflow
 
 # A contacts run must import who opted out or bounced in Resend too.
@@ -911,18 +913,53 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
                 [*OPT_OUT_STEPS, "contacts", "new_people", "automations"],
                 [("unsubscribed@example.com", False), ("left-a-topic@example.com", True), ("user-hal", True)],
                 # The people import only takes addresses Django validates, which leaves out Björk's.
-                {"people": 3, "new_people": 2, "skipped_new_people": 0, "dropped": 1},
+                {
+                    "people_to_send": 3,
+                    "people": 3,
+                    "new_people": 2,
+                    "not_sent": 0,
+                    "skipped_new_people": 0,
+                    "dropped": 1,
+                },
+                False,
             ),
             (
                 "matching_people_only",
                 [*OPT_OUT_STEPS, "contacts", "automations"],
                 [("user-hal", True)],
-                {"people": 1, "new_people": 0, "skipped_new_people": 2, "dropped": 1},
+                {
+                    "people_to_send": 1,
+                    "people": 1,
+                    "new_people": 0,
+                    "not_sent": 0,
+                    "skipped_new_people": 2,
+                    "dropped": 1,
+                },
+                False,
+            ),
+            (
+                "capture_refuses",
+                [*OPT_OUT_STEPS, "contacts", "new_people", "automations"],
+                [("unsubscribed@example.com", False), ("left-a-topic@example.com", True), ("user-hal", True)],
+                {
+                    "people_to_send": 3,
+                    "people": 0,
+                    "new_people": 0,
+                    "not_sent": 3,
+                    "skipped_new_people": 0,
+                    "dropped": 1,
+                },
+                True,
             ),
         ]
     )
     def test_contacts_become_people_once_and_fill_the_cohort_automations_use(
-        self, _name: str, steps: list[str], staged: list[tuple[str, bool]], counts: dict[str, int]
+        self,
+        _name: str,
+        steps: list[str],
+        staged: list[tuple[str, bool]],
+        counts: dict[str, int],
+        capture_refuses: bool,
     ) -> None:
         _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
         flush_persons_and_events()
@@ -937,8 +974,29 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         plan, segment_plan = run.progress["contacts"]["people_imports"]
         people = self.people.people(plan)
         segment_people = self.people.people(segment_plan)
+        assert "people" not in run.progress["contacts"]["counts"]
+        # Sends the list the way the workflow does, and records what capture took.
+        self.people.capture_refuses = capture_refuses
+        try:
+            sent = import_contact_chunk(
+                self.team.id,
+                plan["storage_prefix"],
+                0,
+                send_events=True,
+                created_by_id=self.user.id,
+                wait_for_people=False,
+            )
+            outcome = {"sent": sent.people, "new_people": sent.new_people, "failed_lists": 0}
+        except ContactsCaptureFailed:
+            outcome = {"sent": 0, "new_people": 0, "failed_lists": 1}
+        runs.record_people_import(self.team.id, run.id, "contacts", outcome)
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
+        assert run.progress["contacts"]["last_error"] == (
+            "3 contacts didn't reach PostHog, so they aren't people yet. Import again to retry."
+            if capture_refuses
+            else None
+        )
         assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
         assert [(person["distinct_id"], person.get("member", True)) for person in people] == staged
         assert people[-1]["properties"] == {"email": "happy@example.com", "first_name": "Hal", "last_name": "Happy"}

@@ -57,7 +57,9 @@ def import_contact_chunk_activity(inputs: ContactChunkInputs) -> ContactChunkRes
             created_by_id=inputs.created_by_id,
             wait_for_people=inputs.wait_for_people,
         )
-    return ContactChunkResult(people=outcome.people, found=outcome.found, attempt=activity.info().attempt)
+    return ContactChunkResult(
+        people=outcome.people, found=outcome.found, attempt=activity.info().attempt, new_people=outcome.new_people
+    )
 
 
 @activity.defn(name="messaging-provider-import.fill_contacts_cohort")

@@ -40,9 +40,11 @@ TOO_MANY_CONTACTS_MESSAGE = (
 _IDENTITY_NAMES = frozenset({"email", "id", "distinct_id"})
 _NAME_SEPARATORS = re.compile(r"[^a-z0-9]+")
 
+# `people` and `new_people` are set once capture took the contacts, so the step never counts people a failed send left out.
 CONTACT_COUNT_LABELS = (
     ("people", "Contacts sent to PostHog"),
     ("new_people", "New people"),
+    ("not_sent", "Didn't reach PostHog"),
     ("skipped_new_people", "No matching person, left out"),
     ("dropped", "Skipped because the address isn't valid or repeats"),
 )
@@ -181,7 +183,7 @@ def save_contact_lists(
     notes = _notes(everyone, result)
     if result.people:
         notes.append(
-            f"{_contacts(result.people)} sent, {result.new_people:,} of them new people. This cohort and the ones "
+            f"{_contacts(result.people)} to send, {result.new_people:,} of them new people. This cohort and the ones "
             "below hold exactly these contacts once PostHog has processed them, usually within a few minutes. "
             "Anyone no longer on a list leaves its cohort."
         )
@@ -203,10 +205,9 @@ def save_contact_lists(
             list_notes.append(f"{_match_no_one(list_result.skipped_new_people)}, so they aren't here.")
         items.append(_item(contact_list, list_result, tuple(list_notes)))
     return SavedPage(
-        imported=result.people,
+        imported=0,
         counts={
-            "people": result.people,
-            "new_people": result.new_people,
+            "people_to_send": result.people,
             "skipped_new_people": result.skipped_new_people,
             "dropped": result.dropped,
         },
