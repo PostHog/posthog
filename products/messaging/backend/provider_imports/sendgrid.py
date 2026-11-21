@@ -317,8 +317,8 @@ def missing_scopes_message(missing: Mapping[str, list[str]], specs: Sequence[Imp
         return None
     labels = {spec.key: spec.label for spec in specs}
     by_steps: dict[tuple[str, ...], list[str]] = {}
-    for scope, steps in missing.items():
-        by_steps.setdefault(tuple(steps), []).append(scope)
+    for scope, needing_steps in missing.items():
+        by_steps.setdefault(tuple(needing_steps), []).append(scope)
     if len(by_steps) == 1:
         [(steps, scope_names)] = by_steps.items()
         step_names = _and_list([labels[s] for s in steps])
