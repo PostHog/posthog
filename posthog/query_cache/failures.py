@@ -13,12 +13,12 @@ logger = structlog.get_logger(__name__)
 
 QUERY_FAILURE_CACHE_COUNTER = Counter(
     "posthog_query_failure_cache_total",
-    "Circuit-breaker activity for queries that keep failing deterministically",
+    "Circuit-breaker activity for query failures and warming-only failures",
     labelnames=["action", "kind"],
 )
 
-# A kind names a failure class that repeats on retry; transient conditions must never get one.
-FailureKind = Literal["memory_limit", "timeout", "too_slow", "query_size", "too_many_bytes"]
+# Warming-only failures use a separate key and must never forbid a foreground calculation.
+FailureKind = Literal["memory_limit", "timeout", "too_slow", "query_size", "too_many_bytes", "warming"]
 
 Budget = Literal["interactive", "extended"]
 BUDGET_INTERACTIVE: Budget = "interactive"
@@ -38,6 +38,7 @@ KIND_POLICIES: dict[FailureKind, KindPolicy] = {
     "too_slow": KindPolicy(open_threshold=3, max_backoff=timedelta(hours=4), timeout_independent=False),
     "query_size": KindPolicy(open_threshold=1, max_backoff=timedelta(hours=4), timeout_independent=True),
     "too_many_bytes": KindPolicy(open_threshold=1, max_backoff=timedelta(hours=4), timeout_independent=True),
+    "warming": KindPolicy(open_threshold=2, max_backoff=timedelta(hours=8), timeout_independent=False),
 }
 
 BASE_BACKOFF = timedelta(minutes=2)
@@ -66,6 +67,8 @@ class QueryFailureRecord:
         """A failure observed under the extended budget forbids every run, and timeout-independent
         kinds forbid regardless. A failure observed under the interactive budget does not forbid
         extended-budget runs, which get more execution time and may well succeed."""
+        if self.kind == "warming":
+            return False
         if KIND_POLICIES[self.kind].timeout_independent or self.budget == BUDGET_EXTENDED:
             return True
         return budget == BUDGET_INTERACTIVE
@@ -80,6 +83,8 @@ class QueryFailureCache:
     the breaker. Storage errors fail open: a broken cache backend makes this feature a no-op,
     never a query failure.
     """
+
+    base_backoff = BASE_BACKOFF
 
     def __init__(self, cache_key: str) -> None:
         self.key = f"query_failure:{cache_key}"
@@ -123,9 +128,9 @@ class QueryFailureCache:
             now = datetime.now(UTC)
             open_until = None
             if failures >= policy.open_threshold:
-                max_doublings = (policy.max_backoff // BASE_BACKOFF).bit_length()
+                max_doublings = (policy.max_backoff // self.base_backoff).bit_length()
                 doublings = min(failures - policy.open_threshold, max_doublings)
-                open_until = now + min(BASE_BACKOFF * 2**doublings, policy.max_backoff)
+                open_until = now + min(self.base_backoff * 2**doublings, policy.max_backoff)
             record = QueryFailureRecord(
                 kind=kind,
                 # Capped so record size stays bounded no matter what copy a caller passes.
@@ -208,3 +213,15 @@ class WarmingQueryFailureCache(QueryFailureCache):
         max_doublings = (policy.max_backoff // WARMING_BASE_BACKOFF).bit_length()
         doublings = min(record.consecutive_failures - policy.open_threshold, max_doublings)
         return record.last_failed_at + min(WARMING_BASE_BACKOFF * 2**doublings, policy.max_backoff)
+
+
+class WarmingTaskFailureCache(QueryFailureCache):
+    """Back off failures outside the query breaker without exposing them to interactive readers.
+
+    Task identity also covers errors before query compilation, when no query cache key exists.
+    """
+
+    base_backoff = WARMING_BASE_BACKOFF
+
+    def __init__(self, *, team_id: int, insight_id: int, dashboard_id: Optional[int]) -> None:
+        self.key = f"warming_task_failure:{team_id}:{insight_id}:{dashboard_id or ''}"
