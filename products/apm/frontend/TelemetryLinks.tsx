@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
-
 import { urls } from 'scenes/urls'
 
 import { TimeRange, drillDownParams, metricsDrillDownUrl } from './applicationObservabilityLogic'
