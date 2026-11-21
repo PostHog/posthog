@@ -172,6 +172,13 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
         assert self._jobs() == jobs_after_build
         assert (cold_properties["outcome"], cold_properties["freshly_built"]) == ("match", True)
         assert (warm_properties["outcome"], warm_properties["freshly_built"]) == ("match", False)
+        assert (cold_properties["verified"], cold_properties["stale_days"]) == (True, 0)
+        assert isinstance(cold_properties["verify_duration_ms"], int)
+        assert (warm_properties["verified"], warm_properties["stale_days"], warm_properties["verify_duration_ms"]) == (
+            False,
+            0,
+            None,
+        )
         assert cold_properties["buckets_compared"] > 0
         assert cold_properties["alert_kind"] == ("detector" if detector else "threshold")
         assert cold_properties["insight_kind"] == "trends"

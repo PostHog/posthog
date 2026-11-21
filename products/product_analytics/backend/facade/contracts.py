@@ -66,15 +66,29 @@ class TrendsQueryRunResult:
 
 
 @dataclass(frozen=True)
+class SeriesValuesVerification:
+    """A check of the stored days against a fresh count of their source events.
+
+    ``stale_days`` counts the UTC days whose source event count changed since they were stored, and were rebuilt.
+    ``duration_ms`` covers the two count queries, not the rebuild.
+    """
+
+    stale_days: int
+    duration_ms: int
+
+
+@dataclass(frozen=True)
 class ClosedSeriesValues:
     """Stored Trends counts for every bucket before ``live_from``, keyed by the naive bucket start in the team timezone.
 
     ``live_from`` is the first bucket that still needs a live read, or None when the whole range is closed.
+    ``verification`` is None when the stored days were not checked against their source events.
     """
 
     values: dict[datetime, int]
     live_from: datetime | None
     freshly_built: bool = False
+    verification: SeriesValuesVerification | None = None
 
 
 @dataclass(frozen=True)
