@@ -24,6 +24,22 @@ export function isSameAssigneeEntry(a: AssigneeFilterEntry, b: AssigneeFilterEnt
     return a.type === b.type && String(a.id) === String(b.id)
 }
 
+export function encodeAssigneeEntry(entry: AssigneeFilterEntry): string {
+    // 'unassigned' and 'me' are string tokens; concrete entries encode as type:id.
+    return typeof entry === 'string' ? entry : `${entry.type}:${entry.id}`
+}
+
+/** Reverses `encodeAssigneeEntry`. Returns null for a token that names no assignee. */
+export function decodeAssigneeEntry(token: string): AssigneeFilterEntry | null {
+    if (token === 'unassigned' || token === 'me') {
+        return token
+    }
+    const separator = token.indexOf(':')
+    const type = token.slice(0, separator)
+    const id = token.slice(separator + 1)
+    return (type === 'user' || type === 'role') && id ? { type, id } : null
+}
+
 /** Mirrors the entry cap the tickets list endpoint applies to the `assignee` param. */
 export const MAX_ASSIGNEE_FILTER_ENTRIES = 100
 

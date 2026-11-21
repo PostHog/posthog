@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION_MEMBER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
@@ -107,6 +108,57 @@ describe('supportTicketsSceneLogic', () => {
             }).toMatchValues({
                 editableSelectedTicketIds: [a.id, b.id],
             })
+        })
+    })
+
+    describe('usage tracking', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        let capture: jest.SpyInstance
+        let bulkStatus = 200
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [], count: 0 }],
+                },
+                post: {
+                    '/api/projects/:team_id/conversations/tickets/bulk_update_status/': () => [
+                        bulkStatus,
+                        { updated: 2 },
+                    ],
+                },
+            })
+            initKeaTests()
+            capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            capture.mockRestore()
+        })
+
+        it.each([
+            ['completed', 200],
+            ['failed', 500],
+        ])('reports a %s bulk status update with its size, never the tickets', async (outcome, status) => {
+            bulkStatus = status
+            await expectLogic(logic, () => {
+                logic.actions.bulkUpdateStatus(['a', 'b'], 'resolved')
+            }).toFinishAllListeners()
+
+            expect(capture).toHaveBeenCalledWith('support tickets bulk status updated', {
+                ticket_count: 2,
+                status: 'resolved',
+                outcome,
+            })
+        })
+
+        it('reports which filter changed, never its value', () => {
+            logic.actions.setTagsFilter(['secret-customer-tag'])
+
+            expect(capture).toHaveBeenCalledWith('support tickets filter changed', { filter: 'tags' })
         })
     })
 

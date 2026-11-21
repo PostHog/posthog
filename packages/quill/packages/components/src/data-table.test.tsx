@@ -45,7 +45,20 @@ describe('DataTable', () => {
 
         fireEvent.click(screen.getByText('Ada'))
 
-        expect(onRowClick).toHaveBeenCalledWith(data[0])
+        expect(onRowClick).toHaveBeenCalledWith(data[0], expect.objectContaining({ type: 'click' }))
+    })
+
+    it.each([
+        ['a click', (row: HTMLElement) => fireEvent.click(row, { metaKey: true })],
+        ['the Enter key', (row: HTMLElement) => fireEvent.keyDown(row, { key: 'Enter', metaKey: true })],
+    ])('passes the modifier keys of %s to the row handler', (_name, activate) => {
+        const onRowClick = jest.fn()
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        render(<DataTable columns={columns} data={data} onRowClick={onRowClick} />)
+
+        activate(screen.getByText('Ada').closest('tr')!)
+
+        expect(onRowClick).toHaveBeenCalledWith(data[0], expect.objectContaining({ metaKey: true }))
     })
 
     it('shows a selection made from a cell on the row', () => {

@@ -7,7 +7,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
 
-import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { PersonDisplay, type PersonDisplayProps } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeDisplay, AssigneeResolver } from '../../components/Assignee'
 import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/ChannelsTag'
@@ -61,26 +61,7 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
             key: 'customer',
             render: (_, ticket) => (
                 <div className="flex items-center gap-2">
-                    <PersonDisplay
-                        person={
-                            ticket.person
-                                ? {
-                                      id: ticket.person.id,
-                                      distinct_id: ticket.distinct_id,
-                                      distinct_ids: ticket.person.distinct_ids,
-                                      // Merge anonymous_traits as fallback for missing person properties
-                                      properties: {
-                                          ...ticket.anonymous_traits,
-                                          ...ticket.person.properties,
-                                      },
-                                  }
-                                : {
-                                      distinct_id: ticket.distinct_id,
-                                      properties: ticket.anonymous_traits || {},
-                                  }
-                        }
-                        withIcon
-                    />
+                    <PersonDisplay person={ticketPerson(ticket)} withIcon />
                     {ticket.identity_verified === false && <IdentityBadge verified={false} iconOnly />}
                 </div>
             ),
@@ -158,16 +139,8 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                         </span>
                     )
                 }
-                const triage = ticket.ai_triage
-                const tooltipContent = [
-                    triage?.ticket_type && `Type: ${aiTriageTicketTypeLabel[triage.ticket_type] ?? triage.ticket_type}`,
-                    triage?.confidence != null && `Confidence: ${(triage.confidence * 100).toFixed(0)}%`,
-                    triage?.attempts != null && `Attempts: ${triage.attempts}`,
-                ]
-                    .filter(Boolean)
-                    .join(' · ')
                 return (
-                    <Tooltip title={tooltipContent || undefined}>
+                    <Tooltip title={aiTriageTooltip(ticket) || undefined}>
                         <LemonTag type={display.tagType}>{display.label}</LemonTag>
                     </Tooltip>
                 )
@@ -316,7 +289,7 @@ export function isTicketColumnMandatory(key: TicketColumnKey): boolean {
     return !!TICKET_COLUMNS[key].mandatory
 }
 
-interface TicketColumnContext {
+export interface TicketColumnContext {
     aiEnabled: boolean
     embedded: boolean
 }
@@ -335,12 +308,94 @@ export function offerableTicketColumns({ aiEnabled, embedded }: TicketColumnCont
     })
 }
 
+/** The person a ticket's Person column shows. */
+export function ticketPerson(ticket: Ticket): PersonDisplayProps['person'] {
+    return ticket.person
+        ? {
+              id: ticket.person.id,
+              distinct_id: ticket.distinct_id,
+              distinct_ids: ticket.person.distinct_ids,
+              // Merge anonymous_traits as fallback for missing person properties
+              properties: {
+                  ...ticket.anonymous_traits,
+                  ...ticket.person.properties,
+              },
+          }
+        : {
+              distinct_id: ticket.distinct_id,
+              properties: ticket.anonymous_traits || {},
+          }
+}
+
+/** Server-side sorting covers these columns only. */
+export function isTicketColumnSortable(key: TicketColumnKey): boolean {
+    const { column } = TICKET_COLUMNS[key]
+    return 'sorter' in column && !!column.sorter
+}
+
+/** The columns the table renders, in canonical order. */
+export function visibleTicketColumnKeys(
+    visibleColumns: TicketColumnKey[],
+    context: TicketColumnContext
+): TicketColumnKey[] {
+    const visible = new Set(visibleColumns)
+    return offerableTicketColumns(context).filter((key) => visible.has(key) || isTicketColumnMandatory(key))
+}
+
+export interface TicketColumnChoice {
+    key: TicketColumnKey
+    label: string
+    shown: boolean
+    disabledReason: string | undefined
+}
+
+/** The rows of a column picker, and what its "Show all columns" action and trigger say. */
+export function ticketColumnChoices(
+    visibleColumns: TicketColumnKey[],
+    context: TicketColumnContext
+): {
+    offerable: TicketColumnKey[]
+    choices: TicketColumnChoice[]
+    shownCount: number
+    allShown: boolean
+    showAllDisabledReason: string | undefined
+} {
+    const offerable = offerableTicketColumns(context)
+    const choices = offerable.map((key) => {
+        const mandatory = isTicketColumnMandatory(key)
+        return {
+            key,
+            label: ticketColumnLabel(key),
+            shown: mandatory || visibleColumns.includes(key),
+            disabledReason: mandatory ? 'This column identifies the ticket' : undefined,
+        }
+    })
+    const shownCount = choices.filter((choice) => choice.shown).length
+    const allShown = shownCount === offerable.length
+    return {
+        offerable,
+        choices,
+        shownCount,
+        allShown,
+        showAllDisabledReason: allShown ? 'Every column is already shown' : undefined,
+    }
+}
+
+/** The AI triage details a status tag explains on hover. Empty when there are none. */
+export function aiTriageTooltip(ticket: Ticket): string {
+    const triage = ticket.ai_triage
+    return [
+        triage?.ticket_type && `Type: ${aiTriageTicketTypeLabel[triage.ticket_type] ?? triage.ticket_type}`,
+        triage?.confidence != null && `Confidence: ${(triage.confidence * 100).toFixed(0)}%`,
+        triage?.attempts != null && `Attempts: ${triage.attempts}`,
+    ]
+        .filter(Boolean)
+        .join(' · ')
+}
+
 export function buildTicketColumns(
     visibleColumns: TicketColumnKey[],
     context: TicketColumnContext
 ): LemonTableColumns<Ticket> {
-    const visible = new Set(visibleColumns)
-    return offerableTicketColumns(context)
-        .filter((key) => visible.has(key) || isTicketColumnMandatory(key))
-        .map((key) => TICKET_COLUMNS[key].column)
+    return visibleTicketColumnKeys(visibleColumns, context).map((key) => TICKET_COLUMNS[key].column)
 }

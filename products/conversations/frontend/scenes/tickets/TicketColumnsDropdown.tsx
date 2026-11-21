@@ -4,7 +4,7 @@ import { LemonButton, LemonCheckbox, LemonDivider, LemonDropdown } from '@postho
 
 import { IconTuning } from 'lib/lemon-ui/icons'
 
-import { isTicketColumnMandatory, offerableTicketColumns, ticketColumnLabel } from './ticketColumns'
+import { ticketColumnChoices } from './ticketColumns'
 import { ticketColumnsLogic } from './ticketColumnsLogic'
 
 interface TicketColumnsDropdownProps {
@@ -16,42 +16,35 @@ export function TicketColumnsDropdown({ aiEnabled, embedded = false }: TicketCol
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { toggleColumn, setVisibleColumns } = useActions(ticketColumnsLogic)
 
-    const offerable = offerableTicketColumns({ aiEnabled, embedded })
-    const shownCount = offerable.filter((key) => visibleColumns.includes(key) || isTicketColumnMandatory(key)).length
-    const allShown = shownCount === offerable.length
+    const { offerable, choices, shownCount, allShown, showAllDisabledReason } = ticketColumnChoices(visibleColumns, {
+        aiEnabled,
+        embedded,
+    })
 
     return (
         <LemonDropdown
             closeOnClickInside={false}
             overlay={
                 <div className="space-y-px p-1 min-w-48">
-                    {offerable.map((key) => {
-                        const mandatory = isTicketColumnMandatory(key)
-                        return (
-                            <LemonButton
-                                key={key}
-                                type="tertiary"
-                                size="small"
-                                fullWidth
-                                icon={
-                                    <LemonCheckbox
-                                        checked={mandatory || visibleColumns.includes(key)}
-                                        className="pointer-events-none"
-                                    />
-                                }
-                                disabledReason={mandatory ? 'This column identifies the ticket' : undefined}
-                                onClick={() => toggleColumn(key)}
-                            >
-                                {ticketColumnLabel(key)}
-                            </LemonButton>
-                        )
-                    })}
+                    {choices.map((choice) => (
+                        <LemonButton
+                            key={choice.key}
+                            type="tertiary"
+                            size="small"
+                            fullWidth
+                            icon={<LemonCheckbox checked={choice.shown} className="pointer-events-none" />}
+                            disabledReason={choice.disabledReason}
+                            onClick={() => toggleColumn(choice.key)}
+                        >
+                            {choice.label}
+                        </LemonButton>
+                    ))}
                     <LemonDivider className="my-1" />
                     <LemonButton
                         type="tertiary"
                         size="small"
                         fullWidth
-                        disabledReason={allShown ? 'Every column is already shown' : undefined}
+                        disabledReason={showAllDisabledReason}
                         onClick={() => setVisibleColumns(offerable)}
                     >
                         Show all columns

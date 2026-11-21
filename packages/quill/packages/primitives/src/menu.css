@@ -108,8 +108,11 @@
         color: var(--foreground);
     }
 
-    /* Inset item (when data-inset=true, reserve space for indicator column) */
-    .quill-menu-item--inset {
+    /* Inset item (when data-inset=true, reserve space for indicator column).
+       The `.quill-button` half outranks the row size's `padding-inline`, which
+       otherwise ties and wins whenever button.css loads after this file. */
+    .quill-menu-item--inset,
+    .quill-button.quill-menu-item--inset {
         padding-inline-start: 1.875rem;
     }
 

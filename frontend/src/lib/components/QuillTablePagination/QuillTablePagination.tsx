@@ -17,6 +17,7 @@ export interface QuillTablePaginationProps {
     onPageChange: (page: number) => void
 }
 
+/** A pager for a server-paged quill table. Render it below the table's `Card`, not inside it. */
 export function QuillTablePagination({
     currentPage,
     pageCount,
