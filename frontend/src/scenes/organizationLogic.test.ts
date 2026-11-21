@@ -149,6 +149,36 @@ describe('organizationLogic', () => {
             expect(logic.values.currentOrganization).toEqual(ORGANIZATION_WITH_TEAMS)
         })
 
+        test.each([
+            ['organization_deactivated', false],
+            ['organization_pending_deletion', true],
+        ])('refreshes blocked metadata through discovery for %s', async (code, pendingDeletion) => {
+            const organization = {
+                ...ORGANIZATION_WITH_TEAMS,
+                is_active: false,
+                is_pending_deletion: pendingDeletion,
+                is_not_active_reason: 'An organization administrator must review billing.',
+            }
+            useMocks({
+                get: {
+                    '/api/organizations/@current': () => [403, { code }],
+                    '/api/organizations/': ({ request }) =>
+                        new URL(request.url).searchParams.get('offset') === '0'
+                            ? [200, { results: [{ id: 'another-org' }], next: 'next-page' }]
+                            : [200, { results: [organization], next: null }],
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+
+            await expectLogic(logic, () => logic.actions.loadCurrentOrganization()).toFinishAllListeners()
+
+            expect(logic.values.currentOrganization).toEqual(organization)
+            expect(logic.values.currentOrganizationBlockPage).toBe(
+                pendingDeletion ? '/organization-pending-deletion' : '/organization-deactivated'
+            )
+            expect(logic.values.isPathOpenWhileBlocked('/organization/billing')).toBe(!pendingDeletion)
+        })
+
         it('drops the organization when the server says it is out of reach', async () => {
             useMocks({ get: { '/api/organizations/@current': () => [403, { detail: 'nope' }] } })
             await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
