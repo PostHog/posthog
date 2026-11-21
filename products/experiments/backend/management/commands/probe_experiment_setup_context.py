@@ -19,7 +19,7 @@ Calls the providers in process, so neither the feature flag nor authentication a
 skips the access-control filtering the endpoint applies to the experiment and saved-metric
 querysets, so the two list counts are upper bounds rather than what a scoped agent sees.
 
-Latency is only meaningful on a cold read. Three sections cache for an hour or more, keyed by team
+Latency is only meaningful on a cold read. Four sections cache for an hour or more, keyed by team
 and inputs, so a second run over the same project measures the cache. `--cold` drops those keys,
 which is the only write this command makes.
 
