@@ -132,6 +132,13 @@ _EARLIEST_START_DAYS_AGO = FLAG_EVALUATIONS_TTL_DAYS - 1
 
 
 class BackfillGuardConfig(dagster.Config):
+    def insert_settings(self) -> dict[str, Any]:
+        return {
+            "max_execution_time": self.max_execution_time_seconds,
+            "max_memory_usage": self.max_memory_usage_bytes,
+            "max_insert_threads": self.max_insert_threads,
+        }
+
     max_insert_threads: int = pydantic.Field(default=1, description="ClickHouse max_insert_threads for each insert.")
     max_execution_time_seconds: int = pydantic.Field(
         default=4 * 60 * 60, description="ClickHouse max_execution_time for each insert."
@@ -480,7 +487,6 @@ class ShardBackfill(BackfillGuards):
 
     config: FlagEvaluationsBackfillConfig
     target_table: str = FLAG_EVALUATIONS_DATA_TABLE
-    job_name: str = "flag_evaluations_backfill_job"
 
     def undo_instructions(self, day: date) -> str:
         # A rerun for the same teams does not copy back the rows that earlier runs copied for other teams.
@@ -500,11 +506,7 @@ class ShardBackfill(BackfillGuards):
             filter_team_ids=bool(self.config.team_ids),
             chunked=self.config.team_id_chunks > 1,
         )
-        settings: dict[str, Any] = {
-            "max_execution_time": self.config.max_execution_time_seconds,
-            "max_memory_usage": self.config.max_memory_usage_bytes,
-            "max_insert_threads": self.config.max_insert_threads,
-        }
+        settings = self.config.insert_settings()
         total_rows = 0
         copied_days = 0
         for day in days:
@@ -663,6 +665,7 @@ def backfill_flag_evaluations_shard(
         query_tags=dagster_tags(context),
         workload=workload,
         node_role=node_role,
+        job_name=flag_evaluations_backfill_job.name,
     ).run(plan.days)
     context.add_output_metadata(
         {

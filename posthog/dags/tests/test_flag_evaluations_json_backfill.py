@@ -49,16 +49,10 @@ def window(now: datetime) -> dict[str, str]:
     return {"start_date": str((now - timedelta(days=WINDOW_DAYS)).date())}
 
 
-def person_call(event: SourceEvent, **overrides: Any) -> SourceEvent:
-    return replace(event, **overrides)
-
-
 RECENT = flag_called("recent", TEAM_ONE, timedelta(days=2, hours=12))
 TODAY = flag_called("today", TEAM_ONE, timedelta(0))
 # The events column holds '' when an event arrives without person properties. The new table needs '{}'.
-NO_PERSON_PROPERTIES = person_call(
-    flag_called("no_person_properties", TEAM_TWO, timedelta(days=1)), person_properties=""
-)
+NO_PERSON_PROPERTIES = replace(flag_called("no_person_properties", TEAM_TWO, timedelta(days=1)), person_properties="")
 OUTSIDE_WINDOW = flag_called("outside_window", TEAM_ONE, timedelta(days=30))
 NOT_A_FLAG_CALL = replace(flag_called("not_a_flag_call", TEAM_ONE, timedelta(days=1)), event="$pageview")
 EMPTY_FLAG_KEY = SourceEvent(
@@ -402,6 +396,7 @@ def unit_backfill(cluster: Any = None, **config: Any) -> UnitBackfill:
         query_tags=DagsterTags(),
         workload=Workload.DEFAULT,
         node_role=NodeRole.ALL,
+        job_name=flag_evaluations_json_backfill_job.name,
     )
 
 

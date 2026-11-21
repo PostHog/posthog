@@ -56,16 +56,15 @@ def get_organization_flag_evaluations_modes(organization_ids: Collection[UUID]) 
     }
 
 
-def get_team_ids_in_flag_evaluations_only_organizations() -> list[int]:
-    """The ids of the teams whose organization is on FLAG_EVALUATIONS_ONLY now, sorted. Events holds no flag calls
-    of these teams after their organization moved."""
+def get_team_ids_in_organizations_with_mode(mode: FlagEvaluationsMode) -> list[int]:
+    """The ids of the teams whose organization is on this mode now, sorted."""
     from posthog.models.team import Team
 
     return sorted(
         Team.objects.filter(
-            organization_id__in=OrganizationFeatureFlagsConfig.objects.filter(
-                flag_evaluations_mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-            ).values("organization_id")
+            organization_id__in=OrganizationFeatureFlagsConfig.objects.filter(flag_evaluations_mode=mode).values(
+                "organization_id"
+            )
         ).values_list("id", flat=True)
     )
 

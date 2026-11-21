@@ -20,6 +20,7 @@ from posthog.dags.flag_evaluations_backfill import (
     COPIED_ROW_FILTER,
     BackfillGuardConfig,
     BackfillGuards,
+    earliest_backfill_day,
     inserted_rows,
     shard_workload,
     tagged,
@@ -38,11 +39,13 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
     FLAG_EVALUATIONS_JSON_DATA_TABLE,
     FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR,
+    FLAG_EVALUATIONS_RETENTION_DAYS,
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TTL_DAYS,
 )
 
-from products.feature_flags.backend.facade.flags import get_team_ids_in_flag_evaluations_only_organizations
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_team_ids_in_organizations_with_mode
 
 _CLUSTER_DOESNT_EXIST = 701
 
@@ -50,7 +53,7 @@ OWNER_TAG = {"owner": JobOwners.TEAM_FEATURE_FLAGS.value}
 
 # The oldest day that the job copies. A day dated D expires when day D + FLAG_EVALUATIONS_TTL_DAYS starts, so
 # the three days left over give a run time to reach it.
-_EARLIEST_START_DAYS_AGO = 89
+_EARLIEST_START_DAYS_AGO = FLAG_EVALUATIONS_RETENTION_DAYS - 1
 
 # The cluster that holds every shard of sharded_events. A flags host reads one shard of it through cluster().
 SOURCE_EVENTS_CLUSTER = "posthog_primary_replica"
@@ -144,7 +147,7 @@ def resolve_days(*, start_date: str | None = None, end_date: str | None = None, 
 
 
 def is_expired(day: date, today: date) -> bool:
-    return day + timedelta(days=FLAG_EVALUATIONS_TTL_DAYS) <= today
+    return day < earliest_backfill_day(today)
 
 
 def plan_units(
@@ -210,11 +213,14 @@ WHERE _shard_num = %(events_shard)s AND event = %(event)s AND {day_filter}{team_
 """
     # A LEFT ANTI JOIN keeps the lookup in the target table on this host. A `uuid NOT IN (subquery)` filter
     # gets pushed into the remote read, where the events shard looks for the table in its own database.
+    existing_team_filter = team_filter
+    if events_shard is None:
+        existing_team_filter += " AND team_id IN %(flag_evaluations_team_ids)s"
     cleaned = f"""
 SELECT source.*, {EVENTS_JSON_CLEANER}(source.properties, {FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR}) AS {EVENTS_JSON_CLEANED_ALIAS}
 FROM ({source}) AS source
 LEFT ANTI JOIN (
-    SELECT uuid FROM {FLAG_EVALUATIONS_JSON_DATA_TABLE} WHERE {day_filter}{team_filter}
+    SELECT uuid FROM {FLAG_EVALUATIONS_JSON_DATA_TABLE} WHERE {day_filter}{existing_team_filter}
 ) AS existing ON source.uuid = existing.uuid
 """
     if dry_run:
@@ -261,7 +267,6 @@ class UnitBackfill(BackfillGuards):
     config: FlagEvaluationsJsonBackfillConfig
     flag_evaluations_team_ids: tuple[int, ...]
     target_table: str = FLAG_EVALUATIONS_JSON_DATA_TABLE
-    job_name: str = "flag_evaluations_json_backfill_job"
 
     def undo_instructions(self, day: date) -> str:
         # A rerun for the same teams does not copy back the rows that earlier runs copied for other teams.
@@ -294,23 +299,23 @@ class UnitBackfill(BackfillGuards):
         return rows
 
     def _copy(self, unit: CopyUnit, copy_host: HostInfo) -> int:
-        params = {
-            "event": FLAG_EVALUATIONS_SOURCE_EVENT,
+        params: dict[str, Any] = {
             "day_start": f"{unit.day:%Y-%m-%d} 00:00:00",
             "day_end": f"{unit.day + timedelta(days=1):%Y-%m-%d} 00:00:00",
-            "source_cluster": self.config.source_cluster,
-            "events_shard": unit.events_shard,
             "team_ids": tuple(self.config.team_ids or ()),
-            "flag_evaluations_team_ids": self.flag_evaluations_team_ids,
         }
+        if unit.events_shard is None:
+            params["flag_evaluations_team_ids"] = self.flag_evaluations_team_ids
+        else:
+            params |= {
+                "event": FLAG_EVALUATIONS_SOURCE_EVENT,
+                "source_cluster": self.config.source_cluster,
+                "events_shard": unit.events_shard,
+            }
         query = build_copy_query(
             events_shard=unit.events_shard, dry_run=self.config.dry_run, filter_team_ids=bool(self.config.team_ids)
         )
-        settings_ = {
-            "max_execution_time": self.config.max_execution_time_seconds,
-            "max_memory_usage": self.config.max_memory_usage_bytes,
-            "max_insert_threads": self.config.max_insert_threads,
-        }
+        settings_ = self.config.insert_settings()
 
         def run_query(client: Client) -> int:
             result = sync_execute(query, params, settings=settings_, workload=self.workload, sync_client=client)
@@ -396,7 +401,12 @@ def plan_flag_evaluations_json_backfill(
         raise dagster.Failure(description=f"Cluster {config.source_cluster} has no shards on this host.")
     days = resolve_days(start_date=config.start_date, end_date=config.end_date, today=datetime.now(UTC).date())
     flag_evaluations_team_ids = tuple(
-        sorted({*get_team_ids_in_flag_evaluations_only_organizations(), *config.flag_evaluations_team_ids})
+        sorted(
+            {
+                *get_team_ids_in_organizations_with_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
+                *config.flag_evaluations_team_ids,
+            }
+        )
     )
     units = plan_units(days, source_shards, flag_evaluations_team_ids)
     context.log.info(
@@ -424,6 +434,7 @@ def copy_flag_evaluations_json(
         query_tags=dagster_tags(context),
         workload=workload,
         node_role=node_role,
+        job_name=flag_evaluations_json_backfill_job.name,
     )
     total_rows = sum(backfill.run(unit) for unit in plan.units)
     context.add_output_metadata(
@@ -464,15 +475,6 @@ class FlagEvaluationsJsonParityConfig(dagster.Config):
     )
 
 
-@frozen
-class ParityMismatch:
-    day: date
-    flag_key: str | None
-    response: str | None
-    legacy_uuids: int
-    json_uuids: int
-
-
 def _parity_day_query(table: str) -> str:
     return f"""
 SELECT toDate(timestamp) AS day, uniqExact(uuid)
@@ -509,7 +511,7 @@ def compare_flag_evaluations_json_parity(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     config: FlagEvaluationsJsonParityConfig,
-) -> int:
+) -> None:
     """Compare the distinct uuids of each day, and of each day, flag_key and response, in both tables.
 
     The count is `uniqExact(uuid)`, never `count()`, because unmerged ReplacingMergeTree copies make the row
@@ -539,13 +541,12 @@ def compare_flag_evaluations_json_parity(
         counts(_parity_flag_query(FLAG_EVALUATIONS_DATA_TABLE)),
         counts(_parity_flag_query(FLAG_EVALUATIONS_JSON_DATA_TABLE)),
     )
-    mismatches = [
-        ParityMismatch(day=key[0], flag_key=None, response=None, legacy_uuids=a, json_uuids=b)
-        for key, a, b in day_diffs
-    ]
-    mismatches += [
-        ParityMismatch(day=key[0], flag_key=key[1], response=key[2], legacy_uuids=a, json_uuids=b)
-        for key, a, b in flag_diffs
+    listed = [
+        f"{key[0]}: {legacy} in {FLAG_EVALUATIONS_DATA_TABLE}, {new} in {FLAG_EVALUATIONS_JSON_DATA_TABLE}"
+        for key, legacy, new in day_diffs
+    ] + [
+        f"{key[0]} {key[1]} {key[2]}: {legacy} in {FLAG_EVALUATIONS_DATA_TABLE}, {new} in {FLAG_EVALUATIONS_JSON_DATA_TABLE}"
+        for key, legacy, new in flag_diffs
     ]
     context.add_output_metadata(
         {
@@ -555,17 +556,11 @@ def compare_flag_evaluations_json_parity(
             "mismatched_flag_keys": dagster.MetadataValue.int(len(flag_diffs)),
         }
     )
-    if mismatches:
-        listed = "; ".join(
-            f"{m.day} {m.flag_key if m.flag_key is not None else 'all'} {m.response or ''}: "
-            f"{m.legacy_uuids} in {FLAG_EVALUATIONS_DATA_TABLE}, {m.json_uuids} in {FLAG_EVALUATIONS_JSON_DATA_TABLE}"
-            for m in mismatches[: config.max_listed_mismatches]
-        )
+    if listed:
         raise dagster.Failure(
             description=f"{len(day_diffs)} day(s) and {len(flag_diffs)} (day, flag_key, response) group(s) differ. "
-            f"First {config.max_listed_mismatches}: {listed}"
+            f"First {config.max_listed_mismatches}: {'; '.join(listed[: config.max_listed_mismatches])}"
         )
-    return 0
 
 
 @dagster.job(tags=OWNER_TAG)
