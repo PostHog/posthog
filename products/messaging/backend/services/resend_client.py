@@ -80,6 +80,7 @@ class ResendClient:
         self._max_rate_limit_waits = max_rate_limit_waits
         self._max_transient_retries = max_transient_retries
         self._next_request_at = 0.0
+        self._paused_until = 0.0
         self._interval = 1 / REQUESTS_PER_SECOND
         self._share = SHARE_OF_LIMIT
         self._share_cut_at = float("-inf")
@@ -162,18 +163,29 @@ class ResendClient:
             return _parse(response)
 
     def _pace(self) -> None:
-        with self._lock:
-            now = time.monotonic()
-            start_at = max(now, self._next_request_at)
-            self._next_request_at = start_at + self._interval
-        if start_at > now:
-            time.sleep(start_at - now)
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                start_at = max(now, self._next_request_at)
+                self._next_request_at = start_at + self._interval
+            if start_at > now:
+                time.sleep(start_at - now)
+            # Another request can hit a full window while this one waits for its time, and then this one waits too.
+            with self._lock:
+                paused_for = self._paused_until - time.monotonic()
+            if paused_for <= 0:
+                return
+            time.sleep(paused_for)
 
     def _pause(self, seconds: float) -> None:
-        """Holds every request that hasn't been given a time yet for `seconds`."""
+        """Holds every request, including those already waiting for their time, for `seconds`."""
         with self._lock:
-            self._next_request_at = max(self._next_request_at, time.monotonic() + seconds)
+            self._hold_until(time.monotonic() + seconds)
         time.sleep(seconds)
+
+    def _hold_until(self, moment: float) -> None:
+        self._paused_until = max(self._paused_until, moment)
+        self._next_request_at = max(self._next_request_at, moment)
 
     def _follow_limit(self, response: requests.Response) -> None:
         limit = _int_header(response, "ratelimit-limit")
@@ -193,7 +205,7 @@ class ResendClient:
             self._interval = window / (limit * self._share)
             if remaining == 0:
                 reset = min(float(_int_header(response, "ratelimit-reset") or window), MAX_RETRY_AFTER_SECONDS)
-                self._next_request_at = max(self._next_request_at, now + reset)
+                self._hold_until(now + reset)
 
 
 def _int_header(response: requests.Response, name: str) -> int | None:

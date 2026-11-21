@@ -1087,6 +1087,37 @@ class TestResendClientPace(SimpleTestCase):
 
         assert [later - earlier for earlier, later in zip(sent_at, sent_at[1:])] == pytest.approx(gaps, abs=0.01)
 
+    def test_a_request_waiting_for_its_time_also_waits_out_a_full_window(self) -> None:
+        clock = [0.0]
+        sent_at: list[float] = []
+        full_window = {**self.LIMIT, "ratelimit-remaining": "0", "ratelimit-reset": "2"}
+        open_window = {**self.LIMIT, "ratelimit-remaining": "6"}
+
+        def get(*_: Any, **__: Any) -> MagicMock:
+            sent_at.append(clock[0])
+            return FakeResend._response(200, {}, full_window if len(sent_at) == 2 else open_window)
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.monotonic", side_effect=lambda: clock[0]),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+
+            other_request = [True]
+
+            def sleep(seconds: float) -> None:
+                if other_request:
+                    other_request.pop()
+                    client.get("/domains")
+                clock[0] += seconds
+
+            client.get("/domains")
+            with patch(f"{client_module}.time.sleep", side_effect=sleep):
+                client.get("/domains")
+
+        assert sent_at[2] >= sent_at[1] + 2
+
     def test_a_rejected_read_stops_the_rest_of_the_page(self) -> None:
         reads: list[str] = []
         rejected = threading.Event()
