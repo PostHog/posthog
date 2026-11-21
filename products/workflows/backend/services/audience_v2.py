@@ -1,5 +1,7 @@
 from typing import Optional
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -9,7 +11,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.property import PropertyGroup
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.facade import api as access_control_api
 from products.feature_flags.backend.person_sampling import (
     count_matching_persons,
     count_settings,
@@ -32,7 +36,7 @@ from products.workflows.backend.services.batch_audience_cohorts import reject_ex
 QUERY_TYPE = "workflows_audience_count_v2"
 
 
-def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult:
+def get_person_audience_count_v2(team: Team, filters: dict, user: Optional[User] = None) -> BlastRadiusResult:
     """
     Person-audience blast radius sized from a sample of the person keyspace.
 
@@ -44,10 +48,12 @@ def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult
         reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE)
+        return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE, user=user)
 
 
-def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> BlastRadiusResult:
+def get_dedupe_audience_count_v2(
+    team: Team, filters: dict, dedupe_key: str, user: Optional[User] = None
+) -> BlastRadiusResult:
     """
     Send count for a dedupe-enabled batch workflow, sized from a sample of the dedupe groups.
 
@@ -61,6 +67,11 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
     if dedupe_key != EMAIL_DEDUPE_KEY:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
+    restricted = access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    if "email" in access_control_api.split_restricted_property_names(restricted).person:
+        # A masked email makes every person their own dedupe group, so the count would be the person count.
+        raise ValidationError({"dedupe_key": "Sizing a deduplicated audience needs access to the email property."})
+
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
         reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
@@ -70,18 +81,21 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
 
         total = count_matching_persons(team, None, database, query_type=QUERY_TYPE)
         affected = sampled_or_exact_count(
-            lambda sample_modulus: _run_dedupe_count(team, cleaned_filter, database, sample_modulus)
+            lambda sample_modulus: _run_dedupe_count(team, cleaned_filter, database, sample_modulus, user)
         )
         return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
-def _run_dedupe_count(team: Team, prop_group: PropertyGroup, database: Database, sample_modulus: Optional[int]) -> int:
+def _run_dedupe_count(
+    team: Team, prop_group: PropertyGroup, database: Database, sample_modulus: Optional[int], user: Optional[User]
+) -> int:
     query = build_dedupe_count_query(team, prop_group, sample_modulus=sample_modulus)
     response = execute_hogql_query(
         query=query,
         team=team,
         query_type=QUERY_TYPE,
         context=HogQLContext(team_id=team.pk, database=database),
+        user=user,
         settings=count_settings(sample_modulus),
     )
     # uniqCombined over a nullable expression returns NULL rather than 0 when no person matches.

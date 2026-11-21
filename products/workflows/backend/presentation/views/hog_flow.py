@@ -184,6 +184,7 @@ from products.workflows.backend.facade.batch_jobs import (
 )
 from products.workflows.backend.facade.blast_radius import (
     SUPPORTED_DEDUPE_KEYS,
+    audience_sizing_data_scopes,
     get_account_audience_ids_page,
     get_account_audience_size,
     get_account_group_type_name,
@@ -5839,7 +5840,18 @@ class HogFlowViewSet(
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
         # session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
-            return ["hog_flow:read", "person:read"]
+            # Scopes come from the values the handler validates, so a form or JSON body cannot be read two ways.
+            # A body that fails validation gets the strictest scopes, and the handler then rejects it.
+            serializer = BlastRadiusRequestSerializer(data=request.data)
+            if not serializer.is_valid():
+                return ["hog_flow:read", "person:read", "group:read"]
+            params = serializer.validated_data
+            return [
+                "hog_flow:read",
+                *audience_sizing_data_scopes(
+                    params["filters"], is_group_audience=params.get("group_type_index") is not None
+                ),
+            ]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
         # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
@@ -7730,6 +7742,7 @@ class HogFlowViewSet(
             sends_email=params["sends_email"],
             email_rate_limit=params.get("email_sending_rate_limit"),
             use_cached_counts=not params["refresh"],
+            user=cast(Optional[User], request.user),
         )
         # The cohort API denies a scoped token without cohort:read, so this response withholds the
         # cohort's name and build state from it too.

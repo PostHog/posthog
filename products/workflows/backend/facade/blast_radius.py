@@ -7,6 +7,7 @@ from products.workflows.backend.services.batch_audience import (
     reject_unusable_audience_conditions,
 )
 from products.workflows.backend.services.blast_radius import (
+    audience_sizing_data_scopes,
     get_account_audience_ids_page,
     get_account_audience_size,
     get_account_group_type_name,
@@ -17,6 +18,7 @@ from products.workflows.backend.services.blast_radius import (
 __all__ = [
     "INCOMPLETE_AUDIENCE_CONDITION",
     "SUPPORTED_DEDUPE_KEYS",
+    "audience_sizing_data_scopes",
     "get_account_audience_ids_page",
     "get_account_audience_size",
     "get_account_group_type_name",

@@ -191,6 +191,7 @@ from products.feature_flags.backend.session_recording_links import (
 )
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import (
+    blast_radius_data_scopes,
     get_person_blast_radius_v2,
     get_user_blast_radius,
     use_blast_radius_query_v2,
@@ -4386,6 +4387,7 @@ class FeatureFlagViewSet(
     # Record a tags change per flag when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "FeatureFlag"
     psak_allowed_actions = ["remote_config"]
+    request_dependent_scope_actions = frozenset({"user_blast_radius"})
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still
     # reject PAT calls — keeps the scope local to this viewset.
@@ -6035,11 +6037,21 @@ class FeatureFlagViewSet(
 
         return Response(flags_with_evaluation_reasons)
 
+    def dangerously_get_required_scopes(self, request, view) -> Optional[builtins.list[str]]:
+        # Sizing a condition counts persons (or groups) by their property values, so a key also needs
+        # the scope that reads them.
+        if self.action == "user_blast_radius":
+            data = request.data if isinstance(request.data, dict) else {}
+            condition = data.get("condition")
+            properties = condition.get("properties") if isinstance(condition, dict) else None
+            return ["feature_flag:read", *blast_radius_data_scopes(properties, data.get("group_type_index"))]
+        return super().dangerously_get_required_scopes(request, view)
+
     @extend_schema(
         request=UserBlastRadiusRequestSerializer,
         responses={200: UserBlastRadiusResponseSerializer},
     )
-    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
+    @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: request.Request, **kwargs):
         if "condition" not in request.data:
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
@@ -6052,9 +6064,11 @@ class FeatureFlagViewSet(
         group_type_index = request.data.get("group_type_index", None)
 
         if group_type_index is None and use_blast_radius_query_v2(self.team):
-            result = get_person_blast_radius_v2(self.team, condition)
+            result = get_person_blast_radius_v2(self.team, condition, user=cast(Optional[User], request.user))
         else:
-            result = get_user_blast_radius(self.team, condition, group_type_index)
+            result = get_user_blast_radius(
+                self.team, condition, group_type_index, user=cast(Optional[User], request.user)
+            )
 
         return Response({"affected": result.affected, "total": result.total})
 

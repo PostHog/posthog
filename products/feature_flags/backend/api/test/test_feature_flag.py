@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 import pytest
 import time_machine
@@ -9699,6 +9699,155 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(detail_fragment, response.json()["detail"])
+
+    def _restrict_for_member(
+        self, name: str, type_: PropertyDefinition.Type, group_type_index: int | None = None
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        # Org admins bypass member-specific rules.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name=name, property_type="String", type=type_, group_type_index=group_type_index
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=definition.id,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member_id=self.organization_membership.id,
+        )
+
+    @parameterized.expand([("v1", False), ("v2_sampled", True)])
+    def test_user_blast_radius_honors_member_property_access(self, _name, use_v2):
+        _create_person(team_id=self.team.pk, distinct_ids=["a"], properties={"email": "a@example.com"})
+        _create_person(team_id=self.team.pk, distinct_ids=["b"], properties={"email": "b@example.com"})
+        flush_persons_and_events()
+        condition = {"properties": [{"key": "email", "type": "person", "value": "a@example.com", "operator": "exact"}]}
+        url = f"/api/projects/{self.team.id}/feature_flags/user_blast_radius"
+
+        with patch("products.feature_flags.backend.api.feature_flag.use_blast_radius_query_v2", return_value=use_v2):
+            self._restrict_for_member("email", PropertyDefinition.Type.PERSON)
+            response = self.client.post(url, {"condition": condition})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (response.json()["affected"], response.json()["total"]) == (0, 2)
+
+    def test_user_blast_radius_honors_member_group_property_access(self):
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="acme", properties={"industry": "tech"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="beta", properties={"industry": "retail"})
+        flush_persons_and_events()
+        body = {
+            "condition": {
+                "properties": [
+                    {"key": "industry", "type": "group", "value": "tech", "operator": "exact", "group_type_index": 0}
+                ]
+            },
+            "group_type_index": 0,
+        }
+        url = f"/api/projects/{self.team.id}/feature_flags/user_blast_radius"
+
+        self._restrict_for_member("industry", PropertyDefinition.Type.GROUP, group_type_index=0)
+        response = self.client.post(url, body)
+
+        assert (response.json()["affected"], response.json()["total"]) == (0, 2)
+
+    def test_user_blast_radius_ignores_another_group_types_property_restriction(self):
+        group_types: list[tuple[Literal[0, 1], str]] = [(0, "organization"), (1, "company")]
+        for index, name in group_types:
+            create_group_type_mapping(
+                team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
+            )
+            create_group(
+                team_id=self.team.pk, group_type_index=index, group_key="acme", properties={"industry": "tech"}
+            )
+        flush_persons_and_events()
+        self._restrict_for_member("industry", PropertyDefinition.Type.GROUP, group_type_index=1)
+        body = {
+            "condition": {
+                "properties": [
+                    {"key": "industry", "type": "group", "value": "tech", "operator": "exact", "group_type_index": 0}
+                ]
+            },
+            "group_type_index": 0,
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/user_blast_radius", body)
+
+        assert (response.json()["affected"], response.json()["total"]) == (1, 1)
+
+    def test_group_count_keeps_other_group_type_restrictions_for_hogql_filters(self):
+        group_types: list[tuple[Literal[0, 1], str]] = [(0, "organization"), (1, "company")]
+        for index, name in group_types:
+            create_group_type_mapping(
+                team=self.team, project_id=self.team.project_id, group_type=name, group_type_index=index
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=index,
+                group_key="shared",
+                properties={"secret": "hidden"} if index == 1 else {},
+            )
+        flush_persons_and_events()
+        self._restrict_for_member("secret", PropertyDefinition.Type.GROUP, group_type_index=1)
+        condition = {
+            "properties": [
+                {
+                    "type": "hogql",
+                    "group_type_index": 0,
+                    "key": "key IN (SELECT key FROM groups WHERE index = 1 AND properties.secret = 'hidden')",
+                }
+            ]
+        }
+
+        result = get_user_blast_radius(self.team, condition, 0, user=self.user)
+
+        assert result.affected == 0
+
+    def test_access_controls_action_keeps_its_api_key_scope(self):
+        flag = FeatureFlag.objects.create(team=self.team, key="scoped", created_by=self.user)
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:read", "access_control:read"],
+            secure_value=hash_key_value(key),
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/access_controls",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("person_needs_person_read", ["feature_flag:read"], None, 403),
+            ("person_with_person_read", ["feature_flag:read", "person:read"], None, 200),
+            ("group_needs_group_read", ["feature_flag:read", "person:read"], 0, 403),
+            ("group_with_group_read", ["feature_flag:read", "group:read"], 0, 200),
+        ]
+    )
+    def test_user_blast_radius_requires_person_or_group_scope(self, _name, scopes, group_type_index, expected_status):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, scopes=scopes, secure_value=hash_key_value(key))
+        body: dict = {"condition": {"properties": []}}
+        if group_type_index is not None:
+            body["group_type_index"] = group_type_index
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            body,
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == expected_status
 
     def test_user_blast_radius_endpoint_ignores_test_account_filters(self):
         for i in range(3):
