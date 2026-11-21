@@ -201,6 +201,15 @@ class LogsContextRunner:
         self.notes: list[str] = []
 
     def run(self) -> dict:
+        try:
+            return self._run()
+        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut) as error:
+            raise LogsContextError(
+                "The logs query hit its read or time limit. Pass a smaller padding, or filter with serviceNames "
+                "or severityLevels, then try again."
+            ) from error
+
+    def _run(self) -> dict:
         params = self.params
         padding = _DEFAULT_PADDING[params.kind] if params.padding is None else params.padding
         services = list(params.service_names)
