@@ -92,8 +92,17 @@ describe('settingsSearch', () => {
         ['an action phrased query', 'enable AI', 'organization-ai-consent'],
         ['a synonym on a section that has no settings', 'usage', 'organization-billing'],
         ['a word the index does not carry alongside one it does', 'usage dashboard', 'organization-billing'],
+        ['the initials of its title', 'asp', 'organization-ai-consent'],
     ])('finds a setting by %s', (_description, term, expectedSettingId) => {
         expect(search(term)).toContain(expectedSettingId)
+    })
+
+    it('puts an uppercase acronym match first', () => {
+        expect(search('PTI')[0]).toBe('variables')
+    })
+
+    it('does not match a two-letter acronym, which fits too many titles', () => {
+        expect(search('DR')).not.toContain('replay-retention')
     })
 
     it('indexes a JSX title by the words it shows, not by its id', () => {
@@ -122,6 +131,13 @@ describe('settingsSearch', () => {
         const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))
 
         expect(searchSettingsIndex(fuse, term)[0]?.settingId).toBe('variables')
+    })
+
+    it('finds personal API keys by "PAK"', () => {
+        const visible = (definition: Pick<Setting, 'flag'>): boolean => matchesFlagDefinition(definition.flag, {})
+        const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))
+
+        expect(searchSettingsIndex(fuse, 'PAK')[0]?.settingId).toBe('personal-api-keys')
     })
     // The today-rail-nav redesign renames some sections by keeping their id and gating two copies on
     // the flag and its negation. Both copies visible at once would render the section twice.
