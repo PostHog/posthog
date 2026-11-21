@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import time_machine
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, materialized
 
 from django.test import SimpleTestCase
 
@@ -15,6 +15,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import StringDatabaseField, Table, TableNode
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
@@ -692,3 +693,117 @@ class TestSwapFlagCallsBesideJoinedTable(BaseTest):
         )
 
         assert ("flag_evaluations" in swap.source.to_hogql()) is expected
+
+
+_PROMOTED_SOURCE = f"SELECT person_id FROM events WHERE {UNQUALIFIED}"
+_PROMOTED_OUTER = (
+    "SELECT count() FROM events AS e JOIN persons{alias} ON e.person_id = {name}.id AND {name}.id IN ({source}) "
+    f"WHERE e.{FLAG_CALLED} AND e.{FLAG_KEY} AND e.{BOUND}"
+)
+
+
+def _swap_flag_evaluations_query(team, query: str, *, only_in_flag_evaluations: bool):
+    database = Database.create_for(team=team, include_flag_evaluations_table=True)
+    database._read_flag_calls_from_flag_evaluations = True
+    database._flag_calls_only_in_flag_evaluations = only_in_flag_evaluations
+    context = HogQLContext(team_id=team.pk, database=database, enable_select_queries=True, use_new_events_schema=False)
+    return swap_flag_calls(
+        parse_select(query),
+        context,
+        lambda node, **kwargs: resolve_types(node, context, "clickhouse", **kwargs),
+    )
+
+
+@time_machine.travel(NOW, tick=False)
+class TestSwapFlagCallsWithPromotedPersonsFilter(BaseTest):
+    @parameterized.expand(
+        [
+            ("unaliased", "", "persons", _PROMOTED_SOURCE, ""),
+            ("aliased", " AS p", "p", _PROMOTED_SOURCE, ""),
+            ("two_filters", " AS p", "p", f"{_PROMOTED_SOURCE}) AND p.id IN ({_PROMOTED_SOURCE}", ""),
+            (
+                "unaliased_subquery_over_an_outer_cte",
+                "",
+                "persons",
+                "SELECT person_id FROM flag_called_people",
+                f"WITH flag_called_people AS ({_PROMOTED_SOURCE}) ",
+            ),
+            (
+                "subquery_over_an_outer_cte",
+                " AS p",
+                "p",
+                "SELECT person_id FROM flag_called_people",
+                f"WITH flag_called_people AS ({_PROMOTED_SOURCE}) ",
+            ),
+        ]
+    )
+    def test_swaps_when_persons_moves_its_join_filter_out_of_the_tree(
+        self, _name: str, alias: str, name: str, source: str, ctes: str
+    ):
+        query = ctes + _PROMOTED_OUTER.format(alias=alias, name=name, source=source)
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+        assert "FROM events" not in swap.source.to_hogql()
+
+    def test_swaps_when_an_inner_cte_shadows_an_outer_cte_that_it_reads(self):
+        outer = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=_PROMOTED_SOURCE)
+        query = (
+            "WITH seed AS (SELECT 1 AS n) SELECT count() FROM ("
+            f"WITH replacement AS (SELECT 2 AS n), seed AS (SELECT n FROM replacement) {outer}) AS q"
+        )
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+        assert "FROM events" not in swap.source.to_hogql()
+
+    def test_swaps_when_an_inner_cte_shadows_an_outer_cte_that_another_outer_cte_reads(self):
+        outer = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=_PROMOTED_SOURCE)
+        query = (
+            "WITH seed AS (SELECT 1 AS n), dependent AS (SELECT n FROM seed) SELECT count() FROM ("
+            f"WITH seed AS (SELECT 2 AS n) {outer}) AS q"
+        )
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+        assert "FROM events" not in swap.source.to_hogql()
+
+    def test_declines_when_a_column_named_posthog_hides_the_events_scan_in_the_moved_filter(self):
+        source = (
+            "SELECT posthog.events.person_id FROM posthog.events "
+            "JOIN (SELECT distinct_id AS d, properties AS posthog FROM events) AS s ON distinct_id = s.d "
+            "WHERE posthog.events.event = '$feature_flag_called' AND posthog.events.properties.$feature_flag = 'my-flag' "
+            "AND posthog.events.timestamp >= now() - INTERVAL 7 DAY"
+        )
+        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=source)
+
+        swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=False)
+
+        assert "flag_evaluations" not in swap.source.to_hogql()
+
+    def test_refuses_when_the_moved_filter_reads_a_name_from_the_enclosing_query(self):
+        correlated = f"{_PROMOTED_SOURCE} AND person_id = e.person_id"
+        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=correlated)
+
+        with pytest.raises(QueryError, match="a name in it would read a different column there"):
+            _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=True)
+
+
+@time_machine.travel(NOW, tick=False)
+class TestSwapFlagCallsPropertyParityInPromotedPersonsFilter(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand([("materialized_on_events", True, False), ("not_materialized", False, True)])
+    def test_swaps_only_when_the_moved_filter_reads_properties_from_the_same_column_kind(
+        self, _name: str, materialize_it: bool, expected: bool
+    ):
+        source = f"{_PROMOTED_SOURCE} AND isNull(properties.$current_url)"
+        query = _PROMOTED_OUTER.format(alias=" AS p", name="p", source=source)
+
+        def swapped() -> bool:
+            swap = _swap_flag_evaluations_query(self.team, query, only_in_flag_evaluations=False)
+            return "FROM events" not in swap.source.to_hogql()
+
+        if materialize_it:
+            with materialized("events", "$current_url"):
+                assert swapped() is expected
+        else:
+            assert swapped() is expected
