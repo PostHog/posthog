@@ -1658,11 +1658,11 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
-                    # Promotion moves predicates before resolution, so preserve their CTE bindings first.
-                    if node.constraint is not None:
-                        CteReferenceBinder(set(self.ctes)).visit(node.constraint)
-                    # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
+                    # The held copy is resolved later, outside this scope, so bind its CTE references now.
+                    if database_table.filter is not None:
+                        self.context.holds_join_filters = True
+                        CteReferenceBinder(set(self.ctes)).visit(database_table.filter)
                 node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
 
             else:

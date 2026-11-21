@@ -545,6 +545,10 @@ class LazyTable(Table):
     ) -> Any:
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 
+    def take_join_filter(self, join: "JoinExpr") -> None:
+        """Removes the resolved predicates that this table already carries from the join's constraint."""
+        return None
+
 
 @dataclass(frozen=False)
 class LazyTableToAdd:

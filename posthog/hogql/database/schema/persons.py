@@ -475,34 +475,58 @@ class PersonsTable(LazyTable):
         )
 
     @staticmethod
-    def _partition_exprs(exprs, alias: Optional[str] = None):
-        not_promotable = []
-        promotable = []
-        for expr in exprs:
-            if PersonsTable._is_promotable_expr(expr, alias):
-                # Erase "persons" from the chain before bringing inside
-                expr.left = Field(chain=["id"])
-                promotable.append(expr)
-            else:
-                not_promotable.append(expr)
+    def _is_resolved_promotable_expr(expr, alias: Optional[str] = None):
+        # The resolver wraps a lazy table's field in a hidden alias of its own name. It turns IN over a subquery into
+        # GLOBAL IN.
+        if not isinstance(expr, CompareOperation) or expr.op not in (
+            CompareOperationOp.In,
+            CompareOperationOp.GlobalIn,
+        ):
+            return False
+        left = expr.left.expr if isinstance(expr.left, ast.Alias) and expr.left.hidden else expr.left
+        return isinstance(left, Field) and left.chain == [alias or "persons", "id"]
 
-        return promotable, not_promotable
-
-    # If the join has a clause we can bring inside the subselect, create a new table that represents that
     def create_new_table_with_filter(self, join: JoinExpr) -> Self:
-        if join.constraint is not None and isinstance(join.constraint.expr, And):
-            exprs = cast(And, join.constraint.expr).exprs
-            promotable, not_promotable = PersonsTable._partition_exprs(exprs, join.alias)
-            if len(promotable) == 0:
-                return self
-            join.constraint.expr.exprs = not_promotable
-            p = self.model_copy()
-            if len(promotable) == 1:
-                p.filter = promotable[0]
-            elif len(promotable) > 1:
-                p.filter = And(exprs=promotable)
-            return p
-        return self
+        """A copy of this table whose `filter` is an unresolved copy of the join's `persons.id IN (...)` conjuncts.
+
+        The join keeps its constraint, so the resolved tree still holds the predicate. `take_join_filter` removes the
+        resolved predicate later. `lazy_select` resolves the unresolved copy inside the persons subselect, as it
+        would resolve the written predicate, so the printed SQL does not depend on how the resolver rewrote it.
+        """
+        if join.constraint is None or not isinstance(join.constraint.expr, And):
+            return self
+        # A RIGHT or FULL join keeps the persons rows that its ON clause rejects, and a filter inside the subselect drops them.
+        if any(kind in (join.join_type or "") for kind in ("RIGHT", "FULL")):
+            return self
+        promotable = [expr for expr in join.constraint.expr.exprs if PersonsTable._is_promotable_expr(expr, join.alias)]
+        if not promotable:
+            return self
+        moved: list[Expr] = [
+            CompareOperation(
+                op=CompareOperationOp.In,
+                left=Field(chain=["id"]),
+                right=clone_expr(cast(CompareOperation, expr).right),
+            )
+            for expr in promotable
+        ]
+        p = self.model_copy()
+        p.filter = moved[0] if len(moved) == 1 else And(exprs=moved)
+        return p
+
+    def take_join_filter(self, join: JoinExpr) -> None:
+        """Removes the resolved copy of the predicates that `filter` holds from the join's constraint."""
+        if self.filter is None or join.constraint is None or not isinstance(join.constraint.expr, And):
+            return
+        exprs = join.constraint.expr.exprs
+        taken = [expr for expr in exprs if PersonsTable._is_resolved_promotable_expr(expr, join.alias)]
+        # The resolved copy is gone when an earlier call removed it.
+        if not taken:
+            return
+        expected = len(self.filter.exprs) if isinstance(self.filter, And) else 1
+        if len(taken) != expected:
+            raise ResolutionError("The persons join filter does not match the join constraint")
+        taken_ids = {id(expr) for expr in taken}
+        join.constraint.expr.exprs = [expr for expr in exprs if id(expr) not in taken_ids]
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:

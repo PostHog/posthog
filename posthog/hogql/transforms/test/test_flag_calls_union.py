@@ -1038,6 +1038,13 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 "goe_0.properties",
             ),
             ("sample_row_count", f"SELECT count() FROM events SAMPLE 10 WHERE {MIXED}", "it uses SAMPLE"),
+            (
+                "properties_whose_paths_join_to_one_name_inside_a_persons_join_filter",
+                f"SELECT count() FROM events AS e JOIN persons AS p ON e.person_id = p.id AND p.id IN "
+                f"(SELECT person_id FROM events WHERE {MIXED} AND properties.a.b = '1' AND properties.a___b = '1') "
+                f"WHERE e.{MIXED}",
+                "properties.a.b and properties.a___b",
+            ),
             param(
                 "join_whose_on_clause_reads_another_field",
                 f"SELECT probe_join.key FROM events WHERE {MIXED}",

@@ -4872,6 +4872,46 @@ class TestPrinter(BaseTest):
         )
         assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), in(id, tuple(1, 2, 3)))" in printed
 
+    def test_inline_persons_subquery_that_reads_a_lazy_join(self):
+        printed = self._print(
+            """
+            select p1.id as p1_id
+            from events
+                     join persons as p1 on p1.id = events.person_id
+                         and p1.id in (select person_id from events where person.properties.email = 'a@example.com')
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert f"AS id FROM person WHERE and(equals(person.team_id, {self.team.pk}), globalIn(id, (SELECT" in printed
+        assert "globalIn(p1.id" not in printed
+
+    @parameterized.expand([("right", "RIGHT JOIN"), ("full", "FULL OUTER JOIN")])
+    def test_keeps_the_persons_filter_in_the_join_when_the_join_keeps_unmatched_persons(self, _name, join):
+        printed = self._print(
+            f"""
+            select p1.id as p1_id
+            from events
+                     {join} persons as p1 on p1.id = events.person_id
+                         and p1.id in (select person_id from events where event = '$pageview')
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert "globalIn(p1.id, (SELECT" in printed
+        assert "AS id FROM person WHERE and(equals(person.team_id" not in printed
+
+    def test_inline_persons_when_the_join_constraint_reads_a_lazy_join_of_persons(self):
+        printed = self._print(
+            """
+            select count()
+            from events
+                     join persons as p1 on p1.pdi.distinct_id = events.distinct_id
+                         and p1.id in (select person_id from events where event = '$pageview')
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert "globalIn(id, (SELECT" in printed or "in(id, (SELECT" in printed
+        assert "p1.id, (SELECT" not in printed
+
     def test_two_joins(self):
         printed = self._print(
             """
