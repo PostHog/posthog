@@ -32,6 +32,7 @@ from products.messaging.backend.presentation.views.message_templates import (
     TransactionalEmailTeamBurstThrottle,
     TransactionalEmailTeamSustainedThrottle,
 )
+from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import (
     BATCH_SANDBOX_SENDER_WARNING,
     SANDBOX_SENDER_WARNING,
@@ -426,6 +427,24 @@ class TestTransactionalEmailBatch(APIBaseTest):
         assert (response.status_code, response.json()["code"]) == (400, "transactional_email_paused")
         (forward,) = mock_post.call_args_list
         assert forward.args[0].endswith(f"/hog_flows/{hog_flow_id}{BATCH_WIRE[form][0]}")
+
+    def test_a_template_made_with_the_key_during_a_first_code_batch_answers_as_a_single_code_send_does(
+        self, mock_post, _flag, _capture
+    ):
+        lock = transactional_email._lock_team_keys
+
+        def lock_then_an_import_makes_the_template(team_id: int) -> None:
+            lock(team_id)
+            MessageTemplate.objects.create(team_id=team_id, key="welcome", name="Imported", type="email", content={})
+
+        with patch.object(transactional_email, "_lock_team_keys", side_effect=lock_then_an_import_makes_the_template):
+            single = self._single("code")
+            MessageTemplate.objects.filter(team_id=self.team.id, key="welcome").delete()
+            response = self._batch("code")
+
+        assert single.json()["code"] == "template_not_transactional"
+        assert (response.status_code, response.json()) == (single.status_code, single.json())
+        mock_post.assert_not_called()
 
     @parameterized.expand(WHOLE_CALL_REFUSALS)
     def test_a_whole_call_refusal_answers_as_a_single_send_does(
