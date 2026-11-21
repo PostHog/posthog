@@ -1518,3 +1518,81 @@ class TestWarehouseViewAccessControl(BaseTest):
 
         assert "allowed_view" not in database._denied_tables
         assert database.has_table("allowed_view")
+
+
+class TestProductTableAccessLevels(BaseTest):
+    TABLES_BY_RESOURCE = {
+        "logs": [
+            "logs",
+            "log_attributes",
+            "posthog.logs",
+            "posthog.log_attributes",
+            "posthog.logs_volume_buckets",
+            "posthog.logs_pattern_buckets",
+        ],
+        "tracing": ["posthog.trace_spans", "posthog.trace_attributes"],
+        "metrics": [
+            "posthog.metrics",
+            "posthog.metric_samples",
+            "posthog.metric_names",
+            "posthog.metric_series",
+            "posthog.metric_attributes",
+        ],
+    }
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+    def _set_access(self, resource: str, access_level: str, membership_level: OrganizationMembership.Level) -> None:
+        from products.access_control.backend.models.access_control import AccessControl
+
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=membership_level
+        )
+        AccessControl.objects.create(team=self.team, resource=resource, access_level=access_level)
+
+    @parameterized.expand(
+        [
+            ("logs_none", "logs", "none", OrganizationMembership.Level.MEMBER, True, True),
+            ("tracing_none", "tracing", "none", OrganizationMembership.Level.MEMBER, True, True),
+            ("metrics_none", "metrics", "none", OrganizationMembership.Level.MEMBER, True, True),
+            ("logs_viewer", "logs", "viewer", OrganizationMembership.Level.MEMBER, True, False),
+            ("logs_none_org_admin", "logs", "none", OrganizationMembership.Level.ADMIN, True, False),
+            ("logs_none_without_user", "logs", "none", OrganizationMembership.Level.MEMBER, False, False),
+        ]
+    )
+    def test_product_tables_follow_the_product_access_level(
+        self,
+        _name: str,
+        resource: str,
+        access_level: str,
+        membership_level: OrganizationMembership.Level,
+        with_user: bool,
+        expected_denied: bool,
+    ) -> None:
+        self._set_access(resource, access_level, membership_level)
+
+        database = Database.create_for(team=self.team, user=self.user if with_user else None)
+
+        for table_resource, table_names in self.TABLES_BY_RESOURCE.items():
+            for table_name in table_names:
+                if expected_denied and table_resource == resource:
+                    with self.assertRaises(TableAccessDeniedError):
+                        database.get_table(table_name)
+                else:
+                    database.get_table(table_name)
+
+    def test_sql_query_on_logs_requires_logs_access(self) -> None:
+        from posthog.hogql.query import execute_hogql_query
+
+        self._set_access("logs", "none", OrganizationMembership.Level.MEMBER)
+
+        with self.assertRaises(TableAccessDeniedError) as cm:
+            execute_hogql_query(query="SELECT count() FROM logs", team=self.team, user=self.user)
+        assert cm.exception.table_name == "logs"
