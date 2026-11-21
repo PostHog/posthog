@@ -89,8 +89,6 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
         date_to: iso(NOW),
         group_by: 'series',
         order: 'recent',
-        max_anomaly_rate: 0.1,
-        hidden_series: 0,
         series: [],
         insights: [],
         has_more: false,
@@ -185,13 +183,7 @@ export const FlaggedSeries: Story = {
     },
     decorators: [
         mswDecorator({
-            get: {
-                [SEARCH_URL]: searchResponse({
-                    series: FLAGGED_SERIES.map(({ row }) => row),
-                    has_more: true,
-                    hidden_series: 3,
-                }),
-            },
+            get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES.map(({ row }) => row), has_more: true }) },
             post: { [POINTS_URL]: pointsResponse() },
         }),
     ],
