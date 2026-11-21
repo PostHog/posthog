@@ -22,7 +22,6 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
-from products.messaging.backend.services.imported_data import category_name_match_key, live_categories_by_name
 from products.messaging.backend.services.suppression import block_transactional_for_hard_bounces
 
 from .customerio_client import CustomerIOAPIError, CustomerIOClient
@@ -396,15 +395,7 @@ class CustomerIOImportService:
                 if topic.get("transactional", False):
                     category_type = MessageCategoryType.TRANSACTIONAL
 
-                if not MessageCategory.objects.filter(team_id=self.team_id, key=topic_key).exists():
-                    by_name = live_categories_by_name(self.team_id, category_type)
-                    matched_id = by_name.get(category_name_match_key(topic_name))
-                    if matched_id:
-                        self.topic_mapping[topic_identifier] = matched_id
-                        self.topic_mapping[str(topic_id)] = matched_id
-                        self.topic_names[str(topic_id)] = topic_name
-                        continue
-
+                # Create or update the MessageCategory
                 with transaction.atomic():
                     category, _ = MessageCategory.objects.update_or_create(
                         team_id=self.team_id,

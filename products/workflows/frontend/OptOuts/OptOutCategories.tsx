@@ -40,13 +40,16 @@ export function OptOutCategories(): JSX.Element {
         setEditingCategory(null)
     }
 
+    const canSearch = (categories?.length ?? 0) >= SEARCH_FROM_CATEGORY_COUNT
+    const searchTerm = canSearch ? search.trim() : ''
+
     const shownCategories = useMemo(() => {
-        const term = search.trim().toLowerCase()
+        const term = searchTerm.toLowerCase()
         return (categories || []).filter(
             (category: MessageCategory) =>
                 !term || category.name.toLowerCase().includes(term) || category.key.toLowerCase().includes(term)
         )
-    }, [categories, search])
+    }, [categories, searchTerm])
 
     const collapseItems = useMemo(
         () =>
@@ -139,10 +142,11 @@ export function OptOutCategories(): JSX.Element {
                 <LemonSkeleton className="h-10" />
             ) : (
                 <>
-                    {(categories?.length ?? 0) >= SEARCH_FROM_CATEGORY_COUNT && (
+                    {canSearch && (
                         <LemonInput
                             type="search"
                             placeholder="Search categories"
+                            aria-label="Search categories"
                             value={search}
                             onChange={setSearch}
                             className="mb-2 max-w-100"
@@ -151,8 +155,8 @@ export function OptOutCategories(): JSX.Element {
                     )}
                     {collapseItems.length > 0 ? (
                         <LemonCollapse panels={collapseItems} />
-                    ) : search.trim() && (categories?.length ?? 0) > 0 ? (
-                        <div className="text-secondary py-4">No categories match "{search.trim()}".</div>
+                    ) : searchTerm ? (
+                        <div className="text-secondary py-4">No categories match "{searchTerm}".</div>
                     ) : (
                         <ProductIntroduction
                             thingName="category"
