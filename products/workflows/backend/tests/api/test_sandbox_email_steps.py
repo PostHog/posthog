@@ -634,7 +634,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         if verified:
             self._verified_sender()
 
-        with _flag(enabled), self.captureOnCommitCallbacks(execute=True):
+        with _flag(enabled):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows", _flow(_own_email_step(None)), format="json", **headers
             )
@@ -716,7 +716,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         step = _own_email_step(None)
         step["config"]["inputs"]["email"]["value"]["from"] = sender
 
-        with _flag(enabled), self.captureOnCommitCallbacks(execute=True):
+        with _flag(enabled):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
                 _flow(step),

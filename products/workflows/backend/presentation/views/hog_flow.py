@@ -1077,6 +1077,7 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
 
 
 SETS_UP_SANDBOX_SENDER = "sets_up_sandbox_sender"
+SANDBOX_SENDER_SET_UP_IN_WRITE = "sandbox_sender_set_up_in_write"
 SANDBOX_SENDER_SETUP_FAILURES = Counter(
     "workflows_sandbox_sender_setup_failures_total",
     "Test sender setups that failed after a save or before a real test.",
@@ -1140,6 +1141,7 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
             moved = True
     if not moved:
         return data
+    context[SETS_UP_SANDBOX_SENDER] = True
     return {**data, "actions": converted}
 
 
@@ -6270,7 +6272,7 @@ class HogFlowViewSet(
             before_write=lambda: self._set_up_sandbox_sender_for_save(serializer),
         )
         serializer.instance = self._written_workflow(result)
-        if not serializer.context.get(SETS_UP_SANDBOX_SENDER):
+        if not serializer.context.get(SANDBOX_SENDER_SET_UP_IN_WRITE):
             self._set_up_sandbox_sender_after_commit(serializer)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)
@@ -6469,10 +6471,19 @@ class HogFlowViewSet(
         raise exceptions.ValidationError({"sandbox_sender_warned": "Must be true or false."})
 
     def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
-        if serializer.context.get(SETS_UP_SANDBOX_SENDER):
-            provision_sandbox_sender(self.team, cast(User, self.request.user))
+        if serializer.context.get(SETS_UP_SANDBOX_SENDER) and self._set_up_sandbox_sender_in_the_write():
+            serializer.context[SANDBOX_SENDER_SET_UP_IN_WRITE] = True
         elif serializer.instance is not None:
             self._set_up_sandbox_sender_after_commit(serializer)
+
+    def _set_up_sandbox_sender_in_the_write(self) -> bool:
+        try:
+            with transaction.atomic():
+                provision_sandbox_sender(self.team, cast(User, self.request.user))
+        except Exception:
+            logger.warning("sandbox_sender_setup_moved_after_commit", team_id=self.team.id, exc_info=True)
+            return False
+        return True
 
     def _set_up_sandbox_sender_after_commit(self, serializer: serializers.BaseSerializer) -> None:
         step_ids = _test_sender_step_ids(cast(dict, serializer.validated_data).get("actions"))
