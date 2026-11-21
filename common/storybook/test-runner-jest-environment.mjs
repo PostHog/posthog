@@ -85,9 +85,8 @@ class CustomEnvironment extends BaseEnvironment {
             .catch(() => false)
     }
 
-    // A page can answer script and still paint no frames. Playwright's element screenshot waits for animation
-    // frames to check that the element is stable, and the runner's resize waits for them too, so on such a page
-    // every retry fails, and `pageResponds` alone keeps the page.
+    // Playwright's element screenshot and the runner's resize both wait for animation frames, so every retry
+    // fails on a page that answers script but paints no frame, and `pageResponds` alone would keep that page.
     async pagePaints() {
         return withTimeout(
             this.global.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(true)))),

@@ -1011,10 +1011,8 @@ async function waitForInnerViewport(
     )
 }
 
-/**
- * A page can stop painting while it still answers script, and page.evaluate has no timeout. Failing here
- * lets the jest environment replace the page before the retry, instead of the attempt reaching the jest timeout.
- */
+// A page can stop painting while it still answers script, and page.evaluate has no timeout. Failing here
+// lets the jest environment replace the page before the retry, instead of the attempt reaching the jest timeout.
 async function waitForTwoAnimationFrames(page: Page): Promise<void> {
     try {
         await page.waitForFunction(
