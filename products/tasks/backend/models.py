@@ -23,7 +23,9 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
 from django.db import connection, models, transaction
+from django.db.models import F
 from django.db.models.fields.json import KeyTransform
+from django.db.models.functions import Greatest
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -72,6 +74,7 @@ from products.tasks.backend.facade.profiles import (
     resolve_task_origin,
 )
 from products.tasks.backend.feature_flags import (
+    chunked_run_logs_enabled,
     is_task_run_stream_presence_gated,
     is_task_run_stream_thin_tail,
     run_stream_presence_gated,
@@ -88,7 +91,7 @@ from products.tasks.backend.metrics import (
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
 from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record, validate_run_options
-from products.tasks.backend.storage import TaskRunLog, append_jsonl_object, read_run_log
+from products.tasks.backend.storage import TaskRunLog, append_jsonl_object, append_run_log_chunk, read_run_log
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_startswith_q
 
 logger = structlog.get_logger(__name__)
@@ -1180,6 +1183,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
             dedicated_stream = dedicated_stream_configured()
+        log_format = TaskRun.LogFormat.CHUNKED if chunked_run_logs_enabled(self.team) else TaskRun.LogFormat.SINGLE
         from products.tasks.backend.task_done import check_wake, warm_done_mode
 
         warm_done_mode(self)
@@ -1345,6 +1349,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 **({"environment": environment} if environment else {}),
                 state=state,
                 branch=branch,
+                log_format=log_format,
             )
             if (
                 task.origin_product == Task.OriginProduct.SIGNAL_REPORT
@@ -2751,6 +2756,8 @@ class TaskRun(models.Model):
         SINGLE = "single", "Single"
         CHUNKED = "chunked", "Chunked"
 
+    LOG_FIELDS = ("team_id", "task_id", "log_format", "log_chunk_count")
+
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
@@ -3286,7 +3293,11 @@ class TaskRun(models.Model):
 
     @property
     def log(self) -> TaskRunLog:
-        return TaskRunLog(key=self.log_url)
+        return TaskRunLog(
+            key=self.log_url,
+            chunked=self.log_format == self.LogFormat.CHUNKED,
+            chunk_count=self.log_chunk_count,
+        )
 
     def get_task_s3_prefix(self) -> str:
         """Base prefix for task-scoped objects in S3."""
@@ -3315,7 +3326,7 @@ class TaskRun(models.Model):
         # Walking the chain only needs id/state/artifacts and the bits that
         # `log_url` derives from (team_id, task_id). Fetching the full row would
         # pull every column for every historical run on the task.
-        siblings_qs = self.task.runs.only("id", "team_id", "task_id", "state", "artifacts")
+        siblings_qs = self.task.runs.only("id", "state", "artifacts", *self.LOG_FIELDS)
         siblings_by_id: dict[str, TaskRun] = {str(run.id): run for run in siblings_qs}
         seen: set[str] = {str(self.id)}
         current: TaskRun | None = self
@@ -3357,7 +3368,7 @@ class TaskRun(models.Model):
 
     def _task_session_chain(self, max_depth: int) -> list["TaskRun"]:
         earlier = list(
-            self.task.runs.only("id", "team_id", "task_id", "created_at")
+            self.task.runs.only("id", "created_at", *self.LOG_FIELDS)
             .filter(active_task_session_id=self.active_task_session_id, created_at__lt=self.created_at)
             .order_by("-created_at")[:max_depth]
         )
@@ -3408,6 +3419,14 @@ class TaskRun(models.Model):
         """
         entries = [e for e in entries if not self._is_agent_message_chunk(e)]
         if not entries:
+            return
+
+        if self.log_format == self.LogFormat.CHUNKED:
+            chunk_count = append_run_log_chunk(self.log, entries, lock_attempts=lock_attempts, batch_id=batch_id)
+            if chunk_count is not None:
+                TaskRun.objects.filter(id=self.id).update(log_chunk_count=Greatest(F("log_chunk_count"), chunk_count))
+                self.log_chunk_count = chunk_count
+            self._mirror_logs_to_posthog_logs(entries)
             return
 
         is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)

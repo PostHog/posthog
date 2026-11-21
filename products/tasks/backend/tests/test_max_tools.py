@@ -518,6 +518,19 @@ class TestGetTaskRunLogsTool(BaseTaskToolTest):
     @patch("posthog.storage.object_storage.get_presigned_url")
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_get_logs_points_a_chunked_run_at_the_log_entries_endpoint(self, mock_presigned):
+        task = await self._create_task()
+        run = await self._create_task_run(task, status=TaskRun.Status.IN_PROGRESS)
+        await TaskRun.objects.filter(id=run.id).aupdate(log_format=TaskRun.LogFormat.CHUNKED)
+
+        _, artifact = await self._create_tool(GetTaskRunLogsTool)._arun_impl(task_id=str(task.id))
+
+        assert artifact["logs_api_url"].endswith(f"/runs/{run.id}/log_entries/")
+        mock_presigned.assert_not_called()
+
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_get_logs_presign_failed(self, mock_presigned):
         mock_presigned.return_value = None
 
@@ -1180,6 +1193,6 @@ class TestTaskRunAnalyticsAccess(BaseTaskToolTest):
         _, allowed = await self._create_tool(self.tool_class)._arun_impl(task_id=str(task.id))
         assert "error" not in allowed
         if self.tool_class == GetTaskRunLogsTool:
-            assert allowed["logs_api_url"].endswith(f"/runs/{run.id}/logs/")
+            assert allowed["logs_api_url"].endswith(f"/runs/{run.id}/log_entries/")
             assert "log_url" not in allowed
             presign.assert_not_called()

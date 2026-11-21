@@ -100,6 +100,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def write_if_absent(self, bucket: str, key: str, content: bytes, *, metadata: dict[str, str]) -> bool:
+        pass
+
+    @abc.abstractmethod
     def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
         """Not atomic: callers serialize appends to one key. Returns whether this call created the object."""
         pass
@@ -186,6 +190,9 @@ class UnavailableStorage(ObjectStorageClient):
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         pass
+
+    def write_if_absent(self, bucket: str, key: str, content: bytes, *, metadata: dict[str, str]) -> bool:
+        raise ObjectStorageError("object storage is unavailable")
 
     def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
         return False
@@ -421,6 +428,19 @@ class ObjectStorage(ObjectStorageClient):
                 error=e,
                 s3_response=s3_response,
             )
+            capture_exception(e)
+            raise ObjectStorageError("write failed") from e
+
+    def write_if_absent(self, bucket: str, key: str, content: bytes, *, metadata: dict[str, str]) -> bool:
+        from botocore.exceptions import ClientError  # noqa: PLC0415
+
+        try:
+            self.aws_client.put_object(Bucket=bucket, Key=key, Body=content, IfNoneMatch="*", Metadata=metadata)
+            return True
+        except Exception as e:
+            if isinstance(e, ClientError) and e.response.get("Error", {}).get("Code") == "PreconditionFailed":
+                return False
+            logger.exception("object_storage.write_if_absent_failed", bucket=bucket, file_name=key, error=e)
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
@@ -673,6 +693,12 @@ def write(file_name: str, content: Union[str, bytes], extras: dict | None = None
         key=file_name,
         content=content,
         extras=extras,
+    )
+
+
+def write_if_absent(file_name: str, content: bytes, *, metadata: dict[str, str], bucket: str | None = None) -> bool:
+    return object_storage_client().write_if_absent(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content, metadata=metadata
     )
 
 

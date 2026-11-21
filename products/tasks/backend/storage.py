@@ -1,23 +1,41 @@
 import json
+import uuid
+import functools
 import contextlib
-from collections.abc import Iterator
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from typing import Any, TypeVar, cast
 
 import redis
 import structlog
 
 from posthog.redis import get_client
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError, StoredObjectSummary
 
 from products.tasks.backend.metrics import LOG_APPEND_UNSERIALIZED_TOTAL
-from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized
+from products.tasks.backend.storage_errors import (
+    TaskRunLogAppendUnserialized,
+    TaskRunLogChunkMissing,
+    TaskRunLogChunkSlotsTaken,
+)
 
 logger = structlog.get_logger(__name__)
 
 # Must outlive the whole-object read + write below.
 _APPEND_LOCK_TTL_SECONDS = 3 * 60
 _APPEND_LOCK_WAIT_SECONDS = 5
+
+# Parallel chunk requests per read; matches boto3's default pool of 10 connections.
+CHUNK_READ_CONCURRENCY = 10
+# Ceiling on chunks per run, so probing for the end of a log always stops.
+CHUNK_COUNT_MAX = 1_000_000
+# Taken slots an append retries past before it gives up.
+CHUNK_WRITE_ATTEMPTS_MAX = 8
+_APPEND_ID_METADATA_KEY = "append-id"
+
+T = TypeVar("T")
 
 
 @contextlib.contextmanager
@@ -61,6 +79,16 @@ def _json_lines(entries: list[dict[str, Any]]) -> str:
     return "\n".join(json.dumps(entry) for entry in entries)
 
 
+def _batch_marker(batch_id: str) -> str:
+    return f'"batch": {json.dumps(batch_id)}'
+
+
+def _with_batch(entries: list[dict[str, Any]], batch_id: str | None) -> list[dict[str, Any]]:
+    if batch_id is None:
+        return entries
+    return [{**entry, "batch": batch_id} for entry in entries]
+
+
 def append_jsonl_object(
     object_storage_key: str, entries: list[dict[str, Any]], *, lock_attempts: int = 1, batch_id: str | None = None
 ) -> bool:
@@ -74,9 +102,9 @@ def append_jsonl_object(
         if batch_id is None:
             return object_storage.append(object_storage_key, _json_lines(entries).encode(), separator=b"\n")
         existing_content = object_storage.read(object_storage_key, missing_ok=True) or ""
-        if f'"batch": {json.dumps(batch_id)}' in existing_content:
+        if _batch_marker(batch_id) in existing_content:
             return False
-        batch_lines = _json_lines([{**entry, "batch": batch_id} for entry in entries])
+        batch_lines = _json_lines(_with_batch(entries, batch_id))
         content = existing_content + ("\n" if existing_content else "") + batch_lines
 
         object_storage.write(object_storage_key, content)
@@ -87,17 +115,107 @@ def append_jsonl_object(
 @dataclass(frozen=True, slots=True)
 class TaskRunLog:
     key: str
+    chunked: bool = False
+    chunk_count: int = field(default=0, compare=False)
+
+
+def _chunk_prefix(log: TaskRunLog) -> str:
+    assert log.key.endswith(".jsonl"), log.key
+    return f"{log.key.removesuffix('.jsonl')}/chunks/"
+
+
+def run_log_chunk_key(log: TaskRunLog, chunk_index: int) -> str:
+    assert 0 <= chunk_index < CHUNK_COUNT_MAX, chunk_index
+    return f"{_chunk_prefix(log)}{chunk_index:010d}.jsonl"
+
+
+def _list_chunks(log: TaskRunLog) -> list[StoredObjectSummary]:
+    chunks: list[StoredObjectSummary] = []
+    for summary in object_storage.list_object_summaries(_chunk_prefix(log)):
+        if summary.key != run_log_chunk_key(log, len(chunks)):
+            break
+        chunks.append(summary)
+    return chunks
+
+
+def _fetch_chunk_range(log: TaskRunLog, fetch: Callable[[str], T | None], start: int, stop: int) -> list[T | None]:
+    assert 0 <= start <= stop <= CHUNK_COUNT_MAX, (start, stop)
+    keys = (run_log_chunk_key(log, chunk_index) for chunk_index in range(start, stop))
+    if stop - start <= 1:
+        return [fetch(key) for key in keys]
+    with ThreadPoolExecutor(max_workers=min(CHUNK_READ_CONCURRENCY, stop - start)) as pool:
+        return list(pool.map(fetch, keys, buffersize=CHUNK_READ_CONCURRENCY))
+
+
+def _fetch_chunks_from(log: TaskRunLog, fetch: Callable[[str], T | None], start: int) -> list[T]:
+    found: list[T] = []
+    wave = 1
+    while start < CHUNK_COUNT_MAX:
+        for item in _fetch_chunk_range(log, fetch, start, min(start + wave, CHUNK_COUNT_MAX)):
+            if item is None:
+                return found
+            found.append(item)
+        start += wave
+        wave = min(wave * 2, CHUNK_READ_CONCURRENCY)
+    raise TaskRunLogChunkMissing(f"{log.key} has no end below {CHUNK_COUNT_MAX} chunks")
+
+
+def _fetch_chunks(log: TaskRunLog, fetch: Callable[[str], T | None], start: int) -> list[T]:
+    assert log.chunked
+    assert 0 <= log.chunk_count < CHUNK_COUNT_MAX, log.chunk_count
+    assert 0 <= start < CHUNK_COUNT_MAX, start
+    stop = max(start, log.chunk_count)
+    fetched = _fetch_chunk_range(log, fetch, start, stop + 1)
+    for chunk_index, item in enumerate(fetched[:-1], start=start):
+        if item is None:
+            raise TaskRunLogChunkMissing(
+                f"{run_log_chunk_key(log, chunk_index)} is missing below chunk count {log.chunk_count}"
+            )
+    if fetched[-1] is None:
+        return cast(list[T], fetched[:-1])
+    return cast(list[T], fetched) + _fetch_chunks_from(log, fetch, stop + 1)
+
+
+def _read_chunks(log: TaskRunLog, start: int) -> list[bytes]:
+    return _fetch_chunks(log, functools.partial(object_storage.read_bytes, missing_ok=True), start)
+
+
+class RunLogCache:
+    __slots__ = ("_snapshot",)
+
+    def __init__(self) -> None:
+        self._snapshot: tuple[int, bytes] = (0, b"")
+
+    def read(self, log: TaskRunLog) -> str:
+        if not log.chunked:
+            return read_run_log(log)
+        chunk_count, content = self._snapshot
+        chunks = _read_chunks(log, chunk_count)
+        snapshot = (chunk_count + len(chunks), content + b"".join(chunks))
+        self._snapshot = snapshot
+        return snapshot[1].decode("utf-8")
 
 
 def read_run_log(log: TaskRunLog) -> str:
+    if log.chunked:
+        return read_run_log_bytes(log).decode("utf-8")
     return object_storage.read(log.key, missing_ok=True) or ""
 
 
 def read_run_log_bytes(log: TaskRunLog) -> bytes:
+    if log.chunked:
+        return b"".join(_read_chunks(log, 0))
     return object_storage.read_bytes(log.key, missing_ok=True) or b""
 
 
 def read_run_log_size(log: TaskRunLog, *, strict: bool) -> int:
+    if log.chunked:
+        try:
+            return sum(chunk.size for chunk in _list_chunks(log))
+        except ObjectStorageError:
+            if strict:
+                raise
+            return 0
     if strict:
         head = object_storage.head_object_strict(log.key)
     else:
@@ -107,17 +225,62 @@ def read_run_log_size(log: TaskRunLog, *, strict: bool) -> int:
     return int(head.get("ContentLength") or 0)
 
 
+def read_run_log_version(log: TaskRunLog) -> str | None:
+    if log.chunked:
+        try:
+            tail = _fetch_chunks_from(log, object_storage.head_object_strict, log.chunk_count)
+        except ObjectStorageError:
+            return None
+        chunk_count = log.chunk_count + len(tail)
+        return f"chunks-{chunk_count}" if chunk_count else None
+    size = read_run_log_size(log, strict=False)
+    return str(size) if size else None
+
+
 def run_log_exists(log: TaskRunLog) -> bool:
+    assert not log.chunked
     return object_storage.head_object(log.key) is not None
 
 
 def copy_run_log(log: TaskRunLog, target_key: str) -> None:
+    if log.chunked:
+        object_storage.write(target_key, read_run_log_bytes(log))
+        return
     object_storage.copy(log.key, target_key)
 
 
 def run_log_download_url(
     log: TaskRunLog, *, expiration_seconds: int, content_disposition: str | None = None
 ) -> str | None:
+    assert not log.chunked
     return object_storage.get_presigned_url(
         log.key, expiration=expiration_seconds, content_disposition=content_disposition
     )
+
+
+def _chunk_append_id(chunk_key: str) -> str | None:
+    head = object_storage.head_object_strict(chunk_key)
+    if head is None:
+        return None
+    return head.get("Metadata", {}).get(_APPEND_ID_METADATA_KEY)
+
+
+def append_run_log_chunk(
+    log: TaskRunLog, entries: list[dict[str, Any]], *, lock_attempts: int, batch_id: str | None
+) -> int | None:
+    assert log.chunked
+    assert entries
+    body = (_json_lines(_with_batch(entries, batch_id)) + "\n").encode()
+    metadata = {_APPEND_ID_METADATA_KEY: uuid.uuid4().hex}
+    with _append_lock(log.key, lock_attempts):
+        if batch_id is not None and _batch_marker(batch_id) in read_run_log(log):
+            return None
+        chunk_index = log.chunk_count
+        for _ in range(CHUNK_WRITE_ATTEMPTS_MAX):
+            chunk_key = run_log_chunk_key(log, chunk_index)
+            if object_storage.write_if_absent(chunk_key, body, metadata=metadata):
+                return chunk_index + 1
+            if _chunk_append_id(chunk_key) == metadata[_APPEND_ID_METADATA_KEY]:
+                return chunk_index + 1
+            chunk_index += 1 + len(_fetch_chunks_from(log, object_storage.head_object_strict, chunk_index + 1))
+    raise TaskRunLogChunkSlotsTaken(f"{log.key} lost {CHUNK_WRITE_ATTEMPTS_MAX} races for a free chunk")

@@ -256,6 +256,7 @@ from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
     read_run_log_size,
+    read_run_log_version,
     run_log_download_url,
 )
 from products.tasks.backend.task_done import (
@@ -730,13 +731,20 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
     return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
+def _task_run_log_entries_path(team_id: int, task_id: str | UUID, run_id: str | UUID) -> str:
+    return f"/api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/log_entries/?scope=run"
+
+
 def _task_run_log_url(run: TaskRun, *, has_analytics_context: bool) -> str | None:
-    """Presigned S3 URL for a run's log, cached. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
+    """Download URL for a run's log: a cached presigned S3 URL for a single-file log, the log entries endpoint
+    for a chunked one. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
     from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
 
     # Protected traces must go through the permission-checked logs endpoint.
     if has_analytics_context:
         return None
+    if run.log.chunked:
+        return absolute_uri(_task_run_log_entries_path(run.team_id, run.task_id, run.id))
     cache_key = f"task_run_log_url:{run.id}"
     cached_url = get_tasks_cache().get(cache_key)
     if cached_url:
@@ -804,7 +812,7 @@ def _task_run_detail_to_dto(
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
         log_url=(
-            f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/logs/"
+            _task_run_log_entries_path(run.team_id, run.task_id, run.id)
             if has_analytics_context and include_agent_state and include_log_url
             else _task_run_log_url(run, has_analytics_context=has_analytics_context)
             if include_log_url
@@ -5804,28 +5812,29 @@ _LOG_PART_SUMMARY_CACHE_SECONDS = 24 * 60 * 60
 
 
 def _conversation_log_part_summary(log: TaskRunLog, entries: Callable[[], list[str]]) -> LogPartSummary:
-    """A run log's summary, cached under one key per log with the object size it was made from. A log only grows,
-    so its size identifies its content, and a new size replaces the old summary. The cache is an optimization: a
-    cache error counts as a miss, and the summary comes from the log itself."""
+    """A run log's summary, cached under one key per log with the version it was made from: the object size of a
+    single-file log, the chunk count of a chunked one. A log only grows, so its version identifies its content, and a
+    new version replaces the old summary. The cache is an optimization: a cache error counts as a miss, and the
+    summary comes from the log itself."""
     from django.core.cache import cache  # noqa: PLC0415 — keep cache setup off the api import path
 
-    size = read_run_log_size(log, strict=False)
-    if not size:
+    version = read_run_log_version(log)
+    if not version:
         return summarize_log_part(entries())
-    # The cache pickles values, so it holds only a JSON string: the object size, then the summary.
+    # The cache pickles values, so it holds only a JSON string: the log's version, then the summary.
     key = f"tasks:log-part-summary:v5:{hashlib.sha256(log.key.encode()).hexdigest()}"
     try:
         cached = cache.get(key)
     except Exception:
         logger.warning("task_log_part_summary_cache_read_failed", exc_info=True)
         cached = None
-    if isinstance(cached, str) and cached.startswith(f"{size}:"):
-        summary_hit = summary_from_json(cached.removeprefix(f"{size}:"))
+    if isinstance(cached, str) and cached.startswith(f"{version}:"):
+        summary_hit = summary_from_json(cached.removeprefix(f"{version}:"))
         if summary_hit is not None:
             return summary_hit
     summary = summarize_log_part(entries())
     try:
-        cache.set(key, f"{size}:{summary_to_json(summary)}", timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
+        cache.set(key, f"{version}:{summary_to_json(summary)}", timeout=_LOG_PART_SUMMARY_CACHE_SECONDS)
     except Exception:
         logger.warning("task_log_part_summary_cache_write_failed", exc_info=True)
     return summary
@@ -11224,7 +11233,7 @@ def _slack_repo_research_dto(
         sandbox_url = (research_run.state if isinstance(research_run.state, dict) else {}).get("sandbox_url")
         run_status = research_run.status
         try:
-            log_url = run_log_download_url(research_run.log, expiration_seconds=3600)
+            log_url = _task_run_log_url(research_run, has_analytics_context=False)
         except Exception:
             logger.exception("slack_thread_context_research_log_presign_failed", extra={"run_id": research_run_id})
             log_url = None
@@ -11307,7 +11316,7 @@ def resolve_slack_thread_context(
         task_processing_workflow_id = run.workflow_id
         mention_workflow_id = state.get("slack_mention_workflow_id")
         try:
-            presigned_log_url = run_log_download_url(run.log, expiration_seconds=3600)
+            presigned_log_url = _task_run_log_url(run, has_analytics_context=False)
         except Exception:
             logger.exception("slack_thread_context_log_presign_failed", extra={"run_id": str(run.id)})
             presigned_log_url = None

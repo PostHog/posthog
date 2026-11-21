@@ -9,3 +9,11 @@ consumers keep importing it from the facade.
 
 class TaskRunLogAppendUnserialized(Exception):
     """The per-log append lock could not be taken; the caller should retry the append."""
+
+
+class TaskRunLogChunkMissing(Exception):
+    pass
+
+
+class TaskRunLogChunkSlotsTaken(Exception):
+    pass
