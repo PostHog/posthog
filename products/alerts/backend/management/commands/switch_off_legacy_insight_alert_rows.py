@@ -13,7 +13,9 @@ from products.alerts_platform.backend.facade.legacy_row_switch_off_command impor
 class Command(BaseCommand):
     help = (
         "Switch off the insight row of every insight alert the alerts platform owns, per team, in batches. "
-        "The platform copy, which every reader shows, is not changed. Writes nothing without --apply."
+        "The platform copy is not changed. Writes nothing without --apply. Run --apply only after PR #139006 "
+        "is deployed: before it, investigation releases and the Slack snooze read the row's enabled, so "
+        "switched-off rows would suppress gated firings and refuse snoozes."
     )
 
     def add_arguments(self, parser: Any) -> None:
