@@ -24,7 +24,11 @@ from typing import TYPE_CHECKING
 
 from products.tasks.backend import model_catalog
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
-from products.tasks.backend.logic.services.gateway_models import GatewayModel, list_gateway_models
+from products.tasks.backend.logic.services.gateway_models import (
+    GatewayModel,
+    cached_gateway_models,
+    list_gateway_models,
+)
 from products.tasks.backend.model_catalog import COST_BASELINE_MODEL, display_name_for_model  # noqa: F401 — re-exported
 
 if TYPE_CHECKING:
@@ -124,6 +128,9 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
         runtime_adapter = runtime_adapter_for(model.id) or by_provider.get(model.owned_by)
         if runtime_adapter is None:
             continue
+        if model_catalog.runtime_adapter_for_model(model.id) is None:
+            choices.append(_listed_choice(runtime_adapter, model))
+            continue
         choices.append(
             ModelChoice(
                 runtime_adapter=runtime_adapter,
@@ -134,6 +141,42 @@ def available_model_choices(product: Product) -> tuple[ModelChoice, ...]:
             )
         )
     return tuple(choices)
+
+
+_ALIAS_NAME_SUFFIX = " (latest)"
+
+
+def _listed_choice(runtime_adapter: str, listed: GatewayModel) -> ModelChoice:
+    return ModelChoice(
+        runtime_adapter=runtime_adapter,
+        model=listed.id,
+        label=listed.name.removesuffix(_ALIAS_NAME_SUFFIX) or model_catalog.format_model_id(listed.id),
+        supported_efforts=_listed_efforts(runtime_adapter, listed),
+        cost_multiplier=_listed_cost_multiplier(listed),
+    )
+
+
+def _listed_efforts(runtime_adapter: str, listed: GatewayModel) -> tuple[str, ...]:
+    if listed.reasoning_efforts is None:
+        return model_catalog.reasoning_efforts_for(runtime_adapter, listed.id)
+    return model_catalog.reasoning_efforts_from_provider(listed.id, listed.reasoning_efforts)
+
+
+def _listed_cost_multiplier(listed: GatewayModel) -> str | None:
+    if not listed.input_per_mtok or not listed.output_per_mtok:
+        return None
+    return model_catalog.cost_multiplier_label_for_cost(
+        model_catalog.ModelCost(listed.input_per_mtok, listed.output_per_mtok)
+    )
+
+
+def supported_efforts(runtime_adapter: str, model: str) -> tuple[str, ...]:
+    if model_catalog.runtime_adapter_for_model(model) is None:
+        normalized = model_catalog.normalize_model_id(model)
+        for listed in cached_gateway_models(TASK_RUN_GATEWAY_PRODUCT):
+            if listed.id == normalized:
+                return _listed_efforts(runtime_adapter, listed)
+    return model_catalog.reasoning_efforts_for(runtime_adapter, model)
 
 
 @lru_cache(maxsize=1)
@@ -194,7 +237,7 @@ def filter_unsupported_effort(runtime_adapter: str | None, model: str | None, ef
     # adapter's fallback ladder and quietly keep an effort the run would be rejected for.
     if not effort or not runtime_adapter or not model:
         return None
-    return effort if effort in model_catalog.reasoning_efforts_for(runtime_adapter, model) else None
+    return effort if effort in supported_efforts(runtime_adapter, model) else None
 
 
 @lru_cache(maxsize=1)
@@ -242,4 +285,5 @@ __all__ = [
     "label_for",
     "list_gateway_models",
     "runtime_adapter_for",
+    "supported_efforts",
 ]

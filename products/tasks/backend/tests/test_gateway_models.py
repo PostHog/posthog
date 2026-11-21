@@ -10,7 +10,11 @@ from django.core.cache import cache
 from openai.types import Model
 
 from products.tasks.backend.logic.services import gateway_models
-from products.tasks.backend.logic.services.gateway_models import GatewayModel, list_gateway_models
+from products.tasks.backend.logic.services.gateway_models import (
+    GatewayModel,
+    cached_gateway_models,
+    list_gateway_models,
+)
 
 _BUILD_CLIENT = "posthog.llm.gateway_client.build_openai_client"
 _PRODUCT: Final = "posthog_code"
@@ -124,3 +128,26 @@ def test_serves_the_last_listing_when_the_gateway_fails() -> None:
 def test_serves_nothing_when_the_gateway_has_never_answered() -> None:
     with patch(_BUILD_CLIENT, side_effect=RuntimeError("gateway down")):
         assert list_gateway_models(_PRODUCT) == ()
+
+
+@pytest.mark.parametrize(
+    "expire_fresh,fetched_before,expected_ids",
+    [(False, True, ["gpt-6.2-sol"]), (True, True, ["gpt-6.2-sol"]), (False, False, [])],
+    ids=["fresh_listing", "last_listing_after_expiry", "nothing_fetched_yet"],
+)
+def test_cached_listing_never_calls_the_gateway(
+    expire_fresh: bool, fetched_before: bool, expected_ids: list[str]
+) -> None:
+    if fetched_before:
+        with patch(_BUILD_CLIENT, return_value=_client([_BARE_ROW])):
+            list_gateway_models(_PRODUCT)
+    if expire_fresh:
+        cache.delete(_FRESH_KEY)
+
+    with patch(_BUILD_CLIENT, return_value=_client([{**_BARE_ROW, "id": "fetched-on-read"}])):
+        assert [model.id for model in cached_gateway_models(_PRODUCT)] == expected_ids
+
+
+def test_cached_listing_is_empty_when_the_cache_is_down() -> None:
+    with patch.object(cache, "get", side_effect=RuntimeError("cache down")):
+        assert cached_gateway_models(_PRODUCT) == ()
