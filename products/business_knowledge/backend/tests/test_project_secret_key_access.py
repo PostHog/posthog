@@ -108,6 +108,11 @@ class TestProjectSecretKeyAccess(APIBaseTest):
         self._use_key(team=other)
         response = self.client.get(self._base() + path.format(document=self.document.id))
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        # A project ID that does not exist gets the same answer, so a key cannot learn which IDs exist.
+        missing = self.client.get(
+            f"/api/projects/{other.id + 100_000}/business_knowledge" + path.format(document=self.document.id)
+        )
+        assert (missing.status_code, missing.json()) == (response.status_code, response.json())
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("products.business_knowledge.backend.api.throttles.KnowledgeBurstRateThrottle.rate", new="1/minute")
