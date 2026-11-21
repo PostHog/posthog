@@ -1483,7 +1483,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             keep_writing_flag_calls_to_events=keep_writing,
         )
 
-        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", force_events):
+        with (
+            self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False),
+            override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", force_events),
+        ):
             body = self.client.get(f"/api/projects/{self.project.id}/").json()
 
         self.assertEqual(body["flag_evaluations_mode"], expected_mode)
