@@ -111,13 +111,13 @@ type LiveVerdict = { results?: BarResult[]; stop?: Omit<RampStop, 'index'> }
 
 async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): Promise<LiveVerdict> {
     const step = { ...window, offeredUnits: offered }
-    const shortfall = shortfallOf(step, live.minOffered)
-    if (shortfall) {
-        return { stop: { end: 'harness_limit', reason: shortfall, broke: harness(step, 'generator') } }
-    }
     const lagged = laggedOf(step)
     if (lagged) {
         return { stop: { end: 'harness_limit', reason: lagged, broke: harness(step, 'runner') } }
+    }
+    const shortfall = shortfallOf(step, live.minOffered)
+    if (shortfall) {
+        return { stop: { end: 'harness_limit', reason: shortfall, broke: harness(step, 'generator') } }
     }
     const limited = await live.targetLimit?.(window)
     if (limited) {

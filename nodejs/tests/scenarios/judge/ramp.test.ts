@@ -317,6 +317,22 @@ describe('ramp', () => {
         expect({ advance: !watch.halt.aborted, stop: watch.stopped() }).toEqual(expected)
     })
 
+    it('stops at a step whose runner lagged and so offered short, naming the runner', async () => {
+        jest.setSystemTime(windowOf(1).endedAt)
+        const watch = watchRamp(live(), NEVER)
+
+        const verdict = watch.gate({ ...windowOf(1), loopLagP99Ms: 900 }, () => 200)
+        await jest.advanceTimersByTimeAsync(SCRAPE_GAP_MS)
+        await verdict
+
+        expect(watch.stopped()).toMatchObject({
+            index: 1,
+            end: 'harness_limit',
+            reason: "the runner's event loop lagged 900 ms at p99 in the 2x step, over 250 ms",
+            broke: { by: 'runner', kind: 'harness', scale: 2 },
+        })
+    })
+
     it('admits a first step at 5x whose workers claimed five times the 1x load target', async () => {
         const opener = { ...windowOf(0), scale: 5 }
         jest.setSystemTime(opener.endedAt)
