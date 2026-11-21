@@ -267,10 +267,9 @@ export type NewSessionMeta = {
    */
   channelMode?: boolean;
   budgetSteer?: { mode?: "publish" | "wrap_up" };
-  taskOriginProduct?: string;
-  /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
-  endRunWhenDone?: boolean;
-  callerEndsRun?: boolean;
+  finishTool?: boolean;
+  finishReportRequired?: boolean;
+  reportActivityTool?: boolean;
   /** Keeps hooks from the repo's `.claude/settings*.json` from running. */
   disableRepoHooks?: boolean;
   /**

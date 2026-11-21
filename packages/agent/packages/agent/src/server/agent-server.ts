@@ -252,8 +252,6 @@ export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
-const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
-
 export function codexProcessCwd(
   config: Pick<AgentServerConfig, "repositoryPath" | "repoReadyFile">,
 ): string {
@@ -2314,7 +2312,7 @@ export class AgentServer {
     );
 
     if (
-      launch.originProduct === POSTHOG_AI_ORIGIN_PRODUCT &&
+      launch.policy.expectsSystemPrompt &&
       !systemPromptAppendText(launch.systemPrompt)
     ) {
       this.logger.warn("posthog_ai_run_state_system_prompt_missing", {
@@ -2522,11 +2520,11 @@ export class AgentServer {
       ...(channelMode && { channelMode: true }),
       budgetSteer: { mode: this.budgetSteerMode() },
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
-      ...(launch.originProduct && {
-        taskOriginProduct: launch.originProduct,
+      ...(launch.policy.finishTool && { finishTool: true }),
+      ...(launch.policy.finishReportRequired && {
+        finishReportRequired: true,
       }),
-      ...(launch.endRunWhenDone && { endRunWhenDone: true }),
-      ...(launch.callerEndsRun && { callerEndsRun: true }),
+      ...(launch.policy.reportActivityTool && { reportActivityTool: true }),
       ...(launch.disableRepoHooks && { disableRepoHooks: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
@@ -4657,7 +4655,7 @@ export class AgentServer {
     const userPrompt =
       this.config.claudeCode?.systemPrompt ?? runStateSystemPrompt;
     const replySurface =
-      this.productSession.replySurface ?? this.productLaunch.originProduct;
+      this.productSession.replySurface ?? this.productLaunch.interactionOrigin;
 
     const sessionPrompt = buildCloudSessionSystemPrompt(
       cloudAppend,
@@ -5244,7 +5242,7 @@ export class AgentServer {
 
   private createCloudClient(payload: JwtPayload) {
     const mode = this.getEffectiveMode(payload);
-    const originProduct = this.productLaunch.originProduct;
+    const interactionOrigin = this.productLaunch.interactionOrigin;
 
     return {
       requestPermission: async (
@@ -5252,7 +5250,7 @@ export class AgentServer {
       ): Promise<RequestPermissionResponse> => {
         this.logger.debug("Permission request", {
           mode,
-          originProduct,
+          interactionOrigin,
           kind: params.toolCall?.kind,
           options: params.options,
         });
