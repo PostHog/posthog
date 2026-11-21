@@ -101,8 +101,8 @@ export function NotebooksTable(): JSX.Element {
                 }}
                 dismissKey="notebooks-preview-banner"
             >
-                <b>Welcome to Notebooks</b> - a great way to bring Insights, Replays, Feature Flags and many more
-                PostHog products together into one place.
+                <b>Welcome to notebooks.</b> Write up an investigation with your notes next to the insights, recordings,
+                and feature flags behind it, then share it with your team.
             </LemonBanner>
             <div className="flex justify-between gap-2 flex-wrap">
                 <LemonInput
