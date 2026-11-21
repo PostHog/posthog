@@ -2021,9 +2021,13 @@ describe('runner through seed, drive and judge', () => {
         }
     }, 30_000)
 
-    it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {
+    it('ends the drive window on schedule and leaves a valve due after it unapplied while an intake answer is still pending', async () => {
+        const answeredAt: number[] = []
         const slowIntake = http.createServer((_request, response) => {
-            setTimeout(() => response.writeHead(422).end(), 3_000)
+            setTimeout(() => {
+                answeredAt.push(Date.now())
+                response.writeHead(422).end()
+            }, 3_000)
         })
         await new Promise<void>((resolve) => slowIntake.listen(0, '127.0.0.1', resolve))
         try {
@@ -2042,6 +2046,8 @@ describe('runner through seed, drive and judge', () => {
                 },
             ])
             expect(exits).toEqual([])
+            const { drive } = evidenceOf(result, 'probes.json') as { drive: { startedAt: number; endedAt: number } }
+            expect(drive.endedAt).toBeLessThan(Math.min(...answeredAt))
         } finally {
             slowIntake.closeAllConnections()
             await new Promise((resolve) => slowIntake.close(resolve))

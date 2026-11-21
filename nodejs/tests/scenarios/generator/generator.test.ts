@@ -386,6 +386,7 @@ describe('drive', () => {
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
         const refused = new Set<string>()
         let retries = 0
+        let elapsedMs = 0
         let retried = (): void => undefined
         const answered = new Promise<void>((resolve) => (retried = resolve))
         const server = http.createServer((request, response) => {
@@ -409,7 +410,13 @@ describe('drive', () => {
                     cdpApi: {
                         ...CDP_API,
                         url: `http://127.0.0.1:${port}`,
-                        clock: { now: () => 0, wait: () => Promise.resolve() },
+                        clock: {
+                            now: () => elapsedMs,
+                            wait: (ms) => {
+                                elapsedMs += ms
+                                return Promise.resolve()
+                            },
+                        },
                     },
                     sesFeedback: { settled: () => Promise.resolve(undefined) },
                 }

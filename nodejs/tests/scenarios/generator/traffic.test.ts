@@ -230,19 +230,34 @@ describe('traffic', () => {
                 }
             })
 
-            it('stops waiting to retry when the run aborts during its backoff', async () => {
+            it.each<[string, (signal: AbortSignal, abort: AbortController) => Promise<void>]>([
+                [
+                    'during its backoff',
+                    (signal) =>
+                        new Promise((_resolve, reject) =>
+                            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+                        ),
+                ],
+                [
+                    'as its backoff ends',
+                    (_signal, abort) => {
+                        abort.abort()
+                        return Promise.resolve()
+                    },
+                ],
+            ])('stops retrying when the run aborts %s', async (_when, backOff) => {
                 let waiting = (): void => undefined
                 const backingOff = new Promise<void>((resolve) => (waiting = resolve))
+                const abort = new AbortController()
                 const clock: SendClock = {
                     now: () => 0,
-                    wait: (_ms, signal) =>
-                        new Promise((_resolve, reject) => {
-                            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
-                            waiting()
-                        }),
+                    wait: (_ms, signal) => {
+                        const backedOff = backOff(signal, abort)
+                        waiting()
+                        return backedOff
+                    },
                 }
                 const cdpApi = await startCdpApi([UNAVAILABLE])
-                const abort = new AbortController()
                 try {
                     const offered = transactionalEmail.offer(
                         UNIT,

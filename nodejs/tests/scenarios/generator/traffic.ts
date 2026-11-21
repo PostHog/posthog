@@ -277,6 +277,7 @@ async function sendTransactional(
             return withRetries(answer, retry)
         }
         await clock.wait(waitMs, signal)
+        signal.throwIfAborted()
         if (clock.now() > deadline) {
             return withRetries(answer, retry)
         }
