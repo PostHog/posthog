@@ -5669,6 +5669,10 @@ SQL
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "auth_type" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -5898,6 +5902,10 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
+    column "auth_type" {
       type    = "LowCardinality(String)"
       default = "''"
     }
@@ -17617,6 +17625,10 @@ SQL
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "auth_type" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -21263,7 +21275,8 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
   toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source,
+  _headers.value[indexOf(_headers.name, 'auth-type')] AS auth_type
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -21340,6 +21353,9 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type = "LowCardinality(String)"
+    }
+    column "auth_type" {
       type = "LowCardinality(String)"
     }
   }
