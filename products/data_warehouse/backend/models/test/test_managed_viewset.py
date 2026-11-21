@@ -6,6 +6,7 @@ from django.db import IntegrityError
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseManagedViewSet, DataWarehouseSavedQuery, Node
+from products.data_modeling.backend.facade.testing import patch_dag_reconcile, patch_saved_query_dag_sync
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -67,7 +68,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
 
         with (
             patch(SCHEDULE_MATERIALIZATION),
-            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag") as reconcile,
+            patch_dag_reconcile() as reconcile,
         ):
             managed_viewset.sync_views()
 
@@ -80,8 +81,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         )
 
         with (
-            patch(
-                "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag",
+            patch_saved_query_dag_sync(
                 side_effect=Exception("dependency resolution failed"),
             ),
             patch(

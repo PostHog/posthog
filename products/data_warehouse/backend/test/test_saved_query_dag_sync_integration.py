@@ -4,6 +4,7 @@ from unittest.mock import patch
 from rest_framework import status
 
 from products.data_modeling.backend.facade.models import DEFAULT_DAG_NAME, DataWarehouseSavedQuery, Node, NodeType
+from products.data_modeling.backend.facade.testing import patch_saved_query_dag_sync
 
 
 class TestSavedQueryDagSyncIntegration(APIBaseTest):
@@ -174,8 +175,7 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
 
     def test_dag_sync_failure_does_not_fail_saved_query_operation(self):
         """Verify that DAG sync failures don't break the main operation."""
-        with patch(
-            "products.data_modeling.backend.logic.saved_query_dag_sync.sync_saved_query_to_dag",
+        with patch_saved_query_dag_sync(
             side_effect=Exception("DAG sync failed"),
         ):
             response = self.client.post(

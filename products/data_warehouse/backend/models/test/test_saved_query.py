@@ -21,6 +21,7 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.testing import patch_column_describe_query, patch_column_describe_retry_sleep
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
@@ -85,7 +86,7 @@ class TestGetColumnsQueryTagging(BaseTest):
     feature query tags (enforced as a hard error in DEBUG). Untagged, view creation over any table —
     including ai_events — fails with UntaggedQueryError. The inference query must be tagged."""
 
-    @patch("products.data_modeling.backend.logic.describe_columns.sync_execute")
+    @patch_column_describe_query()
     def test_get_columns_tags_the_inference_query(self, mock_sync_execute):
         from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
@@ -120,12 +121,11 @@ class TestGetColumnsRetriesTransientS3Errors(BaseTest):
             ("s3_error", CHQueryErrorS3Error("S3 error occurred.", code=499)),
         ]
     )
-    @patch("products.data_modeling.backend.logic.describe_columns.sleep")
+    @patch_column_describe_retry_sleep()
     def test_describes_again_after_one_transient_s3_error(self, _name: str, error: Exception, _sleep) -> None:
         saved_query = DataWarehouseSavedQuery(team=self.team, name="my_view", query={"query": "SELECT 1 AS value"})
 
-        with patch(
-            "products.data_modeling.backend.logic.describe_columns.sync_execute",
+        with patch_column_describe_query(
             side_effect=[error, [("value", "UInt8")]],
         ):
             columns = saved_query.get_columns(user=self.user)
@@ -156,7 +156,7 @@ class TestGetColumnsConcurrency(BaseTest):
         def infer_while_query_runs(*args: object, **kwargs: object) -> tuple[list[tuple[int]], list[tuple[str, str]]]:
             with (
                 tags_context(access_method=access_method),
-                patch("products.data_modeling.backend.logic.describe_columns.sync_execute", return_value=column_types),
+                patch_column_describe_query(return_value=column_types),
             ):
                 if is_api_key:
                     columns = saved_query.get_columns(user=self.user)
@@ -175,7 +175,7 @@ class TestGetColumnsConcurrency(BaseTest):
         assert isinstance(result, CachedHogQLQueryResponse)
         assert result.results == [(1,)]
 
-        with patch("products.data_modeling.backend.logic.describe_columns.sync_execute", return_value=column_types):
+        with patch_column_describe_query(return_value=column_types):
             columns = saved_query.get_columns(user=self.user)
         assert columns["value"]["clickhouse"] == "UInt8"
 

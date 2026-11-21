@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from parameterized import parameterized
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.testing import patch_dag_reconcile, patch_temporal_client
 from products.data_warehouse.backend.presentation.views.saved_query.incremental_config import (
     CHECK_INCREMENTAL_MAX_QUERY_LENGTH,
     CheckIncrementalThrottle,
@@ -48,7 +49,7 @@ class TestSavedQueryIncremental(APIBaseTest):
         self, _name: str, incremental: dict, sync_frequency: str | None, expect_materialized: bool
     ):
         with (
-            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+            patch_dag_reconcile(),
             patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule,
         ):
             response = self._create(incremental=incremental, sync_frequency=sync_frequency)
@@ -68,7 +69,7 @@ class TestSavedQueryIncremental(APIBaseTest):
     def test_updating_a_view_to_incremental_with_a_cadence_materializes_it(
         self, _name: str, patch_body: dict, expect_materialized: bool
     ):
-        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+        with patch_dag_reconcile():
             view_id = self._create().json()["id"]
             with patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule:
                 response = self.client.patch(self._url(f"{view_id}/"), patch_body)
@@ -274,7 +275,7 @@ class TestSavedQueryIncremental(APIBaseTest):
         saved_query.incremental_state = {"watermark": "2026-01-01T00:00:00+00:00", "definition_fingerprint": "abc"}
         saved_query.save(update_fields=["incremental_state"])
 
-        with patch("products.data_modeling.backend.logic.node_materialization.sync_connect", return_value=AsyncMock()):
+        with patch_temporal_client(return_value=AsyncMock()):
             response = self.client.post(self._url(f"{saved_query.id}/run/"), {"full_refresh": True})
 
         assert response.status_code == 200, response.json()
@@ -287,7 +288,7 @@ class TestSavedQueryIncremental(APIBaseTest):
         saved_query.incremental_state = {"watermark": "2026-01-01T00:00:00+00:00"}
         saved_query.save(update_fields=["incremental_state"])
 
-        with patch("products.data_modeling.backend.logic.node_materialization.sync_connect", return_value=AsyncMock()):
+        with patch_temporal_client(return_value=AsyncMock()):
             response = self.client.post(self._url(f"{saved_query.id}/run/"), {})
 
         assert response.status_code == 200, response.json()
