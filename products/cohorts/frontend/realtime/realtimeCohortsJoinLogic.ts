@@ -3,6 +3,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
@@ -95,6 +96,8 @@ export const realtimeCohortsJoinLogic = kea<realtimeCohortsJoinLogicType>([
             ): boolean =>
                 !joinRequested &&
                 !window.IMPERSONATED_SESSION &&
+                // The page around the frame joins already.
+                !isEmbeddedPageFrame() &&
                 currentTeam?.realtime_cohorts?.access === 'off' &&
                 !!featureFlags[FEATURE_FLAGS.REALTIME_COHORTS],
         ],
