@@ -12,6 +12,8 @@ from rest_framework.exceptions import ParseError
 
 from posthog.schema import CachedTraceSpansQueryResponse
 
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import CHQueryErrorTooManyBytes
 
 from products.tracing.backend.presentation.views import SpansViewSet, _serialize_compare_rows
@@ -81,6 +83,22 @@ class TestSpanCountErrorHandling(APIBaseTest):
             )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn("narrow", response.json()["detail"].lower())
+
+    @parameterized.expand(
+        [
+            ("trace", "trace/abcdef/", {}),
+            ("query", "query/", {"query": {}}),
+        ]
+    )
+    def test_org_concurrency_limit_returns_429_not_500(self, _name: str, path: str, data: dict) -> None:
+        with patch(
+            "products.tracing.backend.presentation.views.TraceSpansQueryRunner.run",
+            side_effect=ConcurrencyLimitExceeded("app:query:per-org:123 task-id"),
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/{path}", data, format="json")
+        self.assertEqual(response.status_code, 429, response.content)
+        self.assertEqual(response.headers["Retry-After"], str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS))
+        self.assertIn(CONCURRENCY_LIMIT_USER_MESSAGE, response.json()["detail"])
 
     def test_count_rejects_a_non_object_query(self):
         # The body reaches the field reads unvalidated, so a non-object query used to raise an
