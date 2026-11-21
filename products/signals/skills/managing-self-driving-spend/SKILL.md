@@ -7,7 +7,8 @@ description: >
   down by signal source, scout, and day, links it to the reports it produced, recommends changes
   ranked by savings, and applies them only after the user confirms each one. Trigger terms:
   inbox spend, self-driving cost, scout cost, why is my bill high, reduce inbox spend, billing
-  limit, daily report limit, turn off a source, pause a scout, scout pre-check.
+  limit, daily report limit, turn off a source, pause a scout, scout pre-check, scout schedule,
+  run a scout less often, trigger a scout from a workflow.
 ---
 
 # Managing Self-driving spend
@@ -62,6 +63,7 @@ Present the result with [references/report-template.md](references/report-templa
   Check `edited_report_ids` before you recommend pausing it.
 - A scout with a pre-check can have few runs on purpose, because a skipped run leaves no run row.
   Read `last_precheck_at` and `last_precheck_outcome` before you call its runs missing.
+- Scout spend follows the number of runs. Before you recommend a pause, check the three controls that cut runs and keep the scout: a pre-check, a slower or cron schedule, and a workflow trigger with a backstop schedule. [references/controls.md](references/controls.md) says when each one fits.
 - Turn off a source only after you check its narrowing settings and source steering. [references/controls.md](references/controls.md) lists which sources read `steering`.
 - Never turn off error tracking ingestion or lower its rate limits to save Self-driving spend.
   That drops exception data permanently. Change the Self-driving source instead.
