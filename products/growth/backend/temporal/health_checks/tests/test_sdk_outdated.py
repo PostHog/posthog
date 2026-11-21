@@ -204,6 +204,18 @@ class TestSdkOutdatedCheck(BaseTest):
 
         assert self._run(github, rows, [1]) == {}
 
+    def test_new_major_inside_grace_period_is_not_flagged(self):
+        new_major_release = (dt.datetime.now(dt.UTC) - dt.timedelta(days=1)).isoformat()
+        github = {
+            "posthog-node": {
+                "latestVersion": "4.0.0",
+                "releaseDates": {"3.35.0": OLD_RELEASE, "4.0.0": new_major_release},
+            }
+        }
+        rows = [_make_row(1, "posthog-node", "3.35.0")]
+
+        assert self._run(github, rows, [1]) == {}
+
     def test_patch_behind_is_not_flagged(self):
         # Proves the heuristics run: a crude current!=latest rule would flag this, but a patch
         # difference is never outdated.
