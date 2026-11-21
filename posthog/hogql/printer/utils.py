@@ -46,6 +46,7 @@ from posthog.hogql.transforms.logical_property_lowering import lower_property_ac
 from posthog.hogql.transforms.materialized_ctes import materialize_repeated_ctes
 from posthog.hogql.transforms.metrics_time_bucket_bounds import add_metrics_time_bucket_bounds
 from posthog.hogql.transforms.negated_person_filters import rewrite_negated_person_filters
+from posthog.hogql.transforms.person_id_filter_prewhere import add_person_id_filter_prewhere
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.transforms.type_aware_simplification import (
@@ -312,6 +313,21 @@ def prepare_ast_for_printing(
             with context.timings.measure("resolve_types_after_negated_person_filters"):
                 node = resolve_types(
                     rewritten,
+                    context,
+                    dialect=dialect,
+                    scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                    resolver_factory=resolver_factory,
+                )
+
+    # This rewrite needs resolved types to find `person_id` of events. It must run before lazy-table resolution, which
+    # replaces the overrides join that the rewrite matches.
+    if dialect == "clickhouse":
+        with context.timings.measure("add_person_id_filter_prewhere"):
+            with_prewhere = add_person_id_filter_prewhere(node, context)
+        if with_prewhere is not None:
+            with context.timings.measure("resolve_types_after_person_id_filter_prewhere"):
+                node = resolve_types(
+                    with_prewhere,
                     context,
                     dialect=dialect,
                     scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
