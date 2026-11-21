@@ -35,6 +35,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query_column_anno
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node
+from products.data_modeling.backend.models.node_engine_table import NodeEngineTable
 
 __all__ = [
     "CONNECTION_SAVE_REASON",
@@ -54,6 +55,7 @@ __all__ = [
     "Edge",
     "LineageIssueKind",
     "Node",
+    "NodeEngineTable",
     "NodeType",
     "ViewCapability",
     "ViewColumnSource",
