@@ -39,7 +39,8 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
     const rectRef = useRef<SizeRect | null>(null)
 
     const pagePixelRatio = useViewportPixelRatio()
-    const onScreen = useIsOnScreen(wrapperRef, pagePixelRatio > (window.devicePixelRatio || 1))
+    const browserPixelRatio = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+    const onScreen = useIsOnScreen(wrapperRef, pagePixelRatio > browserPixelRatio)
     const rasterRef = useLatest({ pagePixelRatio, onScreen })
 
     // Attach the ResizeObserver once. updateSize reads margins and the raster inputs from refs;
