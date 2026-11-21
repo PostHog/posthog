@@ -477,6 +477,29 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
     return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
 
 
+def _nullable_type(arrow_type: pa.DataType) -> pa.DataType:
+    if pa.types.is_large_list(arrow_type):
+        return pa.large_list(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_list(arrow_type):
+        return pa.list_(_nullable_field(arrow_type.value_field))
+
+    if pa.types.is_struct(arrow_type):
+        return pa.struct([_nullable_field(field) for field in arrow_type])
+
+    if pa.types.is_map(arrow_type):
+        # A map built from types has a nullable value and a non-nullable key, which Arrow requires.
+        return pa.map_(
+            _nullable_type(arrow_type.key_type), _nullable_type(arrow_type.item_type), arrow_type.keys_sorted
+        )
+
+    return arrow_type
+
+
+def _nullable_field(field: pa.Field) -> pa.Field:
+    return field.with_type(_nullable_type(field.type)).with_nullable(True)
+
+
 def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     """Mark every column nullable so batch schemas don't diverge across delta commits.
 
@@ -488,9 +511,13 @@ def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
     nullable keeps each batch's schema identical to the first overwrite, so the append never
     triggers that path and camelCase column names survive.
+
+    Nested children are relaxed too. A list element, struct field or map value that is
+    non-nullable in the first batch and nullable in a later one is accepted by the append, but
+    compaction then fails because it cannot cast the nullable child back to non-nullable.
     """
     nullable_schema = pa.schema(
-        [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
+        [_nullable_field(field) for field in batch.schema],
         metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
     )
     return batch.cast(nullable_schema)

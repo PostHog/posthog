@@ -1942,8 +1942,32 @@ class TestMaterializeViewActivity:
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
 
+    @pytest.mark.parametrize(
+        "first_column,later_column",
+        [
+            pytest.param(pa.array(["r0", "r1"]), pa.array(["r0", "r1"]), id="string"),
+            pytest.param(
+                pa.array([[1], [2]], pa.list_(pa.field("element", pa.int64(), nullable=False))),
+                pa.array([[1, None], [2]], pa.list_(pa.field("element", pa.int64()))),
+                id="list_element_turns_nullable",
+            ),
+            pytest.param(
+                pa.array([{"a": 1}, {"a": 2}], pa.struct([pa.field("a", pa.int64(), nullable=False)])),
+                pa.array([{"a": None}, {"a": 2}], pa.struct([pa.field("a", pa.int64())])),
+                id="struct_field_turns_nullable",
+            ),
+            pytest.param(
+                pa.array(
+                    [[("k", [1])], []],
+                    pa.map_(pa.string(), pa.list_(pa.field("element", pa.int64(), nullable=False))),
+                ),
+                pa.array([[("k", [None])], []], pa.map_(pa.string(), pa.list_(pa.int64()))),
+                id="list_element_in_a_map_value_turns_nullable",
+            ),
+        ],
+    )
     async def test_preserves_column_casing_for_non_nullable_columns_across_batches(
-        self, activity_environment, ateam, anode, ajob, bucket_name, adag
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag, first_column, later_column
     ):
         # regression: ClickHouse emits NON-nullable columns for expressions, constants,
         # concat()/toString(), and non-Nullable source columns. When such a query spans more
@@ -1954,17 +1978,14 @@ class TestMaterializeViewActivity:
         # for any column containing uppercase characters. This mirrors the customer query whose
         # camelCase columns (userId, portfolioId, pHuniqueId, aumDKK, ...) are all non-nullable.
         camel_case_names = ["date", "userId", "portfolioId", "pHuniqueId", "aumDKK", "aum_ETF"]
-        non_nullable_schema = pa.schema([pa.field(name, pa.string(), nullable=False) for name in camel_case_names])
 
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
-            batches = [
-                pa.RecordBatch.from_arrays(
-                    [pa.array([f"b{i}r0", f"b{i}r1"], type=pa.string()) for _ in camel_case_names],
-                    schema=non_nullable_schema,
-                )
-                for i in range(3)
-            ]
+            batches = []
+            for i in range(3):
+                column = first_column if i == 0 else later_column
+                schema = pa.schema([pa.field(name, column.type, nullable=False) for name in camel_case_names])
+                batches.append(pa.RecordBatch.from_arrays([column for _ in camel_case_names], schema=schema))
 
             async def async_generator():
                 for batch in batches:
