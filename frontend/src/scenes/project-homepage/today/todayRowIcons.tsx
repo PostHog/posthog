@@ -39,6 +39,8 @@ const PRODUCT_ICONS: Record<string, TodayRowIcon> = {
     surveys: { color: 'var(--color-product-surveys-light)', glyph: <IconMessage /> },
     warehouse_sources: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
     warehouse_suggestions: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
+    // Wizard's only source offers to connect warehouse sources, so its row looks like one.
+    wizard: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
     workflows: { color: 'var(--color-product-workflows-light)', glyph: <IconDecisionTree /> },
 }
 
