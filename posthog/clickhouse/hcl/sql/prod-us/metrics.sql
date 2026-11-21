@@ -44,6 +44,7 @@ CREATE TABLE posthog.metrics4_samples (
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
   histogram_bounds_hash UInt64,
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
+  points_received SimpleAggregateFunction(sum, UInt64),
   timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(Delta(8), Default),
   observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
   value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)) CODEC(Gorilla(8), Default),
