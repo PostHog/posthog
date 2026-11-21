@@ -61,6 +61,7 @@ ROLE_ORDER = [
     "sessions",
     "logs",
     "metrics",
+    "flags",
     "ops",
     "events",
     "small",
