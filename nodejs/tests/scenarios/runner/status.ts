@@ -28,7 +28,7 @@ const rate = (perSecond: number): string => `${Number(perSecond.toFixed(2))}/s`
 export function admissionsOf(
     { load, host }: Pick<Profile, 'load' | 'host'>,
     baseline: Baseline,
-    scale = 1
+    openingScale = 1
 ): Admission[] {
     const admissions: Admission[] = []
     const unmeasurable =
@@ -43,7 +43,7 @@ export function admissionsOf(
             ...Object.entries(targets.claimsPerSecond).map(([queue, target]) => ({
                 what: `${queue} claims`,
                 measured: baseline.claimsPerSecond[queue] ?? 0,
-                target: target * scale,
+                target: target * openingScale,
             })),
             ...(targets.newJobsPerSecond === undefined
                 ? []
@@ -51,7 +51,7 @@ export function admissionsOf(
                       {
                           what: 'new jobs',
                           measured: baseline.newJobsPerSecond,
-                          target: targets.newJobsPerSecond * scale,
+                          target: targets.newJobsPerSecond * openingScale,
                       },
                   ]),
         ]

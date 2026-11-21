@@ -395,7 +395,7 @@ describe('load', () => {
             'setup.teams: event_email sends 82 units a second to each team',
         ],
         [
-            'an event kind listed twice, whose two streams reach the same workflow',
+            'an event kind listed twice, which seeds two workflows that both match its events',
             {
                 ...card,
                 drive: {
@@ -408,7 +408,7 @@ describe('load', () => {
                 },
             },
             undefined,
-            'setup.teams: event_email sends 84 units a second to each team',
+            'drive.traffic: event_email is listed 2 times; list each traffic kind once',
         ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])

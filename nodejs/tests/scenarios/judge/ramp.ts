@@ -332,7 +332,7 @@ function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gate
             add(step.index, harness(step, 'generator'), shortfall)
         }
         const lagged = laggedOf(step)
-        if (lagged && !cutShort(step)) {
+        if (lagged) {
             add(step.index, harness(step, 'runner'), lagged)
         }
     }
@@ -406,7 +406,7 @@ export function rampOf(evidence: RampEvidence): Ramp {
               }
             : undefined
     const [first] = placed.sort((a, b) => a.index - b.index || a.rank - b.rank)
-    if (interrupted && first?.index === last?.index && first.broke.kind === 'harness') {
+    if (interrupted && first?.index === last?.index && first.broke.kind === 'harness' && first.broke.by !== 'runner') {
         return interrupted
     }
     if (first) {

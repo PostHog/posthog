@@ -142,21 +142,29 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     const limit = Number(profile.settings.CDP_RATE_LIMITER_REFILL_RATE ?? defaults.CDP_RATE_LIMITER_REFILL_RATE)
     const ceiling = limit * RATE_LIMIT_SHARE
     const topScale = Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
-    const listed = card.drive.traffic.map(({ name }) => name)
-    return [...new Set(listed)].flatMap((name) => {
+    return card.drive.traffic.flatMap(({ name }) => {
         const kind = TRAFFIC.find((traffic) => traffic.name === name)
         const shape = kind?.profile.safeParse(profile.traffic[name])
         if (kind === undefined || kind.intake === 'transactional' || !shape?.success) {
             return []
         }
-        const streams = listed.filter((listedName) => listedName === name).length
-        const perWorkflow = (shape.data.ratePerSecond * streams * topScale) / card.setup.teams
+        const perWorkflow = (shape.data.ratePerSecond * topScale) / card.setup.teams
         return perWorkflow <= ceiling
             ? []
             : [
                   `setup.teams: ${name} sends ${perWorkflow} units a second to each team's workflow at the ${topScale}x step, over ${ceiling}, ${RATE_LIMIT_SHARE * 100}% of the per-workflow rate limit; spread it over ${Math.ceil((perWorkflow * card.setup.teams) / ceiling)} teams or more`,
               ]
     })
+}
+
+// Each listing seeds its own workflow per team, and both match the kind's events, so every unit would run twice.
+function checkTrafficOnce(card: Card): string[] {
+    const listed = card.drive.traffic.map(({ name }) => name)
+    return [...new Set(listed)]
+        .filter((name) => TRAFFIC.find((traffic) => traffic.name === name)?.intake === 'event')
+        .map((name) => ({ name, times: listed.filter((listedName) => listedName === name).length }))
+        .filter(({ times }) => times > 1)
+        .map(({ name, times }) => `drive.traffic: ${name} is listed ${times} times; list each traffic kind once`)
 }
 
 type ProfileRead = { profile: Profile } | { problems: string[] }
@@ -213,6 +221,7 @@ function check(
     const problems = [
         ...checkNames(card, DEFINITIONS),
         ...checkSuppression(card),
+        ...checkTrafficOnce(card),
         ...checkIntakeVerdict(card),
         ...('profile' in loaded
             ? [

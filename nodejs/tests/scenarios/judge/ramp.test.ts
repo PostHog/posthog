@@ -317,6 +317,24 @@ describe('ramp', () => {
         expect({ advance: !watch.halt.aborted, stop: watch.stopped() }).toEqual(expected)
     })
 
+    it('admits a first step at 5x whose workers claimed five times the 1x load target', async () => {
+        const opener = { ...windowOf(0), scale: 5 }
+        jest.setSystemTime(opener.endedAt)
+        const watch = watchRamp(
+            live({
+                profile: { load: { targets: { claimsPerSecond: { hogflow: 1 } }, tolerance: 0.2 } },
+                samples: () => scrapedEvery5s(135, claiming(5)),
+            }),
+            NEVER
+        )
+
+        const verdict = watch.gate(opener, () => UNITS_PER_STEP[0])
+        await jest.advanceTimersByTimeAsync(SCRAPE_GAP_MS)
+        await verdict
+
+        expect({ advance: !watch.halt.aborted, stop: watch.stopped() }).toEqual({ advance: true, stop: undefined })
+    })
+
     it('takes no refusal recorded after the run was cancelled', () => {
         const run = new AbortController()
         const watch = watchRamp(live(), run.signal)
@@ -733,7 +751,7 @@ describe('ramp', () => {
             },
         ],
         [
-            'a refusal that halted the drive early in a step whose runner lagged',
+            'a refusal that halted the drive early in a step whose runner lagged, which the runner outranks',
             {
                 steps: [
                     driven(0),
@@ -745,17 +763,10 @@ describe('ramp', () => {
                 gates: { refused_at_intake: 0 },
             },
             {
-                end: 'broke',
+                end: 'harness_limit',
                 sustainedScale: 2,
-                broke: {
-                    scale: 5,
-                    offeredPerSecond: 2,
-                    by: 'refused_at_intake',
-                    kind: 'gate',
-                    at: iso(T + 4 * MINUTE),
-                    part: null,
-                },
-                reason: 'refused_at_intake broke at the 5x step',
+                broke: { ...harnessAt(2, 'runner'), offeredPerSecond: 2 },
+                reason: "the runner's event loop lagged 900 ms at p99 in the 5x step, over 250 ms",
             },
         ],
         [
