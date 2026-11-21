@@ -3030,6 +3030,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-ingestion-response"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "common-ingestion-warnings"
 version = "0.1.0"
 dependencies = [
