@@ -2,6 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
+from urllib.parse import quote
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -176,6 +177,11 @@ def _list_parent_ids(
     parent: LlamaCloudEndpointConfig,
     resumable_source_manager: ResumableSourceManager[LlamaCloudResumeConfig],
 ) -> list[str]:
+    if not parent.paginated:
+        data = _fetch_page(session, f"{base_url}{parent.path}", headers, {})
+        resumable_source_manager.safe_point()
+        return [item["id"] for item in data or []]
+
     params: dict[str, Any] = {"page_size": parent.page_size}
     parent_ids: list[str] = []
     while True:
@@ -187,6 +193,14 @@ def _list_parent_ids(
         if not next_page_token:
             return parent_ids
         params["page_token"] = next_page_token
+
+
+def _child_request(base_url: str, config: LlamaCloudEndpointConfig, parent_id: str) -> tuple[str, dict[str, Any]]:
+    assert config.parent_id_param is not None
+    placeholder = f"{{{config.parent_id_param}}}"
+    if placeholder in config.path:
+        return f"{base_url}{config.path.replace(placeholder, quote(parent_id, safe=''))}", {}
+    return f"{base_url}{config.path}", {config.parent_id_param: parent_id}
 
 
 def _get_fan_out_rows(
@@ -202,25 +216,44 @@ def _get_fan_out_rows(
         session, base_url, headers, LLAMA_CLOUD_ENDPOINTS[config.parent_endpoint], resumable_source_manager
     )
 
-    start_index, skip = 0, 0
+    start_index, skip, page_token = 0, 0, ""
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None and resume_config.parent_id in parent_ids:
-        start_index, skip = parent_ids.index(resume_config.parent_id), resume_config.skip
+        start_index = parent_ids.index(resume_config.parent_id)
+        skip, page_token = resume_config.skip, resume_config.next_page_token
         logger.debug(f"LlamaCloud: resuming {config.name} from {config.parent_id_param}={resume_config.parent_id}")
 
-    url = f"{base_url}{config.path}"
     for index in range(start_index, len(parent_ids)):
         parent_id = parent_ids[index]
+        url, base_params = _child_request(base_url, config, parent_id)
         while True:
-            data = _fetch_page(
-                session, url, headers, {config.parent_id_param: parent_id, "skip": skip, "limit": config.page_size}
-            )
+            if config.fan_out_pagination == "page_token":
+                params = {**base_params, "page_size": config.page_size}
+                if page_token:
+                    params["page_token"] = page_token
+            else:
+                params = {**base_params, "skip": skip, "limit": config.page_size}
+
+            try:
+                data = _fetch_page(session, url, headers, params)
+            except requests.HTTPError as exc:
+                # A parent deleted after the parent listing 404s when its id is in the path; skip it.
+                if base_params or exc.response is None or exc.response.status_code != 404:
+                    raise
+                data = {}
+
             items = data.get("items") or []
-            skip += len(items)
-            has_more = bool(items) and skip < data.get("total", 0)
+            if config.fan_out_pagination == "page_token":
+                page_token = data.get("next_page_token") or ""
+                has_more = bool(page_token)
+                more_state = LlamaCloudResumeConfig(parent_id=parent_id, next_page_token=page_token)
+            else:
+                skip += len(items)
+                has_more = bool(items) and skip < data.get("total", 0)
+                more_state = LlamaCloudResumeConfig(parent_id=parent_id, skip=skip)
 
             if has_more:
-                resumable_source_manager.save_state(LlamaCloudResumeConfig(parent_id=parent_id, skip=skip))
+                resumable_source_manager.save_state(more_state)
             elif index + 1 < len(parent_ids):
                 resumable_source_manager.save_state(LlamaCloudResumeConfig(parent_id=parent_ids[index + 1]))
 
@@ -231,7 +264,7 @@ def _get_fan_out_rows(
 
             if not has_more:
                 break
-        skip = 0
+        skip, page_token = 0, ""
 
 
 def get_rows(

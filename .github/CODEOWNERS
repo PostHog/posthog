@@ -107,17 +107,9 @@ docs/internal/ci-things-already-tried.md @PostHog/team-devex
 # A changed commit in the lockfile means a workflow now runs different third-party code.
 .github/workflows/actions.lock @PostHog/team-devex
 
-# Team Mobile App reviews app changes and the workflows that build and release it.
-products/mobile/** @PostHog/team-mobile-app
-# Documentation, tests, and local development tools do not need required app review.
-products/mobile/docs/**
-products/mobile/**/*.md
-products/mobile/**/*.test.*
-products/mobile/.argent/**
-products/mobile/jest.config.js
-products/mobile/jest.setup.ts
-products/mobile/biome.json
-products/mobile/.gitignore
-products/mobile/app/** @PostHog/team-mobile-app
-products/desktop/apps/mobile/** @PostHog/team-mobile-app
-.github/workflows/*mobile*.yml @PostHog/team-mobile-app
+# DevEx owns the CI acknowledgement because it gates merges for native build changes.
+.github/workflows/pr-housekeeping.yml @PostHog/team-devex
+.github/workflows/pr-native-rebuild.yml @PostHog/team-devex
+.github/workflows/pr-rebuild-notify.yml @PostHog/team-devex
+.github/scripts/mobile-rebuild.mjs @PostHog/team-devex
+.github/scripts/mobile-rebuild.test.mjs @PostHog/team-devex

@@ -190,6 +190,36 @@ TWILIO_ENDPOINTS: dict[str, TwilioEndpointConfig] = {
             parent_count_field="num_media",
         ),
     ),
+    # Add-on (Marketplace) analysis results per recording. Recordings carry no count of results, so
+    # every listed recording gets a request, and an incremental run walks only the recordings created
+    # since the watermark day.
+    "recording_add_on_results": TwilioEndpointConfig(
+        name="recording_add_on_results",
+        path="Recordings/{recording_sid}/AddOnResults.json",
+        response_key="add_on_results",
+        partition_key="date_created",
+        incremental_fields=[_datetime_field("date_created")],
+        sort_mode=None,
+        fanout=TwilioFanoutConfig(
+            parent="recordings",
+            resolve_param="recording_sid",
+            parent_incremental_field="date_created",
+        ),
+    ),
+    "short_codes": TwilioEndpointConfig(
+        name="short_codes",
+        path="SMS/ShortCodes.json",
+        response_key="short_codes",
+        partition_key="date_created",
+    ),
+    # A single object, not a list: one row with the current balance of the account. Subaccounts
+    # return no balance.
+    "balance": TwilioEndpointConfig(
+        name="balance",
+        path="Balance.json",
+        response_key="$",
+        primary_key="account_sid",
+    ),
     # Debugger alerts (errors and warnings) from the Monitor API, which replaces the deprecated
     # 2010-04-01 Notifications log. Twilio keeps alerts for 30 days and refuses older start dates.
     # Like Verify, the page size stays at the server default, because the documented range is not
@@ -262,7 +292,11 @@ MAIN_KEY_ONLY_ENDPOINTS = frozenset({"keys", "accounts"})
 # `get_endpoint_permissions` only runs on the schema-picker path, so one-shot setup would otherwise
 # enable a table it has no way to check. Defaulting these off covers both paths, since the picker and
 # `build_default_schemas` honor it, and the recommended credential is a Standard key.
-SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: name not in MAIN_KEY_ONLY_ENDPOINTS for name in ENDPOINTS}
+#
+# Add-on results cost one request per recording and stay empty unless the account uses Marketplace
+# add-ons, so they are off by default too.
+OFF_BY_DEFAULT_ENDPOINTS = MAIN_KEY_ONLY_ENDPOINTS | {"recording_add_on_results"}
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: name not in OFF_BY_DEFAULT_ENDPOINTS for name in ENDPOINTS}
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in TWILIO_ENDPOINTS.items()
