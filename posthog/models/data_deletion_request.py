@@ -1398,7 +1398,7 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
         for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
             if (
                 not target.accepts_property_rewrite
-                or target.uses_new_events_schema
+                or target.stores_native_json_properties
                 or not target.may_hold_any_of(events)
             ):
                 continue
