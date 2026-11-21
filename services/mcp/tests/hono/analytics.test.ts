@@ -775,6 +775,12 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             [
+                'a transactional email recipient activity',
+                'workflows-transactional-email-activity',
+                { message_id: '01a19f0e-9fd0-0001-a1d4-3a2b4579b763' },
+                false,
+            ],
+            [
                 'an email log search through exec',
                 'exec',
                 { command: 'call workflows-transactional-emails-list {"search":"jane@example.com"}' },
@@ -823,6 +829,18 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
+            [
+                'preparing a push send',
+                'workflows-send-push-prepare',
+                { distinct_id: 'ada', message_data: { code: '123456' } },
+                false,
+            ],
+            [
+                'a push send through exec',
+                'exec',
+                { command: 'call workflows-send-push-prepare {"distinct_id":"ada","message_data":{"code":"123456"}}' },
+                false,
+            ],
             [
                 'an email send through exec',
                 'exec',
