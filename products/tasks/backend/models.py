@@ -3296,22 +3296,13 @@ class TaskRun(models.Model):
         depth and a seen-set guard against cycles. The walk is scoped to this
         task — a stale cross-task `resume_from_run_id` is silently dropped.
 
-        Loads sibling runs in a single query and walks in-memory so chain depth
-        doesn't translate to per-hop database round trips.
+        Loads one row per ancestor, so the cost follows the chain depth and not
+        the number of runs on the task.
         """
         chain: list[TaskRun] = [self]
-        if max_depth <= 0:
-            return chain
-
-        # Walking the chain only needs id/state/artifacts and the bits that
-        # `log_url` derives from (team_id, task_id). Fetching the full row would
-        # pull every column for every historical run on the task.
-        siblings_qs = self.task.runs.only("id", "team_id", "task_id", "state", "artifacts")
-        siblings_by_id: dict[str, TaskRun] = {str(run.id): run for run in siblings_qs}
         seen: set[str] = {str(self.id)}
-        current: TaskRun | None = self
-        depth = 0
-        while current is not None and depth < max_depth:
+        current = self
+        while len(chain) <= max_depth:
             prior_id_raw = (current.state or {}).get("resume_from_run_id")
             if not prior_id_raw:
                 break
@@ -3322,11 +3313,18 @@ class TaskRun(models.Model):
             if prior_id in seen:
                 break
             seen.add(prior_id)
-            current = siblings_by_id.get(prior_id)
-            if current is None:
+            # Walking the chain only needs id/state/artifacts, the bits that
+            # `log_url` derives from (team_id, task_id), and created_at for the
+            # Pi run markers. Fetching the full row would pull every column.
+            prior = (
+                self.task.runs.only("id", "team_id", "task_id", "state", "artifacts", "created_at")
+                .filter(id=prior_id)
+                .first()
+            )
+            if prior is None:
                 break
-            chain.append(current)
-            depth += 1
+            chain.append(prior)
+            current = prior
         chain.reverse()
         return chain
 
@@ -3348,7 +3346,7 @@ class TaskRun(models.Model):
 
     def _task_session_chain(self, max_depth: int) -> list["TaskRun"]:
         earlier = list(
-            self.task.runs.only("id", "team_id", "task_id", "created_at")
+            self.task.runs.only("id", "team_id", "task_id", "state", "created_at")
             .filter(active_task_session_id=self.active_task_session_id, created_at__lt=self.created_at)
             .order_by("-created_at")[:max_depth]
         )
