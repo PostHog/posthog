@@ -3,9 +3,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;
+use std::sync::LazyLock;
 
 use cohort_core::filters::TeamId;
 use cohort_core::hogvm::analysis::PropertyAlternatives;
+use serde::Deserialize;
 
 use crate::domain::{
     BandSpec, BlobSource, ChunkProjection, ColumnBackedKeys, ColumnName, ColumnPlan, EventNameSet,
@@ -19,18 +21,56 @@ impl ScanTable {
         match self {
             Self::Events => "sharded_events",
             Self::FlagEvaluations => "sharded_flag_evaluations",
+            Self::FlagEvaluationsJson => "sharded_flag_evaluations_json",
         }
     }
 
-    /// `events.inserted_at` is nullable. `flag_evaluations.inserted_at` is not. The
-    /// `flag_evaluations` minmax index is on the bare column.
+    /// `events.inserted_at` is nullable. `inserted_at` on both flag tables is not, and their
+    /// minmax indexes are on the bare column.
     const fn arrival_sql(self) -> &'static str {
         match self {
             Self::Events => "coalesce(e.inserted_at, e._timestamp)",
-            Self::FlagEvaluations => "e.inserted_at",
+            Self::FlagEvaluations | Self::FlagEvaluationsJson => "e.inserted_at",
+        }
+    }
+
+    /// The JSON table stores `properties` and `person_properties` as JSON columns, which the scan
+    /// rebuilds into the legacy text. A projection or a row filter reads them as text, so the
+    /// scan of this table uses neither.
+    pub(crate) const fn stores_json_documents(self) -> bool {
+        match self {
+            Self::Events | Self::FlagEvaluations => false,
+            Self::FlagEvaluationsJson => true,
+        }
+    }
+
+    pub(crate) fn read_settings(self) -> &'static BTreeMap<String, String> {
+        static NONE: BTreeMap<String, String> = BTreeMap::new();
+        if self.stores_json_documents() {
+            &JSON_DOCUMENTS.settings
+        } else {
+            &NONE
         }
     }
 }
+
+/// The expressions that rebuild the legacy text of a `flag_evaluations_json` row aliased `e`, and
+/// the settings they need. Django's document builder renders them into the generated file, so the
+/// seeder evaluates the same document that the HogQL whole-document reads return, plus each
+/// top-level null member.
+#[derive(Deserialize)]
+struct JsonDocuments {
+    properties: String,
+    person_properties: String,
+    settings: BTreeMap<String, String>,
+}
+
+static JSON_DOCUMENTS: LazyLock<JsonDocuments> = LazyLock::new(|| {
+    serde_json::from_str(include_str!(
+        "flag_evaluations_json_documents.generated.json"
+    ))
+    .expect("the generated documents file is valid JSON")
+});
 
 /// The crate sends a longer query by POST with `readonly=1`, which the `cohort_seeder` profile's
 /// `readonly=2` refuses with code 164, because the seeder sends settings with every query. The
@@ -57,6 +97,10 @@ pub struct ScanSpec {
 }
 
 impl ScanSpec {
+    pub(crate) const fn table(&self) -> ScanTable {
+        self.table
+    }
+
     /// On the spec rather than the projection, so both shadow-compare arms read the same rows.
     pub fn with_row_filter(self, row_filter: String) -> Self {
         Self {
@@ -117,8 +161,10 @@ pub fn plan_scan(
 /// decoder's positional read never has to know which arm ran.
 pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
     let select_list = match projection {
-        ChunkProjection::FullColumns => render_select_list(&ColumnPlan::full(), spec.table),
-        ChunkProjection::Projected(plan) => render_select_list(plan, spec.table),
+        ChunkProjection::Projected(plan) if !spec.table.stores_json_documents() => {
+            render_select_list(plan, spec.table)
+        }
+        _ => render_select_list(&ColumnPlan::full(), spec.table),
     };
     let row_filter = spec
         .row_filter
@@ -284,24 +330,35 @@ fn clickhouse_identifier(name: &str) -> String {
 /// `person_id` are always selected: the fold places the row in its day by timestamp, the accumulator
 /// keys on the person, and the event name decides which conditions run.
 ///
-/// `flag_evaluations` has no `elements_chain`. A flag call never carries elements, so the live
-/// path also evaluates it with an empty chain.
+/// The flag tables have no `elements_chain` to read. A flag call never carries elements, so the
+/// live path also evaluates it with an empty chain. The JSON table reads both documents through
+/// their rebuilds, whatever the plan.
 fn render_select_list(plan: &ColumnPlan, table: ScanTable) -> String {
+    let (properties, person_properties) = if table.stores_json_documents() {
+        (
+            format!("{} AS properties", JSON_DOCUMENTS.properties),
+            format!("{} AS person_properties", JSON_DOCUMENTS.person_properties),
+        )
+    } else {
+        (
+            render_properties(&plan.properties),
+            render_blob(
+                "e.person_properties",
+                "person_properties",
+                &plan.person_properties,
+            ),
+        )
+    };
     format!(
-        "{}, e.event, {}, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       {}, {}",
+        "{}, e.event, {properties}, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       {person_properties}, {}",
         match plan.uuid {
             ScalarColumn::Keep => "toString(e.uuid) AS uuid".to_string(),
             ScalarColumn::Empty => "'' AS uuid".to_string(),
         },
-        render_properties(&plan.properties),
-        render_blob(
-            "e.person_properties",
-            "person_properties",
-            &plan.person_properties
-        ),
         match (plan.elements_chain, table) {
             (ScalarColumn::Keep, ScanTable::Events) => "e.elements_chain".to_string(),
-            (ScalarColumn::Empty, _) | (_, ScanTable::FlagEvaluations) => {
+            (ScalarColumn::Empty, _)
+            | (_, ScanTable::FlagEvaluations | ScanTable::FlagEvaluationsJson) => {
                 "'' AS elements_chain".to_string()
             }
         },
@@ -775,5 +832,44 @@ mod tests {
             );
             assert!(!sql.contains("e.elements_chain"), "{sql}");
         }
+    }
+
+    /// The JSON table's `properties` and `person_properties` are JSON columns. A projection that
+    /// selected one of them, or replaced it with a key rebuild, would send the row decoder a JSON
+    /// column where it reads a String, and every attempt of the chunk would fail.
+    #[test]
+    fn a_flag_evaluations_json_scan_rebuilds_both_documents_under_every_projection() {
+        let spec = spec_of(
+            ScanTable::FlagEvaluationsJson,
+            vec!["$feature_flag_called".to_string()],
+            BandSpec::new(0, 1).unwrap(),
+        );
+        let wide = full_sql(&spec);
+        let narrow = ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Empty,
+            elements_chain: ScalarColumn::Keep,
+            properties: PropertiesSource::Blob(BlobSource::Keys(keys(&["$feature_flag"]))),
+            person_properties: BlobSource::Empty,
+        });
+
+        assert_eq!(scan_sql(&spec, &narrow), wide);
+        assert!(
+            wide.contains("\nFROM flag_evaluations_json AS e\n"),
+            "{wide}"
+        );
+        assert!(
+            wide.contains("AND e.inserted_at < fromUnixTimestamp64Milli(200000000)"),
+            "{wide}"
+        );
+        let select_list = select_list_of(&wide);
+        assert!(
+            !select_list.contains("e.properties,") && !select_list.contains("e.person_properties,"),
+            "{select_list}"
+        );
+        assert!(
+            select_list.ends_with("'' AS elements_chain"),
+            "{select_list}"
+        );
+        assert!(fits_client_get(&wide), "{} bytes", wide.len());
     }
 }

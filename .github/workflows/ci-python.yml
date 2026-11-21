@@ -179,6 +179,7 @@ jobs:
                         - 'frontend/src/lib/scopeDocs.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
+                        - 'rust/cohort-seeder/src/clickhouse/flag_evaluations_json_documents.generated.json'
                         # Formatter inputs can change the generated mobile projection.
                         - 'products/mobile/biome.json'
                         - 'products/mobile/pnpm-lock.yaml'

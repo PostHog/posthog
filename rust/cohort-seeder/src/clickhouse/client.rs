@@ -41,6 +41,14 @@ impl ClickHouseClient {
             .with_password(self.credential.current())
             .query(sql)
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_option(self, name: &str, value: &str) -> Self {
+        Self {
+            client: self.client.with_option(name, value),
+            ..self
+        }
+    }
 }
 
 /// The resolved ClickHouse HTTP endpoint. Precedence is explicit URL > offline cluster host > host;
