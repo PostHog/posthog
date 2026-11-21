@@ -313,3 +313,19 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "rightsizing_recommendations": "Current recommendations to downsize or terminate idle and underused EC2 instances. Requires rightsizing recommendations to be turned on in Cost Explorer preferences.",
     "reservation_purchase_recommendations": "Current Reserved Instance purchase recommendations for EC2, RDS, ElastiCache and Redshift, for a 1-year No Upfront term based on the last 30 days of usage.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "ce:GetCostAndUsage",
+    "ce:GetCostAndUsageWithResources",
+    "ce:GetCostForecast",
+    "ce:GetDimensionValues",
+    "ce:GetReservationCoverage",
+    "ce:GetReservationPurchaseRecommendation",
+    "ce:GetReservationUtilization",
+    "ce:GetRightsizingRecommendation",
+    "ce:GetSavingsPlansCoverage",
+    "ce:GetSavingsPlansUtilization",
+    "ce:GetSavingsPlansUtilizationDetails",
+)
