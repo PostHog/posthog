@@ -405,8 +405,10 @@ def _flag_key_filter_sql() -> str:
     return "JSONExtractString(properties, '$feature_flag') = %(flag_key)s"
 
 
-def _flag_evaluations_tables_by_team(team_ids: list[int]) -> dict[int, str]:
-    """The flag-calls table that each team's flag calls are read from, which follows the team's events table."""
+def _source_tables_by_team(team_ids: list[int], *, from_flag_evaluations: bool) -> dict[int, str]:
+    """The table that each team's flag calls are read from. A team's flag-calls table follows its events table."""
+    if not from_flag_evaluations:
+        return dict.fromkeys(team_ids, "events")
     return {team_id: flag_evaluations_read_table(use_new_events_schema(team_id)) for team_id in team_ids}
 
 
@@ -428,7 +430,7 @@ GROUP BY team_id
 
 
 def get_evaluations_7d_by_team(
-    flag_key: str, team_ids: list[int], *, from_flag_evaluations: bool
+    flag_key: str, team_ids: list[int], *, from_flag_evaluations: bool, tables: dict[int, str] | None = None
 ) -> dict[int, int] | None:
     """Return per-team 7-day counts of `$feature_flag_called` events for flag_key.
 
@@ -436,13 +438,15 @@ def get_evaluations_7d_by_team(
     JSON events table reads flag_evaluations_json instead of flag_evaluations while FLAG_EVALUATIONS_READS_JSON is on.
     Returns a dict mapping team_id -> count (all requested team ids are present;
     teams with no events map to 0). Returns `None` when ClickHouse fails so the
-    caller can render an unavailable state instead of a misleading zero.
+    caller can render an unavailable state instead of a misleading zero. `tables` names the source table of each team
+    when the caller already resolved it.
     """
     if not team_ids:
         return {}
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, name="get_evaluations_7d_by_team")
-    tables = _flag_evaluations_tables_by_team(team_ids) if from_flag_evaluations else dict.fromkeys(team_ids, "events")
+    if tables is None:
+        tables = _source_tables_by_team(team_ids, from_flag_evaluations=from_flag_evaluations)
     counts = dict.fromkeys(team_ids, 0)
     for table in sorted(set(tables.values())):
         try:
@@ -472,14 +476,14 @@ def get_cached_evaluations_7d_by_team(
 
     from_flag_evaluations = get_flag_evaluations_read_mode(organization_id) != FlagEvaluationsMode.EVENTS
     # The key names the source tables, so a mode or switch change cannot serve a count read from another table.
-    tables = _flag_evaluations_tables_by_team(team_ids) if from_flag_evaluations else {}
-    source = "+".join(sorted(set(tables.values()))) if from_flag_evaluations else "events"
+    tables = _source_tables_by_team(team_ids, from_flag_evaluations=from_flag_evaluations)
+    source = "+".join(sorted(set(tables.values())))
     cache_key = f"flag_analytics:evals_7d:{source}:{flag_key}:" + ",".join(str(t) for t in sorted(team_ids))
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
-    result = get_evaluations_7d_by_team(flag_key, team_ids, from_flag_evaluations=from_flag_evaluations)
+    result = get_evaluations_7d_by_team(flag_key, team_ids, from_flag_evaluations=from_flag_evaluations, tables=tables)
     if result is not None:
         cache.set(cache_key, result, timeout=CROSS_PROJECT_EVALS_CACHE_TTL)
     return result
