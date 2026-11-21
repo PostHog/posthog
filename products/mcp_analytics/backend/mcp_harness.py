@@ -9,9 +9,9 @@ query-time computation:
      three properties — the ones the `@posthog/mcp` / `posthog.mcp` SDK schemas can
      emit: the x-anthropic-client vendor header (`$mcp_vendor_client`, with the
      legacy server-stamped `mcp_vendor_client` as a fallback for historical rows),
-     then Claude Code's User-Agent surface, then the Grok and Kimchi User-Agent surfaces, then
-     the clientInfo.name (`$mcp_client_name`), then the generic User-Agent product
-     token (`$mcp_client_user_agent`) — `HARNESS_TOKEN_SQL`.
+     then Claude Code's User-Agent surface, then the PostHog Wizard User-Agent, then the
+     User-Agents in `_UA_FIRST_PRODUCTS`, then the clientInfo.name (`$mcp_client_name`),
+     then the generic User-Agent product token (`$mcp_client_user_agent`) — `HARNESS_TOKEN_SQL`.
   2. Bucket that token into a customer label — `harness_label_sql` when the result must
      stay inside `HARNESS_LABELS`, or `harness_label_or_token_sql` when an unrecognized
      client is better named by its own self-report than collapsed into "Other".
@@ -58,8 +58,10 @@ _VENDOR = (
     " nullIf(toString(properties.mcp_vendor_client), '')))"
 )
 
-# The ordered resolution steps: vendor header, then the two User-Agent surfaces
-# that outrank clientInfo.name, then clientInfo.name, then the generic UA token.
+# Prefer these User-Agents because the client name can identify a shared transport or SDK.
+_UA_FIRST_PRODUCTS = ("grok", "kimchi", "devin", "cloudflare-mcp-portal", "opencode")
+_UA_FIRST = " OR ".join(f"startsWith(lower({_UA_PRODUCT}), '{product}')" for product in _UA_FIRST_PRODUCTS)
+
 _RAW_TOKEN = f"""coalesce(
     multiIf(
         -- The header is captured verbatim and its value arrives in both spellings
@@ -72,16 +74,10 @@ _RAW_TOKEN = f"""coalesce(
         NULL
     ),
     if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),
-    -- grok.com Connectors self-identifies as grok only in the User-Agent
-    -- (`grok-connectors-manager/…`); its clientInfo.name is the generic
-    -- "connectors-manager", which would otherwise win below and drop the vendor.
-    -- Promote the grok UA above it. (grok-shell keeps its `grok-`-prefixed
-    -- clientInfo.name and buckets to Grok without help.)
-    if(startsWith(lower({_UA_PRODUCT}), 'grok'), {_UA_TOKEN}, NULL),
-    -- Kimchi (kimchi.dev) is built on pi and reports the generic pi-mcp
-    -- `pi-mcp-<server>` as its clientInfo.name; only its `kimchi/…` User-Agent
-    -- names it, so promote that above the name the same way.
-    if(startsWith(lower({_UA_PRODUCT}), 'kimchi'), {_UA_TOKEN}, NULL),
+    -- The Wizard runs on pi and reports pi-mcp's `pi-mcp-posthog`. Its UA product
+    -- token is the bare "posthog", which PostHog's SDKs share, so match the full prefix.
+    if(startsWith(lower(toString(properties.$mcp_client_user_agent)), 'posthog/wizard'), 'posthog-wizard', NULL),
+    if({_UA_FIRST}, {_UA_TOKEN}, NULL),
     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
     nullIf({_UA_TOKEN}, ''),
     ''
@@ -132,7 +128,7 @@ def harness_label_or_token_sql(
     """Same bucketing as `harness_label_sql`, but names unrecognized clients verbatim.
 
     An unrecognized token is not noise — it is the client's own self-reported name
-    ("posthog-attribution-service", "openclaw-bundle-mcp"), which is strictly more
+    (for example, "example-unrecognized-mcp"), which is strictly more
     useful in a ranked list of callers than "Other". `display_col` holds
     `HARNESS_DISPLAY_NAME_SQL` so that name keeps its own capitalization; matching still
     happens on the lower-cased `token_col`. The name is event-supplied and unbounded, so
@@ -173,7 +169,7 @@ def _label_multi_if(token_col: str, fallback_sql: str, custom_rules: Sequence[Cu
         {token_col} = 'anthropic/api', 'Anthropic API',
         {token_col} = 'cowork', 'Cowork',
         {token_col} = 'claude-design', 'Claude Design',
-        {token_col} = 'claude-artifacts', 'Claude Artifacts',
+        {token_col} IN ('claude-artifacts', 'claudeartifacts'), 'Claude Artifacts',
         {token_col} = 'openai-mcp chatgpt', 'ChatGPT',
         {token_col} = 'openai-mcp agent builder', 'OpenAI Agent Builder',
         {token_col} = 'openai-mcp responses api', 'OpenAI Responses API',
@@ -195,7 +191,8 @@ def _label_multi_if(token_col: str, fallback_sql: str, custom_rules: Sequence[Cu
         startsWith({token_col}, 'notion'), 'Notion',
         startsWith({token_col}, 'linear'), 'Linear',
         position({token_col}, 'librechat') > 0, 'LibreChat',
-        startsWith({token_col}, 'pi-client'), 'Pi',
+        {token_col} = 'pi' OR startsWith({token_col}, 'pi-client'), 'Pi',
+        {token_col} IN ('omp', 'omp-coding-agent'), 'Oh My Pi',
         startsWith({token_col}, 'kimchi'), 'Kimchi',
         startsWith({token_col}, 'antigravity'), 'Antigravity',
         {token_col} = 'poke', 'Poke',
@@ -207,6 +204,26 @@ def _label_multi_if(token_col: str, fallback_sql: str, custom_rules: Sequence[Cu
         -- the AGENTS.md snippet it installs, and it forwards no identity for whoever
         -- invoked it, so these calls can only ever be attributed to the CLI itself.
         {token_col} = 'posthog-cli', 'PostHog CLI',
+        {token_col} = 'posthog-wizard', 'PostHog Wizard',
+        {token_col} = 'posthog-webmcp', 'PostHog WebMCP',
+        {token_col} = 'posthog-harness-mcp', 'PostHog Harness',
+        startsWith({token_col}, 'devin'), 'Devin',
+        startsWith({token_col}, 'amp-'), 'Amp',
+        startsWith({token_col}, 'copilot-cli'), 'Copilot CLI',
+        startsWith({token_col}, 'gemini-cli'), 'Gemini CLI',
+        startsWith({token_col}, 'openclaw'), 'OpenClaw',
+        {token_col} = 'hermes-agent', 'Hermes Agent',
+        {token_col} = 'mcporter', 'MCPorter',
+        {token_col} IN ('executor-mcp', 'executor-apps'), 'Executor',
+        {token_col} = 'paperclip', 'Paperclip',
+        startsWith({token_col}, 'perplexity'), 'Perplexity',
+        startsWith({token_col}, 'cloudflare-mcp-portal'), 'Cloudflare MCP Portal',
+        -- SDK defaults: a client built on an SDK that never set its own name. The Python
+        -- SDK reports clientInfo.name "mcp", which the token skips for its httpx UA.
+        {token_col} = 'ai-sdk-mcp-client', 'Vercel AI SDK',
+        {token_col} = '@langchain/mcp-adapters', 'LangChain',
+        startsWith({token_col}, 'python-httpx'), 'Python MCP SDK',
+        {token_col} = 'rmcp', 'Rust MCP SDK',
         {fallback_sql}
     )"""
 
@@ -243,6 +260,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "Linear",
     "LibreChat",
     "Pi",
+    "Oh My Pi",
     "Kimchi",
     "Antigravity",
     "Poke",
@@ -250,6 +268,24 @@ HARNESS_LABELS: tuple[str, ...] = (
     "Kiro",
     "Desktop Commander",
     "PostHog CLI",
+    "PostHog Wizard",
+    "PostHog WebMCP",
+    "PostHog Harness",
+    "Devin",
+    "Amp",
+    "Copilot CLI",
+    "Gemini CLI",
+    "OpenClaw",
+    "Hermes Agent",
+    "MCPorter",
+    "Executor",
+    "Paperclip",
+    "Perplexity",
+    "Cloudflare MCP Portal",
+    "Vercel AI SDK",
+    "LangChain",
+    "Python MCP SDK",
+    "Rust MCP SDK",
     "Other",
 )
 

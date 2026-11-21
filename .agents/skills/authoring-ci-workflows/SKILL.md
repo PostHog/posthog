@@ -421,6 +421,10 @@ GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 bec
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.
 A runner matrix that an expression builds (`fromJSON(needs.plan.outputs.val)`) is opaque to the linter, so it fails closed: pin the labels where they are generated (`dist-workspace.toml` for the release workflows) and put `# hogli-lint: allow-generated-runner-matrix -- <where they are pinned>` above the job key.
 New Depot labels must be added to the allow-list in `.github/actionlint.yaml` or actionlint fails.
+**Size a test job from its own queue, not from its average.** A shard count that hides setup work, or a runner that cannot host the workers a test phase needs, is a wall-clock floor no cache removes. Compare the same job on the two sizes before you pick one: the merge queue and a pull request run the same suite, so a queue run is the A/B.
+
+Sizing the Playwright job: the E2E `playwright` job runs on `depot-ubuntu-24.04-16` with 12 Playwright workers and 8 Granian workers in the merge queue, and on `depot-ubuntu-24.04-8` with 6 and 4 on a pull request. Ten full runs a side, the test step takes a median 426s at 6 workers on 8 vCPU against 252s at 12 workers on 16 vCPU, and the job wall 12.6 min against 9.1 min. Workers scale together: extra Playwright workers without extra Granian workers added test failures and no speedup, so the size is what buys the wall. The larger runner costs about 45% more billed vCPU minutes for that job, which is why it stays with the queue: a queue run's wall gates a merge, and a pull request mostly runs selected specs where setup dominates. Sizing every pull request run up was measured at about +$1.9k a month, so it needs a week of `runner_billing_multiplier` telemetry from the capture job before anyone proposes it again.
+
 Details: `/depot-github-runners`.
 
 ## Draft vs ready-for-review
@@ -465,6 +469,12 @@ git commit --allow-empty -m "chore(ci): run the full matrix" && git push
 The empty commit works because both labels are in `reuse-blocking-labels`.
 Without a blocking label, an empty commit changes no file, so a workflow that reuses results skips its suite and keeps the previous verdict.
 To make every suite that reuses results run again, add the `ci-no-reuse` label and push, or re-run the workflow: a re-run never reuses.
+
+`run-ci-backend` buys one full run, not one per push.
+The `Django Tests Pass on Depot` gate removes the label once a run with it completes, and later pushes select tests again.
+A run that is superseded, or that cancels itself on a deterministic failure, keeps the label for the next run.
+Add the label again for another full run.
+A `labeled` event is not a usable one-shot signal here, for the reasons below.
 
 Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
 GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
@@ -514,11 +524,12 @@ The judgment calls when you adopt or change it:
   `ci-rust.yml` names `PersonHog e2e gate`, and backend names the `product.yaml` owners job.
   A job that is missing from both shows as skipped after a reuse, even when it failed on the previous head.
 - **A check name that embeds a runner label is brittle.**
-  Renaming the job or its runner silently stops reuse, and the only sign is `previous-not-green` with `no check run` in the `posthog-ci-reuse-decision` events.
+  Renaming the job or its runner silently stops reuse, and the only sign is a rise in `no-proven-run` in the `posthog-ci-reuse-decision` events.
   When you rename a job, update `reuse-checks` in the same change.
 - **`reuse-proof-checks` names a job that runs only when the suite really runs.**
   A gate also passes when its suite was skipped: a reused result, Playwright's debounce, the Storybook bot's baseline push, a `no-ci` label.
-  The action walks back to the newest head where a proof check concluded `success`, so a green skip is never the result it reuses.
+  The action searches the branch's earlier heads for the newest one with the same inputs where a proof check concluded `success`, so a green skip is never the result it reuses.
+  That head need not be the previous one: a revert, a rebase or a force-push can reuse a run from before it.
   Pick a job gated by the scoped filters and by nothing else, such as a build or a selection job, not one that also runs on unrelated changes.
 - **Keep filters out of scope when a job they gate must post on every head.**
   Backend leaves its migration filters out, so `check-migrations` still runs on a migration PR and posts the `Migration risk` check that stamphog waits for.
@@ -584,12 +595,15 @@ A lane that stops producing runs is invisible to the master-red alerter: it read
 Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
 
 Backend CI runs on Depot CI from `.depot/workflows/ci-backend.yml` for same-repository pull requests, master pushes, manual runs, and the hourly schedule.
+Its full scheduled matrix runs only on the `23 */3 * * *` cron.
+The other cron sets `CORE_ONLY_RUN`, which keeps the default-variant Core shards and drops products, Temporal, compat, persons-on-events off, and the events_json rows.
+A schedule that matches neither cron string runs the full matrix.
 Depot stores those runs and their original artifacts; GitHub receives check results.
 Use `.github/scripts/depot_backend_runs.py` to read the Depot runs and artifacts.
 The consumers are:
 
-- The alerter lists Backend CI in `DEPOT_WORKFLOWS` and reads master push and scheduled runs from the files that script writes.
-- `ci-backend-update-test-timing.yml` downloads timing artifacts from Depot.
+- The alerter lists Backend CI in `DEPOT_WORKFLOWS` and reads master push and scheduled runs from the files that script writes. `SCHEDULED_FULL_MATRIX_WORKFLOWS` splits the scheduled runs into a Core-only lane and a full-matrix lane, so a green Core-only run cannot reset a red full-matrix streak.
+- `ci-backend-update-test-timing.yml` downloads timing artifacts from Depot, from full-matrix runs only (`--matrix full`).
 - `ci-backend-schema-mirror.yml` copies the newest master schema dump into a GitHub artifact and GitHub Actions cache every ten minutes so GitHub-hosted jobs and fork pull requests can read it.
 - The master run trace reporter reads master push and scheduled runs from Depot. Depot's public API exposes workflow and job timestamps, but no step or job-queue timestamps, so those traces stop at jobs.
 

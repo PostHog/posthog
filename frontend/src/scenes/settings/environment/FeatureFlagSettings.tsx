@@ -1,8 +1,4 @@
-export {
-    FlagPersistenceSettings,
-    FlagChangeConfirmationSettings,
-    FlagsSecureApiKeys,
-} from 'scenes/feature-flags/FeatureFlagSettings'
+export { FlagPersistenceSettings, FlagChangeConfirmationSettings } from 'scenes/feature-flags/FeatureFlagSettings'
 export { RequireEvaluationContexts } from 'scenes/feature-flags/RequireEvaluationContexts'
 export { RequireFeatureFlagTags } from 'scenes/feature-flags/RequireFeatureFlagTags'
 export { EvaluationContextSuggestions } from 'scenes/feature-flags/EvaluationContextSuggestions'

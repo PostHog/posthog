@@ -49,8 +49,6 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'phc_default-team-api-token',
-    secret_api_token: null,
-    secret_api_token_backup: null,
     app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com', 'http://127.0.0.1:*'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
@@ -178,6 +176,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     managed_viewsets: { revenue_analytics: true },
     flag_evaluations_mode: 0,
     flag_calls_only_in_flag_evaluations: false,
+    available_error_tracking_ai_features: ['issue_summaries'],
     receive_org_level_activity_logs: false,
     require_evaluation_contexts: false,
     feature_flag_policy_config: {

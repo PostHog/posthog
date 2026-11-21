@@ -32,6 +32,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
     HarnessLabelQueryRunner,
     display_person_properties,
+    isoformat_timestamp,
     mcp_query_date_range,
     missing_capability_report_expr,
     shared_filter_exprs,
@@ -126,13 +127,11 @@ class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabi
         # column in the inner query and the label buckets that column, per mcp_harness's contract.
         # The sort keys carry their own names because an outer ORDER BY on a name that the events
         # table also defines makes HogQL synthesize a suffixed column, such as `uuid_0`, while the
-        # sort description still asks for `uuid`, and ClickHouse then rejects the sort. Naming the
-        # timestamp separately also stops the outer projection from shadowing it, so the sort
-        # compares timestamps rather than the strings the outer column holds.
+        # sort description still asks for `uuid`, and ClickHouse then rejects the sort.
         return parse_select(
             """
             SELECT
-                toString(sort_ts) AS timestamp,
+                sort_ts,
                 intent,
                 {harness_label} AS harness,
                 session_id,
@@ -198,7 +197,7 @@ class MCPMissingCapabilitiesQueryRunner(HarnessLabelQueryRunner[MCPMissingCapabi
         has_next = len(rows) > self.limit
         results = [
             MCPMissingCapabilitiesItem(
-                timestamp=str(row[0] or ""),
+                timestamp=isoformat_timestamp(row[0]),
                 intent=str(row[1] or ""),
                 harness=str(row[2] or ""),
                 session_id=str(row[3] or ""),

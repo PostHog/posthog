@@ -36,11 +36,12 @@ import {
     secretsOf,
 } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
+import type { RoleExit } from '../environment/supervisor'
 import { TOPOLOGY_FILE, Wiring, absentGroupsOf, hostsOf, missingTargets, nodesOf } from '../environment/topology'
-import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
+import { DriveSummary, DrivenStep, SeedState, drive, seed } from '../generator/generator'
 import { watchSesFeedback } from '../generator/ses-feedback'
-import { BarResult, CpuPoint, judgeBars } from '../judge/bars'
-import { Convergence, InvariantResult, createJudge } from '../judge/judge'
+import { BarResult, WriterCpu, judgeBars } from '../judge/bars'
+import { Convergence, InvariantResult, JournalEntry, createJudge } from '../judge/judge'
 import {
     DriveWindow,
     Measurement,
@@ -53,6 +54,7 @@ import {
     measure,
     startSampler,
 } from '../judge/measurements'
+import { Ramp, rampOf, watchRamp } from '../judge/ramp'
 import { CyclotronProbe, Queue, createCyclotronProbe } from '../probe/cyclotron-probe'
 import { Sampling, sampleEvery } from '../probe/every'
 import { WriterProbe, WriterSample, createWriterProbe } from '../probe/writer-probe'
@@ -64,7 +66,7 @@ import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
-import { Admission, Status, admissionsOf, statusOf } from './status'
+import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
 
 const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 
@@ -91,14 +93,16 @@ export type RunResult = {
     measurements: Measurement[]
     admissions: Admission[]
     bars: BarResult[]
+    ramp?: Ramp
     timeline: ValveTimelineEntry[]
+    restarts?: RoleExit[]
     startedAt: string
     endedAt: string
     evidenceDir: string
 }
 
 export interface Runner {
-    up(): Promise<void>
+    up(signal: AbortSignal): Promise<void>
     run(loaded: LoadedCard, signal: AbortSignal): Promise<RunResult>
     down(): Promise<void>
 }
@@ -123,7 +127,9 @@ type Outcome = Pick<
     | 'invariants'
     | 'measurements'
     | 'admissions'
+    | 'restarts'
     | 'bars'
+    | 'ramp'
 >
 
 type Probes = { commits(): readonly WriterSample[]; queue(): readonly QueueSample[]; stop(): Promise<Probed> }
@@ -307,10 +313,31 @@ async function seedWithin(
     }
 }
 
+const drivenStepsOf = (
+    steps: readonly DrivenStep[],
+    driveStartedAt: number,
+    ramps: boolean
+): (Step & { offeredUnits?: number })[] =>
+    steps.map(({ scale, startedAt, endedAt, offeredUnits }) => ({
+        scale,
+        fromMs: startedAt - driveStartedAt,
+        toMs: endedAt - driveStartedAt,
+        ...(ramps && { offeredUnits }),
+    }))
+
 const firstStepOf = (drive: DriveWindow, [first]: Step[]): DriveWindow => ({
     ...drive,
     endedAt: Math.min(drive.endedAt, drive.startedAt + first.toMs),
 })
+
+const admittedWindowOf = (
+    drive: LoadedCard['card']['drive'],
+    window: DriveWindow,
+    [first]: readonly DrivenStep[]
+): DriveWindow =>
+    drive.stopOnBreak && first
+        ? { startedAt: first.startedAt, endedAt: first.endedAt }
+        : firstStepOf(window, stepsOf(drive))
 
 export type RunnerOptions = { seedWithinMs?: number; topologyWithinMs?: number; topologyEveryMs?: number }
 
@@ -369,16 +396,12 @@ export function createRunner(
         }
     }
 
-    const writerCpuFor = async (
-        bars: Named[],
-        window: DriveWindow,
-        signal: AbortSignal
-    ): Promise<CpuPoint[] | { unread: string }> => {
+    const writerCpuFor = async (bars: Named[], window: DriveWindow, signal: AbortSignal): Promise<WriterCpu> => {
         if (!bars.some(({ name }) => name === 'writer_cpu_under')) {
             return []
         }
         if (manifest === undefined) {
-            return { unread: 'no writer CPU reading off a run host' }
+            return { unsourced: 'the local stack has no Aurora writer to read CPU from' }
         }
         return environment.writerCpu(manifest, window, signal).catch((error: unknown) => ({
             unread: `the writer CPU read failed: ${messageOf(error)}`,
@@ -386,8 +409,8 @@ export function createRunner(
     }
 
     return {
-        async up() {
-            await environment.up()
+        async up(signal) {
+            await environment.up(signal)
         },
 
         async run(loaded, signal) {
@@ -451,6 +474,8 @@ export function createRunner(
             let sampled: Sampled = { samples: [], missed: [], host: [] }
             let probes: Probes | undefined
             let probed: Probed = { writer: [], queue: [] }
+            const judging = new AbortController()
+            let pendingJudgments = (): Promise<void> => Promise.resolve()
             let driven: DriveWindow | undefined
             let recorded: Wiring | undefined
             let producer: KafkaProducerWrapper | undefined
@@ -523,18 +548,52 @@ export function createRunner(
                 void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
                     .then(() => valves.releaseAll())
                     .catch(() => undefined)
-                const units = await drive(loaded, seeded, judge, signal, {
+                const liveSignal = AbortSignal.any([signal, judging.signal])
+                const watch = card.drive.stopOnBreak
+                    ? watchRamp(
+                          {
+                              minOffered: card.drive.minOffered,
+                              bars: card.bars,
+                              gates: card.gates,
+                              judgesRefusals: card.invariants.some(({ name }) => name === 'refused_at_intake'),
+                              driveStartedAt,
+                              hostCpuCeiling: profile.host?.cpuCeiling,
+                              journal: () => judge.evidence().journal,
+                              samples: () => sampling.sampler.taken(),
+                              host: () => sampling.sampler.host(),
+                              queue: () => sampling.probes.queue(),
+                              profile,
+                              writerCpu: (window) => writerCpuFor(card.bars, window, liveSignal),
+                          },
+                          liveSignal
+                      )
+                    : undefined
+                pendingJudgments = () => watch?.pending() ?? Promise.resolve()
+                const recorder = watch
+                    ? {
+                          record: (unit: JournalEntry) => {
+                              judge.record(unit)
+                              watch.record(unit)
+                          },
+                      }
+                    : judge
+                const units = await drive(loaded, seeded, recorder, AbortSignal.any([signal, valves.refusal]), {
                     producer,
                     eventsTopic,
                     cdpApi,
                     sesFeedback,
                     runId,
+                    halt: watch?.halt,
+                    gate: watch?.gate,
                 }).finally(() => windowOpen.abort())
+                const steps = drivenStepsOf(units.steps, driveStartedAt, card.drive.stopOnBreak === true)
                 const driveWindow: DriveWindow = { startedAt: driveStartedAt, endedAt: Date.now() }
                 driven = driveWindow
                 await valves.releaseAll()
                 live.write({ type: 'phase', at: Date.now(), phase: 'converge' })
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
+                await pendingJudgments()
+                const stop = watch?.stopped()
                 live.write({ type: 'phase', at: Date.now(), phase: 'judge' })
                 probed = await probes.stop()
                 sampled = await sampler.stop()
@@ -542,7 +601,6 @@ export function createRunner(
                 const down = await stopHealth()
                 const janitorResets = janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom })
                 const invariants = await judge.check(card.invariants, card.gates, { janitorResets })
-                const steps = stepsOf(card.drive)
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,
@@ -555,13 +613,28 @@ export function createRunner(
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
                     profile,
-                    baselineOf({ ...evidence, drive: firstStepOf(driveWindow, steps) })
+                    baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) })
                 )
                 const bars = judgeBars(card.bars, {
                     ...evidence,
                     hostCpuCeiling: profile.host?.cpuCeiling,
                     writerCpu: await writerCpuFor(card.bars, driveWindow, signal),
+                    settled: watch?.settled(),
                 })
+                const ramp = card.drive.stopOnBreak
+                    ? rampOf({
+                          planned: stepsOf(card.drive),
+                          steps: units.steps,
+                          minOffered: card.drive.minOffered,
+                          stop,
+                          bars,
+                          invariants,
+                          gates: card.gates,
+                          journal: evidence.journal,
+                          admissions,
+                          converged: convergence.converged,
+                      })
+                    : undefined
                 const verdict = statusOf({
                     admissions,
                     minOffered: card.drive.minOffered,
@@ -574,10 +647,27 @@ export function createRunner(
                     writer: probed.writer,
                     drive: driveWindow,
                     bars,
+                    ramp,
                 })
-                outcome = { ...verdict, units, convergence, janitorResets, invariants, measurements, admissions, bars }
+                outcome = {
+                    ...verdict,
+                    units,
+                    convergence,
+                    janitorResets,
+                    invariants,
+                    measurements,
+                    admissions,
+                    bars,
+                    ...(ramp && { ramp }),
+                }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
+                } else if (valves.refusal.aborted) {
+                    outcome = {
+                        ...outcome,
+                        status: 'invalid',
+                        statusReason: unobservedReasonOf(valves.refusal.reason as ValveTimelineEntry),
+                    }
                 }
             } catch (error) {
                 outcome = {
@@ -586,6 +676,8 @@ export function createRunner(
                     statusReason: `the run stopped: ${messageOf(error)}`,
                 }
             } finally {
+                judging.abort()
+                await pendingJudgments()
                 await valves.releaseAll()
                 await stopHealth?.()
                 probed = (await probes?.stop()) ?? probed

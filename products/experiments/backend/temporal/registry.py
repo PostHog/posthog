@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from products.experiments.backend.temporal.canary_activities import (
     report_experiment_canary_results,
     run_experiment_metric_canary,
@@ -38,10 +40,13 @@ from products.experiments.backend.temporal.timeseries.workflows import (
     ExperimentTimeseriesRecalculationWorkflow,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 EXPERIMENT_CANARY_WORKFLOWS = [
     ExperimentPrecomputeCanaryWorkflow,
 ]
-EXPERIMENT_CANARY_ACTIVITIES = [
+EXPERIMENT_CANARY_ACTIVITIES: list[ActivityDefinition] = [
     sample_experiment_canary_targets,
     run_experiment_metric_canary,
     report_experiment_canary_results,
@@ -49,19 +54,19 @@ EXPERIMENT_CANARY_ACTIVITIES = [
 EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS = [
     ExperimentPrecomputeEnrollmentCensusWorkflow,
 ]
-EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES = [
+EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES: list[ActivityDefinition] = [
     run_experiment_enrollment_census,
 ]
 EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS = [
     ScheduledExperimentRecalculationWorkflow,
 ]
-EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES = [
+EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES: list[ActivityDefinition] = [
     discover_scheduled_recalculation_candidates,
     check_experiment_exposures,
     start_scheduled_recalculation,
     wait_for_scheduled_recalculation,
 ]
-EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES = [
+EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES: list[ActivityDefinition] = [
     calculate_experiment_metric_for_recalculation,
 ]
 
@@ -71,7 +76,7 @@ WORKFLOWS = [
     *EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
     *EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
 ]
-ACTIVITIES = [
+ACTIVITIES: list[ActivityDefinition] = [
     discover_experiment_metrics,
     calculate_experiment_metric_for_recalculation,
     update_recalculation_progress,
@@ -86,7 +91,7 @@ TIMESERIES_WORKFLOWS = [
     ExperimentSavedMetricsWorkflow,
     ExperimentTimeseriesRecalculationWorkflow,
 ]
-TIMESERIES_ACTIVITIES = [
+TIMESERIES_ACTIVITIES: list[ActivityDefinition] = [
     get_experiment_regular_metrics_for_hour,
     calculate_experiment_regular_metric,
     get_experiment_saved_metrics_for_hour,

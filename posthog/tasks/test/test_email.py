@@ -2,7 +2,8 @@ import html
 import uuid
 import hashlib
 import datetime as dt
-from typing import cast
+from collections.abc import Callable
+from typing import Any, cast
 from uuid import uuid4
 
 import time_machine
@@ -11,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
+from django.core import mail
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,7 +21,7 @@ from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
-from posthog.models.instance_setting import set_instance_setting
+from posthog.models.instance_setting import override_instance_config, set_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
@@ -33,11 +35,15 @@ from posthog.tasks.email import (
     send_code_based_verification,
     send_discussions_mentioned,
     send_email_change_emails,
+    send_email_sender_domain_sending_stopped,
     send_email_sending_reputation_finding,
+    send_email_sending_suspended,
     send_email_sending_tier_demoted,
+    send_email_sending_unsuspended,
     send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
+    send_feature_flags_secure_api_key_exposed,
     send_hog_function_disabled,
     send_hog_function_filters_uncompilable,
     send_hog_functions_daily_digest,
@@ -60,6 +66,7 @@ from posthog.tasks.email import (
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.fixtures import create_app_metric2
+from posthog.test.project_access import enable_access_control
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -243,6 +250,23 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 2
         assert (mocked_email_messages[0].campaign_key == mocked_email_messages[1].campaign_key) is deduped
+
+    @parameterized.expand([(True,), (False,)])
+    def test_feature_flags_key_exposed_email_carries_signing_secret_replacement(
+        self, MockEmailMessage: MagicMock, replaced: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        send_feature_flags_secure_api_key_exposed(self.team.id, "phs_...abc123", "", signing_secret_replaced=replaced)
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        # Cloud sends render from message.properties alone (the Workflows template), so
+        # the flag must reach them, and the Django paragraph must track it too.
+        assert message.properties["signing_secret_replaced"] is replaced
+        assert ("We replaced it" in message.html_body) is replaced
 
     @parameterized.expand(
         [
@@ -2646,3 +2670,100 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
 
         assert mocked_email_messages == []
+
+
+class TestEmailSendingNoticeDelivery(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+
+    def delivered_to(self) -> list[str]:
+        return sorted(address for message in mail.outbox for address in message.to)
+
+    @parameterized.expand(
+        [
+            ("suspended", send_email_sending_suspended, {"reason": "Bounces", "suspended_at": "2026-01-05T07:15:00"}),
+            ("unsuspended", send_email_sending_unsuspended, {"unsuspended_at": "2026-01-05T07:15:00"}),
+            (
+                "sender_domain_stopped",
+                send_email_sender_domain_sending_stopped,
+                {"domain": "mail.example.com", "stopped_at": "2026-01-05T07:15:00"},
+            ),
+            (
+                "workflow_paused",
+                send_workflow_email_sending_paused,
+                {"hog_flow_id": "flow", "hog_flow_name": "Welcome", "reason": "Bounces", "paused_at": "2026-01-05"},
+            ),
+            (
+                "workflow_warning",
+                send_workflow_email_sending_warning,
+                {
+                    "hog_flow_id": "flow",
+                    "hog_flow_name": "Welcome",
+                    "reason": "Bounces",
+                    "pause_rate": "10%",
+                    "warned_at": "2026-01-05",
+                },
+            ),
+            ("reputation_finding", send_email_sending_reputation_finding, {"impact": "HIGH", "found_at": "2026-01-05"}),
+            ("tier_demoted", send_email_sending_tier_demoted, {"per_day": 1000, "demoted_at": "2026-01-05T07:15:00"}),
+        ]
+    )
+    def test_skips_a_deactivated_admin(self, _name: str, send: Callable[..., None], kwargs: dict[str, Any]) -> None:
+        self._create_user("deactivated-admin@posthog.com", is_active=False, level=OrganizationMembership.Level.ADMIN)
+        mail.outbox.clear()
+
+        send(team_id=self.team.id, **kwargs)
+
+        assert self.delivered_to() == [self.user.email]
+
+    def test_reaches_an_active_project_admin_granted_by_an_access_rule(self) -> None:
+        enable_access_control(self.organization)
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        for email, is_active in (("rule-admin@posthog.com", True), ("deactivated-rule-admin@posthog.com", False)):
+            user = self._create_user(email, is_active=is_active, level=OrganizationMembership.Level.MEMBER)
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=OrganizationMembership.objects.get(user=user, organization=self.organization),
+                access_level="admin",
+            )
+        self._create_user("plain-member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        mail.outbox.clear()
+
+        send_email_sending_suspended(team_id=self.team.id, reason="Bounces", suspended_at="2026-01-05T07:15:00")
+
+        assert self.delivered_to() == sorted([self.user.email, "rule-admin@posthog.com"])
+
+    def test_sends_nothing_when_every_admin_is_deactivated(self) -> None:
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        mail.outbox.clear()
+
+        send_email_sender_domain_sending_stopped(
+            team_id=self.team.id, domain="mail.example.com", stopped_at="2026-01-05T07:15:00"
+        )
+
+        assert mail.outbox == []
+
+    def test_hog_function_filters_uncompilable_skips_a_deactivated_creator(self) -> None:
+        broken_ids = []
+        for email, is_active in (("active-creator@posthog.com", True), ("deactivated-creator@posthog.com", False)):
+            creator = self._create_user(email, is_active=is_active)
+            hog_function = HogFunction.objects.create(
+                team=self.team, name=f"Broken by {email}", enabled=True, created_by=creator
+            )
+            HogFunction.objects.filter(id=hog_function.id).update(
+                filters={"bytecode": None, "bytecode_error": "Cohort membership can't be evaluated"}
+            )
+            broken_ids.append(str(hog_function.id))
+        mail.outbox.clear()
+
+        send_hog_function_filters_uncompilable(self.team.id, broken_ids)
+
+        assert self.delivered_to() == sorted([self.user.email, "active-creator@posthog.com"])

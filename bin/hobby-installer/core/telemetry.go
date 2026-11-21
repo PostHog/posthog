@@ -1,7 +1,7 @@
 package core
 
 import (
-	"github.com/posthog/posthog-go"
+	"github.com/posthog/posthog-go/v2"
 )
 
 const posthogAPIKey = "sTMFPsFhdP1Ssg"

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { cn } from 'lib/utils/css-classes'
 import { shortTimeZone } from 'lib/utils/timezones'
 
@@ -58,6 +59,58 @@ function bgForInterval(state: TimelineState, enabled: boolean): string {
     return STATE_BG[state] ?? 'bg-muted'
 }
 
+// Quill's status tokens are pale tints, so a solid segment uses the strong `-foreground` color, as quill's Dot does.
+const QUILL_STATE_BG: Record<TimelineState, string> = {
+    [PlatformAlertStateApi.NotFiring]: 'bg-success-foreground',
+    [PlatformAlertStateApi.Firing]: 'bg-destructive-foreground',
+    pending_resolve: 'bg-warning-foreground',
+    [PlatformAlertStateApi.Errored]: 'bg-warning-foreground',
+    [PlatformAlertStateApi.Snoozed]: 'bg-muted-foreground',
+    [PlatformAlertStateApi.Broken]: 'bg-destructive',
+}
+
+function quillBgForInterval(state: TimelineState, enabled: boolean): string {
+    if (!enabled) {
+        return 'bg-muted'
+    }
+    return QUILL_STATE_BG[state] ?? 'bg-muted-foreground'
+}
+
+interface TimelineTone {
+    bgForInterval: (state: TimelineState, enabled: boolean) => string
+    empty: string
+    bar: string
+    hairline: string
+    hairlineSnapped: string
+    tooltip: string
+    muted: string
+    axis: string
+}
+
+const LEMON_TONE: TimelineTone = {
+    bgForInterval,
+    empty: 'bg-surface-tertiary rounded-xs',
+    bar: 'flex h-full w-full overflow-hidden rounded-xs border border-primary',
+    hairline: 'w-px bg-text-3000/60',
+    hairlineSnapped: 'w-0.5 bg-text-3000',
+    tooltip:
+        'fixed whitespace-nowrap pointer-events-none text-xs px-1.5 py-0.5 rounded-xs bg-surface-primary border border-primary shadow-md',
+    muted: 'text-muted',
+    axis: 'text-xs text-muted font-mono',
+}
+
+const QUILL_TONE: TimelineTone = {
+    bgForInterval: quillBgForInterval,
+    empty: 'bg-muted rounded-xs',
+    bar: 'flex h-full w-full overflow-hidden rounded-xs border border-border',
+    hairline: 'w-px bg-foreground/60',
+    hairlineSnapped: 'w-0.5 bg-foreground',
+    tooltip:
+        'fixed whitespace-nowrap pointer-events-none text-xs px-1.5 py-0.5 rounded-xs bg-background text-foreground border border-border shadow-md',
+    muted: 'text-muted-foreground',
+    axis: 'text-xs text-muted-foreground font-mono',
+}
+
 function labelForInterval(state: TimelineState, enabled: boolean): string {
     if (!enabled) {
         return 'Disabled'
@@ -89,6 +142,8 @@ export function PlatformAlertStateTimeline({
     const { width: measuredWidth = 0 } = useResizeObserver<HTMLDivElement>({ ref: containerRef })
     const [hover, setHover] = useState<HoverState | null>(null)
     const [measuredEdges, setMeasuredEdges] = useState<number[] | null>(null)
+    const quillSurface = useQuillSurface()
+    const tone = quillSurface ? QUILL_TONE : LEMON_TONE
 
     // Parse ISO timestamps once per timeline — used by every layout and hover memo.
     const intervalMs = useMemo(() => {
@@ -205,7 +260,7 @@ export function PlatformAlertStateTimeline({
     }, [hover, bounds, intervalMs, measuredEdges, timeline])
 
     if (!timeline || timeline.length === 0 || !bounds) {
-        return <div className={cn('bg-surface-tertiary rounded-xs', className)} />
+        return <div className={cn(tone.empty, className)} />
     }
 
     const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>): void => {
@@ -238,7 +293,7 @@ export function PlatformAlertStateTimeline({
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
         >
-            <div className="flex h-full w-full overflow-hidden rounded-xs border border-primary">
+            <div className={tone.bar}>
                 {timeline.map((interval, idx) => {
                     const flex = Math.max(intervalMs[idx].endMs - intervalMs[idx].startMs, 0)
                     return (
@@ -247,7 +302,7 @@ export function PlatformAlertStateTimeline({
                             ref={(el) => {
                                 segmentRefs.current[idx] = el
                             }}
-                            className={cn('h-full', bgForInterval(interval.state, interval.enabled))}
+                            className={cn('h-full', tone.bgForInterval(interval.state, interval.enabled))}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ flex: `${flex} 0 0`, minWidth: minIntervalPx }}
                         />
@@ -258,7 +313,7 @@ export function PlatformAlertStateTimeline({
                 <div
                     className={cn(
                         'absolute inset-y-0 pointer-events-none',
-                        hoverInfo.snapped ? 'w-0.5 bg-text-3000' : 'w-px bg-text-3000/60'
+                        hoverInfo.snapped ? tone.hairlineSnapped : tone.hairline
                     )}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ left: hoverInfo.hairlineX }}
@@ -268,7 +323,9 @@ export function PlatformAlertStateTimeline({
                 hoverInfo &&
                 createPortal(
                     <div
-                        className="fixed whitespace-nowrap pointer-events-none text-xs px-1.5 py-0.5 rounded-xs bg-surface-primary border border-primary shadow-md"
+                        className={tone.tooltip}
+                        // Portaled to the body, so it sits outside any quill subtree and has to opt in to its tokens.
+                        data-quill={quillSurface || undefined}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             left: tooltipClientX,
@@ -283,13 +340,13 @@ export function PlatformAlertStateTimeline({
                         </span>
                         {hoverInfo.snapped && hoverInfo.previousInterval ? (
                             <span>
-                                <span className="text-muted">
+                                <span className={tone.muted}>
                                     {labelForInterval(
                                         hoverInfo.previousInterval.state,
                                         hoverInfo.previousInterval.enabled
                                     )}
                                 </span>
-                                <span className="mx-1 text-muted">→</span>
+                                <span className={cn('mx-1', tone.muted)}>→</span>
                                 <span className="font-semibold">
                                     {labelForInterval(hoverInfo.interval.state, hoverInfo.interval.enabled)}
                                 </span>
@@ -313,7 +370,7 @@ export function PlatformAlertStateTimeline({
         <div className="flex flex-col gap-1">
             {bar}
             {axisTicks && axisTicks.length >= 2 ? (
-                <div className="relative h-4 text-xs text-muted font-mono">
+                <div className={cn('relative h-4', tone.axis)}>
                     {axisTicks.map((t) => {
                         const transform =
                             t.ratio < 0.04 ? 'translateX(0)' : t.ratio > 0.96 ? 'translateX(-100%)' : 'translateX(-50%)'
@@ -330,7 +387,7 @@ export function PlatformAlertStateTimeline({
                     })}
                 </div>
             ) : (
-                <div className="flex justify-between text-xs text-muted font-mono">
+                <div className={cn('flex justify-between', tone.axis)}>
                     <span>24h ago</span>
                     <span>Now</span>
                 </div>

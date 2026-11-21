@@ -8,7 +8,8 @@ import { LemonBanner, LemonButton, LemonSelect, Spinner } from '@posthog/lemon-u
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { FAILING_ERROR_RATE } from './dependencies'
+import { applicationObservabilityLogic } from './applicationObservabilityLogic'
+import { DRAWN_EDGE_CAP, FAILING_ERROR_RATE } from './dependencies'
 import { dependenciesLogic } from './dependenciesLogic'
 import { DependencyNode } from './DependencyNode'
 import { DependencyTable } from './DependencyTable'
@@ -42,18 +43,67 @@ function DependencyMapPlaceholder(): JSX.Element {
     )
 }
 
+// A load that is replaced keeps running on the server and holds one of the few concurrent query slots,
+// so the service can change only once the current load finishes.
+const LOADING_REASON = 'Loading dependencies…'
+
+function DependenciesTooHeavyBanner({ detail }: { detail: string }): JSX.Element {
+    const { serviceNames, dependencyService, dependenciesLoading } = useValues(dependenciesLogic)
+    const { setDependencyService } = useActions(dependenciesLogic)
+    const { timeRange } = useValues(applicationObservabilityLogic)
+    const { setTimeRange } = useActions(applicationObservabilityLogic)
+
+    return (
+        <LemonBanner type="warning">
+            <div className="flex flex-col gap-2">
+                <span>{detail}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                    {timeRange !== '-15m' && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setTimeRange('-15m')}
+                            data-attr="apm-dependencies-last-15-minutes"
+                        >
+                            Last 15 minutes
+                        </LemonButton>
+                    )}
+                    {!dependencyService && serviceNames.length > 0 && (
+                        <LemonSelect
+                            size="small"
+                            placeholder="Pick a service"
+                            value={null}
+                            onChange={(value) => value && setDependencyService(value)}
+                            disabledReason={dependenciesLoading ? LOADING_REASON : undefined}
+                            options={serviceNames.map((name) => ({ value: name, label: name }))}
+                            data-attr="apm-dependencies-pick-service"
+                        />
+                    )}
+                </div>
+            </div>
+        </LemonBanner>
+    )
+}
+
 export function DependenciesTab(): JSX.Element {
     const {
         dependencies,
         dependenciesLoading,
         dependenciesLoadError,
+        dependenciesLoadErrorDetail,
         dependencyLayout,
+        dependencyLayoutKey,
+        dependencyLayoutLoading,
         dependencyService,
+        drawableEdges,
+        drawnEdges,
         edges,
         serviceNames,
+        showAllDependencies,
         split,
     } = useValues(dependenciesLogic)
-    const { setDependencyService, loadDependencies } = useActions(dependenciesLogic)
+    const { setDependencyService, loadDependencies, setShowAllDependencies } = useActions(dependenciesLogic)
+    const canCap = !dependencyService && drawableEdges.length > DRAWN_EDGE_CAP
     const { isDarkModeOn } = useValues(themeLogic)
 
     const flowEdges = useMemo(
@@ -68,16 +118,21 @@ export function DependenciesTab(): JSX.Element {
         [dependencyLayout]
     )
     const nodes = dependencyLayout?.nodes ?? []
+    const serviceLink = (service: string): { onClick: () => void } => ({
+        onClick: () => setDependencyService(service),
+    })
 
     return (
         <div className="flex flex-col gap-2">
-            {dependenciesLoadError && (
+            {dependenciesLoadErrorDetail ? (
+                <DependenciesTooHeavyBanner detail={dependenciesLoadErrorDetail} />
+            ) : dependenciesLoadError ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadDependencies() }}>
                     {edges.length > 0
                         ? "Couldn't refresh dependencies. Showing the last successful results."
                         : "Couldn't load dependencies. Check your connection and try again."}
                 </LemonBanner>
-            )}
+            ) : null}
             {dependencies?.truncated && (
                 <LemonBanner type="info">
                     Showing the busiest {edges.length} calls. Pick a shorter time range to see the rest.
@@ -88,24 +143,49 @@ export function DependenciesTab(): JSX.Element {
                     size="small"
                     value={dependencyService}
                     onChange={(value) => setDependencyService(value)}
+                    disabledReason={dependenciesLoading ? LOADING_REASON : undefined}
                     options={[
                         { value: null, label: 'All services' },
                         ...serviceNames.map((name) => ({ value: name, label: name })),
                     ]}
                     data-attr="apm-dependencies-service"
                 />
+                {dependencies?.sampled && (
+                    <span className="text-xs text-secondary" data-attr="apm-dependencies-sampled">
+                        Built from {dependencies.trace_count.toLocaleString()} sampled traces.
+                    </span>
+                )}
                 <span className="text-xs text-secondary">
                     Dashed boxes are databases, queues and hosts that send no spans, named by their callers. Select a
                     service to see who calls it and what it calls.
                 </span>
             </div>
+            {canCap && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
+                    <span data-attr="apm-dependencies-capped">
+                        {showAllDependencies
+                            ? `Showing all ${drawableEdges.length} calls.`
+                            : `Showing the ${drawnEdges.length} busiest of ${drawableEdges.length} calls. Pick a service to see all of its calls.`}
+                    </span>
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        onClick={() => setShowAllDependencies(!showAllDependencies)}
+                        disabledReason={dependencyLayoutLoading ? 'Drawing the map…' : undefined}
+                        data-attr="apm-dependencies-show-all"
+                    >
+                        {showAllDependencies ? `Show the ${DRAWN_EDGE_CAP} busiest` : 'Show all'}
+                    </LemonButton>
+                </div>
+            )}
             <div className="relative h-[480px] rounded border bg-surface-primary" data-attr="apm-dependencies-map">
                 {nodes.length === 0 ? (
                     <div className="flex h-full items-center justify-center p-4 text-center text-secondary">
                         <DependencyMapPlaceholder />
                     </div>
                 ) : (
-                    <ReactFlowProvider>
+                    // Remounting on a new set of nodes or edges fits the view again, since fitView only runs on mount.
+                    <ReactFlowProvider key={dependencyLayoutKey}>
                         <ReactFlow
                             colorMode={isDarkModeOn ? 'dark' : 'light'}
                             nodes={nodes}
@@ -134,6 +214,7 @@ export function DependenciesTab(): JSX.Element {
                         loading={dependenciesLoading}
                         emptyState={`Nothing called ${dependencyService} in this time range.`}
                         dataAttr="apm-dependencies-upstream"
+                        serviceLink={serviceLink}
                     />
                     <DependencyTable
                         title={`Downstream: calls from ${dependencyService}`}
@@ -141,6 +222,7 @@ export function DependenciesTab(): JSX.Element {
                         loading={dependenciesLoading}
                         emptyState={`${dependencyService} called nothing in this time range.`}
                         dataAttr="apm-dependencies-downstream"
+                        serviceLink={serviceLink}
                     />
                 </div>
             ) : (
@@ -150,6 +232,7 @@ export function DependenciesTab(): JSX.Element {
                     loading={dependenciesLoading}
                     emptyState="No calls between services in this environment and time range."
                     dataAttr="apm-dependencies-all"
+                    serviceLink={serviceLink}
                 />
             )}
         </div>

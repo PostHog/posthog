@@ -10,6 +10,7 @@ import {
     type SectionResults,
     sectionRows,
 } from '../mcpDashboardOverviewLogic'
+import type { LoadedSection } from '../mcpDashboardOverviewLogic'
 import { type BucketedFacetRow } from './leaderboardShares'
 
 export interface LeaderboardFacets {
@@ -42,7 +43,7 @@ export interface mcpLeaderboardHomeLogicValues {
 export interface mcpLeaderboardHomeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         facets: (
-            sections: Partial<Record<MCPDashboardSection, import('../mcpDashboardOverviewLogic').LoadedSection>>,
+            sections: Partial<Record<MCPDashboardSection, LoadedSection>>,
             failedLoads: Partial<Record<MCPDashboardSection, boolean>>
         ) => LeaderboardFacets
     }

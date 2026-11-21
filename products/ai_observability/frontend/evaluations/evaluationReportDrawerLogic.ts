@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { shouldCloseOnEscape } from 'lib/components/DetailPanel/shouldCloseOnEscape'
 
+import type { EvaluationReportRunApi } from '../generated/api.schemas'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { evaluationReportRunsLogic } from './evaluationReportRunsLogic'
 import { ReportDrawerSource, evaluationReportTracking, takeNextDrawerSource } from './evaluationReportTracking'
@@ -68,19 +69,19 @@ export interface evaluationReportDrawerLogicActions {
     loadReports: () => any // evaluationReportLogic
     loadOlderReportRuns: () => any // evaluationReportRunsLogic
     loadOlderReportRunsSuccess: (
-        reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[],
+        reportRuns: EvaluationReportRunApi[],
         payload?: any
     ) => {
         payload?: any
-        reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[]
+        reportRuns: EvaluationReportRunApi[]
     } // evaluationReportRunsLogic
     loadReportRuns: (reportId: string) => string // evaluationReportRunsLogic
     loadReportRunsSuccess: (
-        reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[],
+        reportRuns: EvaluationReportRunApi[],
         payload?: string | undefined
     ) => {
         payload?: string
-        reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[]
+        reportRuns: EvaluationReportRunApi[]
     } // evaluationReportRunsLogic
     close: () => {
         value: true
@@ -108,53 +109,41 @@ export interface evaluationReportDrawerLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         openRunId: (searchParams: Record<string, any>) => string | null
-        openIndex: (
-            reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[],
-            openRunId: string | null
-        ) => number
-        openRun: (
-            reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[],
-            openIndex: number
-        ) => EvaluationReportRun | null
-        previousRun: (
-            reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[],
-            openIndex: number
-        ) => EvaluationReportRun | null
-        nextRun: (
-            reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[],
-            openIndex: number
-        ) => EvaluationReportRun | null
+        openIndex: (reportRuns: EvaluationReportRunApi[], openRunId: string | null) => number
+        openRun: (reportRuns: EvaluationReportRunApi[], openIndex: number) => EvaluationReportRun | null
+        previousRun: (reportRuns: EvaluationReportRunApi[], openIndex: number) => EvaluationReportRun | null
+        nextRun: (reportRuns: EvaluationReportRunApi[], openIndex: number) => EvaluationReportRun | null
         position: (
-            reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[],
+            reportRuns: EvaluationReportRunApi[],
             openIndex: number,
             hasOlderReportRuns: boolean
         ) => ReportDrawerPosition | null
         canStepOlder: (
-            nextRun: null | import('../generated/api.schemas').EvaluationReportRunApi,
-            openRun: null | import('../generated/api.schemas').EvaluationReportRunApi,
+            nextRun: EvaluationReportRunApi | null,
+            openRun: EvaluationReportRunApi | null,
             hasOlderReportRuns: boolean
         ) => boolean
         runLoadFailed: (
-            openRun: null | import('../generated/api.schemas').EvaluationReportRunApi,
+            openRun: EvaluationReportRunApi | null,
             reportsLoadFailed: boolean,
             reportRunsLoadFailed: boolean,
             olderReportRunsLoadFailed: boolean
         ) => boolean
         canSearchOlder: (
             hasOlderReportRuns: boolean,
-            reportRuns: import('../generated/api.schemas').EvaluationReportRunApi[],
+            reportRuns: EvaluationReportRunApi[],
             searchLimit: number
         ) => boolean
         searchPaused: (
             openRunId: string | null,
-            openRun: null | import('../generated/api.schemas').EvaluationReportRunApi,
+            openRun: EvaluationReportRunApi | null,
             hasOlderReportRuns: boolean,
             canSearchOlder: boolean,
             reportRunsLoading: boolean
         ) => boolean
         isSearchingForRun: (
             openRunId: string | null,
-            openRun: null | import('../generated/api.schemas').EvaluationReportRunApi,
+            openRun: EvaluationReportRunApi | null,
             reportsLoading: boolean,
             reportRunsLoading: boolean,
             canSearchOlder: boolean,

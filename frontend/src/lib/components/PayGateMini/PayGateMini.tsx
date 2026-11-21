@@ -1,20 +1,31 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 
 import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { getProductIcon } from 'scenes/onboarding/shared/utils'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { retryImport } from 'lib/utils/retryImport'
+import { getProductIcon, hasProductIcon } from 'scenes/onboarding/shared/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { PayGateButton } from './PayGateButton'
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
+import { PayGateProductIcon } from './PayGateProductIcon'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillPayGateContent = lazy(() =>
+    retryImport(() => import('./QuillPayGateContent')).then((m) => ({ default: m.QuillPayGateContent }))
+)
+const QuillPayGateSkeleton = lazy(() =>
+    retryImport(() => import('./QuillPayGateSkeleton')).then((m) => ({ default: m.QuillPayGateSkeleton }))
+)
 
 export type PayGateMiniProps = PayGateMiniLogicProps & {
     /**
@@ -67,6 +78,7 @@ export function PayGateMini({
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billingLoading } = useValues(billingLogic)
     const { user } = useValues(userLogic)
+    const quillSurface = useQuillSurface()
 
     useEffect(() => {
         if (gateVariant) {
@@ -93,7 +105,19 @@ export function PayGateMini({
         })
     }
 
+    const learnMoreUrl = `${docsLink}?utm_medium=in-product&utm_campaign=${feature}-upgrade-learn-more`
+
     if (billingLoading) {
+        if (quillSurface) {
+            return (
+                loadingSkeleton || (
+                    <Suspense fallback={null}>
+                        <QuillPayGateSkeleton className={className} />
+                    </Suspense>
+                )
+            )
+        }
+
         return (
             loadingSkeleton || (
                 <div
@@ -121,6 +145,29 @@ export function PayGateMini({
     }
 
     if (isGated && !overrideShouldShowGate) {
+        if (quillSurface) {
+            return (
+                <Suspense fallback={null}>
+                    <QuillPayGateContent
+                        feature={feature}
+                        currentUsage={currentUsage}
+                        className={className}
+                        background={background}
+                        isGrandfathered={isGrandfathered}
+                        handleCtaClick={handleCtaClick}
+                        learnMoreUrl={docsLink && isCloudOrDev ? learnMoreUrl : null}
+                        onBypass={user?.is_impersonated ? () => setBypassPaywall(true) : null}
+                        renderProductIcon={(iconKey) => (
+                            <PayGateProductIcon
+                                productIcon={productIconFor(iconKey)}
+                                iconClassName="text-warning-foreground"
+                            />
+                        )}
+                    />
+                </Suspense>
+            )
+        }
+
         return (
             <PayGateContent
                 feature={feature}
@@ -135,7 +182,7 @@ export function PayGateMini({
                     {docsLink && isCloudOrDev && (
                         <LemonButton
                             type="secondary"
-                            to={`${docsLink}?utm_medium=in-product&utm_campaign=${feature}-upgrade-learn-more`}
+                            to={learnMoreUrl}
                             targetBlank
                             center
                             data-attr={`${feature}-learn-more`}
@@ -160,6 +207,10 @@ export function PayGateMini({
     }
 
     return <div className={className}>{children}</div>
+}
+
+function productIconFor(iconKey: string | null | undefined): JSX.Element | null {
+    return hasProductIcon(iconKey) ? getProductIcon(iconKey) : null
 }
 
 interface PayGateContentProps extends PayGateMiniLogicProps {
@@ -200,7 +251,9 @@ function PayGateContent({
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex mb-2 text-4xl text-warning">{getProductIcon(featureInfo.icon_key)}</div>
+            <div className="mb-2">
+                <PayGateProductIcon productIcon={productIconFor(featureInfo.icon_key)} iconClassName="text-warning" />
+            </div>
             <h2>{featureInfo.name}</h2>
             {renderUsageLimitMessage(
                 featureAvailableOnOrg,

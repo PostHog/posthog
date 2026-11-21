@@ -11,8 +11,6 @@ const schema = ProjectGetAllSchema
 // project, which is the only tool that still returns it.
 const CREDENTIAL_FIELDS = [
     'api_token',
-    'secret_api_token',
-    'secret_api_token_backup',
     'live_events_token',
     'heatmaps_screenshot_secret',
 ] as const satisfies readonly (keyof Schemas.ProjectBackwardCompat)[]

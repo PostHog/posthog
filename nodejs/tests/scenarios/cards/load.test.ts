@@ -1,15 +1,8 @@
-import { CardError, DEFINITIONS, Definitions, LoadedCard, load } from '.'
+import { CardError, LoadedCard, load } from '.'
 import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
-import { z } from 'zod'
-
-const definitions: Definitions = {
-    ...DEFINITIONS,
-    valves: [...DEFINITIONS.valves],
-    measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
-}
 
 const card = {
     id: 'test-card',
@@ -24,6 +17,11 @@ const card = {
 }
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
+
+const TWICE_DECLARED_BARS = [
+    { name: 'pickup_p99_under', params: { seconds: 5, queues: ['email'] } },
+    { name: 'pickup_p99_under', params: { seconds: 10, queues: ['hogflow'] } },
+]
 
 const emailWorkerKill = {
     valve: 'role.kill',
@@ -51,7 +49,6 @@ describe('load', () => {
 
     const loadCard = (content: object | string, profileContent?: object | string): LoadedCard =>
         load(write('card.yaml', content), {
-            definitions,
             profilePath: profileContent ? write('profile.yaml', profileContent) : undefined,
         })
 
@@ -107,6 +104,23 @@ describe('load', () => {
             'bars.0.params.percent: ',
         ],
         [
+            'a bar declared twice on a card that stops on break',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                    stopOnBreak: true,
+                },
+                bars: TWICE_DECLARED_BARS,
+            },
+            undefined,
+            'bars: declare each bar once on a stopOnBreak card; pickup_p99_under is declared twice',
+        ],
+        [
             'ramp steps that do not add up to the drive',
             {
                 ...card,
@@ -152,6 +166,46 @@ describe('load', () => {
             },
             undefined,
             'drive.ramp: each ramp step must scale higher than the one before',
+        ],
+        [
+            'a stop on break without a ramp to climb',
+            { ...card, drive: { ...card.drive, stopOnBreak: true } },
+            undefined,
+            'drive.stopOnBreak: stopOnBreak needs a ramp of at least two steps',
+        ],
+        [
+            'a stop on break with a step that lasts no time',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 2, for: '0ms' },
+                        { scale: 3, for: '20s' },
+                    ],
+                    stopOnBreak: true,
+                },
+            },
+            undefined,
+            'drive.ramp: every step of a ramp that stops on a break must last longer than 0ms',
+        ],
+        [
+            'a stop on break with a valve the stop could leave due',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s' },
+                    ],
+                    stopOnBreak: true,
+                },
+                valves: [emailWorkerKill],
+            },
+            undefined,
+            'valves: a stopOnBreak card schedules no valves, since its drive can stop before they are due',
         ],
         [
             'an unknown valve',
@@ -204,55 +258,6 @@ describe('load', () => {
             { ...card, valves: [{ ...emailWorkerKill, when: { name: 'running_on_queue', params: { atLeast: 1 } } }] },
             undefined,
             'valves.0.when.params.queue: ',
-        ],
-        [
-            'a kill whose convergeWithin does not outlast the janitor bound',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '47s' },
-            undefined,
-            'convergeWithin: 47s must exceed 47s',
-        ],
-        [
-            'a kill bound raised by the profile settings',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '60s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '60000' } },
-            'convergeWithin: 60s must exceed 77s',
-        ],
-        [
-            'an empty stall timeout, which the janitor replaces with its default',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '' } },
-            'convergeWithin: 18s must exceed 47s',
-        ],
-        [
-            'a negative sweep interval',
-            { ...card, valves: [emailWorkerKill], convergeWithin: '48s' },
-            { ...profile, settings: { CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '-30000' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: not a number of milliseconds at or above zero',
-        ],
-        [
-            'a second stall whose backoff convergeWithin does not outlast',
-            { ...card, valves: [emailWorkerKill, emailWorkerKill], convergeWithin: '100s' },
-            undefined,
-            'convergeWithin: 100s must exceed 107s',
-        ],
-        [
-            'a kill and a connection drop, which can stall the same job',
-            {
-                ...card,
-                valves: [
-                    emailWorkerKill,
-                    {
-                        valve: 'pg.drop_connections',
-                        target: 'postgres',
-                        dose: { share: 1 },
-                        when: emailWorkerKill.when,
-                        for: '1s',
-                    },
-                ],
-                convergeWithin: '100s',
-            },
-            undefined,
-            'convergeWithin: 100s must exceed 107s',
         ],
         [
             'bounced_suppressed without a bounce',
@@ -376,7 +381,7 @@ describe('load', () => {
     })
 
     it('reports a profile path it cannot read as a problem of the card', () => {
-        expect(() => load(write('card.yaml', card), { definitions, profilePath: dir })).toThrow(
+        expect(() => load(write('card.yaml', card), { profilePath: dir })).toThrow(
             expect.objectContaining({ problems: [expect.stringMatching(/^profile: .*EISDIR/)] })
         )
     })
@@ -394,14 +399,8 @@ describe('load', () => {
         ])
     })
 
-    it.each<[string, object[]]>([
-        ['one kill', [emailWorkerKill]],
-        [
-            'kills on two roles, which stall different jobs',
-            [emailWorkerKill, { ...emailWorkerKill, target: 'cdp-cyclotron-worker-hogflow' }],
-        ],
-    ])('accepts %s whose convergeWithin outlasts the janitor bound', (_name, valves) => {
-        expect(loadCard({ ...card, valves, convergeWithin: '48s' }).card.valves).toHaveLength(valves.length)
+    it('accepts a bar declared twice with different params on a card that does not stop on break', () => {
+        expect(loadCard({ ...card, bars: TWICE_DECLARED_BARS }).card.bars).toEqual(TWICE_DECLARED_BARS)
     })
 
     it('keeps the name of a profile passed from outside the repository', () => {

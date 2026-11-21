@@ -4,8 +4,8 @@ import { useValues } from 'kea'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { urls } from 'scenes/urls'
 

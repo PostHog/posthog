@@ -62,6 +62,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         kpiIncompleteTail,
         toolRows,
         failedLoads,
+        loadedSections,
         loadingSections,
         canShowFeedback,
         feedbackContextKey,
@@ -131,6 +132,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     intentClusterCount={intentClusterCount}
                     kpisLoading={!!loadingSections.kpis}
                     usersLoading={!!loadingSections.periodTotals}
+                    kpisLoaded={!!loadedSections.kpis}
+                    usersLoaded={!!loadedSections.periodTotals}
                     kpisFailed={failedLoads.kpis}
                     usersFailed={failedLoads.periodTotals}
                     onRetryKpis={() => loadSections([MCPDashboardSection.Kpis])}

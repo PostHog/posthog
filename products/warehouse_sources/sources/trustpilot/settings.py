@@ -43,6 +43,10 @@ class TrustpilotEndpointConfig:
     params: dict[str, Any] = field(default_factory=dict)
     # Set for endpoints read one row at a time, keyed by an ID from a parent endpoint's rows.
     fanout: DependentEndpointConfig | None = None
+    # Parent rows where this field is empty or zero have no child data, so they are not requested.
+    fanout_parent_has: str | None = None
+    # Flatten nested objects into snake_case columns, for rows whose primary key is nested.
+    flatten_rows: bool = False
 
     # `default_incremental_field` and `page_size` satisfy the shared fan-out helper's protocol.
     @property
@@ -130,6 +134,7 @@ TRUSTPILOT_ENDPOINTS: dict[str, TrustpilotEndpointConfig] = {
         response_key=None,
         requires_oauth=True,
         paginated=False,
+        fanout_parent_has="conversationId",
         fanout=DependentEndpointConfig(
             parent_name="product_reviews",
             resolve_param="conversation_id",
@@ -137,6 +142,37 @@ TRUSTPILOT_ENDPOINTS: dict[str, TrustpilotEndpointConfig] = {
             include_from_parent=[],
             parent_params={"perPage": PER_PAGE},
             # A conversation removed between the review listing and this fetch must not fail the sync.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "business_unit_categories": TrustpilotEndpointConfig(
+        name="business_unit_categories",
+        path="/business-units/{business_unit_id}/categories",
+        response_key="categories",
+        requires_oauth=False,
+        paginated=False,
+        per_page=None,
+        max_pages=None,
+        primary_keys=["categoryId"],
+    ),
+    "review_likes": TrustpilotEndpointConfig(
+        name="review_likes",
+        path="/reviews/{review_id}/likes",
+        response_key="likes",
+        # Public endpoint; the parent service reviews endpoint is private.
+        requires_oauth=False,
+        paginated=False,
+        primary_keys=["review_id", "consumer_id"],
+        fanout_parent_has="numberOfLikes",
+        flatten_rows=True,
+        fanout=DependentEndpointConfig(
+            parent_name="service_reviews",
+            resolve_param="review_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "review_id"},
+            parent_params={"perPage": PER_PAGE, "orderBy": "createdat.asc"},
+            # A review removed between the review listing and this fetch must not fail the sync.
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

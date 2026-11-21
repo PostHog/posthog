@@ -10,7 +10,6 @@ import React, { useEffect } from 'react'
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
@@ -20,6 +19,7 @@ import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/Taxonomic
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 

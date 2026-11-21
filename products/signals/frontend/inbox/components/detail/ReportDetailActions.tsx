@@ -188,7 +188,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             ? [
                   {
                       key: 'takeover',
-                      label: 'Take over',
+                      label: 'Take over claim',
                       icon: <IconPerson />,
                       loading: claimSaving,
                       tooltip: 'Take over the claim to work on this report',

@@ -51,6 +51,7 @@ rules:
           - '/common/utils/db/*.test.*'
           - '/common/utils/env-utils.test.*'
           - '/common/utils/geoip.test.*'
+          - '/common/utils/posthog.test.*'
           - '/common/utils/event-ingestion-restrictions/*.test.*'
       owners: team-ingestion
     - match:

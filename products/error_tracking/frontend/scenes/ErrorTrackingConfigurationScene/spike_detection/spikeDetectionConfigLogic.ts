@@ -127,6 +127,11 @@ export type spikeDetectionConfigLogicType = MakeLogicType<
     spikeDetectionConfigLogicMeta
 >
 
+// A cleared input leaves the value empty, and the partial PATCH would drop the field instead of rejecting it.
+function isAtLeastOne(value: number | null | undefined): boolean {
+    return value != null && value >= 1
+}
+
 export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
     path([
         'products',
@@ -177,10 +182,11 @@ export const spikeDetectionConfigLogic = kea<spikeDetectionConfigLogicType>([
         configForm: {
             defaults: DEFAULT_CONFIG,
             errors: (formValues) => ({
-                snooze_duration_minutes:
-                    formValues.snooze_duration_minutes < 1 ? 'Snooze duration must be at least 1 minute' : undefined,
-                multiplier: formValues.multiplier < 1 ? 'Multiplier must be at least 1' : undefined,
-                threshold: formValues.threshold < 1 ? 'Threshold must be at least 1' : undefined,
+                snooze_duration_minutes: isAtLeastOne(formValues.snooze_duration_minutes)
+                    ? undefined
+                    : 'Snooze duration must be at least 1 minute',
+                multiplier: isAtLeastOne(formValues.multiplier) ? undefined : 'Multiplier must be at least 1',
+                threshold: isAtLeastOne(formValues.threshold) ? undefined : 'Threshold must be at least 1',
             }),
             submit: async (formValues) => {
                 try {

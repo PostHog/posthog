@@ -11,6 +11,8 @@ import {
     TooltipTrigger,
 } from '@posthog/quill-primitives'
 
+import { dimWhileLoading } from '../components/loadingFeedback'
+
 export function Card({
     children,
     className,
@@ -99,7 +101,7 @@ export function CardState({
     }
     return (
         // Dim while refreshing so date/tool changes give visible feedback.
-        <div aria-busy={loading} className={cn(bodyClassName, 'transition-opacity', loading && 'opacity-50')}>
+        <div aria-busy={loading} className={cn(bodyClassName, dimWhileLoading(loading))}>
             {children}
         </div>
     )

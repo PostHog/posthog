@@ -25,7 +25,6 @@ frontend/src/layout/panel-layout/DatabaseTree/SyncMoreNotice.tsx -> frontend/src
 frontend/src/layout/panel-layout/DatabaseTree/SyncMoreNotice.tsx -> products/data_warehouse/frontend/shared/components/SourceIcon.tsx
 frontend/src/layout/panel-layout/PanelLayout.tsx -> products/conversations/frontend/supportTicketCounterLogic.ts
 frontend/src/layout/panel-layout/ProjectTree/customIconRegistry.tsx -> products/conversations/frontend/components/SupportNavBadge/index.tsx
-frontend/src/layout/panel-layout/ProjectTree/menus/MenuItems.tsx -> frontend/src/scenes/settings/environment/GroupAnalyticsConfig.tsx
 frontend/src/layout/panel-layout/ProjectTree/menus/MenuItems.tsx -> frontend/src/scenes/settings/environment/groupAnalyticsConfigLogic.ts
 frontend/src/layout/panel-layout/ProjectTree/menus/MenuItems.tsx -> frontend/src/scenes/terminal/terminalDockLogic.ts
 frontend/src/layout/panel-layout/ProjectTree/menus/SessionReplayMenuItems.tsx -> frontend/src/scenes/session-recordings/collections/sessionRecordingCollectionsLogic.ts
@@ -47,10 +46,6 @@ frontend/src/layout/today/TodayObjectHoverCard.tsx -> frontend/src/scenes/projec
 frontend/src/layout/today/TodayPanelTaskMenuItems.tsx -> products/posthog_ai/frontend/api/menus.ts
 frontend/src/layout/today/TodayProductsAnalyticsHint.tsx -> frontend/src/scenes/analytics/AnalyticsTypeIcon.tsx
 frontend/src/layout/today/TodayProductsAnalyticsHint.tsx -> frontend/src/scenes/analytics/analyticsUtils.ts
-frontend/src/layout/today/TodaySessionBadges.tsx -> products/tasks/frontend/spaces/TaskPullRequestChip.tsx
-frontend/src/layout/today/TodaySessionBadges.tsx -> products/tasks/frontend/spaces/TaskUserAvatar.tsx
-frontend/src/layout/today/TodaySessionHoverCard.tsx -> products/tasks/frontend/spaces/TaskPullRequestChip.tsx
-frontend/src/layout/today/TodaySessionHoverCard.tsx -> products/tasks/frontend/spaces/TaskUserAvatar.tsx
 frontend/src/layout/today/TodaySessionRow.tsx -> products/posthog_ai/frontend/api/logics.ts
 frontend/src/layout/today/TodaySettingsSidebar.tsx -> frontend/src/scenes/settings/settingsLogic.ts
 frontend/src/layout/today/TodaySettingsSidebar.tsx -> frontend/src/scenes/settings/settingsNavTree.ts
@@ -74,10 +69,6 @@ frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/analytics/an
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/settings/settingsSectionScenes.ts
 frontend/src/layout/today/todaySpacesLogic.ts -> frontend/src/scenes/max/maxGlobalLogic.tsx
-frontend/src/layout/today/todaySpacesLogic.ts -> products/tasks/frontend/spaces/taskPullRequests.ts
-frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/TaskUserAvatar.tsx
-frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/spacePresence.ts
-frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/taskPullRequests.ts
 frontend/src/lib/api.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/api.ts -> frontend/src/lib/apiRequestTiming.ts
 frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts

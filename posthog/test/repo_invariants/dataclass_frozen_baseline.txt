@@ -392,7 +392,7 @@
 9 products/signals/backend/temporal/grouping.py
 10 products/signals/backend/temporal/summary.py
 10 products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
-101 posthog/hogql/ast.py
+95 posthog/hogql/ast.py
 12 ee/clickhouse/materialized_columns/columns.py
 14 products/marketing_analytics/backend/hogql_queries/adapters/base.py
 14 products/subscriptions/backend/temporal/types.py
@@ -443,7 +443,6 @@
 2 products/batch_exports/backend/temporal/destinations/s3_batch_export.py
 2 products/batch_exports/backend/temporal/pipeline/types.py
 2 products/batch_exports/backend/tests/temporal/pipeline/test_entrypoint.py
-2 products/cohorts/backend/parity/classifier.py
 2 products/cohorts/backend/parity/eligibility.py
 2 products/data_modeling/backend/logic/freshness.py
 2 products/demo/backend/logic/matrix/models.py
@@ -596,7 +595,6 @@
 6 posthog/hogql/scripts/build_grammar_strategies.py
 6 posthog/local_bootstrap/config.py
 5 products/slack_app/backend/temporal/types.py
-6 posthog/temporal/ai/sync_vectors.py
 6 posthog/temporal/salesforce_enrichment/stripe_workflow.py
 6 products/batch_exports/backend/temporal/destinations/redshift_batch_export.py
 6 products/conversations/backend/temporal/zendesk_import/activities.py
