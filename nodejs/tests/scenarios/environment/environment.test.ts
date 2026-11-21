@@ -555,15 +555,17 @@ describe('scenario environment', () => {
             })
         })
 
-        it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
-            const specs = roleSpecs(
-                { KAFKA_CONSUMER_GROUP_ID: 'dev-group' },
-                { url: 'http://edge' },
-                secretsOf({}),
-                STATE_DIR
-            )
+        it.each([
+            ['KAFKA_CONSUMER_GROUP_ID', 'so the events role joins the group a reset moves', 'dev-group'],
+            [
+                'CDP_RATE_LIMITER_REFILL_RATE',
+                "since a setting the loader's rate check reads comes from the profile or the server default only",
+                '1000',
+            ],
+        ])('drops an inherited %s, %s', (name, _reason, value) => {
+            const specs = roleSpecs({ [name]: value }, { url: 'http://edge' }, secretsOf({}), STATE_DIR)
 
-            expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
+            expect(specs.filter(({ env }) => name in env)).toEqual([])
         })
 
         it("shares the runner's secrets with the roles", () => {

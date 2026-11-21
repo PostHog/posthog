@@ -1,14 +1,5 @@
 import { randomUUID } from 'crypto'
-import {
-    createReadStream,
-    createWriteStream,
-    existsSync,
-    mkdirSync,
-    renameSync,
-    rmSync,
-    statSync,
-    writeFileSync,
-} from 'fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
@@ -66,6 +57,7 @@ import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { writeJson } from './evidence-file'
 import { openLiveLog } from './live'
 import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import { Admission, Status, admissionsOf, statusOf, unobservedReasonOf } from './status'
@@ -232,18 +224,6 @@ function keepLogTails(stateDir: string, specs: RoleSpec[]): (evidenceDir: string
                 writeFileSync(tail, '')
             }
         }
-    }
-}
-
-function writeJson(evidenceDir: string, name: string, value: unknown): void {
-    const file = path.join(evidenceDir, name)
-    const partial = `${file}.partial`
-    try {
-        writeFileSync(partial, JSON.stringify(value, null, 2))
-        renameSync(partial, file)
-    } catch (error) {
-        rmSync(partial, { force: true })
-        throw error
     }
 }
 
@@ -665,7 +645,8 @@ export function createRunner(
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
                     profile,
-                    baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) })
+                    baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
+                    units.steps[0]?.scale
                 )
                 const bars = judgeBars(card.bars, {
                     ...evidence,
