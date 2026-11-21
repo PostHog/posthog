@@ -2,12 +2,12 @@ import { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Button, Text } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-command/WizardCommandBlock'
 
+import { QuillSDKInstallOptions } from './QuillSDKInstallOptions'
 import { SDKSetupInstructions } from './SDKSetupInstructions'
 
 export function SDKInstallOptions(): JSX.Element {
@@ -23,25 +23,7 @@ export function SDKInstallOptions(): JSX.Element {
     const toggleManualSetup = (): void => setShowManualSetup(!showManualSetup)
 
     if (todayRailNav) {
-        return (
-            <div className="flex max-w-200 flex-col gap-4">
-                <Text size="xs" render={<p className="m-0" />}>
-                    Run this command from the root of your project to start the setup agent.
-                </Text>
-                <WizardCommandBlock />
-                <div className="flex flex-col items-start gap-3">
-                    <Button
-                        onClick={toggleManualSetup}
-                        aria-expanded={showManualSetup}
-                        data-attr="sdk-setup-manual-toggle"
-                    >
-                        {showManualSetup ? <IconChevronDown /> : <IconChevronRight />}
-                        Set up manually
-                    </Button>
-                    {showManualSetup && <SDKSetupInstructions />}
-                </div>
-            </div>
-        )
+        return <QuillSDKInstallOptions showManualSetup={showManualSetup} onShowManualSetupChange={setShowManualSetup} />
     }
 
     return (
