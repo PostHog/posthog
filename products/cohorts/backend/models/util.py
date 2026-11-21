@@ -1860,10 +1860,10 @@ def is_static_cohort_replace_enabled(team: Team) -> bool:
         get_feature_flag_or_none(
             "static-cohort-replace-on-recalc",
             str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
             group_properties={
                 "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
+                "project": {"id": team.id, "uuid": str(team.uuid)},
             },
             send_feature_flag_events=False,
         )

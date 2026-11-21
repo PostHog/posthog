@@ -2574,3 +2574,20 @@ class TestRecalculationErrorRecovery(BaseTest):
         self.assertIs(ctx.exception, real_error)
         assert mock_reset.call_count == 2
         mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
+
+    def test_is_static_cohort_replace_enabled_keys_project_group_by_team_uuid(self) -> None:
+        from products.cohorts.backend.models.util import is_static_cohort_replace_enabled
+
+        with patch("posthog.ph_client.get_feature_flag_or_none", return_value=True) as mock_flag:
+            self.assertTrue(is_static_cohort_replace_enabled(self.team))
+
+        mock_flag.assert_called_once_with(
+            "static-cohort-replace-on-recalc",
+            str(self.team.uuid),
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": self.team.id, "uuid": str(self.team.uuid)},
+            },
+            send_feature_flag_events=False,
+        )
