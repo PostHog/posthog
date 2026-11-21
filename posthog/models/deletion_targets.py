@@ -298,12 +298,7 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # sharded_events_recent is a transient mirror of the last few days of events, on a 7-day TTL keyed
 # on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
-#
-# sharded_flag_evaluations_json is exempt only until the next change in its stack registers it as a
-# sweep target. Migration 0392 creates it and its consumer on every deployment that is not deployed
-# cloud, so a self-hosted deployment that forks flag calls holds personal data in it that no sweep
-# reaches. The two changes must merge together.
-TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE(), FLAG_EVALUATIONS_JSON_DATA_TABLE})
+TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"
