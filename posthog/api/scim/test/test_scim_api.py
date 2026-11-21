@@ -4,6 +4,7 @@ from django.contrib.auth.hashers import check_password
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.api.scim.auth import SCIMBearerTokenAuthentication, generate_scim_token
 from posthog.api.scim.user import PostHogSCIMUser
@@ -646,6 +647,29 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
 
         user = User.objects.get(id=user_id)
         assert user.email == "valid@example.com"
+
+    @parameterized.expand(
+        [
+            ("put",),
+            ("patch_replace",),
+            ("patch_add",),
+        ]
+    )
+    def test_email_change_removes_the_saml_link_keyed_by_the_old_email(self, method: str):
+        self.client.credentials(**self.scim_headers)
+        user = User.objects.create(email="Valid@example.com", first_name="Valid")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        keyed_by_old_email = UserSocialAuth.objects.create(user=user, provider="saml", uid="idp:valid@example.com")
+        kept = [
+            UserSocialAuth.objects.create(user=user, provider="saml", uid="idp:8f2c-persistent-id"),
+            UserSocialAuth.objects.create(user=user, provider="google-oauth2", uid="valid@example.com"),
+        ]
+
+        response = self._change_email(method, str(user.id), "renamed@example.com")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not UserSocialAuth.objects.filter(pk=keyed_by_old_email.pk).exists()
+        assert UserSocialAuth.objects.filter(pk__in=[link.pk for link in kept]).count() == 2
 
     def _change_email(self, method: str, user_id: str, new_email: str):
         if method == "put":

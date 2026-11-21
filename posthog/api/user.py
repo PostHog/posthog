@@ -43,7 +43,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -109,6 +108,7 @@ from posthog.helpers.two_factor_session import (
     normalize_verification_code,
     set_two_factor_verified_in_session,
 )
+from posthog.helpers.user_email_change import UserEmailChange
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.middleware import (
@@ -1423,20 +1423,12 @@ class UserViewSet(
             # `pending_email` holds whatever case the change was staged in.
             new_email = EmailNormalizer.normalize(user.pending_email)
             # Anyone can claim the address while the change waits for this code.
-            taken = (
-                EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
-                or EmailValidationHelper.user_exists_with_gmail_canonical(new_email, exclude_user_id=user.pk)
-                or EmailLookupHandler.users_matching_email(new_email, User.objects.all()).exclude(pk=user.pk).exists()
-            )
-            if taken:
+            change = UserEmailChange(user=user, new_email=new_email)
+            if change.is_taken():
                 refuse_pending_email_promotion()
             try:
                 with transaction.atomic():
-                    user.email = EmailNormalizer.normalize(new_email)
-                    user.pending_email = None
-                    user.save(update_fields=["email", "pending_email"])
-                    # Delete social auth so the old external identity can't keep logging in.
-                    UserSocialAuth.objects.filter(user=user).delete()
+                    change.apply()
             except IntegrityError:
                 # A row that appeared since the check above reaches this write.
                 user.refresh_from_db()
