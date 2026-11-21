@@ -11,6 +11,7 @@ import {
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
 import {
+  type GatewayProduct,
   modelIdForGatewayRoute,
   resolveGatewayProduct,
   resolveGatewayTarget,
@@ -23,6 +24,7 @@ export interface GatewayEnvInput {
   runSpanContext?: SpanContext;
   isInternal?: boolean;
   originProduct?: Task["origin_product"] | null;
+  gatewayProduct?: GatewayProduct;
   signalReportId?: string | null;
   aiStage?: string | null;
   aiAgentName?: string | null;
@@ -50,6 +52,7 @@ export function buildGatewayEnv(
     runSpanContext,
     isInternal = false,
     originProduct,
+    gatewayProduct,
     signalReportId,
     aiStage,
     aiAgentName,
@@ -70,7 +73,8 @@ export function buildGatewayEnv(
   logger: Logger,
 ): GatewayEnv {
   const { apiKey, apiUrl, projectId, serviceTier } = config;
-  const product = resolveGatewayProduct({ isInternal, originProduct });
+  const product =
+    gatewayProduct ?? resolveGatewayProduct({ isInternal, originProduct });
   // Go-gateway runs authenticate with the per-run scoped token minted by the
   // worker (pinned product + on-behalf-of team, per-run spend cap), not the
   // run's per-team OAuth token, whose team has no gateway wallet. A routed
@@ -223,12 +227,14 @@ export function buildPiProviderRoute(
   config: Pick<AgentServerConfig, "apiKey" | "apiUrl" | "projectId">,
   {
     originProduct,
+    gatewayProduct,
     aiStage,
     taskId,
     model,
     properties,
   }: {
     originProduct?: Task["origin_product"] | null;
+    gatewayProduct?: GatewayProduct;
     aiStage?: string | null;
     taskId?: string | null;
     model?: string;
@@ -238,7 +244,7 @@ export function buildPiProviderRoute(
 ): PiProviderRoute {
   const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
   const target = resolveGatewayTarget({
-    product: resolveGatewayProduct({ originProduct }),
+    product: gatewayProduct ?? resolveGatewayProduct({ originProduct }),
     aiStage,
     posthogHost: config.apiUrl,
   });
