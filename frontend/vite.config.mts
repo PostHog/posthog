@@ -42,6 +42,7 @@ export default defineConfig(({ mode }) => {
             zodJitlessPlugin(),
             {
                 name: 'startup-message',
+                apply: 'serve',
                 configureServer(server) {
                     server.httpServer?.once('listening', () => {
                         setTimeout(() => {

@@ -28,7 +28,7 @@ import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCss
 import { removeUnlinkedStylesheets } from './bin/unlinkedStylesheets.mjs'
 import { zodJitlessEsbuildPlugin } from './plugins/zodJitless.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
-import { WORKER_ENTRIES } from './workers.config.mjs'
+import { WORKER_ENTRIES, WORKER_FILES_META } from './workers.config.mjs'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -93,6 +93,11 @@ async function buildWorkers() {
 }
 
 // lib/utils/createWorker.ts loads each worker by its hashed name, so the app bundles need the names at build time.
+const workerFiles = await buildWorkers()
+if (!isDev) {
+    fs.writeFileSync(path.resolve(__dirname, WORKER_FILES_META), JSON.stringify(workerFiles))
+}
+
 const appBundle = {
     ...workerBundle,
     // Not in the worker bundles, because no worker imports quill. Not in dev, where bundle size does not matter.
@@ -100,7 +105,7 @@ const appBundle = {
         ...workerBundle.extraPlugins,
         ...(isDev ? [] : [quillImportsEsbuildPlugin(path.resolve(__dirname, '..'))]),
     ],
-    define: { ...commonConfig.define, __POSTHOG_WORKER_FILES__: JSON.stringify(await buildWorkers()) },
+    define: { ...commonConfig.define, __POSTHOG_WORKER_FILES__: JSON.stringify(workerFiles) },
 }
 
 await buildInParallel(

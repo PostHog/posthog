@@ -695,6 +695,26 @@ jobs:
             - name: Measure PR dist size
               run: du -sb frontend/dist | cut -f1 > frontend/dist-size-pr.txt
 
+            # No other job builds the app with Vite (frontend/vite.app.config.mts), so this step is
+            # what shows a config or dependency change that breaks that build. continue-on-error
+            # keeps a failure here from failing the job: only staff can choose this build, and the
+            # job's verdict is about the build that every user gets. `--if-present` skips a branch
+            # that predates the script. The `bundle` script leaves out `build:products`, which the
+            # "Build products" step above already ran. The step deletes its output, because a master push measures
+            # dist/ again further down as the base for later PRs, and this build must not count in it.
+            - name: Build the app with Vite
+              id: vite-app-build
+              continue-on-error: true
+              timeout-minutes: 5
+              run: |
+                  pnpm --filter=@posthog/frontend run --if-present build:vite-app:bundle
+                  rm -rf frontend/dist/vite frontend/vite-app-graph.json
+
+            # continue-on-error shows the step above as passed, so a broken build needs its own signal.
+            - name: Warn when the Vite build fails
+              if: steps.vite-app-build.outcome == 'failure'
+              run: echo "::warning title=Vite app build failed::pnpm build:vite-app failed. This job still passes. See the 'Build the app with Vite' step."
+
             # Runs against the PR's own build, before the base rebuild below overwrites dist/.
             - name: Check toolbar bundle stays under the CloudFront gzip limit
               run: pnpm --filter=@posthog/frontend check-toolbar-size
