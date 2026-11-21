@@ -371,7 +371,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                     </p>
                     <ScheduleList />
                     <LemonField.Pure error={validationResult?.errors?.schedule}>
-                        <WorkflowRecurringSchedulePicker />
+                        <WorkflowRecurringSchedulePicker allowMinutely />
                     </LemonField.Pure>
                 </div>
             ) : node.data.config.type === 'batch' ? (
@@ -539,7 +539,7 @@ function StepTriggerConfigurationManual(): JSX.Element {
     )
 }
 
-function WorkflowRecurringSchedulePicker(): JSX.Element {
+function WorkflowRecurringSchedulePicker({ allowMinutely = false }: { allowMinutely?: boolean }): JSX.Element {
     const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
     const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
         useActions(workflowLogic)
@@ -554,6 +554,7 @@ function WorkflowRecurringSchedulePicker(): JSX.Element {
             onStartsAtChange={setScheduleStartsAtFromPicker}
             onTimezoneChange={setScheduleTimezone}
             onRepeatingChange={setScheduleRepeating}
+            allowMinutely={allowMinutely}
         />
     )
 }

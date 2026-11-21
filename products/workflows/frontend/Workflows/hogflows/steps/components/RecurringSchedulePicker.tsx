@@ -33,6 +33,7 @@ import type { FrequencyOption, MonthlyMode, ScheduleState } from './rrule-helper
 interface FrequencyPickerProps {
     state: ScheduleState
     onStateChange: (newState: ScheduleState) => void
+    allowMinutely: boolean
 }
 
 interface WeekdayPickerProps {
@@ -59,7 +60,7 @@ interface SchedulePreviewProps {
     timezone?: string
 }
 
-function FrequencyPicker({ state, onStateChange }: FrequencyPickerProps): JSX.Element {
+function FrequencyPicker({ state, onStateChange, allowMinutely }: FrequencyPickerProps): JSX.Element {
     return (
         <>
             <span className="text-muted">Every</span>
@@ -77,7 +78,11 @@ function FrequencyPicker({ state, onStateChange }: FrequencyPickerProps): JSX.El
             <LemonSelect
                 size="small"
                 value={state.frequency}
-                options={FREQUENCY_OPTIONS}
+                options={
+                    allowMinutely || state.frequency === 'minutely'
+                        ? FREQUENCY_OPTIONS
+                        : FREQUENCY_OPTIONS.filter((option) => option.value !== 'minutely')
+                }
                 onChange={(val) => {
                     onStateChange({ ...state, frequency: val as FrequencyOption })
                 }}
@@ -333,6 +338,8 @@ export interface RecurringSchedulePickerProps {
     showRepeatToggle?: boolean
     /** Shows the timezone before a start date is picked. */
     alwaysShowTimezone?: boolean
+    /** Only a schedule trigger may run every minute. */
+    allowMinutely?: boolean
 }
 
 export function RecurringSchedulePicker({
@@ -346,6 +353,7 @@ export function RecurringSchedulePicker({
     onRepeatingChange: setScheduleRepeating,
     showRepeatToggle = true,
     alwaysShowTimezone = false,
+    allowMinutely = false,
 }: RecurringSchedulePickerProps): JSX.Element {
     const previewOccurrences = useMemo(() => {
         if (!isScheduleRepeating || !scheduleStartsAt) {
@@ -442,7 +450,11 @@ export function RecurringSchedulePicker({
             {scheduleStartsAt && isScheduleRepeating && (
                 <>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <FrequencyPicker state={scheduleState} onStateChange={setScheduleState} />
+                        <FrequencyPicker
+                            state={scheduleState}
+                            onStateChange={setScheduleState}
+                            allowMinutely={allowMinutely}
+                        />
                         {scheduleState.frequency === 'weekly' && (
                             <WeekdayPicker state={scheduleState} onStateChange={setScheduleState} />
                         )}

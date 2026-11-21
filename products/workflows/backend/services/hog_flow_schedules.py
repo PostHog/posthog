@@ -168,7 +168,8 @@ def process_due_schedules() -> ProcessedSchedules:
                     schedule.save(update_fields=["next_run_at", "updated_at"])
                     continue
 
-                _advance_next_run(schedule, after=schedule.next_run_at)
+                # Advance past now so a backlog is skipped, not replayed one occurrence per poll.
+                _advance_next_run(schedule)
 
                 if trigger_type == "batch":
                     batch_job_params = {
