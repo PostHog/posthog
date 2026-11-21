@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use chrono_tz::Tz;
-use clickhouse::query::RowCursor;
+use clickhouse::query::{Query, RowCursor};
 use cohort_core::clickhouse_timestamp_to_millis;
 use cohort_core::day_idx_in_tz;
 use cohort_core::events::CohortStreamEvent;
@@ -216,6 +216,12 @@ impl ChunkScanner {
         scan: &TableScan,
         scan_spec: ScanSpec,
     ) -> TableQuery {
+        if table.stores_json_documents() {
+            return TableQuery {
+                spec: scan_spec,
+                projection: ChunkProjection::FullColumns,
+            };
+        }
         let projection = analyses.projection(&scan.active);
         let exact = analyses.column_exact_keys(&scan.active);
         let row_filter = analyses.row_filter(&scan.event_names, &run.filters, &scan.active);
@@ -256,9 +262,7 @@ impl ChunkScanner {
         let mut volume = ScanVolume::default();
         let mut summary = FoldSummary::default();
         for query in queries {
-            let mut cursor = self
-                .client
-                .query(&scan_sql(&query.spec, &query.projection))
+            let mut cursor = scan_query(&self.client, query)
                 .with_option(LOG_COMMENT_OPTION, comment.to_string())
                 .fetch::<EventRow>()
                 .map_err(ScanError::Query)?;
@@ -469,6 +473,13 @@ impl ChunkScanner {
 struct TableQuery {
     spec: ScanSpec,
     projection: ChunkProjection,
+}
+
+fn scan_query(client: &ClickHouseClient, query: &TableQuery) -> Query {
+    query.spec.table().read_settings().iter().fold(
+        client.query(&scan_sql(&query.spec, &query.projection)),
+        |sent, (name, value)| sent.with_option(name.as_str(), value.as_str()),
+    )
 }
 
 #[derive(Debug)]
@@ -1575,6 +1586,52 @@ mod tests {
         );
     }
 
+    /// `JSONType` reads a JSON column as no object, so a row filter on the JSON table admits every
+    /// row. A ClickHouse that read the column instead would drop this flag call, because its
+    /// `$feature/my-flag` member exists only in the document the scan rebuilds.
+    #[tokio::test]
+    async fn a_flag_evaluations_json_scan_sends_no_row_filter() {
+        use crate::domain::row_filter::test_catalog::event_and_property;
+
+        let scanner = ChunkScanner::new(
+            ClickHouseClient::new(clickhouse::Client::default(), Default::default()),
+            TeamAllowlist::Only(std::collections::HashSet::from([2])),
+            false,
+        );
+        let run = run_with(
+            ScanTable::FlagEvaluationsJson,
+            7,
+            &[RunLeaf {
+                cohort_id: 1,
+                hash: FLAG_CALL_HASH,
+                event: "$feature_flag_called",
+                body: event_and_property("$feature_flag_called", "$feature/my-flag", "variant-a"),
+            }],
+        );
+        let analyses = ConditionAnalyses::build(&run.conditions, &run.filters);
+        let domain = SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap();
+        let active = active_conditions_at(1, UTC, 200_000_000, &run.conditions);
+        let (table, scan) = table_scans(&run, &active)
+            .into_iter()
+            .next()
+            .expect("the run scans its flag calls");
+        let ScanPlan::Scan(spec) = plan_scan(
+            run.team_id,
+            &domain,
+            &scan.event_names,
+            BandSpec::new(0, 1).unwrap(),
+            table,
+        ) else {
+            panic!("day 1 is scannable");
+        };
+
+        let query = scanner
+            .narrow_table_query(&run, &analyses, table, &scan, spec.clone())
+            .await;
+
+        assert_eq!(query.spec, spec);
+    }
+
     /// The fold reads rows only from a ClickHouse cursor, so only a live server shows which rows
     /// reach the chunk's tiles.
     #[cfg(feature = "ch-test-support")]
@@ -1586,6 +1643,7 @@ mod tests {
 
         use super::*;
         use crate::clickhouse::client::build_client;
+        use crate::clickhouse::sql::clickhouse_string_literal;
         use crate::config::Config;
 
         const FLAG_KEY_EXPRESSION: &str =
@@ -1593,6 +1651,16 @@ mod tests {
 
         const FLAG_EVALUATIONS_DDL: &str =
             include_str!("../../tests/fixtures/flag_evaluations.sql");
+        const FLAG_EVALUATIONS_JSON_DDL: &str =
+            include_str!("../../tests/fixtures/flag_evaluations_json.sql");
+
+        fn fixture_statements(ddl: &str, database: &str) -> Vec<String> {
+            ddl.split(';')
+                .map(str::trim)
+                .filter(|statement| !statement.is_empty())
+                .map(|statement| statement.replace("{database}", database))
+                .collect()
+        }
 
         fn connect(database: Option<&str>) -> ClickHouseClient {
             let mut config =
@@ -1658,11 +1726,7 @@ mod tests {
             };
             let my_flag = r#"{"$feature_flag":"my-flag"}"#;
             let admin = connect(None);
-            let flag_evaluations_tables = FLAG_EVALUATIONS_DDL
-                .split(';')
-                .map(str::trim)
-                .filter(|statement| !statement.is_empty())
-                .map(|statement| statement.replace("{database}", database));
+            let flag_evaluations_tables = fixture_statements(FLAG_EVALUATIONS_DDL, database);
             let statements = [
                 format!("DROP DATABASE IF EXISTS {database}"),
                 format!("CREATE DATABASE {database}"),
@@ -1816,6 +1880,191 @@ mod tests {
                 )),
                 "the compare did not re-scan the whole blob:\n{rendered}"
             );
+        }
+
+        /// One flag call as the legacy table stores its text, and as the native cleaner splits it
+        /// into the JSON table's columns: the `$feature/<key>` value goes to the `$feature_flags`
+        /// map, `$active_feature_flags` is dropped, `$feature_flag_request_id` goes to
+        /// `temporary_properties` with `$set`, the nested object becomes a string, and each null field
+        /// goes to its column's null-keys array, with a `.` inside a key stored as `%2E`.
+        const LEGACY_PROPERTIES: &str = r#"{"$feature_flag":"my-flag","$feature_flag_response":"variant-a","$feature_flag_request_id":"req-1","$feature/my-flag":"variant-a","$active_feature_flags":["my-flag"],"a.b":"dotted","x.y":null,"gone":null,"nested":{"k":1,"list":[1,2]},"url":"https://example.com/x","n":3,"$set":null}"#;
+        const JSON_PROPERTIES: &str = r#"{"$feature_flag":"my-flag","$feature_flag_response":"variant-a","$feature_flags":{"my-flag":"variant-a"},"a.b":"dotted","nested":"{\"k\":1,\"list\":[1,2]}","url":"https://example.com/x","n":3,"$set":null}"#;
+        const JSON_PROPERTIES_NULL_KEYS: &str = "['x%2Ey', 'gone']";
+        const JSON_TEMPORARY_PROPERTIES: &str = r#"{"$feature_flag_request_id":"req-1"}"#;
+        const JSON_TEMPORARY_PROPERTIES_NULL_KEYS: &str = "['$set']";
+        const LEGACY_PERSON_PROPERTIES: &str = r#"{"email":"person@example.com","plan":null}"#;
+        const JSON_PERSON_PROPERTIES: &str = r#"{"email":"person@example.com"}"#;
+        const JSON_PERSON_PROPERTIES_NULL_KEYS: &str = "['plan']";
+
+        async fn flag_tables_database(database: &str) -> ClickHouseClient {
+            let other_flag = r#"{"$feature_flag":"other-flag"}"#;
+            let legacy_row =
+                |uuid: u128, properties: &str, person_properties: &str, person_id: u128| {
+                    format!(
+                    "(toUUID('{}'), '$feature_flag_called', {}, toDateTime64(100000, 6, 'UTC'), 2, \
+                     'distinct-{person_id}', toUUID('{}'), {}, toDateTime(100000, 'UTC'))",
+                    person(uuid),
+                    clickhouse_string_literal(properties),
+                    person(person_id),
+                    clickhouse_string_literal(person_properties),
+                )
+                };
+            let json_row = |uuid: u128,
+                            properties: &str,
+                            null_keys: &str,
+                            (temporary_properties, temporary_null_keys): (&str, &str),
+                            person_properties: &str,
+                            person_null_keys: &str,
+                            person_id: u128| {
+                format!(
+                    "(toUUID('{}'), '$feature_flag_called', {}, {}, {null_keys}, {temporary_null_keys}, \
+                     toDateTime64(100000, 6, 'UTC'), 2, 'distinct-{person_id}', toUUID('{}'), {}, \
+                     {person_null_keys}, '', toDateTime(100000, 'UTC'))",
+                    person(uuid),
+                    clickhouse_string_literal(properties),
+                    clickhouse_string_literal(temporary_properties),
+                    person(person_id),
+                    clickhouse_string_literal(person_properties),
+                )
+            };
+            let admin = connect(None);
+            let statements = [
+                format!("DROP DATABASE IF EXISTS {database}"),
+                format!("CREATE DATABASE {database}"),
+                format!(
+                    "CREATE TABLE {database}.person_distinct_id_overrides (\
+                        team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64\
+                     ) ENGINE = MergeTree ORDER BY (team_id, distinct_id)"
+                ),
+            ]
+            .into_iter()
+            .chain(fixture_statements(FLAG_EVALUATIONS_DDL, database))
+            .chain(fixture_statements(FLAG_EVALUATIONS_JSON_DDL, database))
+            .chain([
+                format!(
+                    "INSERT INTO {database}.sharded_flag_evaluations (uuid, event, properties, \
+                     timestamp, team_id, distinct_id, person_id, person_properties, _timestamp) \
+                     VALUES {}, {}",
+                    legacy_row(30, LEGACY_PROPERTIES, LEGACY_PERSON_PROPERTIES, 1),
+                    legacy_row(31, other_flag, "{}", 3),
+                ),
+                format!(
+                    "INSERT INTO {database}.sharded_flag_evaluations_json (uuid, event, properties, \
+                     temporary_properties, properties_null_keys, temporary_properties_null_keys, \
+                     timestamp, team_id, distinct_id, person_id, person_properties, \
+                     person_properties_null_keys, elements_chain, _timestamp) \
+                     SETTINGS json_type_escape_dots_in_keys = 1 VALUES {}, {}",
+                    json_row(
+                        30,
+                        JSON_PROPERTIES,
+                        JSON_PROPERTIES_NULL_KEYS,
+                        (JSON_TEMPORARY_PROPERTIES, JSON_TEMPORARY_PROPERTIES_NULL_KEYS),
+                        JSON_PERSON_PROPERTIES,
+                        JSON_PERSON_PROPERTIES_NULL_KEYS,
+                        1
+                    ),
+                    json_row(31, other_flag, "[]", ("{}", "[]"), "{}", "[]", 3),
+                ),
+            ]);
+            for statement in statements {
+                admin
+                    .query(&statement)
+                    .execute()
+                    .await
+                    .unwrap_or_else(|error| panic!("{error}\n{statement}"));
+            }
+            // A server whose profile leaves the setting off, so the scan's own setting decides.
+            connect(Some(database)).with_option("json_type_escape_dots_in_keys", "0")
+        }
+
+        #[tokio::test]
+        async fn a_flag_evaluations_json_row_reads_as_the_legacy_text_of_the_same_flag_call() {
+            let client = flag_tables_database("seeder_scanner_json_documents").await;
+            let domain = SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap();
+            let event_names = EventNameSet::new(vec!["$feature_flag_called".to_string()]);
+            let parse = |text: &str| -> serde_json::Value {
+                serde_json::from_str(text).unwrap_or_else(|error| panic!("{error}: {text}"))
+            };
+
+            let mut documents = Vec::new();
+            for table in [ScanTable::FlagEvaluations, ScanTable::FlagEvaluationsJson] {
+                let ScanPlan::Scan(spec) = plan_scan(
+                    TeamId(2),
+                    &domain,
+                    &event_names,
+                    BandSpec::new(0, 1).unwrap(),
+                    table,
+                ) else {
+                    panic!("day 1 holds the flag calls");
+                };
+                let query = TableQuery {
+                    spec,
+                    projection: ChunkProjection::FullColumns,
+                };
+                let mut rows = scan_query(&client, &query)
+                    .fetch_all::<EventRow>()
+                    .await
+                    .unwrap_or_else(|error| panic!("{table:?}: {error}"));
+                rows.sort_by(|left, right| left.uuid.cmp(&right.uuid));
+                documents.push(
+                    rows.iter()
+                        .map(|row| (parse(&row.properties), parse(&row.person_properties)))
+                        .collect::<Vec<_>>(),
+                );
+            }
+
+            assert_eq!(documents[0].len(), 2);
+            assert_eq!(documents[1], documents[0]);
+        }
+
+        /// A dotted key reads back as `a.b` only when the scan sends its read setting. The
+        /// `$feature/<key>` member exists only in the rebuilt document, so a row filter that read
+        /// the JSON column would drop the row before HogVM sees it.
+        #[tokio::test]
+        async fn a_flag_evaluations_json_run_folds_the_tiles_of_a_flag_evaluations_run() {
+            use crate::domain::row_filter::test_catalog::event_and_property;
+
+            const FLAG_VARIANT_HASH: &str = "flagvariant00000";
+            let client = flag_tables_database("seeder_scanner_json_fold").await;
+            let leaves = [
+                RunLeaf {
+                    cohort_id: 1,
+                    hash: FLAG_CALL_HASH,
+                    event: "$feature_flag_called",
+                    body: event_and_property("$feature_flag_called", "a.b", "dotted"),
+                },
+                RunLeaf {
+                    cohort_id: 1,
+                    hash: FLAG_VARIANT_HASH,
+                    event: "$feature_flag_called",
+                    body: event_and_property(
+                        "$feature_flag_called",
+                        "$feature/my-flag",
+                        "variant-a",
+                    ),
+                },
+            ];
+
+            let mut tiles = Vec::new();
+            for table in [ScanTable::FlagEvaluations, ScanTable::FlagEvaluationsJson] {
+                let run = run_with(table, 7, &leaves);
+                let scanned = scanned_of(
+                    scan_day_one(&scanner(client.clone(), false), &run, || NOW_MS).await,
+                );
+                tiles.push(tile_counts(&scanned));
+            }
+
+            let mut expected = vec![
+                (person(1), ConditionHash::parse(FLAG_CALL_HASH).unwrap(), 1),
+                (
+                    person(1),
+                    ConditionHash::parse(FLAG_VARIANT_HASH).unwrap(),
+                    1,
+                ),
+            ];
+            expected.sort();
+            assert_eq!(tiles[0], expected);
+            assert_eq!(tiles[1], tiles[0]);
         }
     }
 }

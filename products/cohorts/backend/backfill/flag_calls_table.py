@@ -7,7 +7,11 @@ from typing import Any
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TABLE
+from posthog.models.flag_evaluations.sql import (
+    FLAG_EVALUATIONS_JSON_TABLE,
+    FLAG_EVALUATIONS_SOURCE_EVENT,
+    FLAG_EVALUATIONS_TABLE,
+)
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -25,10 +29,15 @@ _MAX_FLAG_EVALUATIONS_DAYS_BACK = FLAG_EVALUATIONS_COMPLETE_DAYS - 1
 class FlagCallsTable(StrEnum):
     EVENTS = "events"
     FLAG_EVALUATIONS = FLAG_EVALUATIONS_TABLE
+    FLAG_EVALUATIONS_JSON = FLAG_EVALUATIONS_JSON_TABLE
 
 
 class FlagCallsTableUnresolved(ValueError):
     pass
+
+
+class FlagCallsTableChanged(ValueError):
+    """Two cohorts of one run report different flag tables. A retry pins one table."""
 
 
 def _scan_window(condition: dict[str, Any], team: Team) -> tuple[bool, float]:
@@ -47,16 +56,12 @@ def _scan_window(condition: dict[str, Any], team: Team) -> tuple[bool, float]:
     return False, (day_of_instant(datetime.now(UTC), team.timezone_info) - start_day).days
 
 
-def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, Any]], team: Team) -> bool:
+def _cohort_flag_calls_table(cohort: Cohort, conditions: list[dict[str, Any]], team: Team) -> FlagCallsTable:
     # hogql_cohort_query imports posthog.tasks.calculate_cohort, which imports this module through runs.
     from posthog.hogql_queries.hogql_cohort_query import (  # noqa: PLC0415
         FLAG_CALL_READS_COMPILE_ERRORS,
         batch_flag_call_reads,
-        batch_reads_flag_calls_from_events_only,
     )
-
-    if batch_reads_flag_calls_from_events_only(team):
-        return False
 
     # A malformed filter value can also fail an assert in the HogQL printer or fail in the HogQL VM. These errors
     # repeat on every try, so the run is refused. Any other error, such as a database timeout, reaches the trigger
@@ -73,6 +78,7 @@ def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, A
         ) from error
     scans = [_scan_window(condition, team) for condition in conditions]
     within_ttl = all(days_back <= _MAX_FLAG_EVALUATIONS_DAYS_BACK for _, days_back in scans)
+    flag_table = FlagCallsTable.FLAG_EVALUATIONS_JSON if reads.reads_json else FlagCallsTable.FLAG_EVALUATIONS
     if reads.only_in_flag_evaluations:
         if reads.reads_from_events != 0:
             raise FlagCallsTableUnresolved(
@@ -83,8 +89,10 @@ def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, A
                 f"A flag-call window of cohort {cohort.id} starts before the oldest day flag_evaluations keeps, and "
                 "events holds no new flag calls"
             )
-        return True
-    return reads.reads_from_events == 0 and within_ttl and all(slides for slides, _ in scans)
+        return flag_table
+    if reads.reads_from_events == 0 and within_ttl and all(slides for slides, _ in scans):
+        return flag_table
+    return FlagCallsTable.EVENTS
 
 
 def pinned_flag_calls_table(
@@ -93,8 +101,9 @@ def pinned_flag_calls_table(
     """The table cohort-seeder reads `$feature_flag_called` from in a run over these cohorts and their pinned
     conditions.
 
-    One table covers the whole run. It is flag_evaluations only when every cohort with a flag-call condition meets
-    all three rules. A cohort without a flag-call condition does not count.
+    One table covers the whole run. It is a flag table only when every cohort with a flag-call condition meets all
+    three rules. A cohort without a flag-call condition does not count. The flag table is flag_evaluations_json when
+    the batch query reads it, and flag_evaluations otherwise.
 
     - The batch calculation reads every flag call of the cohort from flag_evaluations. The seeder then reads the
       same rows as the batch calculation.
@@ -112,15 +121,28 @@ def pinned_flag_calls_table(
     calls from events or a flag-call window starts too far back. Pinning events there would give the cohort an empty
     flag-call history that still counts as backfilled. Any other error from building the batch query, such as a
     database timeout, reaches the caller.
+
+    Raises FlagCallsTableChanged when the batch queries of two cohorts read different flag tables. The
+    FLAG_EVALUATIONS_READS_JSON switch changed while the cohorts compiled, and a retry pins the new table.
     """
     flag_call_conditions: dict[int, list[dict[str, Any]]] = {}
     for condition in conditions:
         if condition["event_name"] == FLAG_EVALUATIONS_SOURCE_EVENT:
             flag_call_conditions.setdefault(condition["cohort_id"], []).append(condition)
-    # A list, not a generator, so all() can't stop at a False verdict before a later cohort raises.
-    verdicts = [
-        _can_seed_from_flag_evaluations(cohort, flag_call_conditions[cohort.id], team)
+    if not flag_call_conditions:
+        return FlagCallsTable.EVENTS
+    # Deferred for the circular import that _cohort_flag_calls_table names.
+    from posthog.hogql_queries.hogql_cohort_query import batch_reads_flag_calls_from_events_only  # noqa: PLC0415
+
+    if batch_reads_flag_calls_from_events_only(team):
+        return FlagCallsTable.EVENTS
+    tables = {
+        _cohort_flag_calls_table(cohort, flag_call_conditions[cohort.id], team)
         for cohort in cohorts
         if cohort.id in flag_call_conditions
-    ]
-    return FlagCallsTable.FLAG_EVALUATIONS if verdicts and all(verdicts) else FlagCallsTable.EVENTS
+    }
+    if FlagCallsTable.EVENTS in tables:
+        return FlagCallsTable.EVENTS
+    if len(tables) > 1:
+        raise FlagCallsTableChanged("The flag calls table changed while the run compiled its cohorts; retry the run")
+    return tables.pop()

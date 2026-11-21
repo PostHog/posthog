@@ -165,20 +165,20 @@ def estimate_behavioral_scan_events(
     until = django_timezone.now().astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     window = {"team_id": team_id, "since": until - timedelta(days=BEHAVIORAL_SCAN_ESTIMATE_DAYS), "until": until}
     queries: list[tuple[str, dict[str, Any]]] = []
-    counts_flag_calls_on_flag_evaluations = (
-        flag_calls_table == FlagCallsTable.FLAG_EVALUATIONS and FLAG_EVALUATIONS_SOURCE_EVENT in event_names
+    counts_flag_calls_on_a_flag_table = (
+        flag_calls_table != FlagCallsTable.EVENTS and FLAG_EVALUATIONS_SOURCE_EVENT in event_names
     )
     names_on_events = [
         name
         for name in event_names
-        if not (counts_flag_calls_on_flag_evaluations and name == FLAG_EVALUATIONS_SOURCE_EVENT)
+        if not (counts_flag_calls_on_a_flag_table and name == FLAG_EVALUATIONS_SOURCE_EVENT)
     ]
-    if counts_flag_calls_on_flag_evaluations:
+    if counts_flag_calls_on_a_flag_table:
         queries.append(
             (
-                """
+                f"""
                 SELECT toDate(timestamp) AS day, %(flag_called)s AS event, count() AS events
-                FROM flag_evaluations
+                FROM {flag_calls_table.value}
                 WHERE team_id = %(team_id)s
                   AND timestamp >= %(since)s
                   AND timestamp < %(until)s

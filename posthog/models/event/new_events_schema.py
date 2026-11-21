@@ -7,6 +7,7 @@ from django.conf import settings
 
 import posthoganalytics
 
+from posthog.clickhouse.events_json import EVENTS_JSON_READ_SETTINGS
 from posthog.cloud_utils import is_cloud
 from posthog.models.instance_setting import get_instance_setting
 
@@ -231,16 +232,6 @@ def flag_evaluations_read_table(use_new_events_schema: bool) -> str:
     from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_JSON_TABLE, FLAG_EVALUATIONS_TABLE  # noqa: PLC0415
 
     return FLAG_EVALUATIONS_JSON_TABLE if flag_evaluations_reads_json(use_new_events_schema) else FLAG_EVALUATIONS_TABLE
-
-
-# The native table stores a dotted key `a.b` under the path `a%2Eb` (EVENTS_JSON_INSERT_SETTINGS), and ClickHouse
-# prints the dot again only for a query that sets the first setting. The second keeps a `/` inside an object or
-# array value unescaped, as the legacy text column returns it. The ClickHouse printer sets both on every HogQL
-# query that reads the native table, so raw SQL that embeds or re-runs a printed query must send them itself.
-EVENTS_JSON_READ_SETTINGS: dict[str, int] = {
-    "json_type_escape_dots_in_keys": 1,
-    "output_format_json_escape_forward_slashes": 0,
-}
 
 
 def events_read_settings(use_new_events_schema: bool) -> dict[str, int]:
