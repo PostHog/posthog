@@ -26,6 +26,14 @@ export function senderAddress(name: string | undefined, email: string): string {
     return `${displayName} <${email}>`
 }
 
+const senderToVerifyOf = (
+    integrations: IntegrationType[],
+    defaultIntegrationId: number | null | undefined
+): IntegrationType | undefined => {
+    const emailSenders = integrations.filter((integration) => integration.kind === 'email')
+    return emailSenders.find((integration) => integration.id === defaultIntegrationId) ?? emailSenders[0]
+}
+
 export function sendingDomainOf(
     integrations: IntegrationType[],
     defaultIntegrationId: number | null | undefined
@@ -43,9 +51,7 @@ export function sendingDomainOf(
             from: senderAddress(name, email),
         }
     }
-    // A stopped sender needs its DNS records verified again, so it shows as pending, the project default first.
-    const emailSenders = integrations.filter((integration) => integration.kind === 'email')
-    const pending = emailSenders.find((integration) => integration.id === defaultIntegrationId) ?? emailSenders[0]
+    const pending = senderToVerifyOf(integrations, defaultIntegrationId)
     if (pending) {
         return { status: 'pending', integrationId: pending.id, domain: fieldsOf(pending).domain ?? '' }
     }

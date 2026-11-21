@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { useMocks } from '~/mocks/jest'
 import type { MockResolverInfo } from '~/mocks/utils'
 
+import type { HogFlow } from '../../Workflows/hogflows/types'
+
 jest.unmock('posthog-js')
 
 const INGESTION_HOST = 'https://ingest.example.com'
@@ -10,13 +12,44 @@ const DOMAIN = 'mail.acme.com'
 
 type SentEvent = { event: string; properties: Record<string, any> }
 
-const LIVE_ON_TEST_SENDER = {
+const LIVE_ON_TEST_SENDER: HogFlow = {
     id: 'flow-1',
     name: 'Welcome',
+    version: 1,
     status: 'active',
-    trigger: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
-    actions: [{ id: 'email', type: 'email_sandbox', name: 'Email', config: { inputs: {} } }],
-    edges: [],
+    team_id: 1,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    exit_condition: 'exit_only_at_end',
+    conversion: { filters: [] },
+    actions: [
+        {
+            id: 'trigger_node',
+            type: 'trigger',
+            name: 'Trigger',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+        },
+        {
+            id: 'email',
+            type: 'email_sandbox',
+            name: 'Email',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: {
+                inputs: {
+                    email: {
+                        templating: 'liquid',
+                        value: { to: { email: '{{ person.properties.email }}' }, subject: 'Hi', html: '<p>Hi</p>' },
+                    },
+                },
+            },
+        },
+    ],
+    edges: [{ from: 'trigger_node', to: 'email', type: 'continue' }],
 }
 
 describe('email domain setup started', () => {

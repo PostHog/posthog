@@ -470,7 +470,7 @@ describe('EmailDomainScene', () => {
         expect(element('email-domain-records-added')).toBeInTheDocument()
     })
 
-    it('takes a domain whose sending stopped back to ready once its records verify again', async () => {
+    it('takes a domain whose sending stopped back to ready with one verify once its records verify again', async () => {
         seedSender()
         backend.stopsSending(DOMAIN)
         await open(urls.workflowsEmailDomain(SENDER_ID))
@@ -483,6 +483,29 @@ describe('EmailDomainScene', () => {
 
         expectStep(/You can send from/)
         expect(backend.sender(SENDER_ID)?.config).not.toHaveProperty('ses_sending_status')
+        expect(backend.requestsTo('email_verify')).toHaveLength(1)
+    })
+
+    it.each([
+        ['a stopped domain whose records were fixed', true, 1],
+        ['a verified domain', false, 0],
+    ])('shows %s as ready when its status answers before the sender', async (_, stopped, verifyCalls) => {
+        seedSender()
+        if (stopped) {
+            backend.stopsSending(DOMAIN)
+            backend.verifyAtProviderOnly(DOMAIN)
+        } else {
+            backend.verifyDomain(DOMAIN)
+        }
+        const releaseSender = backend.hold('integration_get')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+
+        releaseSender()
+        await flush()
+
+        expectStep(/You can send from/)
+        expect(backend.sender(SENDER_ID)?.config).not.toHaveProperty('ses_sending_status')
+        expect(backend.requestsTo('email_verify')).toHaveLength(verifyCalls)
     })
 
     it('lets the person restart a stopped verification again after the first restart fails', async () => {
