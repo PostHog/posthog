@@ -6,7 +6,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -28,7 +27,6 @@ export function MessageChannels(): JSX.Element {
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
     const { openImport } = useActions(pushTokenImportLogic)
     const { sandboxStatus } = useValues(sandboxSenderLogic)
-    const supabaseAuthEmailsEnabled = useFeatureFlag('WORKFLOWS_SUPABASE_AUTH_EMAILS')
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -53,7 +51,7 @@ export function MessageChannels(): JSX.Element {
 
             <div className="flex flex-col gap-4" data-attr="message-channels">
                 <ChannelCatalog />
-                {supabaseAuthEmailsEnabled && <SupabaseAuthEmails />}
+                <SupabaseAuthEmails />
                 {(allWorkflowIntegrations.length > 0 || !!sandboxStatus?.integration_id) && (
                     <h3 className="mb-0 text-base font-semibold">Your connections</h3>
                 )}
