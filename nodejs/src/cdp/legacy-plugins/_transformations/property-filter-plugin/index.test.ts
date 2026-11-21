@@ -1,7 +1,7 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
-import { processEvent } from './index'
+import { processEvent, setupPlugin } from './index'
 
 const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
     ({
@@ -87,6 +87,26 @@ test('event properties are empty when no properties are given', () => {
     expect(event.properties).not.toHaveProperty('$set')
     expect(event.properties).not.toHaveProperty('foo')
 })
+
+test.each(['gender,$set.age,$set_once.plan', ' gender , $set.age , $set_once.plan '])(
+    'every existing property in the configured list %j is filtered',
+    (configuredProperties) => {
+        const pluginMeta = {
+            global: {},
+            config: { properties: configuredProperties },
+        } as unknown as LegacyTransformationPluginMeta
+        setupPlugin(pluginMeta)
+
+        const event = processEvent(
+            createEvent({
+                properties: { name: 'Mr. Hog', gender: 'male', $set: { age: 35, pet: 'dog' }, $set_once: null },
+            }),
+            pluginMeta
+        )
+
+        expect(event.properties).toEqual({ name: 'Mr. Hog', $set: { pet: 'dog' }, $set_once: null })
+    }
+)
 
 test.each(['__proto__.hasOwnProperty', 'constructor.prototype.toString'])(
     'a filter path through %s leaves the built-in prototype intact',

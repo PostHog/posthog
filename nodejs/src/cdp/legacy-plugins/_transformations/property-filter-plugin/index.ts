@@ -3,10 +3,13 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { LegacyTransformationPluginMeta } from '../../types'
 
 export function setupPlugin({ config, global }: LegacyTransformationPluginMeta) {
-    global.propertiesToFilter = config.properties.split(',')
+    global.propertiesToFilter = config.properties.split(',').map((property: string) => property.trim())
 }
 
 function recursiveRemoveFilterObject(properties: Record<string, any>, propertyToFilterParts: string[]) {
+    if (properties === null || typeof properties !== 'object') {
+        return
+    }
     // if we've reached the final filter part, then we can remove the key if it exists
     // otherwise recursively go down the properties object with the remaining filter parts
     const currentKey = propertyToFilterParts.shift()
