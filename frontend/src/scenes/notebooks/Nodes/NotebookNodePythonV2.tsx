@@ -16,6 +16,7 @@ import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookJupyterCellOutput } from './components/NotebookJupyterCellOutput'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
+import { NotebookWarehouseTableToggle } from './components/NotebookWarehouseTableToggle'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { countTextLines, initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
@@ -30,6 +31,9 @@ export type NotebookNodePythonV2Attributes = {
     code: string
     // The dataframe name this cell's result is exposed as to later cells.
     returnVariable: string
+    // Also save the result dataframe as a data warehouse table with this name on each run.
+    saveToWarehouse?: boolean
+    warehouseTableName?: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
     // How the run that produced `result` ended. An interrupt persists whatever the cell printed
@@ -79,6 +83,7 @@ const Component = ({
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
+        canSaveWarehouseTables,
         result: runResult,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
@@ -135,6 +140,18 @@ const Component = ({
         return null
     }
 
+    const warehouseTableToggle = (compact: boolean): JSX.Element | null =>
+        canSaveWarehouseTables ? (
+            <NotebookWarehouseTableToggle
+                saveToWarehouse={!!attributes.saveToWarehouse}
+                warehouseTableName={attributes.warehouseTableName ?? ''}
+                defaultTableName={attributes.returnVariable ?? ''}
+                onChange={updateAttributes}
+                lastSave={result?.warehouse_table}
+                compact={compact}
+            />
+        ) : null
+
     if (isJupyterMode) {
         return (
             <NotebookJupyterCellOutput
@@ -167,6 +184,7 @@ const Component = ({
                 returnVariable={attributes.returnVariable ?? ''}
                 onReturnVariableChange={(returnVariable) => updateAttributes({ returnVariable })}
                 isEditable={isEditable}
+                footerExtra={warehouseTableToggle(true)}
             />
         )
     }
@@ -252,7 +270,9 @@ const Component = ({
             <NotebookCellOutputNameFooter
                 returnVariable={attributes.returnVariable ?? ''}
                 onChange={(returnVariable) => updateAttributes({ returnVariable })}
-            />
+            >
+                {isEditable ? warehouseTableToggle(false) : null}
+            </NotebookCellOutputNameFooter>
         </div>
     )
 }
@@ -329,6 +349,12 @@ export const NotebookNodePythonV2 = createPostHogWidgetNode<NotebookNodePythonV2
         },
         returnVariable: {
             default: 'df',
+        },
+        saveToWarehouse: {
+            default: false,
+        },
+        warehouseTableName: {
+            default: '',
         },
         runId: {
             default: null,

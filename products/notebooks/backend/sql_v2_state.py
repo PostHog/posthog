@@ -78,6 +78,8 @@ class NotebookCellState:
     # cell's own terms — not just the editor, which passes them per request — needs them.
     connection_id: str | None = None
     send_raw_query: bool = False
+    # A Python cell's data warehouse table for its result dataframe, or None to save no table.
+    warehouse_table_name: str | None = None
     status: str = "never_run"
     depends_on: list[str] = field(default_factory=list)
     dependents: list[str] = field(default_factory=list)
@@ -175,6 +177,11 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
         if cell_type == "saved_insight" and not (isinstance(code, str) and code.strip()):
             dataframe_name = ""
         connection_id = props.get("connectionId")
+        warehouse_table_name = props.get("warehouseTableName")
+        if not (
+            cell_type == "python" and props.get("saveToWarehouse") is True and isinstance(warehouse_table_name, str)
+        ):
+            warehouse_table_name = None
         cells.append(
             NotebookCellState(
                 node_id=node_id,
@@ -183,6 +190,7 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
                 code=code if isinstance(code, str) else "",
                 connection_id=connection_id if isinstance(connection_id, str) and connection_id else None,
                 send_raw_query=props.get("sendRawQuery") is True,
+                warehouse_table_name=warehouse_table_name.strip() or None if warehouse_table_name else None,
                 visualization=_visualization_from_props(props) if tag_name == "SQLV2" else None,
             )
         )
@@ -354,6 +362,30 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
             cell.status = "stale"
         else:
             cell.status = latest.status
+
+
+def upstream_hogql_queries(run: NotebookNodeRun) -> list[str]:
+    """Follow the inputs captured at dispatch, even after a notebook edit or another cell run."""
+    pending = set(run.input_run_ids or [])
+    seen: set[str] = set()
+    queries: list[str] = []
+    while pending:
+        seen.update(pending)
+        inputs = (
+            NotebookNodeRun.objects.for_team(run.team_id)
+            .filter(notebook_id=run.notebook_id, id__in=pending)
+            .order_by("id")
+            .values_list("node_type", "connection_id", "code", "input_run_ids")
+        )
+        following: set[str] = set()
+        for node_type, connection_id, code, parent_ids in inputs:
+            if node_type == NotebookNodeRun.NodeType.HOGQL:
+                if connection_id is None and code.strip():
+                    queries.append(code)
+            else:
+                following.update(parent_ids or [])
+        pending = following - seen
+    return queries
 
 
 def build_notebook_cell_state(team_id: int, notebook: Any) -> list[NotebookCellState]:

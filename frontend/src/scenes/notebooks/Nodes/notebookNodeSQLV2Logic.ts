@@ -20,7 +20,13 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import {
+    notebooksSqlV2RunCreate,
+    notebooksSqlV2RunsInterruptCreate,
+    notebooksSqlV2RunsRetrieve,
+} from 'products/notebooks/frontend/generated/api'
 import { notebookResultPreview } from 'products/notebooks/notebookResultPreview'
 
 import { notebookJupyterLogic } from '../Notebook/notebookJupyterLogic'
@@ -107,6 +113,9 @@ export function pollIntervalMs(waitedMs: number): number {
 export const MAX_POLL_WAIT_MS = 7 * 60 * 60 * 1000
 
 export const SQL_V2_DEFAULT_PAGE_SIZE = 50
+// The backend task that saves a warehouse table stops after five and a half minutes.
+const WAREHOUSE_SAVE_POLL_INTERVAL_MS = 3000
+const WAREHOUSE_SAVE_MAX_POLLS = 120
 
 export type NotebookNodeSQLV2Page = {
     columns: string[]
@@ -123,6 +132,11 @@ export type NotebookNodeSQLV2DirectRows = {
     rows: (string | number | null)[][]
 }
 
+// OpenAPI cannot express these tuple and cell-value unions, but the notebook result contract does.
+const sqlV2Types = (types: string[][] | undefined): [string, string][] => (types ?? []) as [string, string][]
+const sqlV2Rows = (rows: unknown[][] | undefined): (string | number | null)[][] =>
+    (rows ?? []) as (string | number | null)[][]
+
 export interface RunQueryOptions {
     nodeType?: 'hogql' | 'python'
     outputName?: string
@@ -130,6 +144,8 @@ export interface RunQueryOptions {
     // code to it verbatim. Absent means PostHog's own ClickHouse.
     connectionId?: string | null
     sendRawQuery?: boolean
+    // Python cells only: the warehouse table to save the result dataframe to.
+    warehouseTableName?: string | null
 }
 
 // What an open editor holds right now, for the callers that can read it — the document only
@@ -174,6 +190,8 @@ export interface notebookNodeSQLV2LogicValues {
     activeOperation: NotebookOperation | null // notebookOperationsLogic
     isBusy: boolean // notebookOperationsLogic
     runQueue: string[] // notebookOperationsLogic
+    currentTeamId: number | null // teamLogic
+    canSaveWarehouseTables: boolean
     directRows: NotebookNodeSQLV2DirectRows | null
     isInterrupting: boolean
     isQueued: boolean
@@ -261,6 +279,13 @@ export interface notebookNodeSQLV2LogicActions {
     pollResult: (runId: string) => {
         runId: string
     }
+    pollWarehouseSave: (
+        runId: string,
+        restoring: boolean
+    ) => {
+        restoring: boolean
+        runId: string
+    }
     resetPaging: () => {
         value: true
     }
@@ -325,6 +350,7 @@ export interface notebookNodeSQLV2LogicActions {
 export interface notebookNodeSQLV2LogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        canSaveWarehouseTables: (featureFlags: FeatureFlagsSet) => boolean
         isSandboxComputeFree: (featureFlags: FeatureFlagsSet) => boolean
         isQueued: (runQueue: string[]) => boolean
         operationBlockReason: (activeOperation: NotebookOperation | null) => string | null
@@ -349,6 +375,8 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeamId'],
             notebookOperationsLogic({ shortId: props.notebookShortId }),
             ['activeOperation', 'isBusy', 'runQueue'],
             notebookJupyterLogic({ shortId: props.notebookShortId }),
@@ -399,6 +427,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         startPolling: (runId: string, restoring: boolean = false) => ({ runId, restoring }),
         resultRestoreFailed: true,
         pollResult: (runId: string) => ({ runId }),
+        pollWarehouseSave: (runId: string, restoring: boolean) => ({ runId, restoring }),
         stopPolling: true,
         interruptRun: true,
         setIsInterrupting: (isInterrupting: boolean) => ({ isInterrupting }),
@@ -554,12 +583,16 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 // query result is alive — recover it once (e.g. after a reload) and page locally
                 // from then on. Kernel runs return no rows here and fall through to server paging.
                 try {
-                    const recovered = await api.notebooks.sqlV2RunResult(props.notebookShortId, runId)
+                    const recovered = await notebooksSqlV2RunsRetrieve(
+                        String(values.currentTeamId),
+                        props.notebookShortId,
+                        runId
+                    )
                     if (recovered.status === 'done' && recovered.rows) {
                         const directRows: NotebookNodeSQLV2DirectRows = {
                             columns: recovered.result?.columns ?? [],
-                            types: recovered.result?.types ?? [],
-                            rows: recovered.rows,
+                            types: sqlV2Types(recovered.result?.types),
+                            rows: sqlV2Rows(recovered.rows),
                         }
                         actions.setDirectRows(directRows)
                         if (cache.pageFetchId === fetchId) {
@@ -570,6 +603,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 } catch {
                     // Recovery is best-effort; the server page below reports real errors.
                 }
+                // nosemgrep: prefer-codegen-api-namespaced-notebooks -- the page endpoint has no generated client
                 const pageResult = await api.notebooks.sqlV2RunPage(props.notebookShortId, runId, {
                     offset: (page - 1) * pageSize,
                     limit: pageSize,
@@ -669,21 +703,26 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 const variables = props.getVariables?.() ?? []
                 actions.startOperation(runOperation)
                 try {
-                    const runResponse = await api.notebooks.sqlV2Run(props.notebookShortId, {
-                        node_id: props.nodeId,
-                        code,
-                        refs,
-                        // Omitted when the notebook declares none, so an unchanged notebook's
-                        // run body stays byte-identical to before.
-                        ...(variables.length ? { variables } : {}),
-                        node_type: opts.nodeType,
-                        output_name: opts.outputName,
-                        // Omitted entirely for a PostHog cell — the backend's defaults say the same
-                        // thing, and every existing run body stays byte-identical.
-                        ...(opts.connectionId
-                            ? { connection_id: opts.connectionId, send_raw_query: !!opts.sendRawQuery }
-                            : {}),
-                    })
+                    const runResponse = await notebooksSqlV2RunCreate(
+                        String(values.currentTeamId),
+                        props.notebookShortId,
+                        {
+                            node_id: props.nodeId,
+                            code,
+                            refs,
+                            // Omitted when the notebook declares none, so an unchanged notebook's
+                            // run body stays byte-identical to before.
+                            ...(variables.length ? { variables } : {}),
+                            node_type: opts.nodeType,
+                            output_name: opts.outputName,
+                            ...(opts.warehouseTableName ? { warehouse_table_name: opts.warehouseTableName } : {}),
+                            // Omitted entirely for a PostHog cell — the backend's defaults say the same
+                            // thing, and every existing run body stays byte-identical.
+                            ...(opts.connectionId
+                                ? { connection_id: opts.connectionId, send_raw_query: !!opts.sendRawQuery }
+                                : {}),
+                        }
+                    )
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
                     const run_id = runResponse.run_id
@@ -732,7 +771,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 // downstream cells reference, which is what a rerouted run has to bind.
                 const opts: RunQueryOptions =
                     self.nodeType === NotebookNodeType.PythonV2
-                        ? { nodeType: 'python', outputName: self.returnVariable }
+                        ? {
+                              nodeType: 'python',
+                              outputName: self.returnVariable,
+                              warehouseTableName: values.canSaveWarehouseTables ? self.warehouseTableName : null,
+                          }
                         : {
                               outputName: self.returnVariable,
                               connectionId:
@@ -823,7 +866,8 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 }
                 cache.pollInFlight = true
                 try {
-                    const { status, result, error, rows } = await api.notebooks.sqlV2RunResult(
+                    const { status, result, error, rows } = await notebooksSqlV2RunsRetrieve(
+                        String(values.currentTeamId),
                         props.notebookShortId,
                         runId
                     )
@@ -842,14 +886,15 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     const envelopeResult: NotebookNodeSQLV2Result | null = result
                         ? {
                               columns: result.columns ?? [],
-                              types: result.types ?? [],
+                              types: sqlV2Types(result.types),
                               row_count: result.row_count ?? 0,
-                              first_page: result.first_page ?? [],
+                              first_page: sqlV2Rows(result.first_page),
                               has_more: result.has_more ?? false,
                               stdout: result.stdout ?? '',
                               stderr: result.stderr ?? '',
                               media: result.media ?? [],
                               ...(result.result_text ? { result_text: result.result_text } : {}),
+                              ...(result.warehouse_table ? { warehouse_table: result.warehouse_table } : {}),
                           }
                         : null
                     const resultMetadata = envelopeResult ? notebookResultPreview(envelopeResult) : null
@@ -860,8 +905,8 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                             rows
                                 ? {
                                       columns: result?.columns ?? [],
-                                      types: result?.types ?? [],
-                                      rows,
+                                      types: sqlV2Types(result?.types),
+                                      rows: sqlV2Rows(rows),
                                   }
                                 : null
                         )
@@ -878,6 +923,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         // against the document as it stands now (Journey 10).
                         if (!restoring) {
                             actions.nodeRunFinished(props.nodeId, 'done', props.getContent?.() ?? null)
+                        }
+                        if (envelopeResult?.warehouse_table?.pending) {
+                            actions.pollWarehouseSave(runId, restoring)
                         }
                     } else if (status === 'interrupted') {
                         // A user-requested stop: the envelope still carries whatever stdout,
@@ -949,7 +997,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     return
                 }
                 try {
-                    const response = await api.notebooks.sqlV2RunInterrupt(props.notebookShortId, runId)
+                    const response = await notebooksSqlV2RunsInterruptCreate(
+                        String(values.currentTeamId),
+                        props.notebookShortId,
+                        runId
+                    )
                     if (response.detail) {
                         // Nothing was stopped (e.g. the run hasn't reached the kernel yet), so
                         // let the user retry instead of wedging the button in loading.
@@ -968,6 +1020,54 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     node_id: props.nodeId,
                 })
             },
+            pollWarehouseSave: ({ runId, restoring }) => {
+                // The run is done, but the table is still saving in the background. Check on the
+                // save alone, so the run's own completion steps don't repeat.
+                cache.disposables.add(() => {
+                    let attempts = 0
+                    const intervalId = window.setInterval(async () => {
+                        attempts += 1
+                        if (runId !== cache.activeRunId) {
+                            cache.disposables.dispose('pollWarehouseSave')
+                            return
+                        }
+                        if (attempts > WAREHOUSE_SAVE_MAX_POLLS) {
+                            cache.disposables.dispose('pollWarehouseSave')
+                            const pendingSave = values.result?.warehouse_table
+                            if (values.result && pendingSave?.pending) {
+                                actions.setResult({
+                                    ...values.result,
+                                    warehouse_table: {
+                                        name: pendingSave.name,
+                                        error: 'Saving the table is taking longer than expected. Reload the notebook to check on it.',
+                                    },
+                                })
+                            }
+                            return
+                        }
+                        try {
+                            const { result } = await notebooksSqlV2RunsRetrieve(
+                                String(values.currentTeamId),
+                                props.notebookShortId,
+                                runId
+                            )
+                            const warehouseTable = result?.warehouse_table
+                            if (runId !== cache.activeRunId || !warehouseTable || warehouseTable.pending) {
+                                return
+                            }
+                            cache.disposables.dispose('pollWarehouseSave')
+                            const updated = values.result ? { ...values.result, warehouse_table: warehouseTable } : null
+                            actions.setResult(updated)
+                            if (updated && !restoring) {
+                                props.updateAttributes({ result: notebookResultPreview(updated) })
+                            }
+                        } catch {
+                            // A failed check is retried on the next tick.
+                        }
+                    }, WAREHOUSE_SAVE_POLL_INTERVAL_MS)
+                    return () => clearInterval(intervalId)
+                }, 'pollWarehouseSave')
+            },
             stopPolling: () => {
                 cache.isRestoringResult = false
                 cache.disposables.dispose('pollResult')
@@ -977,6 +1077,10 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         }
     }),
     selectors(({ props }) => ({
+        canSaveWarehouseTables: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.NOTEBOOK_SAVE_AS_WAREHOUSE_TABLE],
+        ],
         isSandboxComputeFree: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE],

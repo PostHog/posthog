@@ -45,6 +45,8 @@ export type NotebookDependencyNode = {
     // same one its own Run button would.
     connectionId?: string | null
     sendRawQuery?: boolean
+    // PythonV2 only: the warehouse table the cell saves its dataframe to, or null for none.
+    warehouseTableName?: string | null
 }
 
 export type NotebookDependencyGraph = {
@@ -560,6 +562,12 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 returnVariable,
                 connectionId,
                 sendRawQuery: !!connectionId && !!attrs.sendRawQuery,
+                warehouseTableName:
+                    node.type === NotebookNodeType.PythonV2 &&
+                    attrs.saveToWarehouse &&
+                    typeof attrs.warehouseTableName === 'string'
+                        ? attrs.warehouseTableName.trim() || null
+                        : null,
             }
         }
     )

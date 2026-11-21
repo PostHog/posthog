@@ -35,11 +35,15 @@ import uuid
 import base64
 import logging
 import warnings
+import urllib.request
+from functools import partial
+from itertools import chain
 from typing import Any, NamedTuple
 
 import duckdb
 import pandas as pd
 import pyarrow as pa
+import pyarrow.parquet as pq
 from IPython.core.displayhook import DisplayHook
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.utils.capture import capture_output
@@ -49,6 +53,7 @@ from . import envelope
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PREVIEW_ROWS = 50
+_WAREHOUSE_UPLOAD_TIMEOUT_SECONDS = 300
 # The envelope is stored whole in a Postgres row (the full frame stays in a local Arrow
 # file), so every unbounded piece gets a cap here; the callback endpoint enforces a total
 # byte limit as the backstop.
@@ -393,7 +398,7 @@ class KernelSession:
         columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
         # result_id keys the on-disk frame for paging — only advertise one that actually exists.
         result_id = self._write_result_frame(result_df) if result_df is not None else None
-        return envelope.from_python_execution(
+        result = envelope.from_python_execution(
             status="ok",
             stdout=stdout,
             stderr=stderr,
@@ -406,6 +411,12 @@ class KernelSession:
             result_id=result_id,
             result_text=result_text,
         )
+        if upload := node.get("warehouse_upload"):
+            try:
+                result["warehouse_upload"] = self._upload_warehouse_table(result_df, upload)
+            except KeyboardInterrupt:
+                return envelope.as_interrupted(result)
+        return result
 
     def _result_text(self, value: Any, code: str) -> str:
         """The cell's last value as Jupyter's `Out[n]` shows it. A frame shows as the table instead.
@@ -601,6 +612,46 @@ class KernelSession:
             media.append({"mime_type": "image/png", "data": data})
         self._plt.close("all")
         return media, omitted
+
+    def _upload_warehouse_table(self, df: "pd.DataFrame | None", upload: dict[str, Any]) -> dict[str, Any]:
+        if df is None:
+            return {"ok": False, "error": "This run didn't produce a dataframe to save."}
+        # Written to disk and streamed from there, so the upload adds no second copy of the frame
+        # to the kernel's memory.
+        path = os.path.join(self._results_dir, f"warehouse-{uuid.uuid4()}.parquet")
+        try:
+            pq.write_table(pa.Table.from_pandas(df, preserve_index=False), path)
+            boundary = uuid.uuid4().hex
+            start = "".join(
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'
+                for name, value in upload["fields"].items()
+            )
+            start += f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="data.parquet"\r\n\r\n'
+            prefix, suffix = start.encode(), f"\r\n--{boundary}--\r\n".encode()
+            with open(path, "rb") as body:
+                request = urllib.request.Request(
+                    upload["url"],
+                    data=chain((prefix,), iter(partial(body.read, 64 * 1024), b""), (suffix,)),
+                    method="POST",
+                    headers={
+                        "Content-Length": str(len(prefix) + os.path.getsize(path) + len(suffix)),
+                        "Content-Type": f"multipart/form-data; boundary={boundary}",
+                    },
+                )
+                # The backend supplies this object-store URL in the signed run payload.
+                # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+                with urllib.request.urlopen(request, timeout=_WAREHOUSE_UPLOAD_TIMEOUT_SECONDS):
+                    pass
+        except (pa.ArrowException, ValueError, TypeError) as exc:
+            # The message can repeat a user object's repr, and the envelope has a size limit.
+            return {"ok": False, "error": f"The dataframe can't be written as a table: {str(exc)[:500]}"}
+        except Exception:  # noqa: BLE001 — a failed upload must not fail a run whose compute succeeded
+            logger.exception("nb_kernel warehouse table upload failed")
+            return {"ok": False, "error": "The dataframe couldn't be uploaded to the warehouse."}
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+        return {"ok": True}
 
     def _write_result_frame(self, df: "pd.DataFrame") -> str | None:
         """Write the frame for later paging; return its result_id, or None if the write failed."""

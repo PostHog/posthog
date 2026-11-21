@@ -2,6 +2,14 @@
 
 from django.apps import AppConfig
 
+from posthog.notebook_warehouse_tables import NotebookTableWriter, register_notebook_table_writer
+
+
+def _load_notebook_table_writer() -> NotebookTableWriter:
+    from products.warehouse_sources.backend.logic import notebook_tables  # noqa: PLC0415
+
+    return notebook_tables
+
 
 class WarehouseSourcesConfig(AppConfig):
     name = "products.warehouse_sources.backend"
@@ -20,6 +28,7 @@ class WarehouseSourcesConfig(AppConfig):
         from products.warehouse_sources.backend.sync_alerts.registration import register  # noqa: PLC0415
 
         register()
+        register_notebook_table_writer(_load_notebook_table_writer)
 
         # Source kinds have no generated accessor. Callers reach their rows through `IntegrationManager.source(kind)`.
         # The SDK imports the Integration model, which needs the app registry.

@@ -9,6 +9,8 @@ jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
     sqlEditorLogic: { findMounted: jest.fn(() => null) },
 }))
 
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { act, fireEvent, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
@@ -20,6 +22,8 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
+
+import * as notebookApi from 'products/notebooks/frontend/generated/api'
 
 import { type NotebookLogicProps, notebookLogic } from '../../Notebook/notebookLogic'
 import { NotebookNodeType, type NotebookType } from '../../types'
@@ -90,8 +94,14 @@ describe('NotebookCodeCellRunButton', () => {
         localStorage.clear()
         initKeaTests()
         jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
-        runSpy = jest.spyOn(api.notebooks, 'sqlV2Run').mockResolvedValue({ run_id: 'r1' })
-        jest.spyOn(api.notebooks, 'sqlV2RunResult').mockResolvedValue({ status: 'running', result: null, error: null })
+        runSpy = jest
+            .spyOn(notebookApi, 'notebooksSqlV2RunCreate')
+            .mockResolvedValue({ run_id: 'r1', starts_sandbox: false })
+        jest.spyOn(notebookApi, 'notebooksSqlV2RunsRetrieve').mockResolvedValue({
+            status: 'running',
+            result: null,
+            error: null,
+        })
         ;(sqlEditorLogic.findMounted as jest.Mock).mockReturnValue(null)
     })
 
@@ -134,7 +144,11 @@ describe('NotebookCodeCellRunButton', () => {
 
             expect(runSpy).toHaveBeenCalledTimes(expectedRuns)
             if (expectedRuns > 0) {
-                expect(runSpy).toHaveBeenCalledWith(SHORT_ID, expect.objectContaining({ code: queryInput }))
+                expect(runSpy).toHaveBeenCalledWith(
+                    String(MOCK_TEAM_ID),
+                    SHORT_ID,
+                    expect.objectContaining({ code: queryInput })
+                )
             }
         }
     )

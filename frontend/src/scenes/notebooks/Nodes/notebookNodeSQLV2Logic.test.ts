@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
@@ -39,11 +41,9 @@ describe('notebookNodeSQLV2Logic', () => {
     beforeEach(() => {
         initKeaTests()
         updateAttributes = jest.fn()
-        runSpy = jest.spyOn(api.notebooks, 'sqlV2Run').mockResolvedValue({ run_id: 'r1' })
+        runSpy = jest.spyOn(api, 'create').mockResolvedValue({ run_id: 'r1' })
         // Default: the run is still executing, so polling continues without resolving.
-        resultSpy = jest
-            .spyOn(api.notebooks, 'sqlV2RunResult')
-            .mockResolvedValue({ status: 'running', result: null, error: null })
+        resultSpy = jest.spyOn(api, 'get').mockResolvedValue({ status: 'running', result: null, error: null })
     })
 
     afterEach(() => {
@@ -285,7 +285,11 @@ describe('notebookNodeSQLV2Logic', () => {
         mount()
         logic.actions.runQuery('select 1')
         await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling', 'pollResult'])
-        expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1', refs: {} })
+        expect(runSpy.mock.calls[0][1]).toEqual({
+            node_id: 'n1',
+            code: 'select 1',
+            refs: {},
+        })
         // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
         // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
         expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null, runStatus: null })
@@ -309,8 +313,7 @@ describe('notebookNodeSQLV2Logic', () => {
         mount()
         logic.actions.runQuery('select 1', {}, { connectionId: 'conn-1', sendRawQuery: true })
         await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
-        expect(runSpy).toHaveBeenCalledWith(
-            'nb1',
+        expect(runSpy.mock.calls[0][1]).toEqual(
             expect.objectContaining({ connection_id: 'conn-1', send_raw_query: true })
         )
     })
@@ -323,13 +326,39 @@ describe('notebookNodeSQLV2Logic', () => {
             { nodeType: 'python', outputName: 'df' }
         )
         await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
-        expect(runSpy).toHaveBeenCalledWith('nb1', {
+        expect(runSpy.mock.calls[0][1]).toEqual({
             node_id: 'n1',
             code: 'df.head()',
             refs: { sql_df: { node_id: 'other', kind: 'hogql' } },
             node_type: 'python',
             output_name: 'df',
         })
+    })
+
+    it.each([false, true])('only sends a warehouse table name when its flag is enabled: %s', async (enabled) => {
+        featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.NOTEBOOK_SAVE_AS_WAREHOUSE_TABLE] : [], {
+            [FEATURE_FLAGS.NOTEBOOK_SAVE_AS_WAREHOUSE_TABLE]: enabled,
+        })
+        const content = buildMarkdownNotebookContent(
+            serializeMarkdownNotebookComponent('PythonV2', {
+                nodeId: 'n1',
+                code: 'df',
+                returnVariable: 'df',
+                saveToWarehouse: true,
+                warehouseTableName: 'scores',
+            })
+        )
+        mount({ getContent: () => content })
+
+        logic.actions.runNode()
+        await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
+
+        expect(runSpy.mock.calls[0][1]).toEqual(
+            expect.objectContaining(enabled ? { warehouse_table_name: 'scores' } : {})
+        )
+        if (!enabled) {
+            expect(runSpy.mock.calls[0][1]).not.toHaveProperty('warehouse_table_name')
+        }
     })
 
     it.each([false, true])('loads a completed result (restoring metadata: %s)', async (hasResultMetadata) => {
@@ -435,18 +464,18 @@ describe('notebookNodeSQLV2Logic', () => {
     })
 
     it('interruptRun posts the active run to the interrupt endpoint and stays pending', async () => {
-        const interruptSpy = jest.spyOn(api.notebooks, 'sqlV2RunInterrupt').mockResolvedValue({ status: 'running' })
+        runSpy.mockResolvedValue({ status: 'running' })
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toDispatchActions(['startPolling'])
         logic.actions.interruptRun()
         await expectLogic(logic).toFinishAllListeners()
-        expect(interruptSpy).toHaveBeenCalledWith('nb1', 'r1')
+        expect(runSpy.mock.calls[0][0]).toBe(`/api/projects/${MOCK_TEAM_ID}/notebooks/nb1/sql_v2/runs/r1/interrupt/`)
         // The terminal state arrives via the poll; until then the Cancel button stays pending.
         expect(logic.values.isInterrupting).toBe(true)
     })
 
     it('an interrupt that stopped nothing resets the cancel button for a retry', async () => {
-        jest.spyOn(api.notebooks, 'sqlV2RunInterrupt').mockResolvedValue({
+        runSpy.mockResolvedValue({
             status: 'running',
             detail: 'The run has not reached the kernel yet. Try again in a moment.',
         })
@@ -459,7 +488,7 @@ describe('notebookNodeSQLV2Logic', () => {
     })
 
     it('a failed interrupt request resets the cancel button', async () => {
-        jest.spyOn(api.notebooks, 'sqlV2RunInterrupt').mockRejectedValue(new Error('network down'))
+        runSpy.mockRejectedValue(new Error('network down'))
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toDispatchActions(['startPolling'])
         logic.actions.interruptRun()
@@ -478,7 +507,7 @@ describe('notebookNodeSQLV2Logic', () => {
     it('resumes polling a persisted un-finished run on mount', async () => {
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toDispatchActions(['startPolling', 'pollResult'])
-        expect(resultSpy).toHaveBeenCalledWith('nb1', 'r1')
+        expect(resultSpy.mock.calls[0][0]).toBe(`/api/projects/${MOCK_TEAM_ID}/notebooks/nb1/sql_v2/runs/r1/`)
     })
 
     it('does not poll a persisted run that already has a result', async () => {
@@ -488,9 +517,9 @@ describe('notebookNodeSQLV2Logic', () => {
     })
 
     it('a second sequential run replaces the first run result', async () => {
-        resultSpy.mockImplementation((_s: string, runId: string) =>
+        resultSpy.mockImplementation((url: string) =>
             Promise.resolve(
-                runId === 'r1'
+                url.endsWith('/r1/')
                     ? { status: 'done', result: { columns: ['a'], first_page: [[1]], row_count: 1 }, error: null }
                     : { status: 'done', result: { columns: ['b'], first_page: [[2]], row_count: 1 }, error: null }
             )
@@ -510,8 +539,8 @@ describe('notebookNodeSQLV2Logic', () => {
         const r1Poll = new Promise((resolve) => {
             resolveR1 = resolve
         })
-        resultSpy.mockImplementation((_shortId: string, runId: string) =>
-            runId === 'r1' ? r1Poll : Promise.resolve({ status: 'running', result: null, error: null })
+        resultSpy.mockImplementation((url: string) =>
+            url.endsWith('/r1/') ? r1Poll : Promise.resolve({ status: 'running', result: null, error: null })
         )
         runSpy.mockResolvedValue({ run_id: 'r2' })
 
@@ -713,7 +742,7 @@ describe('notebookNodeSQLV2Logic', () => {
             result: null,
             runStatus: null,
         })
-        expect(resultSpy).toHaveBeenCalledWith('nb1', 'chain-run')
+        expect(resultSpy.mock.calls[0][0]).toBe(`/api/projects/${MOCK_TEAM_ID}/notebooks/nb1/sql_v2/runs/chain-run/`)
         expect(runSpy).not.toHaveBeenCalled()
     })
 

@@ -1,9 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { initKeaTests } from '~/test/init'
+
+import * as notebookApi from 'products/notebooks/frontend/generated/api'
 
 import { notebookNodeSQLV2Logic } from '../Nodes/notebookNodeSQLV2Logic'
 import { NotebookNodeType } from '../types'
@@ -56,13 +57,13 @@ describe('notebookNodeStalenessLogic', () => {
         // Each dispatched run gets its own run id (r1, r2, …); results resolve as done unless
         // a test overrides resultSpy.
         let runCounter = 0
-        runSpy = jest.spyOn(api.notebooks, 'sqlV2Run').mockImplementation(() => {
+        runSpy = jest.spyOn(notebookApi, 'notebooksSqlV2RunCreate').mockImplementation(() => {
             runCounter += 1
-            return Promise.resolve({ run_id: `r${runCounter}` })
+            return Promise.resolve({ run_id: `r${runCounter}`, starts_sandbox: false })
         })
-        resultSpy = jest.spyOn(api.notebooks, 'sqlV2RunResult').mockResolvedValue({
+        resultSpy = jest.spyOn(notebookApi, 'notebooksSqlV2RunsRetrieve').mockResolvedValue({
             status: 'done',
-            result: { columns: [], first_page: [], row_count: 0 },
+            result: { status: 'ok', columns: [], first_page: [], row_count: 0 },
             error: null,
         })
     })
@@ -97,7 +98,7 @@ describe('notebookNodeStalenessLogic', () => {
         stalenessLogic.actions.runStaleChain(content, 'a')
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
-        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['b', 'c'])
+        expect(runSpy.mock.calls.map((call) => call[2].node_id)).toEqual(['b', 'c'])
         expect(stalenessLogic.values.staleNodeIds).toEqual({ x: 'upstream' })
         expect(stalenessLogic.values.chainQueue).toEqual([])
     })
@@ -114,12 +115,12 @@ describe('notebookNodeStalenessLogic', () => {
         expect(runSpy).toHaveBeenCalledTimes(2)
         // b (the python cell) must run before c (the sql cell that joins its output), and
         // each run must carry the node's own type and output name.
-        expect(runSpy.mock.calls[0][1]).toMatchObject({
+        expect(runSpy.mock.calls[0][2]).toMatchObject({
             node_id: 'b',
             node_type: 'python',
             output_name: 'new_events',
         })
-        expect(runSpy.mock.calls[1][1]).toMatchObject({ node_id: 'c' })
+        expect(runSpy.mock.calls[1][2]).toMatchObject({ node_id: 'c' })
         expect(stalenessLogic.values.staleNodeIds).toEqual({})
         expect(stalenessLogic.values.chainQueue).toEqual([])
     })
@@ -133,7 +134,7 @@ describe('notebookNodeStalenessLogic', () => {
         stalenessLogic.actions.runWidgetDataChain(content, ['a', 'b'])
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
-        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b'])
+        expect(runSpy.mock.calls.map((call) => call[2].node_id)).toEqual(['a', 'b'])
         expect(stalenessLogic.values.staleNodeIds).toEqual({ c: 'upstream' })
         expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
     })
@@ -164,7 +165,7 @@ describe('notebookNodeStalenessLogic', () => {
         stalenessLogic.actions.runWidgetDataChain(markdownContent, ['a', 'b', 'c'])
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
-        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b', 'c'])
+        expect(runSpy.mock.calls.map((call) => call[2].node_id)).toEqual(['a', 'b', 'c'])
     })
 
     it('does not run a partial widget data chain when a requested cell is unmounted', async () => {
@@ -195,7 +196,7 @@ describe('notebookNodeStalenessLogic', () => {
         finishFirstRun({ status: 'done', result: null, error: null })
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
-        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a'])
+        expect(runSpy.mock.calls.map((call) => call[2].node_id)).toEqual(['a'])
         expect(stalenessLogic.values.chainQueue).toEqual([])
         expect(stalenessLogic.values.widgetDataChainNodeIds).toEqual([])
     })
@@ -211,7 +212,7 @@ describe('notebookNodeStalenessLogic', () => {
         stalenessLogic.actions.runStaleChain(content)
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
-        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b', 'c'])
+        expect(runSpy.mock.calls.map((call) => call[2].node_id)).toEqual(['a', 'b', 'c'])
         expect(stalenessLogic.values.staleNodeIds).toEqual({})
         expect(stalenessLogic.values.chainQueue).toEqual([])
     })
@@ -225,7 +226,7 @@ describe('notebookNodeStalenessLogic', () => {
         stalenessLogic.actions.runStaleChain(content)
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
-        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['b'])
+        expect(runSpy.mock.calls.map((call) => call[2].node_id)).toEqual(['b'])
         expect(stalenessLogic.values.chainQueue).toEqual([])
         // The unmounted cell keeps its flag — it was never re-run.
         expect(stalenessLogic.values.staleNodeIds).toEqual({ c: 'upstream' })

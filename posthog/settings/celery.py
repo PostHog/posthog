@@ -40,6 +40,7 @@ CELERY_IMPORTS: list[str] = [
     "products.aeo.backend.tasks.tasks",
     "products.business_knowledge.backend.tasks.tasks",
     "products.alerts.backend.tasks.tasks",
+    "products.notebooks.backend.tasks.warehouse_tables",
     "products.ai_gateway.backend.tasks.tasks",
 ]
 

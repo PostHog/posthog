@@ -85,6 +85,7 @@
                 "backend/activity_logging.py",
                 "backend/apps.py",
                 "backend/source_icons.py",
+                "backend/logic/notebook_tables.py",
                 "backend/sync_alerts/default_alert.py",
                 "backend/sync_alerts/registration.py",
                 "backend/sync_alerts/wording.py",

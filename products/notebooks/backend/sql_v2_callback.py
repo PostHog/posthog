@@ -8,18 +8,22 @@ posthog/urls.py at internal/notebooks/runs/<run_id>/result/.
 import json
 
 from django.core import signing
+from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse
-from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+
+from posthog.exceptions_capture import capture_exception
 
 from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots
 from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
+from products.notebooks.backend.tasks.warehouse_tables import save_notebook_warehouse_table
+from products.notebooks.backend.warehouse_tables import save_failed_outcome, upload_outcome
 
 logger = structlog.get_logger(__name__)
 
@@ -86,38 +90,9 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     frames = envelope.pop("frames", None)
 
     try:
-        # select_related: the frame snapshot below scopes to the run's user and the slot release
-        # reads the notebook's short id, so fetch both up front rather than lazy-loading each on
-        # attribute access.
-        run = NotebookNodeRun.objects.for_team(team_id).select_related("user", "notebook").get(id=run_id)
+        run, won_transition = _store_run_callback(team_id, run_id, envelope)
     except NotebookNodeRun.DoesNotExist:
         return JsonResponse({"error": "Run not found"}, status=404)
-
-    status_by_envelope = {
-        "ok": NotebookNodeRun.Status.DONE,
-        "interrupted": NotebookNodeRun.Status.INTERRUPTED,
-    }
-    run.status = status_by_envelope.get(envelope.get("status"), NotebookNodeRun.Status.FAILED)
-    run.envelope = envelope
-    run.result_id = envelope.get("result_id")
-    run.error = envelope.get("error")
-    # Claim the RUNNING -> terminal transition with a status-guarded UPDATE so exactly one
-    # delivery wins it — concurrent re-deliveries must not each report the run's metrics.
-    # A loser still writes the row (the deliberate upsert: a late real result may overwrite
-    # an interrupt placeholder), it just doesn't report.
-    won_transition = bool(
-        NotebookNodeRun.objects.for_team(team_id)
-        .filter(id=run.id, status=NotebookNodeRun.Status.RUNNING)
-        .update(
-            status=run.status,
-            envelope=run.envelope,
-            result_id=run.result_id,
-            error=run.error,
-            updated_at=timezone.now(),
-        )
-    )
-    if not won_transition:
-        run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
 
     _store_frame_snapshot(run, frames, team_id)
 
@@ -130,6 +105,42 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         record_node_run_terminal(run, outcome_for_status(run.status))
 
     return JsonResponse({"ok": True})
+
+
+@transaction.atomic
+def _store_run_callback(team_id: int, run_id: str, envelope: dict) -> tuple[NotebookNodeRun, bool]:
+    run = (
+        NotebookNodeRun.objects.for_team(team_id)
+        .select_related("user", "notebook")
+        .select_for_update(of=("self",))
+        .get(id=run_id)
+    )
+    won_transition = run.status == NotebookNodeRun.Status.RUNNING
+    run.status = {
+        "ok": NotebookNodeRun.Status.DONE,
+        "interrupted": NotebookNodeRun.Status.INTERRUPTED,
+    }.get(envelope.get("status", ""), NotebookNodeRun.Status.FAILED)
+    upload = envelope.pop("warehouse_upload", None)
+    envelope.pop("warehouse_table", None)
+    if not won_transition:
+        if isinstance(run.envelope, dict) and "warehouse_table" in run.envelope:
+            envelope["warehouse_table"] = run.envelope["warehouse_table"]
+    elif run.status == NotebookNodeRun.Status.DONE and run.warehouse_table_name:
+        outcome = upload_outcome(run.warehouse_table_name, upload)
+        if outcome.get("pending"):
+            # The worker takes this row lock before publishing. Sending before commit prevents
+            # a process exit from committing a pending result without queuing its work.
+            try:
+                save_notebook_warehouse_table.delay(team_id, str(run.id))
+            except Exception as err:
+                capture_exception(err)
+                outcome = save_failed_outcome(run.warehouse_table_name)
+        envelope["warehouse_table"] = outcome
+    run.envelope = envelope
+    run.result_id = envelope.get("result_id")
+    run.error = envelope.get("error")
+    run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
+    return run, won_transition
 
 
 def _store_frame_snapshot(run: NotebookNodeRun, frames: list | None, team_id: int) -> None:
