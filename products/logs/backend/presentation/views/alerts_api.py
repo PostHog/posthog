@@ -14,13 +14,14 @@ from drf_spectacular.utils import extend_schema, extend_schema_field, extend_sch
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.hogql.database.schema.logs import PIPELINE_LOG_SERVICE_NAMES
 from posthog.hogql.errors import QueryError
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
@@ -37,6 +38,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade import api as access_control_api
 from products.alerts.backend.facade.destinations import (
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
@@ -471,6 +473,38 @@ class PlatformCopyDictField(serializers.DictField):
     # the empty value with the platform copy's value for an alert the platform owns.
     def get_attribute(self, instance: LogsAlertConfiguration) -> dict[str, str]:
         return {}
+
+
+def require_pipeline_log_access(*, team_id: int, user: object, filters: dict) -> None:
+    # Scheduled checks run without a user, so only the team's default rules apply to them.
+    services = set(filters.get("serviceNames") or [])
+    if services and not services & PIPELINE_LOG_SERVICE_NAMES:
+        return
+    if access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        team_id=team_id, user=user if isinstance(user, User) else None
+    ):
+        raise PermissionDenied(
+            "Your property access permissions do not allow alerts on pipeline logs. "
+            "Pick the services this alert watches, without PostHog pipeline services."
+        )
+
+
+_TIMING_AND_NAME_FIELDS = frozenset(
+    {
+        "name",
+        "enabled",
+        "snooze_until",
+        "threshold_count",
+        "threshold_operator",
+        "window_minutes",
+        "check_interval_minutes",
+        "evaluation_periods",
+        "datapoints_to_alarm",
+        "cooldown_minutes",
+        "schedule_restriction",
+    }
+)
+_PLATFORM_RUNTIME_FIELDS = frozenset({"grouping", "labels", "annotations"})
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -959,6 +993,32 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def _require_pipeline_log_access(self, filters: dict) -> None:
+        request = self.context.get("request")
+        require_pipeline_log_access(
+            team_id=self.context["get_team"]().id, user=request.user if request is not None else None, filters=filters
+        )
+
+    def _changes_reads_or_recipients(self, attrs: dict) -> bool:
+        """Whether an update changes what the alert reads or who it tells, beyond a rename or its timing."""
+        if self.instance is None:
+            return True
+        runtime = None
+        for name, value in attrs.items():
+            if name in _TIMING_AND_NAME_FIELDS:
+                continue
+            if name in _PLATFORM_RUNTIME_FIELDS:
+                # These live on the platform row. Compare both as the API shows them, since a client can leave
+                # out a setting that has a default.
+                runtime = runtime or _platform_runtime_of([self.instance]).get(self.instance.id)
+                stored = self.fields[name].to_representation(getattr(runtime, name)) if runtime is not None else None
+                sent = self.fields[name].to_representation(value) if value is not None else None
+                if (sent or None) != (stored or None):
+                    return True
+            elif value != getattr(self.instance, name, None):
+                return True
+        return False
+
     def validate(self, attrs: dict) -> dict:
         filters = attrs.get("filters", getattr(self.instance, "filters", None) or {})
 
@@ -970,6 +1030,16 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # Drafts (enabled=false, no filters) are allowed; otherwise filter shape is required.
         if effective_enabled or filters:
             _validate_filters(filters)
+        # Only a rename, a snooze or a change to when the alert fires leaves what it reads and who it tells as
+        # they were. The edit form sends unchanged settings back on every save, so compare values, not keys.
+        starts_reading = (
+            self.instance is None
+            or (effective_enabled and not self.instance.enabled)
+            or self._changes_reads_or_recipients(attrs)
+        )
+        # A draft is checked too, so a restricted member's settings never wait for someone else to turn them on.
+        if starts_reading:
+            self._require_pipeline_log_access(filters)
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
         if window is not None and window not in ALLOWED_WINDOW_MINUTES:
@@ -1934,6 +2004,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         with transaction.atomic():
             alert = self._get_locked_alert()
+            require_pipeline_log_access(team_id=alert.team_id, user=request.user, filters=alert.filters or {})
             configs = build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
@@ -2303,6 +2374,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert=fake_alert,
             date_from=date_from_dt,
             date_to=date_to_dt,
+            user=request.user if isinstance(request.user, User) else None,
         ).execute_bucketed(interval_minutes=cadence_minutes, limit=MAX_SIMULATE_BUCKETS)
 
         cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, cadence_minutes)

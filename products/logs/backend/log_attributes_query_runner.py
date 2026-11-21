@@ -194,6 +194,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
     def _calculate(self) -> LogAttributesQueryResponse:
         response = execute_hogql_query(
             query_type="LogsQuery",
+            user=self.user,
             query=self.to_query(),
             modifiers=self.modifiers,
             team=self.team,

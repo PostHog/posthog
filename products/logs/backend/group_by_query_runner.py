@@ -324,11 +324,13 @@ class LogsGroupByQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         context = HogQLContext(
             team_id=self.team.pk,
             team=self.team,
+            user=self.user,
             enable_select_queries=True,
             database=Database.create_for_posthog_tables(self.team, modifiers=self.modifiers),
         )
         response = execute_hogql_query(
             query_type="LogsQuery",
+            user=self.user,
             query=self.to_query(),
             modifiers=self.modifiers,
             team=self.team,

@@ -12,6 +12,8 @@ import posthog.api.snuffle_proxy as snuffle_proxy
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
+
 SNUFFLE_APM_SETTINGS = {
     "SNUFFLE_APM_URL": "http://snuffle.test:9091/",
     "SNUFFLE_APM_USER": "reader",
@@ -44,6 +46,16 @@ class TestLokiQueryApi(APIBaseTest):
         debit_patcher = patch("posthog.api.snuffle_proxy.schedule_snuffle_budget_debit")
         self.schedule_budget_debit = debit_patcher.start()
         self.addCleanup(debit_patcher.stop)
+
+    @parameterized.expand([("restricted", 403), ("granted", 200), ("admin", 200)])
+    def test_logql_follows_property_access(self, access: PropertyAccess, expected_status: int) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+        response = self.client.get(f"{self.base}/query_range", {"query": '{service_name="application"}'})
+
+        assert response.status_code == expected_status, response.json()
+        if access == "restricted":
+            self.request_mock.assert_not_called()
 
     @parameterized.expand([("bare", "query_range"), ("trailing_slash", "query_range/")])
     def test_get_is_forwarded_with_team_header_and_credentials(self, _name: str, path: str):

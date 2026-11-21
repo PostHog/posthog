@@ -131,6 +131,7 @@ class ImpactQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunner
     def _calculate(self) -> LogsQueryResponse:
         response = execute_hogql_query(
             query_type="LogsQuery",
+            user=self.user,
             query=self.to_query(),
             modifiers=self.modifiers,
             team=self.team,

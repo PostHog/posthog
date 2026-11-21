@@ -1,3 +1,6 @@
+from typing import TYPE_CHECKING
+
+from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
@@ -6,6 +9,10 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.parser import parse_expr
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 # One row per CDP invocation lifecycle event (start + finish, plus a row per rerun).
 # The underlying ClickHouse table is a sharded ReplacingMergeTree keyed by
@@ -15,11 +22,11 @@ from posthog.hogql.database.models import (
 #
 # Access scope: this table is registered with HogQL under the standard team_id
 # guard — same scope as `app_metrics2`, `metrics`, and other operational tables.
-# Per-function / per-workflow access controls are NOT enforced here; any user
-# with project query access can SELECT lifecycle rows (invocation_id, status,
-# error_kind/message, event/person identifiers) for every function and flow
-# in the project. Sensitive payload fields are excluded (see next paragraph),
-# and the runs UI gates on function/flow access at the parent scene level.
+# Property restrictions exclude function diagnostics because error messages can contain property values.
+# Per-function / per-workflow access controls are NOT enforced here; other users with project
+# query access can SELECT lifecycle rows for every function and flow in the project.
+# Sensitive payload fields are excluded (see next paragraph), and the runs UI gates on
+# function/flow access at the parent scene level.
 #
 # `invocation_globals` is intentionally NOT exposed here. The column carries the
 # full rerun payload — for hog functions whose trigger is a source webhook, that
@@ -56,6 +63,13 @@ HOG_INVOCATION_RESULTS_FIELDS: dict[str, FieldOrTable] = {
 
 class HogInvocationResultsTable(Table):
     fields: dict[str, FieldOrTable] = HOG_INVOCATION_RESULTS_FIELDS
+
+    def get_predicates(self, context: "HogQLContext | None" = None) -> list[ast.Expr]:
+        if context is not None and context.restricted_properties:
+            return [
+                parse_expr("function_kind NOT IN ('hog_function', 'hog_function_rerun', 'hog_flow', 'hog_flow_rerun')")
+            ]
+        return []
 
     def to_printed_clickhouse(self, context):
         return "hog_invocation_results"

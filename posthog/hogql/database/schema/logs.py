@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Literal
 
+from posthog.hogql import ast
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     DateTimeDatabaseField,
@@ -11,6 +12,7 @@ from posthog.hogql.database.models import (
     Table,
 )
 from posthog.hogql.database.schema.traffic_type import log_traffic_fields
+from posthog.hogql.parser import parse_expr
 
 from posthog.clickhouse.workload import Workload
 
@@ -34,7 +36,22 @@ def get_hogql_max_bytes_to_read_for_logs_user_queries(organization: "Organizatio
     return HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES_BY_TIER[tier]
 
 
-class LogsTable(Table):
+PIPELINE_LOG_SERVICE_NAMES = frozenset({"posthog-internal-hog-functions", "posthog-internal-workflows"})
+
+
+class InternalLogsAccessTable(Table):
+    def get_predicates(self, context: "HogQLContext | None" = None) -> list[ast.Expr]:
+        if context is not None and context.restricted_properties:
+            return [
+                parse_expr(
+                    "service_name NOT IN {services}",
+                    placeholders={"services": ast.Constant(value=sorted(PIPELINE_LOG_SERVICE_NAMES))},
+                )
+            ]
+        return []
+
+
+class LogsTable(InternalLogsAccessTable):
     description: str = "OpenTelemetry-style log records ingested into the logs product, one row per log line."
     workload: Workload | None = Workload.LOGS
 
@@ -131,7 +148,7 @@ class LogsTable(Table):
         return "logs"
 
 
-class LogsVolumeBucketsTable(Table):
+class LogsVolumeBucketsTable(InternalLogsAccessTable):
     description: str = (
         "Log volume rollup on a 5-minute UTC grid, one row per (service, namespace, environment, severity) "
         "series per bucket. Holds partial counts: always GROUP BY the key columns and sum(log_count)."
@@ -174,7 +191,7 @@ class LogsVolumeBucketsTable(Table):
         return "logs_volume_buckets"
 
 
-class LogsPatternBucketsTable(Table):
+class LogsPatternBucketsTable(InternalLogsAccessTable):
     description: str = (
         "Log pattern volume rollup on a 5-minute UTC grid, one row per (service, namespace, environment, severity, "
         "pattern_version, pattern) series per bucket. Only holds logs with a pattern. Holds partial counts: always "
@@ -228,7 +245,7 @@ class LogsPatternBucketsTable(Table):
         return "logs_pattern_buckets"
 
 
-class LogAttributesTable(Table):
+class LogAttributesTable(InternalLogsAccessTable):
     description: str = "Distinct log attribute key/value pairs with occurrence counts, used to power log attribute autocomplete and faceting."
     workload: Workload | None = Workload.LOGS
     fields: dict[str, FieldOrTable] = {
