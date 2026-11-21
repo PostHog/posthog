@@ -1756,17 +1756,14 @@ def _copy_static_cohort_rows_to_pg(
         nonlocal any_counted_resolved
         person_uuids = [person_uuid for person_uuid, _ in batch]
         counted_in_batch = {_normalize_uuid(person_uuid) for person_uuid, is_counted in batch if is_counted}
-
-        def _before_write(resolved: set[str]) -> None:
-            # Only this attempt's own rows call on_pg_write, and before the Postgres write lands so a worker
-            # kill right after the write still sees the flag set. Copying a member who was added since the
-            # request (or a batch whose replace UUIDs did not resolve) does not set it.
-            if resolved & counted_in_batch and on_pg_write is not None:
-                on_pg_write()
-
-        resolved = cohort._insert_batch_via_personhog(
-            person_uuids, insert_in_clickhouse=False, team_id=team_id, before_write=_before_write
-        )
+        id_uuid_pairs = cohort._resolve_person_batch(person_uuids, team_id=team_id)
+        resolved = {_normalize_uuid(person_uuid) for _, person_uuid in id_uuid_pairs}
+        # Only this attempt's own rows call on_pg_write, and before the Postgres write lands so a worker
+        # kill right after the write still sees the flag set. Copying a member who was added since the
+        # request (or a batch whose replace UUIDs did not resolve) does not set it.
+        if resolved & counted_in_batch and on_pg_write is not None:
+            on_pg_write()
+        cohort._insert_resolved_batch(id_uuid_pairs, insert_in_clickhouse=False, team_id=team_id)
         if not any_counted_resolved and (resolved & counted_in_batch):
             any_counted_resolved = True
 
@@ -1921,24 +1918,30 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
             )
 
     rows = _retry_quorum_read(_read_max_timestamp)
-    floor = _as_utc(rows[0][0]) if rows and rows[0][0] is not None else None
-    # The run's first marker joins the floor: after a sweep reset clears the stored marker, an attempt on a host with
+    # The run's first marker joins the bound: after a sweep reset clears the stored marker, an attempt on a host with
     # a slower clock must not mint below it, or the cleanup that deletes from it would miss this attempt's rows.
-    for earlier in (stored, cohort.population_first_marker):
-        if earlier is not None:
-            floor = max(floor, _as_utc(earlier)) if floor is not None else _as_utc(earlier)
+    mint_after = max(
+        (
+            _as_utc(ts)
+            for ts in (rows[0][0] if rows else None, stored, cohort.population_first_marker)
+            if ts is not None
+        ),
+        default=None,
+    )
 
     marker = population_timestamp_now()
-    if floor is not None and marker <= floor:
-        wait_seconds = (floor - marker).total_seconds() + 1
+    if mint_after is not None and marker <= mint_after:
+        wait_seconds = (mint_after - marker).total_seconds() + 1
         if wait_seconds > MAX_MARKER_CLOCK_SKEW_SECONDS:
             raise PopulationMarkerClockSkew(
                 f"Cohort {cohort.pk} holds rows stamped {wait_seconds:.0f}s ahead of this host's clock"
             )
         time.sleep(wait_seconds)
         marker = population_timestamp_now()
-        if marker <= floor:
-            raise PopulationMarkerClockSkew(f"Cohort {cohort.pk} could not mint a marker after {floor.isoformat()}")
+        if marker <= mint_after:
+            raise PopulationMarkerClockSkew(
+                f"Cohort {cohort.pk} could not mint a marker after {mint_after.isoformat()}"
+            )
 
     from django.db.models import F, Value
     from django.db.models.functions import Coalesce

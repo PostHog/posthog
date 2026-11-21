@@ -1218,13 +1218,17 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         return current_batch_index + 1
 
+    def _resolve_person_batch(self, batch: list[str], *, team_id: int) -> list[tuple[int, str]]:
+        """Resolve person UUIDs to ``(person_id, person_uuid)`` pairs via personhog for this team."""
+        with personhog_caller_tag("cohorts/static-insert"):
+            return get_person_ids_and_uuids_by_uuids(team_id, batch)
+
     def _insert_batch_via_personhog(
         self,
         batch: list[str],
         insert_in_clickhouse: bool,
         *,
         team_id: int,
-        before_write: Callable[[set[str]], None] | None = None,
     ) -> set[str]:
         """Personhog path for inserting a single batch of cohort members.
 
@@ -1233,11 +1237,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         Returns the UUIDs that resolved to people in the team.
         """
-        with personhog_caller_tag("cohorts/static-insert"):
-            id_uuid_pairs = get_person_ids_and_uuids_by_uuids(team_id, batch)
+        id_uuid_pairs = self._resolve_person_batch(batch, team_id=team_id)
         resolved = {_normalize_uuid(person_uuid) for _, person_uuid in id_uuid_pairs}
-        if before_write is not None:
-            before_write(resolved)
         self._insert_resolved_batch(id_uuid_pairs, insert_in_clickhouse=insert_in_clickhouse, team_id=team_id)
         return resolved
 

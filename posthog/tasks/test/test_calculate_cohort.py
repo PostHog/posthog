@@ -2838,29 +2838,26 @@ class TestCohortCalculationTasks(APIBaseTest):
         start = timezone.now().replace(microsecond=0)
         _claim_replace(cohort, claimed_at=start)
 
-        real_insert_batch = Cohort._insert_batch_via_personhog
+        real_insert_resolved = Cohort._insert_resolved_batch
         batch_calls = 0
 
         def write_first_batch_then_fail(
             cohort_self: Cohort,
-            batch: list[str],
-            insert_in_clickhouse: bool,
+            id_uuid_pairs: list[tuple[int, str]],
             *,
+            insert_in_clickhouse: bool,
             team_id: int,
-            before_write: Any = None,
-        ) -> set[str]:
+        ) -> None:
             nonlocal batch_calls
             batch_calls += 1
             if batch_calls == 2:
                 raise RuntimeError("mid-copy failure")
-            return real_insert_batch(
-                cohort_self, batch, insert_in_clickhouse, team_id=team_id, before_write=before_write
-            )
+            real_insert_resolved(cohort_self, id_uuid_pairs, insert_in_clickhouse=insert_in_clickhouse, team_id=team_id)
 
         with (
             time_machine.travel(start + timedelta(seconds=10), tick=False),
             patch("products.cohorts.backend.models.util.CH_PAGE_SIZE", 2),
-            patch.object(Cohort, "_insert_batch_via_personhog", autospec=True, side_effect=write_first_batch_then_fail),
+            patch.object(Cohort, "_insert_resolved_batch", autospec=True, side_effect=write_first_batch_then_fail),
         ):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
