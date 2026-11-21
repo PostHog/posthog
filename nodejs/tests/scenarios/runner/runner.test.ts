@@ -582,6 +582,29 @@ describe('runner', () => {
             })
         })
 
+        it('names a run host by a neutral label in its evidence and the run store, not by its machine name', async () => {
+            const runId = '0d9e3c1a-7b2f-4e6d-8a51-c4f0e2b9d713'
+            const manifest = path.join(cacheHome, 'manifest.json')
+            writeFileSync(
+                manifest,
+                JSON.stringify({
+                    runId,
+                    account: '000000000000',
+                    stackName: `scn-${runId}`,
+                    schedules: [],
+                    expiresAt: '2026-01-05T16:00:00.000Z',
+                })
+            )
+
+            const result = await runnerWith({ ...store.envOf(cacheHome), SCENARIO_RUN_MANIFEST: manifest }).run(
+                withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
+                NEVER_ABORTED
+            )
+
+            const saved = parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))
+            expect([result.runId, saved.host, (await store.read(runId))?.host]).toEqual([runId, 'run-host', 'run-host'])
+        })
+
         it('keeps its status when the run store is down, and publish --all stores the run later', async () => {
             jest.spyOn(process.stdout, 'write').mockReturnValue(true)
             const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
