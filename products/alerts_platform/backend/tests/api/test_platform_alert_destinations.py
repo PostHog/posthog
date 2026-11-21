@@ -1,4 +1,6 @@
 from datetime import UTC, datetime
+from typing import cast
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -12,9 +14,22 @@ from posthog.models.integration.auth_types import ANY
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import create_configuration, list_alert_destinations
-from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationEdit, SourceKind
+from products.alerts_platform.backend.facade.api import (
+    create_alert_destinations,
+    create_configuration,
+    list_alert_destinations,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertEventKind,
+    DestinationType,
+    Grouping,
+    NewAlertDestination,
+    PlatformAlertConfigurationEdit,
+    SourceKind,
+)
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.cdp.backend.facade.models import HogFunction
 
 _ROUTING_KEY = "0123456789abcdef0123456789abcdef"
 
@@ -162,6 +177,52 @@ class TestPlatformAlertDestinations(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "slack_workspace_id"
+
+    def _hog_function(self, alert_id: UUID | str) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name="Customized Slack",
+            hog="return event",
+            type="internal_destination",
+            enabled=True,
+            filters={
+                "events": [{"id": "$metrics_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": str(alert_id), "operator": "exact", "type": "event"}],
+            },
+        )
+
+    @parameterized.expand([("delete_the_destination",), ("delete_the_alert",)])
+    def test_deleting_a_customized_destination_retires_the_hog_functions_its_row_links_to(self, how: str) -> None:
+        customized = self._hog_function(self.configuration_id)
+        other_alerts = self._hog_function("another-alert")
+        with team_scope(self.team.id):
+            (row,) = create_alert_destinations(
+                team_id=self.team.id,
+                configuration_id=self.configuration_id,
+                destinations=[
+                    NewAlertDestination(
+                        data=cast(
+                            AlertDestinationData,
+                            {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"},
+                        ),
+                        event_kinds=(AlertEventKind.FIRING,),
+                        legacy_hog_function_ids=(customized.id, other_alerts.id),
+                    )
+                ],
+            )
+
+        if how == "delete_the_destination":
+            response = self.client.post(f"{self.url}delete/", {"destination_ids": [str(row.id)]}, format="json")
+        else:
+            response = self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        customized.refresh_from_db()
+        other_alerts.refresh_from_db()
+        assert (customized.deleted, customized.enabled) == (True, False)
+        assert (other_alerts.deleted, other_alerts.enabled) == (False, True)
+        with team_scope(self.team.id):
+            assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
 
     def test_a_pagerduty_destination_with_an_open_incident_cannot_be_removed(self) -> None:
         created = self.client.post(

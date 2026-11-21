@@ -345,9 +345,9 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, cap: int, expected_days: list[str]
     ) -> None:
         self._score_history()
-        # Before the range but inside the 14-day daily chart window, then before the chart window.
+        # Before the range but inside the 28-day daily chart window, then before the chart window.
         self._score(_day(10), score=0.20, flag=0)
-        self._score(_day(9), score=0.20, flag=0)
+        self._score(NOW - datetime.timedelta(days=29), score=0.20, flag=0)
 
         with patch("products.signals.backend.anomaly_scores.read.MAX_SERIES_POINTS", cap):
             body = self._get("search", date_from="2026-10-19", include_points=True).json()
@@ -396,7 +396,7 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         ] == [
             (
                 "signups",
-                "2026-10-09T12:00:00+00:00",
+                "2026-09-25T12:00:00+00:00",
                 [("2026-10-10T00:00:00+00:00", False), ("2026-10-22T00:00:00+00:00", True)],
             ),
             ("logins", "2026-10-16T12:00:00+00:00", [("2026-10-23T11:00:00+00:00", True)]),
