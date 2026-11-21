@@ -144,7 +144,7 @@ const DASHBOARD_FILTERED_SOURCE_KEYS = [
 
 // Restores a field from the stored query only when the tile left it as loaded, so a change the tile
 // made on purpose (switching to World map adds a country breakdown) is still saved.
-const withStoredDashboardFilteredFields = (
+export const withStoredDashboardFilteredFields = (
     query: Node,
     tileBaseQuery: Node | null | undefined,
     storedQuery: Node | null | undefined
