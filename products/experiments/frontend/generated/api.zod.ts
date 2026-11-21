@@ -291,6 +291,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                         .number()
                         .nullish()
                         .describe('Group type index for this condition set. None means person-level aggregation.'),
+                    description: zod
+                        .string()
+                        .nullish()
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()
@@ -582,6 +586,10 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                         .number()
                         .nullish()
                         .describe('Group type index for this condition set. None means person-level aggregation.'),
+                    description: zod
+                        .string()
+                        .nullish()
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()
@@ -874,6 +882,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                         .number()
                         .nullish()
                         .describe('Group type index for this condition set. None means person-level aggregation.'),
+                    description: zod
+                        .string()
+                        .nullish()
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()

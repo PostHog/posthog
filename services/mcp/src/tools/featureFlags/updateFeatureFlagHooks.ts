@@ -13,6 +13,7 @@ import { PostHogValidationError } from '@/lib/errors'
 import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
+import { restoreConditionDescriptions } from './conditionDescriptions'
 import conditionIdHooks from './conditionIdHooks'
 import { preserveGroupTargetingFilters, type FlagFilters } from './preserveGroupTargeting'
 
@@ -41,7 +42,10 @@ async function beforeRequest<T extends UpdateParams>(context: Context, params: T
         path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
     })
     const existingFilters = (existing?.filters ?? undefined) as FlagFilters | undefined
-    const mergedFilters = preserveGroupTargetingFilters(existingFilters, params.filters)
+    const mergedFilters = preserveGroupTargetingFilters(
+        existingFilters,
+        restoreConditionDescriptions(existingFilters, params.filters)
+    )
 
     return { ...params, filters: mergedFilters }
 }
