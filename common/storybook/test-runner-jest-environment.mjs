@@ -76,23 +76,20 @@ class CustomEnvironment extends BaseEnvironment {
     }
 
     async pageResponds() {
-        return withTimeout(
-            this.global.page.evaluate(() => true),
-            PAGE_LIVENESS_TIMEOUT_MS,
-            'page did not respond'
-        )
-            .then(() => true)
-            .catch(() => false)
+        return this.pageAnswers(() => true, 'page did not respond')
     }
 
     // Playwright's element screenshot and the runner's resize both wait for animation frames, so every retry
     // fails on a page that answers script but paints no frame, and `pageResponds` alone would keep that page.
     async pagePaints() {
-        return withTimeout(
-            this.global.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(true)))),
-            PAGE_LIVENESS_TIMEOUT_MS,
+        return this.pageAnswers(
+            () => new Promise((resolve) => requestAnimationFrame(() => resolve(true))),
             'page painted no frame'
         )
+    }
+
+    async pageAnswers(pageFunction, message) {
+        return withTimeout(this.global.page.evaluate(pageFunction), PAGE_LIVENESS_TIMEOUT_MS, message)
             .then(() => true)
             .catch(() => false)
     }
