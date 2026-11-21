@@ -22,6 +22,7 @@ import { experimentTone } from './todayPulseExperiment'
 import { TodayPulseExperimentValue } from './TodayPulseExperimentValue'
 import { pulseChange } from './todayPulseFacts'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
+import { TodayPulseName } from './TodayPulseName'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import { pulsePlaceholderLabel, TodayPulsePlaceholder } from './TodayPulsePlaceholder'
 import { productNumberPinReason } from './todayPulseProductNumbers'
@@ -172,10 +173,10 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 const change = pulseChange(metric)
                 const content = (
                     <>
-                        <span className="TodayPulse__name">
-                            {!pinned && <IconSparkles className="TodayPulse__suggested" aria-label="Suggested" />}
-                            <span>{metric.name}</span>
-                        </span>
+                        <TodayPulseName
+                            name={metric.name}
+                            icon={!pinned && <IconSparkles className="TodayPulse__suggested" aria-label="Suggested" />}
+                        />
                         {experiment ? (
                             <TodayPulseExperimentValue lift={metric.value} experiment={experiment} tone={tone} />
                         ) : (
