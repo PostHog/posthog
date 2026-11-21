@@ -3,6 +3,7 @@
 //! the polling strategy, and carries out the [`Step`]s the strategy returns.
 
 mod collector;
+mod completed_polls;
 mod continuous;
 #[cfg(test)]
 mod harness;
@@ -17,6 +18,7 @@ use rdkafka::message::Message;
 use tokio::time::Instant;
 use tracing::info;
 
+use crate::debug_recorder::DebugRecorder;
 use crate::settlement::{Commit, GroupSettlement};
 
 use collector::Collector;
@@ -41,6 +43,7 @@ pub(crate) struct Parts {
     pub(crate) limits: PollLimits,
     pub(crate) settlement: Arc<GroupSettlement>,
     pub(crate) group_id: String,
+    pub(crate) debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 pub(crate) trait PollingStrategy {
