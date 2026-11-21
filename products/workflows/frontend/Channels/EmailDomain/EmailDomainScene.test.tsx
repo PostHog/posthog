@@ -546,7 +546,7 @@ describe('EmailDomainScene', () => {
         click('email-domain-save-sender-name')
         await flush()
 
-        expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+        expectStep('Verification stopped')
     })
 
     it('keeps a MAIL FROM subdomain adopted after the page loaded when the sender name is saved', async () => {

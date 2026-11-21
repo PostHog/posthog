@@ -415,6 +415,12 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             }
             actions.schedulePoll()
         },
+        senderSaved: () => {
+            // A ready page stopped polling, so a save that brings back the stop marker reads the status again.
+            if (values.sendingStopped) {
+                actions.recheck()
+            }
+        },
         loadSenderSuccess: ({ sender }) => {
             if (cache.statusAwaitingSender && sender) {
                 cache.statusAwaitingSender = false
