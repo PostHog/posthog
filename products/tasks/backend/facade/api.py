@@ -62,6 +62,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import OrganizationMembership, Team, User
@@ -252,7 +253,14 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
-from products.tasks.backend.stale_runs import collect_stale_live_runs
+from products.tasks.backend.run_token_fencing import fence_ended_runs
+from products.tasks.backend.stale_runs import (
+    StaleRule,
+    WorkflowLiveness,
+    collect_stale_live_runs,
+    quiet_since_q,
+    runs_to_sweep,
+)
 from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
@@ -498,6 +506,8 @@ __all__ = [
     "record_run_failure_cause",
     "record_local_task_run_heartbeat",
     "signal_task_run_client_activity",
+    "sweep_stale_live_task_runs",
+    "fence_ended_task_runs",
     "redispatch_task_run",
     "relay_task_run_message",
     "resolve_slack_thread_context",
@@ -1892,6 +1902,8 @@ def get_stale_queued_task_run_ids(
     """
     now = django_timezone.now()
     stale = Q(updated_at__lt=now - older_than)
+    if environment == TaskRun.Environment.LOCAL:
+        stale &= Q(last_heartbeat_at__isnull=True) | Q(last_heartbeat_at__lt=now - older_than)
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
@@ -2124,6 +2136,45 @@ def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
             stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
         )
         for row in repair_status_mismatches()
+    ]
+
+
+def sweep_stale_live_task_runs() -> list[contracts.SweptRunRow]:
+    swept: Counter[str] = Counter()
+    workflows = WorkflowLiveness()
+    for run in runs_to_sweep():
+        try:
+            if run.rule == StaleRule.HEARTBEAT:
+                if workflows.is_running(run.workflow_id):
+                    continue
+                claimed = claim_and_fail_stale_run(
+                    run.run_id,
+                    "This run stopped responding, so it was ended.",
+                    error_type="stale_heartbeat",
+                    quiet_since=run.quiet_since,
+                )
+            else:
+                claimed = claim_and_fail_stale_run(
+                    run.run_id,
+                    "This run made no progress for a day, so it was ended.",
+                    error_type="stale_live_run",
+                    not_updated_since=run.not_written_since,
+                )
+        except Exception as error:
+            logger.exception("task_stale_sweep_run_failed", extra={"task_run_id": str(run.run_id)})
+            capture_exception(error)
+            continue
+        if claimed:
+            swept[run.profile] += 1
+    return [contracts.SweptRunRow(profile=profile, count=count) for profile, count in swept.items()]
+
+
+def fence_ended_task_runs() -> list[contracts.FencedRunTokensRow]:
+    from products.tasks.backend.temporal.process_task.ai_gateway_token import revoke_scoped_token_hashes
+
+    return [
+        contracts.FencedRunTokensRow(profile=row.profile, outcome=row.outcome.value, count=row.count)
+        for row in fence_ended_runs(revoke_scoped_token_hashes)
     ]
 
 
@@ -2734,7 +2785,12 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
 
 
 def claim_and_fail_stale_run(
-    run_id: str | UUID, error: str, error_type: str | None = None, *, not_updated_since: datetime | None = None
+    run_id: str | UUID,
+    error: str,
+    error_type: str | None = None,
+    *,
+    not_updated_since: datetime | None = None,
+    quiet_since: datetime | None = None,
 ) -> bool:
     """Compare-and-set reap of a stranded run. Returns whether this caller won the claim.
 
@@ -2751,6 +2807,8 @@ def claim_and_fail_stale_run(
     )  # nosemgrep: celery-task-team-scope-audit
     if not_updated_since is not None:
         claimable = claimable.filter(updated_at__lt=not_updated_since)
+    if quiet_since is not None:
+        claimable = claimable.filter(quiet_since_q(quiet_since))
     claimed = claimable.update(status=TaskRun.Status.FAILED)
     if not claimed:
         return False
@@ -3353,6 +3411,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "agent_startup_attempt",
         "agent_startup_success",
         "unprocessed_request_ids",
+        "gateway_token_hashes",
+        "gateway_token_revoke_pending",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
