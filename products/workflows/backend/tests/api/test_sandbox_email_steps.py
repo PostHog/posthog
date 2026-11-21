@@ -688,7 +688,15 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                 True,
                 "hi@other.example{% comment %}x{% endcomment %}",
             ),
-            ("a_hog_step_with_only_stopped_senders", [True], None, "function_email", None, True, None, "hog"),
+            (
+                "a_closing_brace_in_an_address_on_the_sender_domain",
+                [False],
+                None,
+                "function_email",
+                0,
+                True,
+                "ops}hi@mail0.example.com",
+            ),
         ]
     )
     def test_a_new_api_email_step_without_a_sender_gets_the_sender_the_editor_would_pick(
@@ -700,7 +708,6 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         expected_index: int | None,
         enabled: bool = True,
         custom_address: str | None = None,
-        templating: str = "liquid",
     ) -> None:
         senders = [self._sender(f"mail{index}.example.com", is_stopped) for index, is_stopped in enumerate(stopped)]
         if default_index is not None:
@@ -708,7 +715,6 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         sender = {"integrationId": None, "email": custom_address} if custom_address else {"integrationId": None}
         step = _own_email_step(None)
         step["config"]["inputs"]["email"]["value"]["from"] = sender
-        step["config"]["inputs"]["email"]["templating"] = templating
 
         with _flag(enabled):
             response = self.client.post(
@@ -776,11 +782,12 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("web_save", True, SANDBOX_STEP_ID),
             ("real_test", True, SANDBOX_STEP_ID),
             ("real_test", False, "trigger_node"),
+            ("real_test", False, None),
             ("mocked_test", False, SANDBOX_STEP_ID),
         ]
     )
     def test_a_test_sender_step_sets_up_the_test_sender_before_it_sends(
-        self, path: str, expected: bool, tested_step: str
+        self, path: str, expected: bool, tested_step: str | None
     ) -> None:
         set_up_at_forward: list[bool] = []
         forwarded: list[dict] = []
@@ -811,7 +818,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                     {
                         "configuration": _flow(_sandbox_step()),
                         "globals": {"event": {"event": "$pageview", "distinct_id": "person-1", "properties": {}}},
-                        "current_action_id": tested_step,
+                        **({"current_action_id": tested_step} if tested_step else {}),
                         "mock_async_functions": path == "mocked_test",
                     },
                     format="json",
@@ -820,7 +827,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert response.status_code in (200, 201), response.json()
         assert self._sandbox_sender_is_set_up() == expected
         assert set_up_at_forward == ([] if path == "web_save" else [expected])
-        assert [(body["current_action_id"], body["mock_async_functions"]) for body in forwarded] == (
+        assert [(body.get("current_action_id"), body["mock_async_functions"]) for body in forwarded] == (
             [] if path == "web_save" else [(tested_step, path == "mocked_test")]
         )
 
@@ -848,9 +855,9 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
         assert response.status_code == 201, response.json()
         assert HogFlow.objects.filter(id=response.json()["id"]).exists()
-        assert [(log["action_ids"], log["path"]) for log in logs if log["event"] == "sandbox_sender_setup_failed"] == (
-            [] if already_set_up else [([SANDBOX_STEP_ID], "save")]
-        )
+        assert [
+            (log["workflow_id"], log["action_ids"]) for log in logs if log["event"] == "sandbox_sender_setup_failed"
+        ] == ([] if already_set_up else [(response.json()["id"], [SANDBOX_STEP_ID])])
         assert (
             list(Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True))
             == rows_before

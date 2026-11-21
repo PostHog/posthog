@@ -1124,9 +1124,7 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
             return data
         on_its_domain = [index for index in new_steps if _custom_address_fits(actions[index], deliverable[sender_id])]
         return _with_own_sender(data, actions, on_its_domain, sender_id)
-    new_steps = [
-        index for index in new_steps if can_default_to_sandbox(actions[index]) and not _written_in_hog(actions[index])
-    ]
+    new_steps = [index for index in new_steps if can_default_to_sandbox(actions[index])]
     if not new_steps or not _can_set_up_sandbox_sender(team, user):
         return data
     try:
@@ -1159,12 +1157,6 @@ def _has_no_sender(action: dict) -> bool:
     return isinstance(sender, dict) and not sender.get("integrationId") and not sender.get("integrationIds")
 
 
-def _written_in_hog(action: dict) -> bool:
-    inputs = action["config"].get("inputs")
-    email = inputs.get("email") if isinstance(inputs, dict) else None
-    return isinstance(email, dict) and email.get("templating") == "hog"
-
-
 def _email_value(config: dict) -> dict:
     inputs = config.get("inputs")
     email = inputs.get("email") if isinstance(inputs, dict) else None
@@ -1177,7 +1169,7 @@ def _custom_address_fits(action: dict, sender_domain: str) -> bool:
     address = sender.get("email") if isinstance(sender, dict) else None
     if not isinstance(address, str):
         return not address
-    if "{" in address or "}" in address:
+    if "{" in address:
         return False
     _, at, domain = address.strip().lower().rpartition("@")
     return domain == sender_domain if at else not domain
@@ -1217,16 +1209,13 @@ def _with_saved_template_content(action: dict, team: Team, context: dict) -> Opt
     return step
 
 
-def _test_sender_step_ids(actions: Any, only: Optional[str] = None) -> list[str]:
+def _test_sender_step_ids(actions: Any) -> list[str]:
     if not isinstance(actions, list):
         return []
     return [
         step["id"]
         for step in actions
-        if isinstance(step, dict)
-        and step.get("type") == SANDBOX_EMAIL_ACTION_TYPE
-        and isinstance(step.get("id"), str)
-        and (only is None or step["id"] == only)
+        if isinstance(step, dict) and step.get("type") == SANDBOX_EMAIL_ACTION_TYPE and isinstance(step.get("id"), str)
     ]
 
 
@@ -6282,6 +6271,8 @@ class HogFlowViewSet(
             before_write=lambda: self._set_up_sandbox_sender_for_save(serializer),
         )
         serializer.instance = self._written_workflow(result)
+        if not serializer.context.get(SETS_UP_SANDBOX_SENDER):
+            self._set_up_sandbox_sender_after_commit(serializer)
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 
@@ -6481,12 +6472,14 @@ class HogFlowViewSet(
     def _set_up_sandbox_sender_for_save(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
             provision_sandbox_sender(self.team, cast(User, self.request.user))
-            return
+        elif serializer.instance is not None:
+            self._set_up_sandbox_sender_after_commit(serializer)
+
+    def _set_up_sandbox_sender_after_commit(self, serializer: serializers.BaseSerializer) -> None:
         step_ids = _test_sender_step_ids(cast(dict, serializer.validated_data).get("actions"))
         if step_ids:
-            transaction.on_commit(
-                lambda: self._try_to_set_up_sandbox_sender("save", getattr(serializer.instance, "id", None), step_ids)
-            )
+            workflow_id = getattr(serializer.instance, "id", None)
+            transaction.on_commit(lambda: self._try_to_set_up_sandbox_sender("save", workflow_id, step_ids))
 
     def _try_to_set_up_sandbox_sender(self, path: str, workflow_id: Any, step_ids: Sequence[str]) -> None:
         user = self.request.user
@@ -7422,7 +7415,9 @@ class HogFlowViewSet(
         test_run_row = None
         if not payload.get("mock_async_functions", True):
             self._require_replay_vision_caller_access(request, actions)
-            step_ids = _test_sender_step_ids(actions, only=payload.get("current_action_id"))
+            step_ids = [
+                step_id for step_id in _test_sender_step_ids(actions) if step_id == payload.get("current_action_id")
+            ]
             if step_ids:
                 self._try_to_set_up_sandbox_sender("test", hog_flow.id if hog_flow else None, step_ids)
             test_run_row = log_workflow_test_run(

@@ -121,14 +121,14 @@ tools:
             stopped sender doesn't count, and a from.email on another domain or with template syntax keeps the step
             without one. With several such senders and no default, set from.integrationId yourself, and check the step's
             sender with workflows-get. In a project with no verified email sender that can send but with access to the
-            PostHog test sender, a step with Liquid templating starts on it instead (type email_sandbox), which sends
-            only to verified members of the organization; tell the user, and point them to domain verification so they
-            can reach everyone else. A 'batch' trigger broadcasts to an audience (config.filters.properties:
-            person-property conditions and/or cohort references), one run per matching person, and does NOT fire on
-            enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. A 'schedule'
-            trigger has no audience: it runs once per occurrence, so attach its cadence with workflows-schedule-create
-            and skip the audience preview. Behavioral targeting ('did event X at least N times over the last M days') is
-            unsupported; reject it and explain why.
+            PostHog test sender, the step starts on it instead (type email_sandbox), which sends only to verified
+            members of the organization; tell the user, and point them to domain verification so they can reach everyone
+            else. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property conditions
+            and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch with
+            workflows-run-batch or attach a schedule with workflows-schedule-create. A 'schedule' trigger has no
+            audience: it runs once per occurrence, so attach its cadence with workflows-schedule-create and skip the
+            audience preview. Behavioral targeting ('did event X at least N times over the last M days') is unsupported;
+            reject it and explain why.
         ui_app: workflow
         hooks: workflows/broadcastLinkHooks
         response:
