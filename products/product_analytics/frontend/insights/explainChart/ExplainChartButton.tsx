@@ -10,6 +10,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import type { InsightLogicProps } from '~/types'
 
 import { explainChartLogic } from './explainChartLogic'
+import { ExplainChartShareButton } from './ExplainChartShareButton'
 
 export function ExplainChartButton({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
     const {
@@ -29,41 +30,44 @@ export function ExplainChartButton({ insightProps }: { insightProps: InsightLogi
     }
     const label = investigating ? 'Investigating…' : 'Explain this chart'
     return (
-        <AIConsentPopoverWrapper
-            hidden={!consentRequested}
-            ignoreDismissal
-            onApprove={approveConsent}
-            onDismiss={dismissConsent}
-        >
-            {quillSurface ? (
-                <span data-quill>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        aria-expanded={storyVisible}
+        <>
+            <AIConsentPopoverWrapper
+                hidden={!consentRequested}
+                ignoreDismissal
+                onApprove={approveConsent}
+                onDismiss={dismissConsent}
+            >
+                {quillSurface ? (
+                    <span data-quill>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            aria-expanded={storyVisible}
+                            disabledReason={explainDisabledReason}
+                            loading={investigating}
+                            onClick={explainClicked}
+                            data-attr="explain-chart-toggle"
+                        >
+                            <IconSparkles />
+                            {label}
+                        </Button>
+                    </span>
+                ) : (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconSparkles />}
+                        active={storyVisible}
                         disabledReason={explainDisabledReason}
                         loading={investigating}
                         onClick={explainClicked}
                         data-attr="explain-chart-toggle"
                     >
-                        <IconSparkles />
                         {label}
-                    </Button>
-                </span>
-            ) : (
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    icon={<IconSparkles />}
-                    active={storyVisible}
-                    disabledReason={explainDisabledReason}
-                    loading={investigating}
-                    onClick={explainClicked}
-                    data-attr="explain-chart-toggle"
-                >
-                    {label}
-                </LemonButton>
-            )}
-        </AIConsentPopoverWrapper>
+                    </LemonButton>
+                )}
+            </AIConsentPopoverWrapper>
+            {storyVisible && <ExplainChartShareButton insightProps={insightProps} />}
+        </>
     )
 }
