@@ -8,10 +8,10 @@ import { Field, FieldTitle, Input, Tooltip, TooltipContent, TooltipTrigger } fro
 import { QuillChartOptionLabel } from 'lib/components/ChartOptions/QuillChartOptionLabel'
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { AvailableFeature, EditorFilterProps, PathEdgeParameters } from '~/types'
 

@@ -17,6 +17,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { getNextPageHint } from '@/lib/next-page-hint'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
@@ -27,6 +28,8 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME, EXEC_WRITE_TOOL_NAME } from './exec-names'
+import { EXECUTE_SQL_TOOL_NAME } from './posthogAiTools/executeSql'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
@@ -304,6 +307,23 @@ export interface ExecToolOptions {
      */
     heldTools?: ReadonlySet<string>
     metricCatalogLookup?: boolean
+    refuseWrites?: boolean
+}
+
+/** A connected server's `readOnlyHint` is its own claim, which PostHog cannot check. */
+function isTrustedReadOnly(tool: Tool<ZodObjectAny>): boolean {
+    return tool.annotations.readOnlyHint === true && !isGatewayToolName(tool.name)
+}
+
+export function isReadOnlyDefinition(toolName: string): boolean {
+    return getToolDefinitions()[toolName]?.annotations.readOnlyHint === true
+}
+
+function needsWriteTool(toolName: string, command: string): ExecCommandError {
+    return new ExecCommandError(
+        `Tool "${toolName}" can change data, so "${EXEC_READ_TOOL_NAME}" only runs read-only tools. Run the same command with the "${EXEC_WRITE_TOOL_NAME}" tool: ${EXEC_WRITE_TOOL_NAME}(${JSON.stringify({ command })}).`,
+        'needs_write_tool'
+    )
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -648,9 +668,9 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     'entity-search': (allTools) => {
         const base =
             'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill (a built-in local skill, when installed) for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).'
-        const hasCatalog = allTools.some((t) => t.name === 'data-catalog-metric-run')
+        const hasCatalog = allTools.some((t) => t.name === 'metric-list')
         return hasCatalog
-            ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
+            ? `${base} For governed business metrics, call "metric-list" instead of searching \`system.insights\`.`
             : base
     },
     'vision-scanners-suggest-tags': () =>
@@ -1896,7 +1916,7 @@ export function createExecTool(
     const flagGatedTools = options.flagGatedTools ?? []
 
     return {
-        name: 'exec',
+        name: EXEC_TOOL_NAME,
         title: 'PostHog analytics, dashboards, insights, feature flags & more',
         description: toolDescription,
         schema: ExecSchema,
@@ -2250,6 +2270,14 @@ export function createExecTool(
                     const forceJson = leadingFlags.forceJson || bodyFlags.forceJson
                     const confirmed = leadingFlags.confirmed || bodyFlags.confirmed
                     const jsonBody = bodyFlags.rest
+                    // Ahead of `findTool`, so a write the token lacks a scope for doesn't ask for that scope here first.
+                    if (
+                        options.refuseWrites &&
+                        scopeGatedTools.some((gated) => gated.name === toolName) &&
+                        !isReadOnlyDefinition(toolName)
+                    ) {
+                        throw needsWriteTool(toolName, params.command)
+                    }
                     const tool = findTool(
                         await resolveTools(),
                         scopeGatedTools,
@@ -2259,6 +2287,9 @@ export function createExecTool(
                         isNotGranted,
                         options
                     )
+                    if (options.refuseWrites && !isTrustedReadOnly(tool)) {
+                        throw needsWriteTool(tool.name, params.command)
+                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
@@ -2275,6 +2306,9 @@ export function createExecTool(
                         } catch (err) {
                             const detail = err instanceof Error ? err.message : String(err)
                             throw new ExecCommandError(`Invalid JSON input: ${detail}`, 'invalid_json')
+                        }
+                        if (typeof parsed === 'string' && tool.name === EXECUTE_SQL_TOOL_NAME) {
+                            parsed = { query: parsed }
                         }
                         if (typeof parsed !== 'object' || parsed === null) {
                             const received = parsed === null ? 'null' : `a ${typeof parsed}`
@@ -2477,6 +2511,11 @@ export function createExecTool(
                             : undefined
                         if (chartData) {
                             outputText = `${outputText}\n\n${chartData}`
+                        }
+                        // `formatResponse` drops the pagination fields a client needs to fetch the next page.
+                        const nextPageHint = getNextPageHint(tool.name, result)
+                        if (nextPageHint) {
+                            outputText = `${outputText}\n\n${nextPageHint}`
                         }
                     }
                     trackInnerCall?.(tool.name, {

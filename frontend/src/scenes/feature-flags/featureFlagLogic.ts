@@ -1264,7 +1264,7 @@ export interface featureFlagLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     accessDeniedToFeatureFlag: boolean
     activeRecurringSchedules: ScheduledChangeType[]
@@ -1316,10 +1316,10 @@ export interface featureFlagLogicValues {
     featureFlagCopyLoading: boolean
     featureFlagErrors: DeepPartialMap<
         {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -1338,19 +1338,19 @@ export interface featureFlagLogicValues {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         },
@@ -1370,10 +1370,10 @@ export interface featureFlagLogicValues {
     featureFlagTouches: Record<string, boolean>
     featureFlagValidationErrors: DeepPartialMap<
         {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -1392,19 +1392,19 @@ export interface featureFlagLogicValues {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         },
@@ -1869,10 +1869,10 @@ export interface featureFlagLogicActions {
     }
     resetEncryptedPayload: () => {}
     resetFeatureFlag: (values?: {
-        _create_in_folder?: string | null | undefined
+        _create_in_folder?: string | null
         active: boolean
         archived: boolean
-        bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+        bucketing_identifier?: FeatureFlagBucketingIdentifier | null
         can_edit: boolean
         created_at: string | null
         created_by: UserBasicType | null
@@ -1891,27 +1891,27 @@ export interface featureFlagLogicActions {
         features: MinimalEarlyAccessFeatureType[] | null
         filters: FeatureFlagFilters
         has_encrypted_payloads: boolean
-        has_enriched_analytics?: boolean | undefined
+        has_enriched_analytics?: boolean
         id: number | null
         is_remote_configuration: boolean
-        is_used_in_replay_settings?: boolean | undefined
+        is_used_in_replay_settings?: boolean
         key: string
-        last_called_at?: string | null | undefined
+        last_called_at?: string | null
         last_modified_by: UserBasicType | null
         name: string
         status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | null | undefined
+        usage_dashboard?: number | null
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         values?: {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -1930,19 +1930,19 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }
@@ -2076,10 +2076,10 @@ export interface featureFlagLogicActions {
     }
     setFeatureFlagValues: (
         values: DeepPartial<{
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -2098,28 +2098,28 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }>
     ) => {
         values: DeepPartial<{
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -2138,19 +2138,19 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }>
@@ -2232,11 +2232,11 @@ export interface featureFlagLogicActions {
         updatedFlag: Partial<FeatureFlagType>
     }) => {
         dependentFlags: DependentFlag[]
-        isBeingDisabled?: boolean | undefined
+        isBeingDisabled?: boolean
         onConfirm: () => void
-        onDisableAndArchive?: (() => void) | undefined
+        onDisableAndArchive?: () => void
         originalFlag: FeatureFlagType | null
-        requireStatusConfirmation?: boolean | undefined
+        requireStatusConfirmation?: boolean
         updatedFlag: Partial<FeatureFlagType>
     }
     startNewFlagDisabled: () => {
@@ -2256,10 +2256,10 @@ export interface featureFlagLogicActions {
         errors: Record<string, any>
     }
     submitFeatureFlagRequest: (featureFlag: {
-        _create_in_folder?: string | null | undefined
+        _create_in_folder?: string | null
         active: boolean
         archived: boolean
-        bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+        bucketing_identifier?: FeatureFlagBucketingIdentifier | null
         can_edit: boolean
         created_at: string | null
         created_by: UserBasicType | null
@@ -2278,27 +2278,27 @@ export interface featureFlagLogicActions {
         features: MinimalEarlyAccessFeatureType[] | null
         filters: FeatureFlagFilters
         has_encrypted_payloads: boolean
-        has_enriched_analytics?: boolean | undefined
+        has_enriched_analytics?: boolean
         id: number | null
         is_remote_configuration: boolean
-        is_used_in_replay_settings?: boolean | undefined
+        is_used_in_replay_settings?: boolean
         key: string
-        last_called_at?: string | null | undefined
+        last_called_at?: string | null
         last_modified_by: UserBasicType | null
         name: string
         status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | null | undefined
+        usage_dashboard?: number | null
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         featureFlag: {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -2317,28 +2317,28 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }
     }
     submitFeatureFlagSuccess: (featureFlag: {
-        _create_in_folder?: string | null | undefined
+        _create_in_folder?: string | null
         active: boolean
         archived: boolean
-        bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+        bucketing_identifier?: FeatureFlagBucketingIdentifier | null
         can_edit: boolean
         created_at: string | null
         created_by: UserBasicType | null
@@ -2357,27 +2357,27 @@ export interface featureFlagLogicActions {
         features: MinimalEarlyAccessFeatureType[] | null
         filters: FeatureFlagFilters
         has_encrypted_payloads: boolean
-        has_enriched_analytics?: boolean | undefined
+        has_enriched_analytics?: boolean
         id: number | null
         is_remote_configuration: boolean
-        is_used_in_replay_settings?: boolean | undefined
+        is_used_in_replay_settings?: boolean
         key: string
-        last_called_at?: string | null | undefined
+        last_called_at?: string | null
         last_modified_by: UserBasicType | null
         name: string
         status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | null | undefined
+        usage_dashboard?: number | null
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         featureFlag: {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -2396,19 +2396,19 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }
@@ -2486,9 +2486,9 @@ export interface featureFlagLogicMeta {
         checkDependentFlagsAndConfirm: (
             payload: {
                 onConfirm: () => void
-                onDisableAndArchive?: (() => void) | undefined
+                onDisableAndArchive?: () => void
                 originalFlag: FeatureFlagType | null
-                requireStatusConfirmation?: boolean | undefined
+                requireStatusConfirmation?: boolean
                 updatedFlag: Partial<FeatureFlagType>
             },
             breakpoint: BreakPointFunction,
@@ -2496,9 +2496,9 @@ export interface featureFlagLogicMeta {
                 type: string
                 payload: {
                     onConfirm: () => void
-                    onDisableAndArchive?: (() => void) | undefined
+                    onDisableAndArchive?: () => void
                     originalFlag: FeatureFlagType | null
-                    requireStatusConfirmation?: boolean | undefined
+                    requireStatusConfirmation?: boolean
                     updatedFlag: Partial<FeatureFlagType>
                 }
             },
@@ -2507,11 +2507,11 @@ export interface featureFlagLogicMeta {
         showDependentFlagsConfirmation: (
             payload: {
                 dependentFlags: DependentFlag[]
-                isBeingDisabled?: boolean | undefined
+                isBeingDisabled?: boolean
                 onConfirm: () => void
-                onDisableAndArchive?: (() => void) | undefined
+                onDisableAndArchive?: () => void
                 originalFlag: FeatureFlagType | null
-                requireStatusConfirmation?: boolean | undefined
+                requireStatusConfirmation?: boolean
                 updatedFlag: Partial<FeatureFlagType>
             },
             breakpoint: BreakPointFunction,
@@ -2519,11 +2519,11 @@ export interface featureFlagLogicMeta {
                 type: string
                 payload: {
                     dependentFlags: DependentFlag[]
-                    isBeingDisabled?: boolean | undefined
+                    isBeingDisabled?: boolean
                     onConfirm: () => void
-                    onDisableAndArchive?: (() => void) | undefined
+                    onDisableAndArchive?: () => void
                     originalFlag: FeatureFlagType | null
-                    requireStatusConfirmation?: boolean | undefined
+                    requireStatusConfirmation?: boolean
                     updatedFlag: Partial<FeatureFlagType>
                 }
             },
@@ -2561,13 +2561,13 @@ export interface featureFlagLogicMeta {
             | 'Release toggle (boolean)'
             | 'Remote configuration (single payload)'
         roleBasedAccessEnabled: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         variants: (featureFlag: FeatureFlagType) => MultivariateFlagVariant[]
         nonEmptyVariants: (variants: MultivariateFlagVariant[]) => MultivariateFlagVariant[]
         aggregationTargetName: (
             featureFlag: FeatureFlagType,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => string
         breadcrumbs: (featureFlag: FeatureFlagType, searchParams: Record<string, any>) => Breadcrumb[]
         projectTreeRef: (arg: number | 'link' | 'new') => ProjectTreeRef

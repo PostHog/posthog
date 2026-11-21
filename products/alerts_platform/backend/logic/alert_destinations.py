@@ -23,12 +23,40 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     DeletedSourceDestinations,
     DestinationType,
+    LinkedHogFunctionRetirer,
     NewAlertDestination,
     SourceDestination,
     StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlert, PlatformAlertConfiguration
+
+_retirer: LinkedHogFunctionRetirer | None = None
+
+
+def register_linked_hog_function_retirer(retirer: LinkedHogFunctionRetirer) -> None:
+    global _retirer
+    if _retirer is not None and _retirer is not retirer:
+        raise RuntimeError("A different HogFunction retirer is already registered.")
+    _retirer = retirer
+
+
+def retire_linked_hog_functions(
+    *, team_id: int, configuration: PlatformAlertConfiguration, rows: Collection[AlertDestination]
+) -> None:
+    """Retires the HogFunctions that `rows` link to, which a person made by customizing a row. Call it in
+    the transaction that deletes the rows, so a delete that fails keeps them.
+
+    Without this, a customized HogFunction outlives its row and keeps sending for the alert.
+    """
+    linked = {hog_function_id for row in rows for hog_function_id in row.legacy_hog_function_ids}
+    if not linked:
+        return
+    # Raise rather than skip. A missing registration would leave the HogFunctions sending, and nothing would report it.
+    if _retirer is None:
+        raise RuntimeError("No HogFunction retirer is registered. products.alerts registers one in its ready().")
+    _retirer(team_id=team_id, alert_id=configuration.destination_alert_id, hog_function_ids=linked)
+
 
 # The destination types that open and close incidents rather than post messages.
 INCIDENT_DESTINATION_TYPES: Final = frozenset({DestinationType.PAGERDUTY, DestinationType.INCIDENT_IO})
@@ -139,18 +167,26 @@ def destination_types_by_configuration(
 def delete_alert_destinations(
     *, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]
 ) -> dict[UUID, str]:
-    """Deletes the named destinations of one configuration, and returns the type of each one it deleted, by id.
+    """Deletes the named destinations of one configuration, with the HogFunctions they link to, and returns
+    the type of each one it deleted, by id.
 
     An id of another configuration is left alone, so a caller cannot reach past the alert it checked access to.
     The rows are locked before the delete, so of two concurrent deletes only the first returns a row.
     """
     with transaction.atomic():
+        # The configuration before its rows and their HogFunctions, the order an alert delete locks them
+        # in. Locking the rows first could deadlock against a concurrent delete of the whole alert.
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().filter(id=configuration_id).first()
+        )
         named = AlertDestination.objects.for_team(team_id).filter(
             configuration_id=configuration_id, id__in=destination_ids
         )
-        deleted = dict(named.select_for_update().values_list("id", "type"))
-        named.filter(id__in=deleted).delete()
-    return deleted
+        locked = list(named.select_for_update())
+        if locked and configuration is not None:
+            retire_linked_hog_functions(team_id=team_id, configuration=configuration, rows=locked)
+        named.filter(id__in=[row.id for row in locked]).delete()
+    return {row.id: row.type for row in locked}
 
 
 def enabled_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
@@ -161,6 +197,68 @@ def enabled_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple
         .filter(configuration_id=configuration_id, enabled=True)
         .order_by("created_at", "id")
     )
+
+
+def delivery_test_destinations(*, team_id: int, public_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    """The rows a test message goes to: enabled ones that hear firings, on an alert the platform sends.
+
+    Subscriber rows are left out, because the source reaches its subscribers itself, and incident
+    managers, because a test pages nobody. A row that copies a live HogFunction is left to it, so a
+    test that also triggers the HogFunctions reaches that destination once."""
+    rows = [
+        _stored(row)
+        for row in AlertDestination.objects.for_team(team_id)
+        .filter(
+            configuration__in=_configurations_by_public_id(team_id, public_id).filter(
+                owner=PlatformAlertOwner.PLATFORM
+            ),
+            enabled=True,
+        )
+        .exclude(type__in=list(INCIDENT_DESTINATION_TYPES))
+        .order_by("created_at", "id")
+        if not _names_subscribers(row)
+    ]
+    rows = [row for row in rows if AlertEventKind.FIRING in row.event_kinds]
+    copies = copies_of_live_hog_functions(
+        team_id=team_id, copied_by_row={row.id: row.legacy_hog_function_ids for row in rows}
+    )
+    return tuple(row for row in rows if row.id not in copies)
+
+
+def standalone_destination_counts(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, int]:
+    """How many enabled rows of each alert no live HogFunction stands behind, by the alert's public id.
+
+    These are the destinations a source that counts its HogFunctions misses. A row that copies a live
+    HogFunction is that HogFunction's destination, by the rule delivery skips it with. Subscriber rows
+    are left out, because a source counts its subscribers apart. One read for the whole page."""
+    if not public_ids:
+        return {}
+    # The caller names the team, as `native_configuration_ids_by_source_config` takes it: a page of
+    # embedded alerts is read where no team scope resolves.
+    public_by_configuration = {
+        configuration_id: legacy_id or configuration_id
+        for configuration_id, legacy_id in PlatformAlertConfiguration.objects.unscoped()
+        .filter(PlatformAlertConfiguration.with_destination_alert_ids(public_ids), team_id=team_id)
+        .values_list("id", "legacy_configuration_id")
+    }
+    if not public_by_configuration:
+        return {}
+    rows = [
+        row
+        for row in AlertDestination.objects.unscoped().filter(
+            team_id=team_id, configuration_id__in=list(public_by_configuration), enabled=True
+        )
+        if not _names_subscribers(row)
+    ]
+    copies = copies_of_live_hog_functions(
+        team_id=team_id, copied_by_row={row.id: tuple(row.legacy_hog_function_ids or ()) for row in rows}
+    )
+    counts: dict[UUID, int] = {}
+    for row in rows:
+        if row.id not in copies:
+            public_id = public_by_configuration[row.configuration_id]
+            counts[public_id] = counts.get(public_id, 0) + 1
+    return counts
 
 
 def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
@@ -339,11 +437,18 @@ def record_source_destination(
     hog_function_groups: Sequence[AlertDestinationGroup],
     enabled: bool = True,
     keeps_legacy_webhook_body: bool = False,
+    only_while_platform_owned: bool = False,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
     destination outlives them. None when the platform has no alert under `public_id`. Delivery skips
-    the row while any of these HogFunctions exists, so the destination sends once."""
-    configuration_id = _configurations_by_public_id(team_id, public_id).values_list("id", flat=True).first()
+    the row while any of these HogFunctions exists, so the destination sends once.
+
+    With `only_while_platform_owned`, also None unless the platform evaluates the alert. The copy is
+    locked for the check, the lock a handback takes before it changes the owner."""
+    configurations = _configurations_by_public_id(team_id, public_id)
+    if only_while_platform_owned:
+        configurations = configurations.filter(owner=PlatformAlertOwner.PLATFORM).select_for_update()
+    configuration_id = configurations.values_list("id", flat=True).first()
     if configuration_id is None:
         return None
     (created,) = create_alert_destinations(
@@ -551,6 +656,59 @@ def restore_source_destination(
     kept.enabled = restored.enabled
     kept.legacy_hog_function_ids = []
     kept.keeps_legacy_webhook_body = False
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
+    kept.consecutive_failures = 0
+    kept.disabled_reason = None
+    kept.save()
+    return _stored(kept)
+
+
+def refresh_source_destination(
+    *,
+    team_id: int,
+    public_id: UUID,
+    data: AlertDestinationData,
+    event_kinds: Collection[AlertEventKind],
+    hog_function_ids: Collection[UUID],
+    hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool,
+    keeps_legacy_webhook_body: bool,
+) -> StoredAlertDestination | None:
+    """Rewrites the one row that copies `hog_function_ids` from their live settings, in the caller's
+    transaction, keeping the row's id, which Terraform and API callers hold. The row goes on copying
+    exactly these HogFunctions. None when no row or more than one row copies them, so the caller decides
+    which row stands for the destination. Raises `AlertDestinationValidationError` when the alert already
+    sends there through another destination."""
+    configuration_id = (
+        _configurations_by_public_id(team_id, public_id).select_for_update().values_list("id", flat=True).first()
+    )
+    if configuration_id is None:
+        return None
+    rows = list(
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, legacy_hog_function_ids__overlap=list(hog_function_ids))
+        .select_for_update()
+        .order_by("created_at", "id")[:2]
+    )
+    if len(rows) != 1:
+        return None
+    (kept,) = rows
+    refreshed = NewAlertDestination(
+        data=_own_fields(data),
+        event_kinds=tuple(event_kinds),
+        enabled=enabled,
+        legacy_hog_function_ids=tuple(hog_function_ids),
+        keeps_legacy_webhook_body=keeps_legacy_webhook_body,
+    )
+    _validate(refreshed)
+    _refuse_duplicates(team_id, configuration_id, (refreshed,), hog_function_groups, except_id=kept.id)
+    kept.type = refreshed.data["type"]
+    kept.config = dict(refreshed.data)
+    kept.event_kinds = [kind.value for kind in refreshed.event_kinds]
+    # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
+    kept.enabled = refreshed.enabled
+    kept.legacy_hog_function_ids = list(refreshed.legacy_hog_function_ids)
+    kept.keeps_legacy_webhook_body = refreshed.keeps_legacy_webhook_body
     # nosemgrep: platform-alert-state-direct-mutation (a destination row's own switch, not an alert's lifecycle)
     kept.consecutive_failures = 0
     kept.disabled_reason = None

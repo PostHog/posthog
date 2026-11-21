@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError, connection
+from django.http import QueryDict
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -28,7 +29,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.errors import ClickHouseQueryTimeOut
 from posthog.models import OAuthApplication, Organization, User
 from posthog.models.github_integration_base import PullRequestCiStatus
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubInstallationUnavailableError, GitHubIntegration, GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -59,7 +60,13 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
     SuggestedReviewers,
 )
-from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath, ReportPriority
+from products.signals.backend.enums import (
+    ReportLinkKind,
+    ReportLinkWritePath,
+    ReportPriority,
+    SignalSourceProduct,
+    SignalSourceType,
+)
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_pr_state_for_reports,
@@ -68,6 +75,7 @@ from products.signals.backend.implementation_pr import (
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
+    SignalEmissionRecord,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
@@ -80,17 +88,20 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.personal_ranking.candidates import recommended_order
+from products.signals.backend.personal_ranking.candidates import priority_order
 from products.signals.backend.ranking.cache import refresh_report_ranking_cache
 from products.signals.backend.report_actionability_update import INBOX_ACTIONABILITY_EXPLANATION
 from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_checks import CheckComparison
 from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_link_summary import link_summaries
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
+from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
+from products.signals.backend.report_monitoring_outcomes import AGGREGATION_REASONS, ALL_CHECKS_CANCELLED_REASON
 from products.signals.backend.report_repository import INBOX_REPOSITORY_REASON
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
-from products.signals.backend.serializers import ReportMetricListSerializer
+from products.signals.backend.serializers import ReportMetricListSerializer, SignalReportFilterQuerySerializer
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP, ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -170,6 +181,24 @@ class TestSignalReportStateRequest(SimpleTestCase):
         assert serializer.is_valid() == valid
         if not valid:
             assert "dismissal_reason" in serializer.errors
+
+
+class TestSignalReportFilterQueryTags(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("normalizes_and_dedupes", ["Billing", "On Call", "on_call"], ["billing", "on-call"]),
+            ("splits_a_comma_separated_value", ["billing,on-call"], ["billing", "on-call"]),
+        ]
+    )
+    def test_tags_normalize_to_slugs(self, _name: str, raw: list[str], expected: list[str]) -> None:
+        serializer = SignalReportFilterQuerySerializer(data=QueryDict(urlencode([("tags", t) for t in raw])))
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["tags"] == expected
+
+    def test_tags_with_nothing_left_after_normalization_are_rejected(self) -> None:
+        serializer = SignalReportFilterQuerySerializer(data=QueryDict("tags=---"))
+        assert not serializer.is_valid()
+        assert "tags" in serializer.errors
 
 
 class TestReportListClientClassification(SimpleTestCase):
@@ -302,7 +331,7 @@ class TestSignalReportListAPI(APIBaseTest):
         # The personal ranking reorders `for_you` reports in Python, and its fallback must match this list.
         ids = [r["id"] for r in body["results"]]
         reports = list(SignalReport.objects.filter(team=self.team, id__in=ids))
-        assert recommended_order(self.team.id, body["ranker"], reports) == ids
+        assert priority_order(self.team.id, reports) == ids
 
     def _list_url(self, **query) -> str:
         base = f"/api/projects/{self.team.id}/signals/reports/"
@@ -923,6 +952,85 @@ class TestSignalReportListAPI(APIBaseTest):
         }
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(step.id))
         assert row["plan"] is None
+
+    def _link(self, source: SignalReport, target: SignalReport, kind: ReportLinkKind) -> None:
+        SignalReportArtefact.add_log(
+            team_id=self.team.id,
+            report_id=str(source.id),
+            content=ReportLink(kind=kind, report_id=str(target.id)),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    def test_list_renders_without_strips_when_the_link_read_fails(self) -> None:
+        plan = self._create_report(title="the plan")
+        layer = self._create_report(title="a layer")
+        self._link(layer, plan, ReportLinkKind.PART_OF)
+
+        with (
+            patch("products.signals.backend.views.organization_inbox_card_links_enabled", return_value=True),
+            patch("products.signals.backend.views.link_summaries", side_effect=RuntimeError("database unavailable")),
+        ):
+            response = self.client.get(self._list_url(scope="entire_project"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"]: row["link_summary"] for row in response.json()["results"]} == {
+            str(plan.id): None,
+            str(layer.id): None,
+        }
+
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_list_rows_carry_the_link_their_strip_shows(self, _name: str, enabled: bool) -> None:
+        plan = self._create_report(title="the plan")
+        first = self._create_report(title="first layer")
+        second = self._create_report(title="second layer")
+        resolved = self._create_report(title="the old report", status=SignalReport.Status.RESOLVED)
+        recurrence = self._create_report(title="it came back")
+        unlinked = self._create_report(title="no links")
+        for layer in (first, second):
+            self._link(layer, plan, ReportLinkKind.PART_OF)
+        self._link(second, first, ReportLinkKind.DEPENDS_ON)
+        self._create_assignment(first, pr_url="https://github.com/org/repo/pull/7")
+        self._link(recurrence, resolved, ReportLinkKind.RECURRENCE_OF)
+
+        with patch("products.signals.backend.views.organization_inbox_card_links_enabled", return_value=enabled):
+            response = self.client.get(self._list_url(scope="entire_project"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {row["id"]: row["link_summary"] for row in response.json()["results"]}
+        if not enabled:
+            assert set(rows.values()) == {None}
+            return
+        assert rows[str(unlinked.id)] is None
+        assert rows[str(second.id)]["kind"] == "part_of"
+        assert rows[str(second.id)]["other_links"] == []
+        assert rows[str(second.id)]["plan"]["lead_step_id"] == str(first.id)
+        assert [step["state"] for step in rows[str(second.id)]["plan"]["steps"]] == ["in_review", "waiting"]
+        assert rows[str(plan.id)]["kind"] == "plan"
+        assert rows[str(recurrence.id)]["kind"] == "recurrence_of"
+        assert rows[str(recurrence.id)]["report"]["id"] == str(resolved.id)
+        assert rows[str(recurrence.id)]["report"]["status"] == "resolved"
+
+    def test_link_summaries_issue_constant_queries(self) -> None:
+        def seed(count: int) -> list[str]:
+            ids = []
+            for i in range(count):
+                plan = self._create_report(title=f"plan {i}")
+                layer = self._create_report(title=f"layer {i}")
+                self._link(layer, plan, ReportLinkKind.PART_OF)
+                self._link(layer, self._create_report(title=f"old {i}"), ReportLinkKind.RECURRENCE_OF)
+                ids += [str(plan.id), str(layer.id)]
+            return ids
+
+        single = seed(1)
+        with CaptureQueriesContext(connection) as for_one:
+            link_summaries(team_id=self.team.id, report_ids=single, monitoring_enabled=True)
+
+        page = single + seed(4)
+        with CaptureQueriesContext(connection) as for_many:
+            result = link_summaries(team_id=self.team.id, report_ids=page, monitoring_enabled=True)
+
+        assert len(result) == 10
+        assert len(for_many.captured_queries) == len(for_one.captured_queries)
 
     @parameterized.expand([("unassigned", False), ("assigned", True)])
     def test_channel_id_is_the_same_in_the_list_and_the_detail(self, _name, assign):
@@ -1546,7 +1654,7 @@ class TestSignalReportListAPI(APIBaseTest):
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
         ):
             expected_monitoring = {str(monitoring.id)} if enabled else set()
-            for query in [{"status": "monitoring"}, {"view": "monitoring"}]:
+            for query in [{"status": "monitoring"}, {"view": "monitoring"}, {"view": "monitoring_recent"}]:
                 filtered = self.client.get(self._list_url(**query))
                 assert filtered.status_code == status.HTTP_200_OK
                 assert {row["id"] for row in filtered.json()["results"]} == expected_monitoring
@@ -1654,6 +1762,137 @@ class TestSignalReportListAPI(APIBaseTest):
         assert summary["ends_at"] == (started_at + timedelta(days=7)).isoformat().replace("+00:00", "Z")
         assert summary["lead_check"]["check_id"] == str(check.id)
         assert [reading["matches"] for reading in summary["lead_check"]["readings"]] == [False if readable else None]
+
+    def test_monitoring_recent_lists_reports_that_left_monitoring_with_how_it_ended(self) -> None:
+        now = timezone.now()
+        started_at = now - timedelta(days=5)
+        passed_reason = AGGREGATION_REASONS[MonitoringAggregation.PASSED]
+
+        def ended(
+            report_status: str,
+            *,
+            title: str,
+            aggregation: str | None,
+            reason: str | None = None,
+            assessed: bool = False,
+            days_ago: int = 1,
+        ) -> tuple[SignalReport, SignalReportMonitoringAttempt]:
+            report = self._create_report(
+                status=report_status,
+                title=title,
+                monitoring_started_at=started_at,
+                monitoring_ended_at=now - timedelta(days=days_ago),
+            )
+            attempt = SignalReportMonitoringAttempt.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=report,
+                monitoring_started_at=started_at,
+                check_versions={},
+                aggregation_state=aggregation,
+                aggregation_reason=reason,
+                assessment_requested_at=now if assessed else None,
+            )
+            return report, attempt
+
+        def research_grouped_into(attempt_id: str, report: SignalReport) -> None:
+            SignalEmissionRecord.objects.create(
+                team_id=self.team.id,
+                source_product=SignalSourceProduct.SIGNALS_CHECK,
+                source_type=SignalSourceType.MONITORING_UNRESOLVED,
+                source_id=attempt_id,
+                emitted_at=now,
+                report_id=str(report.id),
+            )
+
+        monitoring = self._create_report(status=SignalReport.Status.MONITORING, monitoring_started_at=started_at)
+        passed, passed_attempt = ended(
+            SignalReport.Status.RESOLVED,
+            title="Checks passed",
+            aggregation=MonitoringAggregation.PASSED,
+            reason=passed_reason,
+        )
+        check = SignalReportCheck.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            report=passed,
+            title="An agent confirms the fix",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Look again."},
+            soak_minutes=3 * 1440,
+            status=SignalReportCheck.Status.PASSED,
+            next_run_at=started_at + timedelta(days=3),
+            expires_at=now + timedelta(days=30),
+        )
+        passed_attempt.check_versions = {str(check.id): check_definition_version(check)}
+        passed_attempt.save(update_fields=["check_versions"])
+        assessed, _ = ended(
+            SignalReport.Status.RESOLVED,
+            title="Assessed",
+            aggregation=MonitoringAggregation.PASSED,
+            reason="Error volume dropped to zero after the deploy.",
+            assessed=True,
+        )
+        passed_after_cancel, _ = ended(
+            SignalReport.Status.RESOLVED,
+            title="Passed once the inconclusive check was cancelled",
+            aggregation=MonitoringAggregation.PASSED,
+            reason=passed_reason,
+            assessed=True,
+        )
+        unverified, _ = ended(
+            SignalReport.Status.RESOLVED,
+            title="Every check cancelled",
+            aggregation=MonitoringAggregation.PASSED,
+            reason=ALL_CHECKS_CANCELLED_REASON,
+        )
+        manual, _ = ended(
+            SignalReport.Status.RESOLVED, title="Resolved by hand", aggregation=MonitoringAggregation.WAITING
+        )
+        closed, closed_attempt = ended(
+            SignalReport.Status.CLOSED, title="Not shown to work", aggregation=MonitoringAggregation.FAILED
+        )
+        follow_up = self._create_report(title="Still failing after the fix")
+        research_grouped_into(str(closed_attempt.id), follow_up)
+        closed_into_suppressed, suppressed_attempt = ended(
+            SignalReport.Status.CLOSED, title="Follow-up was dismissed", aggregation=MonitoringAggregation.FAILED
+        )
+        research_grouped_into(
+            str(suppressed_attempt.id),
+            self._create_report(status=SignalReport.Status.SUPPRESSED, title="Dismissed follow-up"),
+        )
+        research_grouped_into(str(uuid.uuid4()), self._create_report(title="Earlier period's follow-up"))
+        ended(
+            SignalReport.Status.RESOLVED, title="Ended weeks ago", aggregation=MonitoringAggregation.PASSED, days_ago=15
+        )
+        self._create_report(status=SignalReport.Status.RESOLVED, title="Never monitored")
+
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            response = self.client.get(self._list_url(view="monitoring_recent"))
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {row["id"]: row for row in response.json()["results"]}
+        expected_kinds = {
+            monitoring.id: None,
+            passed.id: "resolved",
+            assessed.id: "resolved_by_assessment",
+            passed_after_cancel.id: "resolved",
+            unverified.id: "resolved_unverified",
+            manual.id: "resolved_manually",
+            closed.id: "closed",
+            closed_into_suppressed.id: "closed",
+        }
+        assert set(rows) == {str(report_id) for report_id in expected_kinds}
+        outcomes = {report_id: rows[str(report_id)]["monitoring_outcome"] for report_id in expected_kinds}
+        assert {report_id: outcome and outcome["kind"] for report_id, outcome in outcomes.items()} == expected_kinds
+        assert outcomes[closed.id]["follow_up"] == {
+            "report_id": str(follow_up.id),
+            "title": "Still failing after the fix",
+            "status": "ready",
+        }
+        assert outcomes[passed.id]["follow_up"] is None
+        assert outcomes[closed_into_suppressed.id]["follow_up"] is None
+        assert [(c["check_id"], c["state"]) for c in rows[str(passed.id)]["monitoring_summary"]["checks"]] == [
+            (str(check.id), "passed")
+        ]
 
     def test_monitoring_reads_do_not_evaluate_missing_flags_remotely(self) -> None:
         report = self._create_report(status=SignalReport.Status.MONITORING)
@@ -1932,20 +2171,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert ids[:3] == (scored if ordering.startswith("-") else scored[::-1])
         assert set(ids[3:]) == {str(unscored.id), str(no_head.id), str(bad_latest.id)}
 
-    @parameterized.expand(
-        [
-            ("flag_off", {"return_value": None}, None, False),
-            ("control", {"return_value": "control"}, None, False),
-            ("unknown_variant", {"return_value": "test"}, None, False),
-            ("old_experiment_head", {"return_value": "action"}, None, False),
-            ("flag_error", {"side_effect": RuntimeError("flags down")}, None, False),
-            ("pills", {"return_value": "pills"}, None, True),
-            ("eu_instance_pills", {"return_value": "pills"}, "EU", True),
-        ]
-    )
-    def test_recommended_sort_uses_priority_order_unless_the_flag_serves_a_head(
-        self, _name, flag_result, cloud_deployment, expected_pill
-    ):
+    def test_recommended_sort_without_a_personal_ranking_uses_priority_order(self):
         p2 = self._create_report(title="P2")
         p0 = self._create_report(title="P0")
         no_priority = self._create_report(title="No priority")
@@ -1953,94 +2179,16 @@ class TestSignalReportListAPI(APIBaseTest):
         self._priority_artefact(p0, priority="P0")
         self._ranking_score_artefact(p2, scores={"fixed": 0.9})
 
-        with (
-            self.settings(CLOUD_DEPLOYMENT=cloud_deployment),
-            patch("products.signals.backend.ranking.inbox_sort.posthoganalytics") as analytics,
-        ):
-            get_flag = analytics.get_feature_flag
-            get_flag.configure_mock(**flag_result)
-            response = self.client.get(self._list_url(status="ready", sort="recommended"))
+        response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
-        get_flag.assert_called_once()
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        assert body["ranker"] == "priority"
-        assert body["ranking_pill"] is expected_pill
+        assert (body["ranker"], body["ranking_pill"], body["ranking_id"]) == ("priority", False, None)
         assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
             (str(p0.id), 0),
             (str(p2.id), 2),
             (str(no_priority.id), 5),
         ]
-        self._assert_personal_ranking_sorts_like_the_list(body)
-
-    @parameterized.expand([("artefacts", False), ("cache", True)])
-    def test_recommended_sort_action_pills_ranks_by_the_action_score(self, _name: str, cached: bool) -> None:
-        self.sort_cache_flag.return_value = cached
-        head = "action"
-        self.user.is_staff = False
-        self.user.save()
-        low_p0 = self._create_report(title="Low P0")
-        high_p3 = self._create_report(title="High P3")
-        close_score_p0 = self._create_report(title="Close score P0")
-        unscored_p1 = self._create_report(title="Unscored P1")
-        stale_p0 = self._create_report(title="Stale P0")
-        for report, priority in (
-            (low_p0, "P0"),
-            (high_p3, "P3"),
-            (close_score_p0, "P0"),
-            (unscored_p1, "P1"),
-            (stale_p0, "P0"),
-        ):
-            self._priority_artefact(report, priority=priority)
-        other_heads = [h for h in ("open", "action", "fixed") if h != head]
-        # The other heads score in reverse, so an order from the wrong head fails the assertion.
-        for report, score in (
-            (low_p0, 0.1234),
-            (high_p3, 0.8765),
-            (close_score_p0, 0.8123),
-            (stale_p0, 0.9876),
-        ):
-            self._ranking_score_artefact(
-                report, scores={head: score, **{other: round(1 - score, 4) for other in other_heads}}
-            )
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=stale_p0,
-            type=SignalReportArtefact.ArtefactType.TITLE_CHANGE,
-            content=json.dumps({"old_title": "Old", "new_title": "Stale P0"}),
-        )
-
-        if not cached:
-            SignalReport.objects.filter(team=self.team).update(priority_sort_rank=5, ranking_action_score=None)
-
-        with patch("products.signals.backend.ranking.inbox_sort.posthoganalytics") as analytics:
-            get_flag = analytics.get_feature_flag
-            get_flag.return_value = "action_pills"
-            with CaptureQueriesContext(connection) as ctx:
-                response = self.client.get(self._list_url(status="ready", sort="recommended"))
-
-        assert response.status_code == status.HTTP_200_OK
-        list_sql = [
-            query["sql"]
-            for query in ctx.captured_queries
-            if query["sql"].startswith('SELECT "signals_signalreport"."id" AS "pk"')
-        ]
-        assert len(list_sql) == 1
-        assert ("ranking_score" not in list_sql[0]) is cached
-        assert ('"signals_signalreport"."ranking_action_score"' in list_sql[0]) is cached
-        get_flag.assert_called_once()
-        assert get_flag.call_args.args[1] == self.user.distinct_id
-        body = response.json()
-        assert body["ranker"] == "action"
-        assert body["ranking_pill"] is True
-        assert [(r["id"], r["inbox_merge_key"]) for r in body["results"]] == [
-            (str(stale_p0.id), pytest.approx(1 - 0.9876)),
-            (str(high_p3.id), pytest.approx(1 - 0.8765)),
-            (str(close_score_p0.id), pytest.approx(1 - 0.8123)),
-            (str(low_p0.id), pytest.approx(1 - 0.1234)),
-            (str(unscored_p1.id), 3),
-        ]
-        assert all(r["ranking"]["status"] == "not_available" for r in body["results"])
         self._assert_personal_ranking_sorts_like_the_list(body)
 
     @parameterized.expand(
@@ -2165,18 +2313,16 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("priority", "priority", None, True, True, "US"),
-            ("recommended_control", "recommended", "control", True, True, "US"),
-            ("recommended_action_pills", "recommended", "action_pills", True, True, "US"),
-            ("ai_off", "recommended", "action_pills", False, True, "US"),
-            ("autostart_off", "recommended", "action_pills", True, False, "US"),
-            ("ai_and_autostart_off", "recommended", "action_pills", False, False, "US"),
-            ("eu", "recommended", "action_pills", True, True, "EU"),
-            ("flag_off", "recommended", None, True, True, "US"),
+            ("priority", "priority", True, True, "US"),
+            ("recommended", "recommended", True, True, "US"),
+            ("ai_off", "recommended", False, True, "US"),
+            ("autostart_off", "recommended", True, False, "US"),
+            ("ai_and_autostart_off", "recommended", False, False, "US"),
+            ("eu", "recommended", True, True, "EU"),
         ]
     )
     def test_for_you_view_lists_only_the_open_actionable_reports_for_the_user(
-        self, _name: str, sort: str, variant: str | None, ai: bool, autostart: bool, region: str
+        self, _name: str, sort: str, ai: bool, autostart: bool, region: str
     ) -> None:
         self.organization.is_ai_data_processing_approved = ai
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
@@ -2197,8 +2343,6 @@ class TestSignalReportListAPI(APIBaseTest):
 
         waiting = report_naming_me("Waits for my input", "P2", status=SignalReport.Status.PENDING_INPUT)
         reviewing = report_naming_me("Names me as reviewer", "P1")
-        self._ranking_score_artefact(waiting, scores={"action": 0.9})
-        self._ranking_score_artefact(reviewing, scores={"action": 0.1})
         report_naming_me("Not actionable", "P0", latest_actionability="not_actionable")
         report_naming_me("Already addressed", "P0", latest_already_addressed=True)
         report_naming_me("Resolved", "P0", status=SignalReport.Status.RESOLVED)
@@ -2207,29 +2351,23 @@ class TestSignalReportListAPI(APIBaseTest):
         unowned = self._create_report(title="Nobody owns it", latest_actionability="immediately_actionable")
         self._priority_artefact(unowned, priority="P0")
 
-        first, second = (
-            (waiting, reviewing) if sort == "recommended" and variant == "action_pills" else (reviewing, waiting)
-        )
         params = {"view": "for_you", "sort": sort, "created_after": (timezone.now() - timedelta(days=7)).isoformat()}
         with (
             self.settings(CLOUD_DEPLOYMENT=region),
-            patch(
-                "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=variant
-            ),
             patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False),
         ):
             response = self.client.get(self._list_url(**params, limit=1))
 
             assert response.status_code == status.HTTP_200_OK
             body = response.json()
-            assert [row["id"] for row in body["results"]] == [str(first.id)]
+            assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
             assert body["count"] == 2
             assert body["next"] is not None
             next_page = self.client.get(body["next"]).json()
-            assert [row["id"] for row in next_page["results"]] == [str(second.id)]
+            assert [row["id"] for row in next_page["results"]] == [str(waiting.id)]
 
-            without_shown = self.client.get(self._list_url(**params, exclude=str(first.id), offset=0)).json()
-            assert [row["id"] for row in without_shown["results"]] == [str(second.id)]
+            without_shown = self.client.get(self._list_url(**params, exclude=str(reviewing.id), offset=0)).json()
+            assert [row["id"] for row in without_shown["results"]] == [str(waiting.id)]
             assert without_shown["count"] == 1
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
@@ -2943,19 +3081,28 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand([("live_filters", False), ("cached_columns", True)])
     def test_section_counts_match_the_count_only_list_requests(self, _name: str, cached: bool) -> None:
-        with_pr = self._create_report(title="Ready with a PR")
+        with_pr = self._create_report(title="Ready with a PR", tags=["billing"])
         self._create_assignment(with_pr, pr_url="https://github.com/org/repo/pull/42")
-        self._create_report(title="Ready without a PR")
-        excluded = self._create_report(title="Excluded")
-        merged = self._create_report(title="Merged", status=SignalReport.Status.RESOLVED)
+        self._create_report(title="Ready without a PR", tags=["billing"])
+        untagged_with_pr = self._create_report(title="Ready with a PR and no tag")
+        self._create_assignment(untagged_with_pr, pr_url="https://github.com/org/repo/pull/44")
+        self._create_report(title="Ready without a PR or a tag")
+        excluded = self._create_report(title="Excluded", tags=["billing"])
+        merged = self._create_report(title="Merged", status=SignalReport.Status.RESOLVED, tags=["billing"])
         self._create_assignment(merged, pr_url="https://github.com/org/repo/pull/43")
-        self._create_report(title="Needs input", status=SignalReport.Status.PENDING_INPUT)
+        self._create_report(title="Needs input", status=SignalReport.Status.PENDING_INPUT, tags=["billing"])
 
         with patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached):
-            response = self.client.get(f"{self._list_url()}section_counts/?exclude={excluded.id}")
+            response = self.client.get(f"{self._list_url()}section_counts/?exclude={excluded.id}&tags=billing")
             list_counts = {
                 name: self.client.get(
-                    self._list_url(status="ready", has_implementation_pr=has_pr, exclude=excluded.id, count_only="true")
+                    self._list_url(
+                        status="ready",
+                        has_implementation_pr=has_pr,
+                        exclude=excluded.id,
+                        tags="billing",
+                        count_only="true",
+                    )
                 ).json()["count"]
                 for name, has_pr in (("pull_requests", "true"), ("reports", "false"))
             }
@@ -3184,6 +3331,29 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["report"]["id"] == str(report.id)
+
+    def test_tags_filter_keeps_reports_with_any_of_the_tags(self) -> None:
+        billing = self._create_report(title="Billing", tags=["billing", "api"])
+        on_call = self._create_report(title="On call", tags=["on-call"])
+        other = self._create_report(title="Other tag", tags=["web"])
+        untagged = self._create_report(title="Untagged")
+
+        filtered = self.client.get(self._list_url(tags="Billing,On Call"))
+        counted = self.client.get(self._list_url(tags="Billing,On Call", count_only="true"))
+        unfiltered = self.client.get(self._list_url())
+
+        assert filtered.status_code == status.HTTP_200_OK
+        assert {row["id"]: row["tags"] for row in filtered.json()["results"]} == {
+            str(billing.id): ["billing", "api"],
+            str(on_call.id): ["on-call"],
+        }
+        assert counted.json()["count"] == 2
+        assert {row["id"] for row in unfiltered.json()["results"]} == {
+            str(billing.id),
+            str(on_call.id),
+            str(other.id),
+            str(untagged.id),
+        }
 
     def test_list_excludes_suppressed_by_default(self):
         ready = self._create_report(status=SignalReport.Status.READY)
@@ -5065,6 +5235,87 @@ class TestSignalReportMergeAPI(APIBaseTest):
         assert kwargs["write_path"] == ReportLinkWritePath.MERGE
 
 
+class TestSignalReportPlanEditAPI(APIBaseTest):
+    def _url(self, plan: SignalReport, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{plan.id}/plan_steps/{suffix}"
+
+    def _report(self, title: str, report_status: str = SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(team=self.team, status=report_status, title=title, summary="s")
+
+    def _step_ids(self, payload: dict[str, Any]) -> list[str]:
+        return [step["id"] for step in (payload["plan"] or {"steps": []})["steps"]]
+
+    def test_an_agent_edits_a_plan_and_the_list_filter_follows_it(self) -> None:
+        plan = self._report("plan")
+        first = self._report("first")
+        archived = self._report("archived", report_status=SignalReport.Status.SUPPRESSED)
+        last = self._report("last")
+
+        for step in (first, archived, last):
+            added = self.client.post(self._url(plan), {"report_id": str(step.id)}, format="json")
+            assert added.status_code == status.HTTP_200_OK, added.json()
+        assert self._step_ids(added.json()) == [str(first.id), str(archived.id), str(last.id)]
+
+        changed = self.client.put(
+            self._url(plan, f"{last.id}/depends_on/"), {"depends_on": [str(first.id)]}, format="json"
+        )
+        assert changed.status_code == status.HTTP_200_OK, changed.json()
+        assert changed.json()["plan"]["steps"][2]["depends_on"] == [str(first.id)]
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?plan={plan.id}")
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [str(first.id), str(archived.id), str(last.id)]
+
+        removed = self.client.delete(self._url(plan, f"{first.id}/"))
+        assert removed.status_code == status.HTTP_200_OK, removed.json()
+        assert self._step_ids(removed.json()) == [str(archived.id), str(last.id)]
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{last.id}/")
+        assert retrieved.json()["plan"]["steps"][1]["depends_on"] == []
+        first.refresh_from_db()
+        assert first.status == SignalReport.Status.READY
+
+    @parameterized.expand(
+        [
+            ("the_plan_itself", "self", status.HTTP_400_BAD_REQUEST, "cannot be its own step"),
+            ("already_a_step", "member", status.HTTP_409_CONFLICT, "already a step of this plan"),
+        ]
+    )
+    def test_a_rejected_edit_names_the_reason(self, _name: str, step_key: str, expected: int, message: str) -> None:
+        plan, member = self._report("plan"), self._report("member")
+        assert self.client.post(self._url(plan), {"report_id": str(member.id)}, format="json").status_code == 200
+
+        response = self.client.post(
+            self._url(plan), {"report_id": str(plan.id if step_key == "self" else member.id)}, format="json"
+        )
+
+        assert response.status_code == expected
+        assert message in response.json()["error"]
+
+    def test_an_inbox_read_key_cannot_edit_a_plan(self) -> None:
+        plan, step = self._report("plan"), self._report("step")
+        api_key = self.create_personal_api_key_with_scopes(["inbox:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(self._url(plan), {"report_id": str(step.id)}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not SignalReportArtefact.objects.filter(report=step, type="report_link").exists()
+
+
+class TestReportTagOptionsAPI(APIBaseTest):
+    def test_returns_this_teams_tags_most_used_first(self) -> None:
+        SignalReport.objects.create(team=self.team, tags=["billing", "on-call"])
+        SignalReport.objects.create(team=self.team, tags=["on-call"])
+        other_team = Team.objects.create(organization=self.organization)
+        SignalReport.objects.create(team=other_team, tags=["other-team-tag"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/tag_options/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"tags": ["on-call", "billing"]}
+
+
 class TestAvailableReviewersAPI(APIBaseTest):
     """GET signals/reports/available_reviewers/: returns a capped, searchable org-member list."""
 
@@ -6212,6 +6463,49 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
         }
 
+    @parameterized.expand(
+        [
+            ("checks_lookup", "_checks_url", "get_pull_request_checks", "lookup"),
+            ("comments_lookup", "_comments_url", "get_pull_request_comments", "lookup"),
+            ("checks_fetch", "_checks_url", "get_pull_request_checks", "fetch"),
+            ("comments_fetch", "_comments_url", "get_pull_request_comments", "fetch"),
+        ]
+    )
+    def test_pr_detail_403_when_github_installation_is_unavailable(
+        self, _name: str, url_method: str, fetch_name: str, stage: str
+    ) -> None:
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        if stage == "lookup":
+            github.side_effect = GitHubInstallationUnavailableError("token refresh after 401 failed")
+        else:
+            getattr(github.return_value, fetch_name).side_effect = GitHubIntegrationError(
+                "token refresh after 401 failed"
+            )
+            github.return_value.installation_unavailable.return_value = True
+
+        response = self.client.get(getattr(self, url_method)(str(report.id)))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json() == {
+            "code": "github_installation_unavailable",
+            "error": (
+                "PostHog's GitHub connection is suspended or was uninstalled. A project admin must reconnect GitHub."
+            ),
+            "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
+        }
+
+    @parameterized.expand([("checks", "_checks_url"), ("comments", "_comments_url")])
+    def test_pr_detail_502_when_github_lookup_errors(self, _name: str, url_method: str) -> None:
+        report = self._create_report()
+        with patch(
+            "products.signals.backend.views.GitHubIntegration.first_for_team_repository",
+            side_effect=GitHubIntegrationError("unavailable", status_code=503),
+        ):
+            response = self.client.get(getattr(self, url_method)(str(report.id)))
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
     def test_pr_checks_503_when_egress_budget_sheds_request(self):
         report = self._create_report()
         with patch(
@@ -6315,6 +6609,7 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
         self.addCleanup(patch.stopall)
         github.return_value.get_pull_request_checks.return_value = {"success": False, "error": "boom"}
+        github.return_value.installation_unavailable.return_value = False
 
         response = self.client.get(self._checks_url(str(report.id)))
 

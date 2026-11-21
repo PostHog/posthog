@@ -35,7 +35,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from attestations import ReviewedHead, covers, lifted_files, pending_attestations, pending_check_names, pinned_files
+from attestations import (
+    ReviewedHead,
+    applies_to,
+    covers,
+    lifted_files,
+    pending_attestations,
+    pending_check_names,
+    pending_entry,
+    pinned_files,
+)
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
     DENY_EXEMPT_AUTHOR_TEAMS,
@@ -361,15 +370,48 @@ class Pipeline:
         return self.pending_lifting_attestations()
 
     @property
-    def _attestations(self) -> tuple[Attestation, ...]:
-        """The policy attestations that count for this PR's author.
+    def _publisher_pinned_attestations(self) -> tuple[Attestation, ...]:
+        """The usable policy attestations that pin their publisher, the only ones an admitted bot and routing count.
 
-        For an admitted bot only an entry that pins its publisher counts, because a job of any PR
-        can post the check of every other entry.
+        A job of any PR can post the check of every other entry. An unusable entry proves nothing, so
+        routing never waits for its check.
         """
+        return tuple(
+            attestation for attestation in POLICY.attestations if attestation.pins_publisher and attestation.usable
+        )
+
+    @property
+    def _attestations(self) -> tuple[Attestation, ...]:
+        """The policy attestations that count for this PR's author."""
         if not self.admitted_bot:
             return POLICY.attestations
-        return tuple(attestation for attestation in POLICY.attestations if attestation.pins_publisher)
+        return self._publisher_pinned_attestations
+
+    def attestation_proof(self) -> dict:
+        """What the pinned attestations prove about every path of the diff, for the server's reviewer routing.
+
+        Only an entry that pins its publisher counts, as for an admitted bot (see
+        ``_publisher_pinned_attestations``). ``checks`` names each such entry whose `paths` match a path
+        of the diff and whose `title` matches the PR's, and stays empty unless together they match every
+        path. An entry whose title does not match gets no result, so routing must not wait for it.
+        ``proven`` is True only when their verified proofs name every path, the old path of a rename
+        included.
+        """
+        paths = self.pr.deny_paths
+        matching = [
+            attestation
+            for attestation in self._publisher_pinned_attestations
+            if applies_to(attestation, self.pr.title) and any(covers(attestation, path) for path in paths)
+        ]
+        if not paths or any(not any(covers(attestation, path) for attestation in matching) for path in paths):
+            return {"checks": [], "proven": False}
+        pr = self.pr
+        reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
+        proven = pinned_files(matching, pr.check_runs, paths, reviewed)
+        return {
+            "checks": [{"check": attestation.check, "app_id": attestation.app_id} for attestation in matching],
+            "proven": set(paths) <= proven,
+        }
 
     def refuses_bot_author(self) -> bool:
         """True when the PR author is a bot that neither carve-out admits.
@@ -612,8 +654,8 @@ class Pipeline:
             "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
             "unattested_files": unattested,
             # The server polls GitHub for these checks after a WAIT, so the list names each one by the
-            # check name and App id that a check run carries.
-            "attestations": {"pending": [{"check": a.check, "app_id": a.app_id} for a in pending]},
+            # check name and its publisher: the App id a check run carries, or the workflow that signs it.
+            "attestations": {"pending": [pending_entry(a) for a in pending]},
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),

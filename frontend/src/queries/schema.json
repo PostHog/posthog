@@ -16009,6 +16009,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -20692,6 +20695,9 @@
                 "metric": {
                     "$ref": "#/definitions/MetricChartSettings"
                 },
+                "movingAverageIntervals": {
+                    "type": "number"
+                },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings"
                 },
@@ -20715,6 +20721,9 @@
                     "type": "boolean"
                 },
                 "showLegend": {
+                    "type": "boolean"
+                },
+                "showMovingAverage": {
                     "type": "boolean"
                 },
                 "showNullsAsZero": {
@@ -33662,6 +33671,10 @@
                     "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.",
                     "type": "boolean"
                 },
+                "optimizeCrossJoins": {
+                    "description": "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints",
+                    "type": "boolean"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
@@ -44680,6 +44693,33 @@
             "required": ["time", "value"],
             "type": "object"
         },
+        "MetricsQueryProvenance": {
+            "additionalProperties": false,
+            "description": "Where a metrics tile's buckets came from. Set only on dashboard-v2 tiles.",
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/MetricsQueryProvenanceMode"
+                },
+                "precomputedUntil": {
+                    "description": "Buckets before this time came from precomputed metrics. Absent when no clause read them.",
+                    "type": "string"
+                },
+                "reasons": {
+                    "description": "Why clauses ran raw, one per clause.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["mode"],
+            "type": "object"
+        },
+        "MetricsQueryProvenanceMode": {
+            "description": "`precomputed`: every bucket from precomputed metrics. `mixed`: stored buckets for the history and raw samples for the rest. `raw`: every bucket from raw samples.",
+            "enum": ["precomputed", "mixed", "raw"],
+            "type": "string"
+        },
         "MetricsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -44694,6 +44734,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "provenance": {
+                    "$ref": "#/definitions/MetricsQueryProvenance"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -53622,6 +53665,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "provenance": {
+                            "$ref": "#/definitions/MetricsQueryProvenance"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",

@@ -19,7 +19,6 @@ URL = "/api/projects/{team_id}/conversations/intercom_imports/"
 M = "products.conversations.backend.api.intercom_import"
 
 
-@patch(f"{M}.posthoganalytics.feature_enabled", return_value=True)
 @patch(
     f"{M}.start_intercom_import_workflow",
     new_callable=AsyncMock,
@@ -35,7 +34,7 @@ class TestIntercomImportAPI(APIBaseTest):
         self.organization_membership.save()
         self.url = URL.format(team_id=self.team.id)
 
-    def test_start_import_stores_token_but_never_returns_it(self, _mock_validate, mock_start, _mock_flag):
+    def test_start_import_stores_token_but_never_returns_it(self, _mock_validate, mock_start):
         token = generate_random_token_secret()
 
         response = self.client.post(self.url, {"region": "eu", "access_token": token}, format="json")
@@ -52,7 +51,7 @@ class TestIntercomImportAPI(APIBaseTest):
         self.assertEqual(status_response.json()["id"], str(job.id))
         self.assertNotIn(token, status_response.content.decode())
 
-    def test_rejected_token_creates_no_job(self, mock_validate, mock_start, _mock_flag):
+    def test_rejected_token_creates_no_job(self, mock_validate, mock_start):
         mock_validate.return_value = False
 
         response = self.client.post(self.url, {"access_token": generate_random_token_secret()}, format="json")
@@ -61,7 +60,7 @@ class TestIntercomImportAPI(APIBaseTest):
         self.assertFalse(IntercomImportJob.objects.unscoped().filter(team_id=self.team.id).exists())
         mock_start.assert_not_called()
 
-    def test_rejects_duplicate_running_job(self, _mock_validate, mock_start, _mock_flag):
+    def test_rejects_duplicate_running_job(self, _mock_validate, mock_start):
         IntercomImportJob.objects.unscoped().create(
             team_id=self.team.id,
             status=IntercomImportJob.Status.RUNNING,
@@ -73,7 +72,7 @@ class TestIntercomImportAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_start.assert_not_called()
 
-    def test_customer_communication_channel_cannot_be_the_import_channel(self, _mock_validate, mock_start, _mock_flag):
+    def test_customer_communication_channel_cannot_be_the_import_channel(self, _mock_validate, mock_start):
         customer_channel = EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -93,7 +92,7 @@ class TestIntercomImportAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_start.assert_not_called()
 
-    def test_non_admin_member_cannot_start_or_poll(self, _mock_validate, mock_start, _mock_flag):
+    def test_non_admin_member_cannot_start_or_poll(self, _mock_validate, mock_start):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -103,21 +102,11 @@ class TestIntercomImportAPI(APIBaseTest):
         self.assertEqual((post.status_code, get.status_code), (status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN))
         mock_start.assert_not_called()
 
-    def test_status_returns_404_when_no_job(self, _mock_validate, _mock_start, _mock_flag):
+    def test_status_returns_404_when_no_job(self, _mock_validate, _mock_start):
         response = self.client.get(f"{self.url}status/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_flag_off_blocks_start_and_status_without_probing_intercom(self, mock_validate, mock_start, mock_flag):
-        mock_flag.return_value = False
-
-        post = self.client.post(self.url, {"access_token": generate_random_token_secret()}, format="json")
-        get = self.client.get(f"{self.url}status/")
-
-        self.assertEqual((post.status_code, get.status_code), (status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN))
-        mock_validate.assert_not_called()
-        mock_start.assert_not_called()
-
-    def test_active_job_constraint_rejects_a_second_pending_job(self, _mock_validate, mock_start, _mock_flag):
+    def test_active_job_constraint_rejects_a_second_pending_job(self, _mock_validate, mock_start):
         # A concurrent request can pass the exists() fast path before the first job is saved; the
         # partial unique index is what stops it, so exercise the index directly.
         IntercomImportJob.objects.unscoped().create(
@@ -132,9 +121,7 @@ class TestIntercomImportAPI(APIBaseTest):
             team_id=self.team.id, status=IntercomImportJob.Status.COMPLETED, job_inputs={"region": "us"}
         )
 
-    def test_start_does_not_overwrite_a_job_the_workflow_already_finished(
-        self, _mock_validate, _mock_start, _mock_flag
-    ):
+    def test_start_does_not_overwrite_a_job_the_workflow_already_finished(self, _mock_validate, _mock_start):
         async def started():
             return ("workflow-id", "run-id")
 
@@ -161,7 +148,7 @@ class TestIntercomImportAPI(APIBaseTest):
         return job
 
     @patch(f"{M}.intercom_import_workflow_exists", new_callable=AsyncMock, return_value=False)
-    def test_orphaned_pending_reservation_is_released(self, _mock_exists, _mock_validate, mock_start, _mock_flag):
+    def test_orphaned_pending_reservation_is_released(self, _mock_exists, _mock_validate, mock_start):
         self._stale_pending_job()
 
         status_response = self.client.get(f"{self.url}status/")
@@ -172,7 +159,7 @@ class TestIntercomImportAPI(APIBaseTest):
         mock_start.assert_called_once()
 
     @patch(f"{M}.intercom_import_workflow_exists", new_callable=AsyncMock, return_value=True)
-    def test_stale_reservation_with_a_live_workflow_is_kept(self, _mock_exists, _mock_validate, mock_start, _mock_flag):
+    def test_stale_reservation_with_a_live_workflow_is_kept(self, _mock_exists, _mock_validate, mock_start):
         # The web process died after Temporal accepted the workflow but before saving workflow_id.
         job = self._stale_pending_job()
 
@@ -185,7 +172,7 @@ class TestIntercomImportAPI(APIBaseTest):
 
     @parameterized.expand([("workflow_exists", True, "pending"), ("workflow_missing", False, "failed")])
     def test_failed_start_keeps_the_reservation_unless_temporal_confirms_no_workflow(
-        self, _mock_validate, mock_start, _mock_flag, _name, workflow_exists, expected_status
+        self, _mock_validate, mock_start, _name, workflow_exists, expected_status
     ):
         mock_start.side_effect = TimeoutError("deadline exceeded")
 
@@ -197,7 +184,7 @@ class TestIntercomImportAPI(APIBaseTest):
 
     @parameterized.expand([("workflow_stopped", False, "failed"), ("workflow_running", True, "running")])
     def test_quiet_running_job_is_failed_only_when_its_workflow_stopped(
-        self, _mock_validate, _mock_start, _mock_flag, _name, workflow_running, expected_status
+        self, _mock_validate, _mock_start, _name, workflow_running, expected_status
     ):
         job = IntercomImportJob.objects.unscoped().create(
             team_id=self.team.id, status=IntercomImportJob.Status.RUNNING, job_inputs={"region": "us"}
@@ -215,7 +202,7 @@ class TestIntercomImportAPI(APIBaseTest):
         self.assertEqual(first.json()["status"], expected_status)
         is_running.assert_called_once()
 
-    def test_recent_pending_reservation_still_blocks_a_second_import(self, _mock_validate, mock_start, _mock_flag):
+    def test_recent_pending_reservation_still_blocks_a_second_import(self, _mock_validate, mock_start):
         IntercomImportJob.objects.unscoped().create(
             team_id=self.team.id, status=IntercomImportJob.Status.PENDING, job_inputs={"region": "us"}
         )

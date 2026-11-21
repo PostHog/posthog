@@ -28,6 +28,7 @@ from posthog.sync import database_sync_to_async
 
 from ..facade.contracts import TopicCluster, TopicCoverage, TopicDefinition, TopicSessionCounts
 from .agent_sessions import (
+    LIST_TOOL,
     RUN_TOOL,
     SQL_TOOL,
     STITCH_CHAIN_LIMIT,
@@ -58,8 +59,7 @@ NEW_TOPIC_MIN_SESSIONS = 3
 NEW_TOPIC_MIN_SHARE = 0.01
 
 _DESCRIBE_TOOL = "metric-describe"
-_LIST_TOOL = "metric-list"
-_METRIC_TOOLS = frozenset({RUN_TOOL, _DESCRIBE_TOOL, _LIST_TOOL})
+_METRIC_TOOLS = frozenset({RUN_TOOL, _DESCRIBE_TOOL, LIST_TOOL})
 _METRICS_SCHEMA = "information_schema.metrics"
 _METADATA_SCHEMA = "information_schema"
 _MAX_STEPS = 40
@@ -192,9 +192,9 @@ SELECT
     a.span_name,
     a.event,
     a.is_error,
-    substring(ifNull(a.input_state, ''), 1, {max_input_chars}) AS input,
-    substring(ifNull(a.output_state, ''), 1, {max_output_chars}) AS output,
-    substring(JSONExtractString(ifNull(a.output_choices, ''), 1, 'content'), 1, {max_sql_chars}) AS sql
+    substringUTF8(ifNull(a.input_state, ''), 1, {max_input_chars}) AS input,
+    substringUTF8(ifNull(a.output_state, ''), 1, {max_output_chars}) AS output,
+    substringUTF8(JSONExtractString(ifNull(a.output_choices, ''), 1, 'content'), 1, {max_sql_chars}) AS sql
 FROM posthog.ai_events AS a
 WHERE a.event IN ('$ai_span', '$ai_generation')
     AND a.span_name IN {tools}
@@ -436,7 +436,7 @@ def build_session_lookups(rows: Iterable[LookupRow]) -> dict[str, SessionLookups
             )
             if not row.is_error:
                 read_metric.add(session)
-        elif row.tool == _LIST_TOOL:
+        elif row.tool == LIST_TOOL:
             steps[session].append(f"Listed the metric catalog{failed}")
         elif row.event == "$ai_span":
             query = query_text(row.raw_input)
