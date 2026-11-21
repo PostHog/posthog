@@ -81,6 +81,21 @@ export function scannerExperimentScope(scanner: ReplayScanner | null | undefined
     return { experimentId: targeting.experiment_id, variants: targeting.variant ? [targeting.variant] : null }
 }
 
+/**
+ * Whether this scanner watches an experiment, from whichever store holds it.
+ *
+ * The question most callers mean when they check for the legacy `experiment` type: show the
+ * variants tab, offer the variant filter, label the recordings. A scanner carrying its experiment
+ * in `scope` keeps an answer format of its own, so the type answers no for it and the surface
+ * disappears. Ask this instead.
+ *
+ * A caller that reads `scanner_config`'s experiment keys still checks the type, because only that
+ * type has them.
+ */
+export function watchesAnExperiment(scanner: ReplayScanner | null | undefined): boolean {
+    return scannerExperimentScope(scanner) !== null
+}
+
 /** The variants a scope watches, as a short phrase: "test variant", "a, b variants", or the fallback. */
 export function scopeVariantsLabel(scope: ScannerExperimentScope, everyVariant: string): string {
     if (!scope.variants?.length) {

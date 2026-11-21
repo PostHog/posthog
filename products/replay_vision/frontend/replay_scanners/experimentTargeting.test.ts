@@ -7,6 +7,7 @@ import {
     prefillScannerForExperiment,
     reconcileVariantKey,
     scannerExperimentScope,
+    watchesAnExperiment,
 } from './experimentTargeting'
 import type { ReplayScanner } from './types'
 
@@ -146,6 +147,24 @@ describe('experimentTargeting', () => {
         const scanner = { scanner_type: 'monitor', scanner_config: { prompt: 'p' }, ...fields } as ReplayScanner
 
         expect(scannerExperimentScope(scanner)).toEqual(expected)
+    })
+
+    it('watchesAnExperiment follows the scope, not the type', () => {
+        const scoped = {
+            scanner_type: 'summarizer',
+            scanner_config: { prompt: 'p' },
+            scope: { kind: 'experiment', experiment_id: 7, variants: ['control'] },
+        } as ReplayScanner
+        const legacyType = {
+            scanner_type: 'experiment',
+            scanner_config: { prompt: 'p', experiment_id: 7 },
+        } as ReplayScanner
+        const plain = { scanner_type: 'monitor', scanner_config: { prompt: 'p' } } as ReplayScanner
+
+        expect(watchesAnExperiment(scoped)).toBe(true)
+        expect(watchesAnExperiment(legacyType)).toBe(true)
+        expect(watchesAnExperiment(plain)).toBe(false)
+        expect(watchesAnExperiment(null)).toBe(false)
     })
 
     it.each([

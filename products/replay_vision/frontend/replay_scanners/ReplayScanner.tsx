@@ -24,6 +24,7 @@ import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
+import { watchesAnExperiment } from './experimentTargeting'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
 import { scannerEditUrl } from './scannerEditorSceneLogic'
@@ -57,7 +58,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const { scanner, scannerLoading } = useValues(scannerLogic)
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const isExperimentScanner = experimentScanners && scanner?.scanner_type === 'experiment'
+    const isExperimentScanner = experimentScanners && watchesAnExperiment(scanner)
     const loadedScannerId = scanner?.id ?? null
 
     // The scene logic can't see the scanner's type, so the page tells it which tab this scanner lands on.
