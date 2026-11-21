@@ -49,6 +49,11 @@ posthog/hogql/**/*.md
 # DevEx maintains the resolver and reviews it with that risk in mind.
 packages/owners-yaml/** @PostHog/team-devex
 
+# Migration safety exceptions disable blocking checks and need independent DevEx approval.
+/posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt @PostHog/team-devex
+/posthog/management/migration_analysis/atomic_false_acknowledged_migrations.txt @PostHog/team-devex
+/.github/scripts/migration-deletion-allowlist.txt @PostHog/team-devex
+
 # And of course modifying this file can bring us problems so let's have the security team own it.
 # This does not affect the distributed owners.yaml files, which drive non-required reviewer
 # assignment and are much safer to change.
