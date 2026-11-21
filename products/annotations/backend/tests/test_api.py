@@ -44,6 +44,7 @@ class TestListDatedAnnotations(BaseTest):
         [
             ("in_window", {}, ["Shipped v2.3"]),
             ("insight_scope_counts", {"scope": AnnotationScope.INSIGHT}, ["Shipped v2.3"]),
+            ("personal_scope_left_out", {"scope": AnnotationScope.USER}, []),
             ("before_window", {"days_ago": 8}, []),
             ("future_dated", {"days_ago": -1}, []),
             ("deleted", {"deleted": True}, []),

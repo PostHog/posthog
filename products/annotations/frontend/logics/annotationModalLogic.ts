@@ -26,9 +26,11 @@ export const annotationScopeToName: Record<AnnotationScope, string> = {
     [AnnotationScope.Dashboard]: 'Dashboard',
     [AnnotationScope.Project]: 'Project',
     [AnnotationScope.Organization]: 'Organization',
+    [AnnotationScope.User]: 'Only me',
 }
 
 export const annotationScopeToLevel: Record<AnnotationScope, number> = {
+    [AnnotationScope.User]: -1,
     [AnnotationScope.Insight]: 0,
     [AnnotationScope.Dashboard]: 1,
     [AnnotationScope.Project]: 2,

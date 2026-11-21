@@ -17,6 +17,7 @@ Annotations are timestamped notes used to mark product changes, incidents, or re
 
 - The API usually hides `deleted=true` rows; SQL queries should filter them explicitly when needed.
 - `scope='organization'` annotations can appear across multiple projects in the same organization.
+- `scope='user'` annotations are personal. Only the user who created them can read them, so other users' personal annotations never appear in results.
 
 ---
 

@@ -1413,7 +1413,7 @@
         }
     },
     "annotation-create": {
-        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and its `scope`: the current `project`, the whole `organization`, one insight, or one dashboard. To annotate one insight, set `scope` to `dashboard_item` and `dashboard_item` to the insight's numeric ID. To annotate one dashboard, set `scope` to `dashboard` and `dashboard_id` to the dashboard ID. Optionally set an `emoji` to show in place of the default badge on the chart.",
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and its `scope`: the current `project`, the whole `organization`, one insight, one dashboard, or `user`. To annotate one insight, set `scope` to `dashboard_item` and `dashboard_item` to the insight's numeric ID. To annotate one dashboard, set `scope` to `dashboard` and `dashboard_id` to the dashboard ID. Set `scope` to `user` for a personal note that only the user sees, such as working notes for one person's analysis, so it does not clutter the team's charts. Use `project` or wider for changes the whole team should see, like deployments and incidents. Optionally set an `emoji` to show in place of the default badge on the chart.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Create annotation",
@@ -1458,7 +1458,7 @@
         }
     },
     "annotations-list": {
-        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit` and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed to `{id, email}`.",
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations. The list includes the user's own personal annotations (`scope` `user`) and never other users' personal ones. Results are paginated (default 100 per page) — use `limit` and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed to `{id, email}`.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "List annotations",
@@ -1473,7 +1473,7 @@
         }
     },
     "annotations-partial-update": {
-        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope, or its `emoji`. To scope it to one insight, set `scope` to `dashboard_item` and `dashboard_item` to the insight's numeric ID. To scope it to one dashboard, set `scope` to `dashboard` and `dashboard_id` to the dashboard ID. Only the fields you provide are updated.",
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), its visibility scope, or its `emoji`. To scope it to one insight, set `scope` to `dashboard_item` and `dashboard_item` to the insight's numeric ID. To scope it to one dashboard, set `scope` to `dashboard` and `dashboard_id` to the dashboard ID. Set `scope` to `user` to make it personal, so only its creator sees it. Only the creator of an annotation can make it personal. Only the fields you provide are updated.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "Update annotation",

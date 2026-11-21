@@ -1031,3 +1031,55 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["dashboard_item"] == insight.id
+
+    def _personal_annotation(self) -> Annotation:
+        return Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="My own note",
+            scope=AnnotationScope.USER,
+            date_marker=now(),
+        )
+
+    def test_personal_annotation_is_only_reachable_by_its_creator(self) -> None:
+        annotation = self._personal_annotation()
+        url = f"/api/projects/{self.team.id}/annotations/{annotation.id}/"
+        other_user = User.objects.create_and_join(self.organization, "other-annotator@example.com", None)
+
+        self.client.force_login(other_user)
+        assert self.client.get(f"/api/projects/{self.team.id}/annotations/").json()["results"] == []
+        assert self.client.get(url).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.patch(url, {"content": "edited"}).status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.patch(url, {"deleted": True}).status_code == status.HTTP_404_NOT_FOUND
+
+        self.client.force_login(self.user)
+        assert [a["id"] for a in self.client.get(f"/api/projects/{self.team.id}/annotations/").json()["results"]] == [
+            annotation.id
+        ]
+        assert self.client.get(url).json()["scope"] == "user"
+        assert self.client.patch(url, {"content": "edited"}).status_code == status.HTTP_200_OK
+        assert self.client.patch(url, {"deleted": True}).status_code == status.HTTP_200_OK
+        annotation.refresh_from_db()
+        assert (annotation.content, annotation.deleted) == ("edited", True)
+
+    def test_creator_can_make_an_annotation_personal_and_others_cannot(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {"content": "Mine", "scope": "user", "date_marker": "2024-01-01T00:00:00Z"},
+        )
+        assert created.status_code == status.HTTP_201_CREATED
+        assert created.json()["scope"] == "user"
+
+        shared = Annotation.objects.create(
+            organization=self.organization, team=self.team, created_by=self.user, scope=AnnotationScope.PROJECT
+        )
+        other_user = User.objects.create_and_join(self.organization, "other-annotator@example.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/annotations/{shared.id}/", {"scope": "user"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "scope"
+        shared.refresh_from_db()
+        assert shared.scope == AnnotationScope.PROJECT

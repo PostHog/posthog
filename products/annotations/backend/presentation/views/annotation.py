@@ -88,6 +88,10 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Ge
             search_terms=tuple(filters.SearchFilter().get_search_terms(self.request)),
         )
 
+    def _viewer_id(self) -> int | None:
+        """The user personal annotations are shown to. Callers without a user see none."""
+        return self.request.user.id if isinstance(self.request.user, User) else None
+
     def _list_access(self) -> contracts.AnnotationAccess | None:
         """The access control narrowing a queryset list gets from TeamAndOrgViewSetMixin, with the same gates."""
         if is_service_auth(self.request):
@@ -112,6 +116,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Ge
                 annotation_id=self.kwargs["pk"],
                 filters=self._filters(),
                 include_deleted=include_deleted,
+                viewer_id=self._viewer_id(),
             )
         except contracts.AnnotationNotFoundError:
             raise Http404("No Annotation matches the given query.")
@@ -139,6 +144,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Ge
                 organization_id=self.team.organization_id,
                 filters=annotation_filters,
                 page=page,
+                viewer_id=self._viewer_id(),
                 access=access,
             ),
         )
@@ -184,6 +190,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Ge
                 annotation_id=annotation.id,
                 write=serializer.to_write(),
                 include_deleted=partial,
+                viewer_id=self._viewer_id(),
             )
         )
         return Response(self.get_serializer(updated).data)

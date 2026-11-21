@@ -9,6 +9,7 @@ class AnnotationScope(LabeledStrEnum):
     PROJECT = "project", "project"
     ORGANIZATION = "organization", "organization"
     RECORDING = "recording", "recording"
+    USER = "user", "user"
 
 
 class AnnotationCreationType(LabeledStrEnum):
