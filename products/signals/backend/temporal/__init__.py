@@ -132,7 +132,10 @@ from products.signals.backend.temporal.reingestion import (
     restore_grouping_pause_activity,
     soft_delete_report_signals_activity,
 )
-from products.signals.backend.temporal.report_safety_judge import report_safety_judge_activity
+from products.signals.backend.temporal.report_safety_judge import (
+    report_safety_judge_activity,
+    research_prose_safety_judge_activity,
+)
 from products.signals.backend.temporal.safety_filter import safety_filter_activity
 from products.signals.backend.temporal.signal_queries import (
     fetch_signal_type_examples_activity,
@@ -278,6 +281,7 @@ ACTIVITIES: list[ActivityDefinition] = [
     run_scout_suggestions_activity,
     stamp_requested_scout_suggestions_activity,
     report_safety_judge_activity,
+    research_prose_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,
     github_optional_pilot_activity,

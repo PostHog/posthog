@@ -1,8 +1,11 @@
 import re
 import json
+import uuid
 import asyncio
 from dataclasses import dataclass
 from typing import Optional
+
+from django.utils import timezone
 
 import structlog
 import temporalio
@@ -17,11 +20,11 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.ml_inference.backend.facade.contracts import JsonValue
 from products.signals.backend.artefact_schemas import SafetyJudgment
-from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.spend import report_triggering_signal
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
-from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
+from products.signals.backend.temporal.llm import SAFETY_MODEL, LLMRefusalError, call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
 from products.signals.backend.trial.reports import trial_report_activity
 
@@ -101,6 +104,26 @@ def _build_report_safety_judge_prompt(
     )
 
 
+SAFETY_REFUSAL_EXPLANATION = "The safety model refused to assess this content, so it is treated as unsafe."
+
+
+def report_content_signal(title: str, summary: str) -> SignalData:
+    """Wrap the authored `title` + `summary` as a `SignalData` so the safety judge evaluates the exact
+    prose that will surface (and feed autostart), not just the backing evidence. Prompt-injection can
+    land in the report body itself while the evidence descriptions look benign — this makes the judge
+    see the report text too, so an unsafe title/summary blocks the report."""
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content=f"{title}\n\n{summary}",
+        source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value,
+        source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value,
+        source_id="report_content",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 def _system_one_judgment(safe: bool, category: str | None) -> SafetyJudgeResponse:
     if safe:
         return SafetyJudgeResponse(choice=True)
@@ -150,6 +173,7 @@ async def judge_report_safety(
     signals: list[SignalData],
     report_id: str | None = None,
     signal_id: str | None = None,
+    source_product: str = "report",
 ) -> SafetyJudgeResponse:
     """
     Assess whether a signal report contains prompt injection or manipulation attempts.
@@ -188,7 +212,7 @@ async def judge_report_safety(
                     for key, value in {
                         "signals_decision_id": trace_id,
                         "source_id": report_id,
-                        "source_product": "report",
+                        "source_product": source_product,
                         "$ai_prompt_name": system_one_prompt.name,
                         "$ai_prompt_version": str(system_one_prompt.version) if system_one_prompt.version else None,
                         "system_one_prompt_source": system_one_prompt.source,
@@ -202,7 +226,7 @@ async def judge_report_safety(
             stage="report_safety",
             primary_model=SAFETY_MODEL,
             source_id=report_id,
-            source_product="report",
+            source_product=source_product,
             state=state,
             prompt=system_one_prompt,
             traditional=sonnet_verdict,
@@ -302,3 +326,51 @@ async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOu
             report_id=input.report_id,
         )
         raise
+
+
+@dataclass(frozen=True)
+class ResearchProseSafetyJudgeInput:
+    team_id: int
+    report_id: str
+    title: str
+    summary: str
+    checks_summary: str | None = None
+    signal_id: str | None = None
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+@trial_report_activity
+async def research_prose_safety_judge_activity(input: ResearchProseSafetyJudgeInput) -> SafetyJudgeOutput:
+    """Judge the title and summary that research wrote, before the report can surface or feed autostart.
+
+    The input signals are judged before research starts, but research reads untrusted material and
+    writes new prose after that judge ran. `checks_summary` is judged too when it differs, because
+    the ready transition stores it in place of `summary` when the checks reconcile.
+    """
+    signals = [report_content_signal(input.title, input.summary)]
+    if input.checks_summary is not None and input.checks_summary != input.summary:
+        signals.append(report_content_signal(input.title, input.checks_summary))
+    try:
+        result = await judge_report_safety(
+            team_id=input.team_id,
+            signals=signals,
+            report_id=input.report_id,
+            signal_id=input.signal_id,
+            source_product="report_research",
+        )
+    except LLMRefusalError:
+        # A refusal gives no verdict, so the prose counts as unsafe. A retry would not change the answer.
+        logger.warning("research prose safety judge refused", team_id=input.team_id, report_id=input.report_id)
+        result = SafetyJudgeResponse(choice=False, explanation=SAFETY_REFUSAL_EXPLANATION)
+
+    # The latest safety_judgment row is the report's current safety status, and the embedding gate
+    # in receivers.py reads it, so an unsafe verdict on the prose keeps the report out of the index.
+    await database_sync_to_async(SignalReportArtefact.append_status, thread_sensitive=False)(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        content=SafetyJudgment(choice=result.choice, explanation=result.explanation),
+        attribution=ArtefactAttribution.system(),
+    )
+    return SafetyJudgeOutput(safe=result.choice, explanation=result.explanation if not result.choice else None)
