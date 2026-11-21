@@ -23,14 +23,14 @@ from django.utils import timezone
 
 import structlog
 from opentelemetry import trace
-from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_random
+from tenacity import RetryCallState, Retrying, retry_if_exception_type, wait_random
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
@@ -67,9 +67,10 @@ EMBEDDING_TIMEOUT_S = 10.0
 # A stalled read must end inside the MCP request deadline, so that a hybrid search can still return its keyword ranking.
 VECTOR_READ_MAX_EXECUTION_S = 10
 # All signals queries share one ClickHouse user, so its concurrent-query limit refuses reads in short bursts.
-# ClickHouse refuses such a read immediately, so the added attempts stay well inside the MCP request deadline.
-# A read that reaches its time limit gets no second attempt, because the caller already waited for the full limit.
-VECTOR_READ_ATTEMPTS = 3
+# Capacity refusals are immediate, but a timed-out read has used the full query budget. Retry timeouts only once
+# so that the search stays well inside the MCP request deadline.
+VECTOR_READ_CAPACITY_ATTEMPTS = 3
+VECTOR_READ_TIMEOUT_ATTEMPTS = 2
 VECTOR_READ_RETRY_WAIT_S = (0.5, 2.0)
 # Quotes and sentence punctuation around a word, which would otherwise have to match literally.
 _TERM_EDGES = "\"'`.,;:!?()[]{}<>"
@@ -229,6 +230,14 @@ def _keyword_ranking(reports: QuerySet[SignalReport], terms: Sequence[str]) -> l
     return [report_id for report_id, _ in rows]
 
 
+def _vector_read_retry_exhausted(retry_state: RetryCallState) -> bool:
+    error = retry_state.outcome.exception() if retry_state.outcome else None
+    attempts = (
+        VECTOR_READ_TIMEOUT_ATTEMPTS if isinstance(error, ClickHouseQueryTimeOut) else VECTOR_READ_CAPACITY_ATTEMPTS
+    )
+    return retry_state.attempt_number >= attempts
+
+
 def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -> list[uuid.UUID]:
     # Deferred: `posthog.api` loads the product routes, which import this module through the signals views.
     from posthog.api.embedding_worker import generate_embedding  # noqa: PLC0415
@@ -249,40 +258,44 @@ def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -
     with tracer.start_as_current_span("signals.reports.search.vector_read") as span:
         started = time.monotonic()
         read = Retrying(
-            retry=retry_if_exception_type(ClickHouseAtCapacity),
-            stop=stop_after_attempt(VECTOR_READ_ATTEMPTS),
+            retry=retry_if_exception_type((ClickHouseAtCapacity, ClickHouseQueryTimeOut)),
+            stop=_vector_read_retry_exhausted,
             wait=wait_random(*VECTOR_READ_RETRY_WAIT_S),
             reraise=True,
         )
-        rows = cast(
-            list[tuple[Any, ...]],
-            read(
-                sync_execute,
-                NEAREST_REPORTS_SQL,
-                {
-                    "embedding": embedding,
-                    "team_id": team.id,
-                    "product": EMBEDDING_PRODUCT,
-                    "document_type": EMBEDDING_DOCUMENT_TYPE,
-                    "rendering": EMBEDDING_RENDERING_TITLE_SUMMARY,
-                    "first_date": dates[0],
-                    "dates": dates,
-                    "report_ids": [str(report_id) for report_id, _ in eligible],
-                    "dimensions": EMBEDDING_DIMENSIONS,
-                    "limit": CANDIDATES,
-                },
-                settings={"max_execution_time": VECTOR_READ_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
-                # Scout runs make most of these calls, and no person waits on them.
-                workload=Workload.OFFLINE,
-                team_id=team.id,
-                ch_user=ClickHouseUser.SIGNALS,
+        try:
+            rows = cast(
+                list[tuple[Any, ...]],
+                read(
+                    sync_execute,
+                    NEAREST_REPORTS_SQL,
+                    {
+                        "embedding": embedding,
+                        "team_id": team.id,
+                        "product": EMBEDDING_PRODUCT,
+                        "document_type": EMBEDDING_DOCUMENT_TYPE,
+                        "rendering": EMBEDDING_RENDERING_TITLE_SUMMARY,
+                        "first_date": dates[0],
+                        "dates": dates,
+                        "report_ids": [str(report_id) for report_id, _ in eligible],
+                        "dimensions": EMBEDDING_DIMENSIONS,
+                        "limit": CANDIDATES,
+                    },
+                    settings={"max_execution_time": VECTOR_READ_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
+                    # Scout runs make most of these calls, and no person waits on them.
+                    workload=Workload.OFFLINE,
+                    team_id=team.id,
+                    ch_user=ClickHouseUser.SIGNALS,
+                )
+                or [],
             )
-            or [],
-        )
-        span.set_attribute("signals.reports.search.vector_read.duration_ms", round((time.monotonic() - started) * 1000))
+        finally:
+            span.set_attribute(
+                "signals.reports.search.vector_read.duration_ms", round((time.monotonic() - started) * 1000)
+            )
+            span.set_attribute("signals.reports.search.vector_read.eligible", len(eligible))
+            span.set_attribute("signals.reports.search.vector_read.attempts", read.statistics["attempt_number"])
         span.set_attribute("signals.reports.search.vector_read.rows", len(rows))
-        span.set_attribute("signals.reports.search.vector_read.eligible", len(eligible))
-        span.set_attribute("signals.reports.search.vector_read.attempts", read.statistics["attempt_number"])
     return [report_id for report_id in (_as_uuid(document_id) for document_id, _ in rows) if report_id is not None]
 
 
