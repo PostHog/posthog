@@ -32,7 +32,6 @@ const mockTrpcWorkspace = vi.hoisted(() => ({
 }));
 
 const mockTrpcLogs = vi.hoisted(() => ({
-  fetchS3Logs: { query: vi.fn() },
   readLocalLogs: { query: vi.fn() },
   writeLocalLogs: { mutate: vi.fn() },
 }));
@@ -135,6 +134,7 @@ const mockAuthenticatedClient = vi.hoisted(() => ({
   startGithubUserIntegrationConnect: vi.fn(),
   getTaskRunSessionLogsResult: vi.fn(),
   getTaskRunSessionLogsPage: vi.fn(),
+  getTaskRunLog: vi.fn(),
 }));
 
 type MockAuthenticatedClient = typeof mockAuthenticatedClient;
@@ -1334,7 +1334,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        undefined,
         "full-access",
         "codex",
       );
@@ -1421,7 +1420,6 @@ describe("SessionService", () => {
         "https://api.example.com",
         123,
         undefined,
-        undefined,
         "auto",
         "codex",
       );
@@ -1484,7 +1482,6 @@ describe("SessionService", () => {
         "https://api.example.com",
         123,
         undefined,
-        undefined,
         "auto",
         "codex",
         "gpt-5.5",
@@ -1535,7 +1532,6 @@ describe("SessionService", () => {
         "run-runtime-123",
         "https://api.example.com",
         7,
-        undefined,
         undefined,
         "auto",
         "codex",
@@ -1697,7 +1693,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -1839,7 +1834,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         onStatusChange,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -1913,7 +1907,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -1985,7 +1978,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -2091,7 +2083,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         "do the thing",
         "claude",
         undefined,
@@ -2114,7 +2105,7 @@ describe("SessionService", () => {
         "run-123",
         { firstPromptForRunId: "run-123" },
       );
-      expect(mockTrpcLogs.fetchS3Logs.query).not.toHaveBeenCalled();
+      expect(mockAuthenticatedClient.getTaskRunLog).not.toHaveBeenCalled();
       // The run's prompt sits behind the window, not missing; a pinned
       // placeholder would double it once older pages load.
       expect(
@@ -2188,7 +2179,7 @@ describe("SessionService", () => {
           processedLineCount: 5000,
         }),
       );
-      expect(mockTrpcLogs.fetchS3Logs.query).not.toHaveBeenCalled();
+      expect(mockAuthenticatedClient.getTaskRunLog).not.toHaveBeenCalled();
     });
 
     it("keeps paged-in older history when a windowed snapshot overlaps the transcript", () => {
@@ -2286,7 +2277,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -2349,7 +2339,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -2403,7 +2392,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -2507,7 +2495,7 @@ describe("SessionService", () => {
       );
     });
 
-    it("falls back to the run log URL when terminal chain hydration is empty", async () => {
+    it("falls back to the run log when terminal chain hydration is empty", async () => {
       const service = getSessionService();
       const session = createMockSession({
         taskId: "task-123",
@@ -2521,7 +2509,7 @@ describe("SessionService", () => {
         "run-123": session,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         JSON.stringify({
           type: "notification",
           timestamp: "2024-01-01T00:00:00Z",
@@ -2551,7 +2539,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -2561,9 +2548,10 @@ describe("SessionService", () => {
       );
 
       await vi.waitFor(() => {
-        expect(mockTrpcLogs.fetchS3Logs.query).toHaveBeenCalledWith({
-          logUrl: "https://example.com/logs/run-123",
-        });
+        expect(mockAuthenticatedClient.getTaskRunLog).toHaveBeenCalledWith(
+          "task-123",
+          "run-123",
+        );
       });
       await vi.waitFor(() => {
         expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
@@ -2596,7 +2584,7 @@ describe("SessionService", () => {
         "run-123": session,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
 
       service.watchCloudTask(
         "task-123",
@@ -2604,7 +2592,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -2665,7 +2652,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -2690,7 +2676,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -2728,7 +2713,7 @@ describe("SessionService", () => {
         "run-123": session,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       const entry = (text: string) => ({
         timestamp: "2026-07-15T10:00:00+00:00",
         notification: {
@@ -2769,7 +2754,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://example.com/logs/run-123",
         undefined,
         "claude",
         undefined,
@@ -2933,7 +2917,7 @@ describe("SessionService", () => {
         return hydratedSession;
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         JSON.stringify({
           type: "notification",
           timestamp: "2024-01-01T00:00:00Z",
@@ -2955,7 +2939,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -2964,7 +2947,6 @@ describe("SessionService", () => {
           expect.objectContaining({
             events: [],
             isCloud: true,
-            logUrl: "https://logs.example.com/run-123",
             processedLineCount: 1,
           }),
         );
@@ -2984,7 +2966,7 @@ describe("SessionService", () => {
         hydratedSession,
       );
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const inFlightPrompt = {
@@ -3006,7 +2988,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -3038,7 +3019,7 @@ describe("SessionService", () => {
         "run-123": { ...hydratedSession, currentPromptId: 42 },
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const promptRequest = {
@@ -3071,7 +3052,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -3106,7 +3086,7 @@ describe("SessionService", () => {
         "run-123": session,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockConvertStoredEntriesToEvents.mockReturnValueOnce([
         {
@@ -3153,7 +3133,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -3249,7 +3228,7 @@ describe("SessionService", () => {
       });
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
         success: true,
@@ -3273,7 +3252,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -3326,7 +3304,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -3405,7 +3382,7 @@ describe("SessionService", () => {
         "run-123": sessionWithQueue,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
 
       service.watchCloudTask(
         "task-123",
@@ -3413,7 +3390,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -3481,7 +3457,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -3529,7 +3504,7 @@ describe("SessionService", () => {
       });
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockRejectedValue(
         new Error("transient backend failure"),
@@ -3552,7 +3527,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -3598,7 +3572,7 @@ describe("SessionService", () => {
         .mockReturnValue(connectedSession);
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
         success: true,
@@ -3622,7 +3596,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -3680,7 +3653,7 @@ describe("SessionService", () => {
       );
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
         success: true,
@@ -3693,7 +3666,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -3791,7 +3763,7 @@ describe("SessionService", () => {
       );
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
         success: true,
@@ -3804,7 +3776,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -3887,7 +3858,7 @@ describe("SessionService", () => {
       );
       mockSessionStoreSetters.dequeueMessages.mockReturnValue([queuedMessage]);
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
       mockTrpcCloudTask.sendCommand.mutate
         .mockRejectedValueOnce(new Error("transient backend failure"))
@@ -3902,7 +3873,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -3990,7 +3960,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -4066,7 +4035,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -4148,7 +4116,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -4207,7 +4174,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -4268,7 +4234,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       const subscribeOptions = mockTrpcCloudTask.onUpdate.subscribe.mock
@@ -4311,7 +4276,7 @@ describe("SessionService", () => {
         "run-123": { ...hydratedSession, currentPromptId: 42 },
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const promptRequest = {
@@ -4347,7 +4312,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -4369,7 +4333,6 @@ describe("SessionService", () => {
         taskId: "task-123",
         status: "connected",
         isCloud: true,
-        logUrl: "https://logs.example.com/run-123",
         processedLineCount: 5,
         events: [
           {
@@ -4432,7 +4395,6 @@ describe("SessionService", () => {
           expect.objectContaining({
             events: existingSession.events,
             isCloud: true,
-            logUrl: "https://logs.example.com/run-123",
             processedLineCount: 14,
             transcriptWindowStart: 0,
           }),
@@ -4448,7 +4410,6 @@ describe("SessionService", () => {
         taskId: "task-123",
         status: "connected",
         isCloud: true,
-        logUrl: "https://logs.example.com/run-123",
         processedLineCount: 5,
         events: [
           {
@@ -4476,7 +4437,7 @@ describe("SessionService", () => {
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         Array.from({ length: 5 }, () => storedLine).join("\n"),
       );
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         Array.from({ length: 14 }, () => storedLine).join("\n"),
       );
 
@@ -4509,9 +4470,10 @@ describe("SessionService", () => {
       });
 
       await vi.waitFor(() => {
-        expect(mockTrpcLogs.fetchS3Logs.query).toHaveBeenCalledWith({
-          logUrl: "https://logs.example.com/run-123",
-        });
+        expect(mockAuthenticatedClient.getTaskRunLog).toHaveBeenCalledWith(
+          "task-123",
+          "run-123",
+        );
         expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
           "run-123",
           expect.objectContaining({
@@ -4529,7 +4491,6 @@ describe("SessionService", () => {
         taskId: "task-123",
         status: "connected",
         isCloud: true,
-        logUrl: "https://logs.example.com/run-123",
         processedLineCount: 5,
         events: [
           {
@@ -4565,7 +4526,7 @@ describe("SessionService", () => {
             }),
         )
         .mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents.mockImplementation((entries) =>
         entries.map((entry, index) => ({
           type: "acp_message",
@@ -4641,7 +4602,6 @@ describe("SessionService", () => {
         taskId: "task-123",
         status: "connected",
         isCloud: true,
-        logUrl: "https://logs.example.com/run-123",
         processedLineCount: 5,
         events: [],
       });
@@ -4652,7 +4612,7 @@ describe("SessionService", () => {
         "run-123": existingSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(logContent);
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(logContent);
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(logContent);
       service.watchCloudTask(
         "task-123",
         "run-123",
@@ -4716,7 +4676,9 @@ describe("SessionService", () => {
           newEntries: [newEntry],
         });
         await vi.waitFor(() => {
-          expect(mockTrpcLogs.fetchS3Logs.query).toHaveBeenCalledTimes(pass);
+          expect(mockAuthenticatedClient.getTaskRunLog).toHaveBeenCalledTimes(
+            pass,
+          );
         });
         expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
           "run-123",
@@ -4756,7 +4718,7 @@ describe("SessionService", () => {
         "run-123": hydratedSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const runStartedEvent = {
@@ -4780,7 +4742,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -4813,7 +4774,7 @@ describe("SessionService", () => {
         "run-123": hydratedSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const runStartedEvent = {
@@ -4839,7 +4800,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       await vi.waitFor(() => {
@@ -4870,7 +4830,7 @@ describe("SessionService", () => {
         "run-123": connectedSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("{}");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("{}");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       const runStartedEvent = {
@@ -4894,7 +4854,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
       );
 
       // Wait long enough for the hydration callback to run; assert the
@@ -4921,7 +4880,7 @@ describe("SessionService", () => {
       });
       // Empty history — fetchSessionLogs returns no entries.
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockTrpcLogs.writeLocalLogs.mutate.mockResolvedValue(undefined);
 
       service.watchCloudTask(
@@ -4930,7 +4889,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
         undefined,
         "claude",
         undefined,
@@ -4965,7 +4923,7 @@ describe("SessionService", () => {
         "run-123": freshSession,
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         JSON.stringify({
           jsonrpc: "2.0",
           method: "_posthog/run_started",
@@ -5002,7 +4960,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
         undefined,
         "claude",
         undefined,
@@ -5115,7 +5072,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
         undefined,
         "claude",
         undefined,
@@ -5166,7 +5122,7 @@ describe("SessionService", () => {
       });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
       // Non-empty history: a prior session/prompt exists.
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue(
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue(
         JSON.stringify({
           type: "request",
           timestamp: "2024-01-01T00:00:00Z",
@@ -5198,7 +5154,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-123",
         undefined,
         "claude",
         undefined,
@@ -5303,7 +5258,7 @@ describe("SessionService", () => {
         mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
           JSON.stringify(leafEntries[0]),
         );
-        mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+        mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
         mockConvertStoredEntriesToEvents.mockReturnValueOnce([
           priorPrompt,
           resumePrompt,
@@ -5317,7 +5272,6 @@ describe("SessionService", () => {
           "https://api.anthropic.com",
           123,
           undefined,
-          "https://logs.example.com/run-456",
           undefined,
           "claude",
           undefined,
@@ -5498,7 +5452,7 @@ describe("SessionService", () => {
           truncatedHeadCount: 0,
         });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents.mockReturnValueOnce([
         ancestorPrompt,
         persistedAncestorMessage,
@@ -5512,7 +5466,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-456",
         undefined,
         "claude",
         undefined,
@@ -5606,7 +5559,7 @@ describe("SessionService", () => {
           truncatedHeadCount: 0,
         });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents.mockReturnValueOnce([
         ancestorPrompt,
         ancestorCompletion,
@@ -5619,7 +5572,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-456",
         undefined,
         "claude",
         undefined,
@@ -5736,7 +5688,7 @@ describe("SessionService", () => {
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         JSON.stringify(leafEntry),
       );
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents
         .mockReturnValueOnce([ancestorEvent, leafEvent])
         .mockReturnValueOnce([liveEvent]);
@@ -5747,7 +5699,6 @@ describe("SessionService", () => {
         "https://api.anthropic.com",
         123,
         undefined,
-        "https://logs.example.com/run-456",
         undefined,
         "claude",
         undefined,
@@ -5956,7 +5907,7 @@ describe("SessionService", () => {
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         JSON.stringify(cEntry),
       );
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
       mockConvertStoredEntriesToEvents
         .mockReturnValueOnce([aEvent, bEvent, cEvent])
         .mockReturnValueOnce([liveCEvent]);
@@ -6111,7 +6062,6 @@ describe("SessionService", () => {
           "https://api.anthropic.com",
           123,
           undefined,
-          "https://logs.example.com/run-456",
           undefined,
           "claude",
           undefined,
@@ -6186,7 +6136,7 @@ describe("SessionService", () => {
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue(
         JSON.stringify(leafEntry),
       );
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
 
       watch();
       await vi.waitFor(() => {
@@ -6391,7 +6341,6 @@ describe("SessionService", () => {
         7,
         undefined,
         undefined,
-        undefined,
         "claude",
         "claude-sonnet-4-6",
       );
@@ -6487,7 +6436,6 @@ describe("SessionService", () => {
         "run-kimi-123",
         "https://api.example.com",
         7,
-        undefined,
         undefined,
         "plan",
         "claude",
@@ -6585,7 +6533,6 @@ describe("SessionService", () => {
         "https://api.example.com",
         7,
         undefined,
-        undefined,
         "auto",
         "codex",
         "gpt-5.6-sol",
@@ -6674,7 +6621,6 @@ describe("SessionService", () => {
         "https://api.example.com",
         7,
         undefined,
-        undefined,
         "auto",
         "codex",
         "gpt-5.6-sol",
@@ -6754,7 +6700,6 @@ describe("SessionService", () => {
         "run-grouped-123",
         "https://api.example.com",
         7,
-        undefined,
         undefined,
         "auto",
         "codex",
@@ -6844,7 +6789,6 @@ describe("SessionService", () => {
         "run-stable-123",
         "https://api.example.com",
         7,
-        undefined,
         undefined,
         "auto",
         "codex",
@@ -8514,9 +8458,7 @@ describe("SessionService", () => {
 
     it("attempts automatic recovery on fatal error", async () => {
       const service = getSessionService();
-      const mockSession = createMockSession({
-        logUrl: "https://logs.example.com/run-123",
-      });
+      const mockSession = createMockSession({});
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
       mockSessionStoreSetters.getSessions.mockReturnValue({
         "run-123": { ...mockSession, isPromptPending: false },
@@ -9523,7 +9465,6 @@ describe("SessionService", () => {
       "https://api.example.com",
       123,
       undefined,
-      "https://logs.example.com/run-123",
       undefined,
       "claude",
     );
@@ -10405,7 +10346,6 @@ describe("SessionService", () => {
       const service = getSessionService();
       const mockSession = createMockSession({
         status: "error",
-        logUrl: "https://logs.example.com/run-123",
       });
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
       mockTrpcAgent.reconnect.mutate.mockResolvedValue({
@@ -10455,7 +10395,6 @@ describe("SessionService", () => {
       };
       const mockSession = createMockSession({
         status: "error",
-        logUrl: "https://logs.example.com/run-123",
       });
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
       mockSessionConfigStore.getPersistedConfigOptions.mockReturnValue([
@@ -10508,7 +10447,6 @@ describe("SessionService", () => {
       };
       const mockSession = createMockSession({
         status: "error",
-        logUrl: "https://logs.example.com/run-123",
       });
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
       mockSessionConfigStore.getPersistedConfigOptions.mockReturnValue([
@@ -10543,7 +10481,6 @@ describe("SessionService", () => {
       };
       const mockSession = createMockSession({
         status: "error",
-        logUrl: "https://logs.example.com/run-123",
       });
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
       mockSessionConfigStore.getPersistedConfigOptions.mockReturnValue([
@@ -10583,7 +10520,6 @@ describe("SessionService", () => {
       ];
       const mockSession = createMockSession({
         status: "error",
-        logUrl: "https://logs.example.com/run-123",
         events: previousEvents as AgentSession["events"],
       });
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
@@ -10602,10 +10538,10 @@ describe("SessionService", () => {
         unsubscribe: vi.fn(),
       });
       mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
-      // Both the local cache and S3 reads come back empty (e.g. unreadable
+      // Both the local cache and run log reads come back empty (e.g. unreadable
       // log after an agent crash) — the repaint must not blank the transcript.
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
 
       await service.clearSessionError("task-123", "/repo");
 
@@ -10618,7 +10554,6 @@ describe("SessionService", () => {
       const queued = [{ id: "q-1", content: "old", queuedAt: 1 }];
       const mockSession = createMockSession({
         status: "error",
-        logUrl: "https://logs.example.com/run-123",
         messageQueue: queued,
         editingQueuedId: "q-1",
       });
@@ -10633,7 +10568,7 @@ describe("SessionService", () => {
       });
       mockTrpcWorkspace.verify.query.mockResolvedValue({ exists: true });
       mockTrpcLogs.readLocalLogs.query.mockResolvedValue("");
-      mockTrpcLogs.fetchS3Logs.query.mockResolvedValue("");
+      mockAuthenticatedClient.getTaskRunLog.mockResolvedValue("");
 
       await service.clearSessionError("task-123", "/repo");
 
@@ -10652,7 +10587,6 @@ describe("SessionService", () => {
         const startedAt = Date.now();
         const originalSession = createMockSession({
           status: "connecting",
-          logUrl: "https://logs.example.com/run-123",
           startedAt,
         });
         let currentSession = originalSession;
@@ -10790,7 +10724,6 @@ describe("SessionService", () => {
       const service = getSessionService();
       const mockSession = createMockSession({
         status: "connected",
-        logUrl: "https://logs.example.com/run-123",
       });
 
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
@@ -10831,7 +10764,6 @@ describe("SessionService", () => {
       const service = getSessionService();
       const mockSession = createMockSession({
         status: "connected",
-        logUrl: "https://logs.example.com/run-123",
       });
 
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);

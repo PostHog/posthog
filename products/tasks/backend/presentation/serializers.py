@@ -3748,8 +3748,23 @@ class TaskRunLogsView(models.TextChoices):
     THREAD = "thread", "thread"
 
 
+class TaskRunLogsScope(models.TextChoices):
+    CHAIN = "chain", "chain"
+    RUN = "run", "run"
+
+
 class TaskRunLogsQuerySerializer(serializers.Serializer):
     """Query parameters for reading part of a task run log"""
+
+    scope = serializers.ChoiceField(
+        choices=TaskRunLogsScope.choices,
+        default=TaskRunLogsScope.CHAIN,
+        required=False,
+        help_text=(
+            "'chain' returns the run's whole history: the logs of the runs it continues, oldest first, then its "
+            "own log. 'run' returns only this run's own log. It applies to the full log and to every slice."
+        ),
+    )
 
     view = serializers.ChoiceField(
         choices=TaskRunLogsView.choices,

@@ -820,16 +820,6 @@ container
 container.bind(LOGS_SERVICE).toDynamicValue((ctx) => {
   const ws = ctx.get<WorkspaceClient>(MAIN_WORKSPACE_CLIENT);
   return {
-    fetchS3Logs: async (logUrl: string) => {
-      try {
-        const response = await fetch(logUrl);
-        if (response.status === 404) return null;
-        if (!response.ok) return null;
-        return await response.text();
-      } catch {
-        return null;
-      }
-    },
     readLocalLogs: (taskRunId: string) =>
       ws.localLogs.read.query({ taskRunId }),
     readLocalLogsCollapsed: (taskRunId: string) =>

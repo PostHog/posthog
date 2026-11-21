@@ -38,13 +38,11 @@ describe("mergeCloudLogGapRequests", () => {
       currentCount: 3,
       expectedCount: 8,
       entryBatches: [{ endCount: 8, entries: [entry("a")] }],
-      logUrl: "old",
     });
     const next = request({
       currentCount: 6,
       expectedCount: 12,
       entryBatches: [{ endCount: 12, entries: [entry("b")] }],
-      logUrl: undefined,
     });
 
     const merged = mergeCloudLogGapRequests(current, next);
@@ -54,15 +52,6 @@ describe("mergeCloudLogGapRequests", () => {
       { endCount: 8, entries: [entry("a")] },
       { endCount: 12, entries: [entry("b")] },
     ]);
-    expect(merged.logUrl).toBe("old");
-  });
-
-  it("prefers next.logUrl when present", () => {
-    const merged = mergeCloudLogGapRequests(
-      request({ logUrl: "old" }),
-      request({ logUrl: "new" }),
-    );
-    expect(merged.logUrl).toBe("new");
   });
 });
 

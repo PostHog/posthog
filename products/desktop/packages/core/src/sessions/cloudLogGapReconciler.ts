@@ -15,7 +15,6 @@ export interface CloudLogGapFetchResult {
 export interface CloudLogGapReconcilerSession {
   taskId: string;
   processedLineCount: number;
-  logUrl: string | undefined;
 }
 
 export interface CloudLogGapReconcilerLogger {
@@ -29,7 +28,7 @@ export interface CloudLogGapReconcilerLogger {
  */
 export interface CloudLogGapReconcilerDeps {
   fetchLogs(
-    logUrl: string | undefined,
+    taskId: string,
     taskRunId: string,
     minEntryCount: number,
   ): Promise<CloudLogGapFetchResult>;
@@ -37,7 +36,6 @@ export interface CloudLogGapReconcilerDeps {
   commit(
     taskRunId: string,
     rawEntries: StoredLogEntry[],
-    logUrl: string | undefined,
     processedLineCount: number,
   ): void;
   logger: CloudLogGapReconcilerLogger;
@@ -116,17 +114,11 @@ export class CloudLogGapReconciler {
   private async reconcileOnce(
     request: CloudLogGapReconcileRequest,
   ): Promise<void> {
-    const {
-      taskId,
-      taskRunId,
-      expectedCount,
-      currentCount,
-      entryBatches,
-      logUrl,
-    } = request;
+    const { taskId, taskRunId, expectedCount, currentCount, entryBatches } =
+      request;
 
     let { rawEntries, totalLineCount, parseFailureCount } =
-      await this.deps.fetchLogs(logUrl, taskRunId, expectedCount);
+      await this.deps.fetchLogs(taskId, taskRunId, expectedCount);
 
     const missingLineCount = expectedCount - totalLineCount;
     const streamedTail = this.buildStreamedTail(
@@ -177,12 +169,7 @@ export class CloudLogGapReconciler {
 
     if (action.kind === "fill" || action.kind === "commit-best-effort") {
       this.deficiency.delete(taskRunId);
-      this.deps.commit(
-        taskRunId,
-        rawEntries,
-        logUrl ?? session.logUrl,
-        action.processedLineCount,
-      );
+      this.deps.commit(taskRunId, rawEntries, action.processedLineCount);
       return;
     }
 

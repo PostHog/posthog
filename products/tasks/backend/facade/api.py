@@ -5779,11 +5779,13 @@ def thread_view_of_log_content(log_content: str) -> str:
     return "\n".join(lines)
 
 
-def read_task_run_conversation_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+def read_task_run_conversation_logs(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, include_history: bool = True
+) -> str | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    chain = run.get_history_chain()
+    chain = run.get_history_chain() if include_history else [run]
     if len(chain) < 2 or run.task.runtime != Task.Runtime.PI:
         return read_task_run_log_content([ancestor.log for ancestor in chain])
 
@@ -5863,6 +5865,7 @@ def read_task_run_conversation_log_slice(
     tail_bytes: int,
     before: int | None = None,
     start: int | None = None,
+    include_history: bool = True,
 ) -> contracts.TaskRunLogSliceDTO | None:
     """Part of the conversation log, read from the run logs that overlap it.
 
@@ -5874,11 +5877,11 @@ def read_task_run_conversation_log_slice(
     if run is None:
         return None
     if run.task.runtime == Task.Runtime.PI:
-        content = read_task_run_conversation_logs(run_id, task_id, team_id)
+        content = read_task_run_conversation_logs(run_id, task_id, team_id, include_history=include_history)
         if content is None:
             return None
         return contracts.TaskRunLogSliceDTO(content=content, offset=0, count=0, sliced=False)
-    chain = run.get_history_chain()
+    chain = run.get_history_chain() if include_history else [run]
     parts = _conversation_log_parts([ancestor.log for ancestor in chain])
     if start is not None:
         sliced = slice_log_parts_from(parts, start, tail_bytes)

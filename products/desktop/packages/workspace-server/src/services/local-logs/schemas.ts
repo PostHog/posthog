@@ -1,8 +1,5 @@
 import { z } from "zod";
 
-export const fetchS3LogsInput = z.object({ logUrl: z.string().min(1) });
-export const fetchS3LogsOutput = z.string().nullable();
-
 export const readLocalLogsInput = z.object({ taskRunId: z.string().min(1) });
 export const readLocalLogsOutput = z.string().nullable();
 

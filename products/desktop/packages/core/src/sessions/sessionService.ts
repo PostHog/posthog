@@ -375,7 +375,6 @@ export interface SessionTrpc {
     /** Optional: only the Electron host exposes the tail read. Core feature-
      * detects and falls back to a full read when it's absent. */
     readLocalLogsTail?: TrpcQuery;
-    fetchS3Logs: TrpcQuery;
     writeLocalLogs: TrpcMutation;
   };
 }
@@ -1939,22 +1938,20 @@ export class SessionService {
   constructor(private readonly d: SessionServiceDeps) {
     this.cloudRunIdleTracker = new CloudRunIdleTracker();
     this.cloudLogGapReconciler = new CloudLogGapReconciler({
-      fetchLogs: (logUrl, taskRunId, minEntryCount) =>
-        this.fetchSessionLogs(logUrl, taskRunId, { minEntryCount }),
+      fetchLogs: (taskId, taskRunId, minEntryCount) =>
+        this.fetchSessionLogs(taskId, taskRunId, { minEntryCount }),
       getSession: (taskRunId) => {
         const session = d.store.getSessions()[taskRunId];
         if (!session) return undefined;
         return {
           taskId: session.taskId,
           processedLineCount: session.processedLineCount ?? 0,
-          logUrl: session.logUrl,
         };
       },
-      commit: (taskRunId, rawEntries, logUrl, processedLineCount) =>
+      commit: (taskRunId, rawEntries, processedLineCount) =>
         this.commitReconciledCloudEvents(
           taskRunId,
           rawEntries,
-          logUrl,
           processedLineCount,
         ),
       logger: d.log,
@@ -2065,7 +2062,6 @@ export class SessionService {
       const route = routeLocalConnect({
         hasAuth: auth !== null,
         latestRunId: latestRun?.id,
-        latestRunLogUrl: latestRun?.log_url,
       });
 
       if (route.kind === "no-auth" || !auth) {
@@ -2081,17 +2077,16 @@ export class SessionService {
       }
 
       if (route.kind === "resume-existing") {
-        const { taskRunId: existingRunId, logUrl } = route;
+        const { taskRunId: existingRunId } = route;
         if (!this.d.getIsOnline()) {
           this.d.log.info("Skipping connection attempt - offline", { taskId });
           const { rawEntries } = await this.fetchSessionLogs(
-            logUrl,
+            taskId,
             existingRunId,
           );
           const events = convertStoredEntriesToEvents(rawEntries);
           const session = createBaseSession(existingRunId, taskId, taskTitle);
           session.events = events;
-          session.logUrl = logUrl;
           session.status = "disconnected";
           session.errorMessage = OFFLINE_SESSION_MESSAGE;
           this.d.store.setSession(session);
@@ -2103,8 +2098,8 @@ export class SessionService {
         // session once everything below resolves.
         const [workspaceResult, logResult] = await Promise.all([
           this.d.trpc.workspace.verify.query({ taskId }),
-          this.fetchSessionLogs(logUrl, existingRunId),
-          this.paintTailFirst(existingRunId, taskId, taskTitle, logUrl),
+          this.fetchSessionLogs(taskId, existingRunId),
+          this.paintTailFirst(existingRunId, taskId, taskTitle),
         ]);
 
         if (!workspaceResult.exists) {
@@ -2115,7 +2110,6 @@ export class SessionService {
           const events = convertStoredEntriesToEvents(logResult.rawEntries);
           const session = createBaseSession(existingRunId, taskId, taskTitle);
           session.events = events;
-          session.logUrl = logUrl;
           session.status = "error";
           session.errorMessage = workspaceResult.missingPath
             ? `Working directory no longer exists: ${workspaceResult.missingPath}`
@@ -2128,7 +2122,6 @@ export class SessionService {
           taskId,
           existingRunId,
           taskTitle,
-          logUrl,
           repoPath,
           auth,
           logResult,
@@ -2173,14 +2166,13 @@ export class SessionService {
       const taskRunId = latestRun?.id ?? `error-${taskId}`;
       const session = createBaseSession(taskRunId, taskId, taskTitle);
       this.stampRunConfig(session, params);
-      if (latestRun?.log_url) {
+      if (latestRun) {
         try {
           const { rawEntries } = await this.fetchSessionLogs(
-            latestRun.log_url,
+            taskId,
             latestRun.id,
           );
           session.events = convertStoredEntriesToEvents(rawEntries);
-          session.logUrl = latestRun.log_url;
         } catch {
           // Ignore log fetch errors
         }
@@ -2263,7 +2255,6 @@ export class SessionService {
     taskId: string,
     taskRunId: string,
     taskTitle: string,
-    logUrl: string | undefined,
     repoPath: string,
     auth: AuthCredentials,
     prefetchedLogs?: {
@@ -2273,7 +2264,7 @@ export class SessionService {
     },
   ): Promise<boolean> {
     const { rawEntries, sessionId, adapter } =
-      prefetchedLogs ?? (await this.fetchSessionLogs(logUrl, taskRunId));
+      prefetchedLogs ?? (await this.fetchSessionLogs(taskId, taskRunId));
     const events = convertStoredEntriesToEvents(rawEntries);
 
     const storedAdapter = this.d.adapterStore.getAdapter(taskRunId);
@@ -2290,9 +2281,6 @@ export class SessionService {
       events.length === 0 && previous?.events.length ? previous.events : events;
     if (hasSessionPromptEvent(session.events)) {
       session.firstPromptForRunId = taskRunId;
-    }
-    if (logUrl) {
-      session.logUrl = logUrl;
     }
     if (persistedConfigOptions) {
       session.configOptions = persistedConfigOptions;
@@ -2403,7 +2391,6 @@ export class SessionService {
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
         projectId: auth.projectId,
-        logUrl,
         sessionId,
         adapter: resolvedAdapter,
         permissionMode: persistedMode,
@@ -2562,7 +2549,7 @@ export class SessionService {
    * Handle an idle-kill from the main process without destroying session state.
    * The main process already cleaned up the agent, so we only need to
    * unsubscribe from the channel and mark the session as errored.
-   * Preserves events, logUrl, configOptions and adapter so that Retry
+   * Preserves events, configOptions and adapter so that Retry
    * can reconnect with full context via resumeSession.
    */
   private handleIdleKill(taskRunId: string): void {
@@ -2584,7 +2571,7 @@ export class SessionService {
     errorMessage: string,
     errorTitle?: string,
   ): void {
-    // Preserve events and logUrl from the existing session so the
+    // Preserve events from the existing session so the
     // retry / reset flows can re-hydrate without a fresh log fetch.
     // Note: the error overlay is opaque, so these events aren't visible
     // to the user — they're carried forward for the next reconnect attempt.
@@ -2595,9 +2582,6 @@ export class SessionService {
     session.errorMessage = errorMessage;
     if (existing?.events?.length) {
       session.events = existing.events;
-    }
-    if (existing?.logUrl) {
-      session.logUrl = existing.logUrl;
     }
     if (existing?.initialPrompt?.length) {
       session.initialPrompt = existing.initialPrompt;
@@ -2832,11 +2816,8 @@ export class SessionService {
     // the replay is already in the local run log, so load it for the UI.
     if (importedSessionId) {
       try {
-        const { rawEntries } = await this.fetchSessionLogs(
-          undefined,
-          taskRun.id,
-        );
-        session.events = convertStoredEntriesToEvents(rawEntries);
+        const local = await this.readLocalSessionLogs(taskRun.id);
+        session.events = convertStoredEntriesToEvents(local?.rawEntries ?? []);
       } catch {
         this.d.log.warn(
           "Failed to load replayed history for imported session",
@@ -2890,17 +2871,15 @@ export class SessionService {
     taskId: string;
     taskRunId: string;
     taskTitle: string;
-    logUrl: string;
   }): Promise<void> {
-    const { taskId, taskRunId, taskTitle, logUrl } = params;
+    const { taskId, taskRunId, taskTitle } = params;
     const existing = this.d.store.getSessionByTaskId(taskId);
     if (existing && existing.events.length > 0) return;
 
-    const { rawEntries } = await this.fetchSessionLogs(logUrl, taskRunId);
+    const { rawEntries } = await this.fetchSessionLogs(taskId, taskRunId);
     const events = convertStoredEntriesToEvents(rawEntries);
     const session = createBaseSession(taskRunId, taskId, taskTitle);
     session.events = events;
-    session.logUrl = logUrl;
     session.status = "disconnected";
     this.d.store.setSession(session);
   }
@@ -3120,13 +3099,12 @@ export class SessionService {
           await this.hydrateCloudTaskSessionFromLogs(
             taskId,
             taskRunId,
-            session.logUrl,
             undefined,
             session.cloudStatus,
           );
         } else {
           const { rawEntries, totalLineCount } = await this.fetchSessionLogs(
-            session.logUrl,
+            taskId,
             taskRunId,
           );
           const fresh = this.d.store.getSessionByTaskId(taskId);
@@ -5177,7 +5155,6 @@ export class SessionService {
       cloudCommandAuth.apiHost,
       cloudCommandAuth.teamId,
       undefined,
-      session.logUrl,
       undefined,
       session.adapter ?? "claude",
     );
@@ -5435,7 +5412,6 @@ export class SessionService {
       await this.hydrateCloudTaskSessionFromLogs(
         session.taskId,
         session.taskRunId,
-        session.logUrl,
         undefined,
         session.cloudStatus,
       );
@@ -5686,7 +5662,6 @@ export class SessionService {
       auth.apiHost,
       auth.teamId,
       undefined,
-      newRun.log_url,
       initialMode,
       newRun.runtime_adapter ?? session.adapter ?? "claude",
       initialModel,
@@ -5911,7 +5886,6 @@ export class SessionService {
         cloudOutput: run.output ?? null,
         cloudArtifacts: run.artifacts ?? [],
         cloudErrorMessage: run.error_message,
-        logUrl: run.log_url ?? session.logUrl,
       });
       return run.status;
     } catch (error) {
@@ -6529,7 +6503,7 @@ export class SessionService {
       return true;
     }
     const { rawEntries } = await this.fetchSessionLogs(
-      session.logUrl,
+      session.taskId,
       session.taskRunId,
     );
     return convertStoredEntriesToEvents(rawEntries).some(isConversationEvent);
@@ -6564,7 +6538,7 @@ export class SessionService {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) return false;
 
-    const { taskRunId, taskTitle, logUrl } = session;
+    const { taskRunId, taskTitle } = session;
 
     // Cancel lingering backend agent (ignore errors — it may not exist
     // after a failed reconnect)
@@ -6584,7 +6558,7 @@ export class SessionService {
     }
     const auth = authStatus.auth;
 
-    const prefetchedLogs = await this.fetchSessionLogs(logUrl, taskRunId);
+    const prefetchedLogs = await this.fetchSessionLogs(taskId, taskRunId);
 
     // Determine sessionId: undefined = use from logs, null = strip (fresh), string = use as-is
     const sessionId =
@@ -6596,7 +6570,6 @@ export class SessionService {
       taskId,
       taskRunId,
       taskTitle,
-      logUrl,
       repoPath,
       auth,
       { ...prefetchedLogs, sessionId },
@@ -6895,7 +6868,6 @@ export class SessionService {
     apiHost: string,
     teamId: number,
     onStatusChange?: () => void,
-    logUrl?: string,
     initialMode?: string,
     adapter: Adapter = "claude",
     initialModel?: string,
@@ -6977,7 +6949,6 @@ export class SessionService {
           void this.hydrateCloudTaskSessionFromLogs(
             taskId,
             taskRunId,
-            logUrl,
             taskDescription,
             runStatus,
             runState,
@@ -7035,7 +7006,6 @@ export class SessionService {
         void this.hydrateResumeCloudTaskSessionFromLogs(
           taskId,
           taskRunId,
-          logUrl,
           taskDescription,
           runStatus,
           runState,
@@ -7066,7 +7036,6 @@ export class SessionService {
           this.hydrateCloudTaskSessionFromLogs(
             taskId,
             taskRunId,
-            logUrl,
             taskDescription,
             runStatus,
             runState,
@@ -7202,7 +7171,6 @@ export class SessionService {
       void this.hydrateCloudTaskSessionFromLogs(
         taskId,
         taskRunId,
-        logUrl,
         taskDescription,
         runStatus,
         runState,
@@ -7309,7 +7277,6 @@ export class SessionService {
         void this.hydrateResumeCloudTaskSessionFromLogs(
           taskId,
           taskRunId,
-          logUrl,
           taskDescription,
           runStatus,
           runState,
@@ -7318,7 +7285,6 @@ export class SessionService {
         void this.hydrateCloudTaskSessionFromLogs(
           taskId,
           taskRunId,
-          logUrl,
           taskDescription,
           runStatus,
           runState,
@@ -7374,7 +7340,6 @@ export class SessionService {
   private hydrateCloudTaskSessionFromLogs(
     taskId: string,
     taskRunId: string,
-    logUrl?: string,
     taskDescription?: string,
     runStatus?: TaskRunStatus,
     runState?: Record<string, unknown>,
@@ -7398,7 +7363,6 @@ export class SessionService {
     const hydration = this.performCloudTaskSessionHydration(
       taskId,
       taskRunId,
-      logUrl,
       taskDescription,
       runStatus,
       runState,
@@ -7430,7 +7394,6 @@ export class SessionService {
   private async hydrateResumeCloudTaskSessionFromLogs(
     taskId: string,
     taskRunId: string,
-    logUrl?: string,
     taskDescription?: string,
     runStatus?: TaskRunStatus,
     runState?: Record<string, unknown>,
@@ -7443,7 +7406,6 @@ export class SessionService {
     const result = await this.hydrateCloudTaskSessionFromLogs(
       taskId,
       taskRunId,
-      logUrl,
       taskDescription,
       runStatus,
       runState,
@@ -7682,7 +7644,6 @@ export class SessionService {
   private async performCloudTaskSessionHydration(
     taskId: string,
     taskRunId: string,
-    logUrl?: string,
     taskDescription?: string,
     runStatus?: TaskRunStatus,
     runState?: Record<string, unknown>,
@@ -7783,7 +7744,7 @@ export class SessionService {
           );
           const overlap = suffixPrefixOverlap(ancestorKeys, currentKeys);
           const persistedLeafEntries = currentRunEntries.slice(overlap);
-          const leafLogs = await this.fetchSessionLogs(logUrl, taskRunId);
+          const leafLogs = await this.fetchSessionLogs(taskId, taskRunId);
           const leafKeys = new Set(
             persistedLeafEntries.map((entry) => JSON.stringify(entry)),
           );
@@ -7817,10 +7778,10 @@ export class SessionService {
         rawEntries = window.entries;
         liveStreamLineCount = window.chainTotal;
         // A terminal run whose persisted chain comes back empty can still
-        // have a complete S3 session log (persistence raced teardown); fall
+        // have a complete run log (persistence raced teardown); fall
         // back to it rather than hydrating an empty final transcript.
-        if (rawEntries.length === 0 && logUrl) {
-          const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
+        if (rawEntries.length === 0) {
+          const parsed = await this.fetchSessionLogs(taskId, taskRunId);
           if (parsed.rawEntries.length > 0) {
             transcriptWindow = null;
             rawEntries = parsed.rawEntries;
@@ -7832,10 +7793,10 @@ export class SessionService {
     } else {
       // The local cache read is free and offline-safe, so it keeps priority;
       // a cache miss fetches only the newest window of the persisted chain
-      // instead of the whole log file. The full S3 read survives as the
+      // instead of the whole log file. The full run log read survives as the
       // fallback for old servers and auth that is still restoring.
-      const local = await this.fetchSessionLogs(undefined, taskRunId);
-      if (local.rawEntries.length > 0) {
+      const local = await this.readLocalSessionLogs(taskRunId);
+      if (local?.rawEntries.length) {
         rawEntries = local.rawEntries;
         liveStreamLineCount = local.totalLineCount;
       } else {
@@ -7849,7 +7810,7 @@ export class SessionService {
               taskRunId,
             )
           : null;
-        // An empty persisted chain can trail an S3 log that already has
+        // An empty persisted chain can trail a run log that already has
         // entries (persistence lag), so only a non-empty window short-circuits
         // the full read.
         if (window && window.entries.length > 0) {
@@ -7865,7 +7826,7 @@ export class SessionService {
             );
           }
         } else {
-          const parsed = await this.fetchSessionLogs(logUrl, taskRunId);
+          const parsed = await this.fetchSessionLogs(taskId, taskRunId);
           rawEntries = parsed.rawEntries;
           liveStreamLineCount = parsed.totalLineCount;
         }
@@ -8018,7 +7979,6 @@ export class SessionService {
     this.d.store.updateSession(taskRunId, {
       events,
       isCloud: true,
-      logUrl: logUrl ?? session.logUrl,
       cloudTranscriptEntryCount: chainTotal,
       transcriptWindowStart: windowStart,
       // Terminal hydration records the whole chain as processed so nothing
@@ -8531,7 +8491,6 @@ export class SessionService {
       authStatus.auth.apiHost,
       authStatus.auth.projectId,
       undefined,
-      run.log_url,
       typeof run.state?.initial_permission_mode === "string"
         ? run.state.initial_permission_mode
         : undefined,
@@ -8619,7 +8578,6 @@ export class SessionService {
       getCloudUrlFromRegion(cloudAuth.cloudRegion),
       cloudAuth.projectId,
       onCloudStatusChange,
-      task.latest_run?.log_url,
       initialMode,
       adapter,
       initialModel,
@@ -8713,13 +8671,12 @@ export class SessionService {
     session: ReconcileSessionState | undefined,
   ): void {
     if (session && session.eventCount > 0) return;
-    if (!task.latest_run?.id || !task.latest_run?.log_url) return;
+    if (!task.latest_run?.id) return;
 
     this.loadLogsOnly({
       taskId: task.id,
       taskRunId: task.latest_run.id,
       taskTitle: task.title || task.description || "Task",
-      logUrl: task.latest_run.log_url,
     });
   }
 
@@ -9032,7 +8989,6 @@ export class SessionService {
           entryBatches: [
             { endCount: expectedCount, entries: update.newEntries },
           ],
-          logUrl: session?.logUrl,
         });
       }
     }
@@ -9404,7 +9360,6 @@ export class SessionService {
     taskRunId: string,
     taskId: string,
     taskTitle: string,
-    logUrl: string,
   ): Promise<void> {
     const tailQuery = this.d.trpc.logs.readLocalLogsTail;
     if (!tailQuery) return;
@@ -9421,7 +9376,6 @@ export class SessionService {
       if (rawEntries.length === 0) return;
       const session = createBaseSession(taskRunId, taskId, taskTitle);
       session.events = convertStoredEntriesToEvents(rawEntries);
-      session.logUrl = logUrl;
       session.status = "connecting";
       this.d.store.setSession(session);
     } catch (error) {
@@ -9463,9 +9417,28 @@ export class SessionService {
     return { content };
   }
 
+  private async readLocalSessionLogs(
+    taskRunId: string,
+  ): Promise<ParsedSessionLogs | undefined> {
+    try {
+      const { content, originalLineCount } =
+        await this.readLocalLogsPreferCollapsed(taskRunId);
+      if (!content?.trim()) return undefined;
+      const parsed = this.parseLogContent(content);
+      // Collapsed content has fewer lines than the file, so keep the
+      // server's original line count for resume/gap tracking.
+      return originalLineCount === undefined
+        ? parsed
+        : { ...parsed, totalLineCount: originalLineCount };
+    } catch {
+      this.d.log.warn("Failed to read local logs", { taskRunId });
+      return undefined;
+    }
+  }
+
   private async fetchSessionLogs(
-    logUrl: string | undefined,
-    taskRunId?: string,
+    taskId: string,
+    taskRunId: string,
     options: { minEntryCount?: number } = {},
   ): Promise<ParsedSessionLogs> {
     const empty: ParsedSessionLogs = {
@@ -9473,48 +9446,29 @@ export class SessionService {
       totalLineCount: 0,
       parseFailureCount: 0,
     };
-    if (!logUrl && !taskRunId) return empty;
-    let localResult: ParsedSessionLogs | undefined;
-
-    if (taskRunId) {
-      try {
-        const { content, originalLineCount } =
-          await this.readLocalLogsPreferCollapsed(taskRunId);
-        if (content?.trim()) {
-          const parsed = this.parseLogContent(content);
-          // Collapsed content has fewer lines than the file, so keep the
-          // server's original line count for resume/gap tracking.
-          localResult =
-            originalLineCount === undefined
-              ? parsed
-              : { ...parsed, totalLineCount: originalLineCount };
-          if (
-            !options.minEntryCount ||
-            localResult.totalLineCount >= options.minEntryCount
-          ) {
-            return localResult;
-          }
-        }
-      } catch {
-        this.d.log.warn("Failed to read local logs, falling back to S3", {
-          taskRunId,
-        });
+    const localResult = await this.readLocalSessionLogs(taskRunId);
+    if (localResult) {
+      if (localResult.totalLineCount >= (options.minEntryCount ?? 0)) {
+        return localResult;
       }
     }
 
-    if (!logUrl) return localResult ?? empty;
-
     try {
-      const content = await this.d.trpc.logs.fetchS3Logs.query({ logUrl });
-      if (!content?.trim()) return localResult ?? empty;
+      const authStatus = await this.awaitAuthCredentialsSettled();
+      if (authStatus.kind !== "ready") return localResult ?? empty;
+      const content: string = await authStatus.auth.client.getTaskRunLog(
+        taskId,
+        taskRunId,
+      );
+      if (!content.trim()) return localResult ?? empty;
 
       const result = this.parseLogContent(content);
 
-      if (taskRunId && result.rawEntries.length > 0) {
+      if (result.rawEntries.length > 0) {
         this.d.trpc.logs.writeLocalLogs
           .mutate({ taskRunId, content })
           .catch((err: unknown) => {
-            this.d.log.warn("Failed to cache S3 logs locally", {
+            this.d.log.warn("Failed to cache run logs locally", {
               taskRunId,
               err,
             });
@@ -9529,7 +9483,13 @@ export class SessionService {
       }
 
       return result;
-    } catch {
+    } catch (error) {
+      this.d.log.warn("Failed to fetch run log", {
+        taskId,
+        taskRunId,
+        status: requestErrorStatus(error),
+        error,
+      });
       return localResult ?? empty;
     }
   }
@@ -9603,7 +9563,6 @@ export class SessionService {
   private commitReconciledCloudEvents(
     taskRunId: string,
     rawEntries: StoredLogEntry[],
-    logUrl: string | undefined,
     processedLineCount: number,
   ): void {
     let events = convertStoredEntriesToEvents(rawEntries, undefined, {
@@ -9635,7 +9594,6 @@ export class SessionService {
     this.d.store.updateSession(taskRunId, {
       events,
       isCloud: true,
-      logUrl,
       processedLineCount,
       transcriptWindowStart: 0,
     });

@@ -1530,8 +1530,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       // A terminal run whose persisted chain comes back empty can still have
       // a complete archived log (persistence raced teardown); fall back to it
       // rather than emitting an empty final transcript.
-      if (window?.entries.length === 0 && run.log_url) {
-        const archived = await this.fetchArchivedLogs(run.log_url);
+      if (window?.entries.length === 0) {
+        const archived = await this.fetchArchivedLogs(watcher);
         window = archived
           ? { entries: archived, windowStart: 0, chainTotal: archived.length }
           : null;
@@ -2845,13 +2845,25 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   }
 
   private async fetchArchivedLogs(
-    logUrl: string,
+    watcher: WatcherState,
   ): Promise<StoredLogEntry[] | null> {
+    const url = new URL(
+      `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/log_entries/`,
+    );
+    url.searchParams.set("scope", "run");
     try {
-      const response = await this.streamFetch(logUrl, {
+      const response = await this.auth.authenticatedFetch(url.toString(), {
+        method: "GET",
         signal: AbortSignal.timeout(ARCHIVED_LOG_FETCH_TIMEOUT_MS),
       });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        this.log.warn("Cloud task archived logs fetch failed", {
+          status: response.status,
+          taskId: watcher.taskId,
+          runId: watcher.runId,
+        });
+        return null;
+      }
       const content = await response.text();
       if (!content.trim()) return [];
       return content
