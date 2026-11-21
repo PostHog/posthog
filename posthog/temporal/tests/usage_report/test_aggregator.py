@@ -173,6 +173,7 @@ def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None
     assert all_data["teams_with_sandbox_compute_credits_used_in_period"] == {}
     assert all_data["teams_with_sandbox_compute_cpu_millicore_seconds_in_period"] == {}
     assert all_data["teams_with_sandbox_compute_memory_mib_seconds_in_period"] == {}
+    assert all_data["teams_with_ai_compute_credits_used_in_period"] == {}
 
 
 @pytest.mark.parametrize(

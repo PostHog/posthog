@@ -18,6 +18,7 @@ from products.tasks.backend.access import (
 )
 from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.compute_quota import (
+    AI_CREDITS_DENIAL_CODE,
     COMPUTE_QUOTA_DENIAL_CODE,
     ORGANIZATION_DEACTIVATED_DENIAL_CODE,
     organization_deactivated,
@@ -99,6 +100,8 @@ def organization_deactivated_response() -> Response:
 def compute_quota_limit_response(reason: str = COMPUTE_QUOTA_DENIAL_CODE) -> Response:
     if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE:
         return organization_deactivated_response()
+    if reason == AI_CREDITS_DENIAL_CODE:
+        return _billing_limit_response(AI_CREDITS_DENIAL_CODE, "Your organization reached its PostHog AI usage limit.")
     return _billing_limit_response(
         COMPUTE_QUOTA_DENIAL_CODE,
         "Your organization reached its PostHog Desktop usage limit.",
