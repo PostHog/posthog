@@ -2027,7 +2027,7 @@ Note: The official api-specs repository supplies the order, customer, channel, m
 
 ## Bigeye — gaps
 
-Today (12): `Collections`, `Deltas`, `Issues`, `LineageGraph`, `MetricRevisions`, `MetricRuns`, `MetricScorecard`, `Metrics`, `SchemaChanges`, `Sources`, `Tables`, `Workspaces`
+Today (16): `Collections`, `Columns`, `CustomRules`, `Deltas`, `Groups`, `Issues`, `LineageGraph`, `MetricRevisions`, `MetricRuns`, `MetricScorecard`, `Metrics`, `SchemaChanges`, `Sources`, `Tables`, `Users`, `Workspaces`
 
 Diffed against: <https://docs.bigeye.com/llms.txt>
 
@@ -2042,10 +2042,10 @@ Note: The official index links supplied OpenAPI definitions for every listed gap
 
 Re-audited 2026-11-19 against: <https://docs.bigeye.com/llms.txt>
 
-- [ ] `Users (GET /api/v1/users)` — resolve owner and assignee IDs on the issues and metrics we sync (high)
-- [ ] `Columns (POST /api/v1/columns/fetch)` — column catalog that metric configuration points at, for coverage by column (high)
-- [ ] `Custom rules (POST /api/v1/custom-rules/fetch)` — user-defined SQL data quality rules and their status (medium)
-- [ ] `Groups (GET /api/v1/groups)` — user groups for resolving team ownership and access (medium)
+- [x] `Users (GET /api/v1/users)` — resolve owner and assignee IDs on the issues and metrics we sync (high)
+- [x] `Columns (POST /api/v1/columns/fetch)` — column catalog that metric configuration points at, for coverage by column (high)
+- [x] `Custom rules (POST /api/v1/custom-rules/fetch)` — user-defined SQL data quality rules and their status (medium)
+- [x] `Groups (GET /api/v1/groups)` — user groups for resolving team ownership and access (medium)
 - [ ] `Dimensions (GET /api/v1/dimensions)` — data quality dimension lookup (freshness, volume, and so on) for grouping metrics (low)
 - [ ] `Named schedules (GET /api/v1/schedules)` — schedule lookup that explains metric run timing (low)
 - [ ] `Virtual tables (GET /api/v1/virtual-tables)` — SQL-defined virtual tables monitored alongside real tables (low)
