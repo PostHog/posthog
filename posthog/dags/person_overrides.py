@@ -136,9 +136,12 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         [[checksum]] = results
         return checksum
 
-    def update_commands(self) -> set[str]:
+    def update_commands(self, filter_teams: bool = False) -> set[str]:
+        # team_id leads the sorting key, so this set lets the read skip the granules of every team
+        # with no override instead of looking up each of their rows in the dictionary.
+        team_filter = " AND team_id IN (SELECT DISTINCT team_id FROM dictionary(%(name)s))" if filter_teams else ""
         return {
-            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id))"
+            f"UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id)){team_filter}"
         }
 
     @property
@@ -321,7 +324,9 @@ def run_person_id_update_mutations(
     # it covers, until a merge applies the patch. A mutation rewrites the column and its index together.
     enqueued: list[tuple[ClickhouseCluster, dict[int, MutationWaiter]]] = []
     for placement in resolve_placements(cluster, SQUASH_TARGETS):
-        runner = dictionary.update_mutation_runner_for(placement.target.data_table)
+        runner = dictionary.update_mutation_runner_for(
+            placement.target.data_table, filter_teams=placement.target.uses_new_events_schema
+        )
         enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
 
     # Every mutation is already in flight, so these waits overlap and cost the longest rather than
