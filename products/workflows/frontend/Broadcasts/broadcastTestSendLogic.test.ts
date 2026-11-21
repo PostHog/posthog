@@ -147,12 +147,24 @@ describe('broadcastTestSendLogic', () => {
         { case: 'text only', email: { html: '', text: 'Hi' }, to: 'a@example.com', reason: undefined },
         { case: 'no address', email: {}, to: '', reason: 'Enter a valid email address' },
         { case: 'a malformed address', email: {}, to: 'not-an-email', reason: 'Enter a valid email address' },
+        {
+            case: 'a subject Liquid cannot parse',
+            email: { subject: 'Hi {{ person.name' },
+            to: 'a@example.com',
+            reason: expect.stringMatching(/^Liquid template error/),
+        },
+        {
+            case: 'a broken saved recipient',
+            email: { to: { email: '{{ person.email' } },
+            to: 'a@example.com',
+            reason: undefined,
+        },
         { case: 'everything set', email: {}, to: 'a@example.com', reason: undefined },
     ])('blocks an email test with $case', ({ email, to, reason }) => {
         wizard.actions.setEmail({ ...READY_EMAIL, ...email })
         logic.actions.setRecipientEmail(to)
 
-        expect(logic.values.sendDisabledReason).toBe(reason)
+        expect(logic.values.sendDisabledReason).toEqual(reason)
     })
 
     it.each([
@@ -160,13 +172,19 @@ describe('broadcastTestSendLogic', () => {
         { case: 'a blank title', push: { title: '  ' }, to: 'me', reason: 'Add a notification title first' },
         { case: 'an endraw', push: {}, to: '{% endraw', reason: 'This distinct ID contains text that cannot be sent' },
         { case: 'a blank distinct ID', push: {}, to: '   ', reason: 'Enter a distinct ID' },
+        {
+            case: 'a message Liquid cannot parse',
+            push: { body: 'Hi {{ person.name' },
+            to: 'me',
+            reason: expect.stringMatching(/^Liquid template error/),
+        },
         { case: 'everything set', push: {}, to: 'me', reason: undefined },
     ])('blocks a push test with $case', async ({ push, to, reason }) => {
         await usePush()
         wizard.actions.setPush({ ...READY_PUSH, ...push })
         logic.actions.setRecipientDistinctId(to)
 
-        expect(logic.values.sendDisabledReason).toBe(reason)
+        expect(logic.values.sendDisabledReason).toEqual(reason)
     })
 
     it.each([
