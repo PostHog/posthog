@@ -89,6 +89,21 @@ class DashboardInsightTileSummary:
     insight_id: int
     layouts: dict[str, Any]
     filters_overrides: dict[str, Any] | None
+    group_key: str | None = None
+
+
+@dataclass(frozen=True)
+class DashboardTileGroupSummary:
+    key: str
+    title: str
+    # Every live tile in the group, of any kind, so `heading` matches the dashboard's own.
+    tile_count: int
+
+    @property
+    def heading(self) -> str:
+        if self.title:
+            return self.title
+        return f"{self.tile_count} tile" if self.tile_count == 1 else f"{self.tile_count} tiles"
 
 
 @dataclass(frozen=True)

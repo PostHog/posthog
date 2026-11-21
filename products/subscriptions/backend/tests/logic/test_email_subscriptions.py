@@ -120,6 +120,30 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert "You have been subscribed to a PostHog Dashboard" == mocked_email_messages[0].subject
         assert f"SHOWING 1 OF 10 DASHBOARD INSIGHTS" in mocked_email_messages[0].html_body
 
+    def test_dashboard_delivery_heads_each_tile_group(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
+        revenue_insight = Insight.objects.create(team=self.team, short_id="654321", name="Revenue chart")
+        revenue_asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=revenue_insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/revenue.png",
+        )
+
+        send_email_subscription_report(
+            self.user.email,
+            subscription,
+            [self.asset, revenue_asset],
+            total_asset_count=2,
+            group_headings={revenue_asset.id: "Revenue <b>& growth</b>"},
+        )
+
+        html = mocked_email_messages[0].html_body
+        assert html.count("<h2") == 1
+        heading = html.index("Revenue &lt;b&gt;&amp; growth&lt;/b&gt;</h2>")
+        assert html.index("export-my-test-subscription") < heading < html.index("export-revenue-chart")
+
     def test_dashboard_delivery_states_current_insight_limit(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
 

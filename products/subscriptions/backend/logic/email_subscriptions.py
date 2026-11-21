@@ -8,6 +8,7 @@ from posthog.helpers.email_formatting import render_ai_email_html
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.subscriptions.backend.logic.insight_groups import GroupHeadings
 from products.subscriptions.backend.logic.subscription_utils import (
     MAX_INSIGHTS,
     UTM_TAGS_BASE,
@@ -20,16 +21,18 @@ from products.subscriptions.backend.models.subscription import Subscription, get
 logger = structlog.get_logger(__name__)
 
 
-def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
+def _get_asset_data_for_email(asset: ExportedAsset, group_heading: str | None = None) -> dict:
     if _has_asset_failed(asset):
         details = failed_asset_details(asset)
         return {
+            "group_heading": group_heading,
             "error": True,
             "insight_name": details.insight_name,
             "error_message": details.error_text,
         }
 
     return {
+        "group_heading": group_heading,
         "error": False,
         "image_url": asset.get_subscription_delivery_content_url(),
     }
@@ -45,6 +48,7 @@ def send_email_subscription_report(
     change_summary: Optional[str] = None,
     summary_skipped_over_budget: bool = False,
     delivery_id: Optional[uuid.UUID] = None,
+    group_headings: Optional[GroupHeadings] = None,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
 
@@ -87,7 +91,7 @@ def send_email_subscription_report(
         subject=subject,
         template_name="subscription_report",
         template_context={
-            "asset_data": [_get_asset_data_for_email(x) for x in assets],
+            "asset_data": [_get_asset_data_for_email(x, (group_headings or {}).get(x.id)) for x in assets],
             "resource_noun": resource_info.kind,
             "resource_name": resource_info.name,
             "resource_url": f"{resource_info.url}?{utm_tags}",
