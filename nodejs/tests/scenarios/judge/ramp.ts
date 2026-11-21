@@ -327,13 +327,13 @@ function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gate
         step.index === steps.length - 1 &&
         step.endedAt - step.startedAt < planned[step.index].toMs - planned[step.index].fromMs
     for (const step of steps) {
-        const shortfall = shortfallOf(step, minOffered)
-        if (shortfall && !cutShort(step)) {
-            add(step.index, harness(step, 'generator'), shortfall)
-        }
         const lagged = laggedOf(step)
         if (lagged) {
             add(step.index, harness(step, 'runner'), lagged)
+        }
+        const shortfall = shortfallOf(step, minOffered)
+        if (shortfall && !cutShort(step)) {
+            add(step.index, harness(step, 'generator'), shortfall)
         }
     }
     const stopped = stop && steps[stop.index]

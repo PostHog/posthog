@@ -643,6 +643,16 @@ describe('ramp', () => {
             },
         ],
         [
+            'a step whose runner lagged and so offered short, which the runner outranks',
+            { steps: [driven(0), { ...driven(1, 200), loopLagP99Ms: 900 }, driven(2)], bars: [brokeAt(5)] },
+            {
+                end: 'harness_limit',
+                sustainedScale: 1,
+                broke: harnessAt(1, 'runner', 200),
+                reason: "the runner's event loop lagged 900 ms at p99 in the 2x step, over 250 ms",
+            },
+        ],
+        [
             'a last step whose bar the run host could not read',
             { bars: [unreadAt(5)] },
             {
