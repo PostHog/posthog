@@ -58,6 +58,70 @@ class TestFanout:
         assert "data_selector" in str(result.raised)
 
 
+class TestPagination:
+    @parameterized.expand(
+        [
+            (
+                "paginated_follows_next_to_terminal_page",
+                "tickets",
+                [
+                    _response([{"id": "tk1", "created_at": "2026-01-02T00:00:00Z"}], next_page=2),
+                    _response([{"id": "tk2", "created_at": "2026-01-03T00:00:00Z"}], next_page=None),
+                ],
+                ["/v1/ticketing/tickets", "/v1/ticketing/tickets"],
+                [None, "2"],
+                [
+                    {"id": "tk1", "created_at": "2026-01-02T00:00:00Z"},
+                    {"id": "tk2", "created_at": "2026-01-03T00:00:00Z"},
+                ],
+            ),
+            (
+                "unpaginated_stops_after_one_response",
+                "lifecycle_phases",
+                [
+                    ScriptedResponse(
+                        json={
+                            "data": [
+                                {
+                                    "id": "ph1",
+                                    "name": "Respond",
+                                    "position": 1,
+                                    "milestones": [{"id": "m1", "slug": "started", "position": 1}],
+                                }
+                            ]
+                        }
+                    )
+                ],
+                ["/v1/lifecycles/phases"],
+                [None],
+                [
+                    {
+                        "id": "ph1",
+                        "name": "Respond",
+                        "position": 1,
+                        "milestones": [{"id": "m1", "slug": "started", "position": 1}],
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_walk(
+        self,
+        _name: str,
+        endpoint: str,
+        responses: list[ScriptedResponse],
+        expected_paths: list[str],
+        expected_pages: list[str | None],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = _driver().run(endpoint, responses)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("page") == expected_pages
+        assert result.rows == expected_rows
+
+
 class TestSourceResponse:
     @parameterized.expand(list(ENDPOINTS))
     def test_source_response_matches_endpoint_config(self, endpoint: str) -> None:
