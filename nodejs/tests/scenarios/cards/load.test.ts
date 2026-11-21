@@ -588,6 +588,11 @@ describe('load', () => {
             { ...profile, settings: { CDP_RATE_LIMITER_REFILL_RATE: '1000' } },
         ],
         [
+            'an event load under a quoted rate limit the profile raises',
+            overTheLimit,
+            { ...profile, settings: { CDP_RATE_LIMITER_REFILL_RATE: '"1000"' } },
+        ],
+        [
             'a transactional load, which no workflow rate limit slows',
             {
                 ...overTheLimit,
@@ -598,6 +603,22 @@ describe('load', () => {
         ],
     ])('loads %s', (_name, content, profileContent) => {
         expect(loadCard(content, profileContent).card.id).toBe(card.id)
+    })
+
+    it("refuses an event load over a rate limit the runner's environment lowers, which its roles inherit", () => {
+        const inherited = process.env.CDP_RATE_LIMITER_REFILL_RATE
+        process.env.CDP_RATE_LIMITER_REFILL_RATE = '1'
+        try {
+            expect(() => loadCard(card, profile)).toThrow(
+                'setup.teams: event_email sends 2 units a second to each team'
+            )
+        } finally {
+            if (inherited === undefined) {
+                delete process.env.CDP_RATE_LIMITER_REFILL_RATE
+            } else {
+                process.env.CDP_RATE_LIMITER_REFILL_RATE = inherited
+            }
+        }
     })
 
     const settings = { CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: '10000', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }

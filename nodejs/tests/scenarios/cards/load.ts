@@ -4,6 +4,7 @@ import path from 'path'
 import { parse, stringify } from 'yaml'
 import { z } from 'zod'
 
+import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
 import { TRAFFIC } from '../generator/traffic'
@@ -138,8 +139,12 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
 // the queue.
 const RATE_LIMIT_SHARE = 0.8
 
+// The roles inherit the runner's environment under the profile settings, and parse the limit as the server does.
 function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): string[] {
-    const limit = Number(profile.settings.CDP_RATE_LIMITER_REFILL_RATE ?? defaults.CDP_RATE_LIMITER_REFILL_RATE)
+    const key = 'CDP_RATE_LIMITER_REFILL_RATE'
+    const fallback = Number(defaults[key])
+    const raw = profile.settings[key] ?? process.env[key]
+    const limit = raw === undefined ? fallback : parseNumberFromEnv(key, String(raw), fallback)
     const ceiling = limit * RATE_LIMIT_SHARE
     const topScale = Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
     return card.drive.traffic.flatMap(({ name }) => {
