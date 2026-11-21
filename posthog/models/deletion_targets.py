@@ -133,8 +133,8 @@ class DeletionTarget:
     # Days the TTL keeps a row past toDate(timestamp). Property removal's restore checks leave out
     # the rows that the TTL can drop.
     ttl_days: int | None = None
-    # Deletes and person_id rewrites on this table write patch parts instead of mutations; see
-    # MutationRunner.patch_parts.
+    # Deletes on this table write patch parts instead of mutations; see MutationRunner.patch_parts.
+    # The person_id rewrite of the squash is always a mutation.
     uses_patch_parts: bool = False
 
     @property

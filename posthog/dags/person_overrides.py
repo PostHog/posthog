@@ -22,13 +22,7 @@ from posthog.dags.common.staged_dictionary import (
 )
 from posthog.dataclasses import frozen
 from posthog.models.async_deletion import DeletionRunJob
-from posthog.models.deletion_targets import (
-    SQUASH_TARGETS,
-    TargetPlacement,
-    resolve_placements,
-    shards_by_partition,
-    sweep_clusters,
-)
+from posthog.models.deletion_targets import SQUASH_TARGETS, resolve_placements, sweep_clusters
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
 
@@ -142,12 +136,12 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         [[checksum]] = results
         return checksum
 
-    def update_commands(self, partition_clause: str = "", filter_teams: bool = False) -> set[str]:
+    def update_commands(self, filter_teams: bool = False) -> set[str]:
         # team_id leads the sorting key, so this set lets the read skip the granules of every team
         # with no override instead of looking up each of their rows in the dictionary.
         team_filter = " AND team_id IN (SELECT DISTINCT team_id FROM dictionary(%(name)s))" if filter_teams else ""
         return {
-            f"UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)){partition_clause} WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id)){team_filter}"
+            f"UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id)) AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id)){team_filter}"
         }
 
     @property
@@ -325,24 +319,15 @@ def run_person_id_update_mutations(
     leave its rows on a person_id this run squashed away, and the overrides that record the correct
     one are deleted in the very next op.
     """
+    # Every target takes a mutation, including the ones that delete with patch parts. A patch part that
+    # updates person_id stops ClickHouse from using the bloom filter index on that column for the parts
+    # it covers, until a merge applies the patch. A mutation rewrites the column and its index together.
     enqueued: list[tuple[ClickhouseCluster, dict[int, MutationWaiter]]] = []
-    patch_part_placements: list[TargetPlacement] = []
     for placement in resolve_placements(cluster, SQUASH_TARGETS):
-        if placement.target.uses_patch_parts:
-            patch_part_placements.append(placement)
-            continue
-        runner = dictionary.update_mutation_runner_for(placement.target.data_table)
+        runner = dictionary.update_mutation_runner_for(
+            placement.target.data_table, filter_teams=placement.target.uses_new_events_schema
+        )
         enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
-
-    # A lightweight update whose WHERE cannot be pruned holds a block number open in every partition
-    # until it finishes, and writes each chunk as one patch part per partition it touches. One
-    # statement per partition keeps both to a single partition, so the other partitions keep merging.
-    # The patch part is written before enqueue_on_shards returns, so these run in series.
-    for placement in patch_part_placements:
-        for partition_id, shards in sorted(shards_by_partition(placement).items()):
-            runner = dictionary.update_mutation_runner_for(placement.target.data_table, partition_id=partition_id)
-            runner.patch_parts = True
-            runner.enqueue_on_shards(placement.cluster, shards)
 
     # Every mutation is already in flight, so these waits overlap and cost the longest rather than
     # their sum. The capacity wait inside enqueue_on_shards is still per table and serial.
