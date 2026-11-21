@@ -1026,6 +1026,9 @@ async function waitForTwoAnimationFrames(page: Page): Promise<void> {
             { timeout: IN_PAGE_WAIT_TIMEOUT_MS }
         )
     } catch (error) {
+        if (!(error instanceof Error) || error.name !== 'TimeoutError') {
+            throw error
+        }
         throw new Error(`The page painted no animation frame within ${IN_PAGE_WAIT_TIMEOUT_MS}ms.`, {
             cause: error,
         })
