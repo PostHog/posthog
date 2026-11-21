@@ -4,12 +4,6 @@ import { match } from 'ts-pattern'
 import { IconTrending } from '@posthog/icons'
 import { Tooltip as LemonTooltip } from '@posthog/lemon-ui'
 
-import type {
-    SparklineDatum,
-    SparklineEvent,
-    VolumeSparklineHoverSelection,
-} from 'lib/components/VolumeSparkline/types'
-import { volumeSparklineLogic } from 'lib/components/VolumeSparkline/volumeSparklineLogic'
 import { dayjs } from 'lib/dayjs'
 import { Skeleton } from 'lib/ui/quill'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -19,6 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { errorTrackingVolumeSparklineLogic } from '../VolumeSparkline/errorTrackingVolumeSparklineLogic'
+import type { SparklineDatum, SparklineEvent, VolumeSparklineHoverSelection } from '../VolumeSparkline/types'
 import { IssueFilterPreviewHeader } from './IssueFilterPreviewHeader'
 
 interface TimeFilterPreviewHeaderProps {
@@ -28,7 +24,7 @@ interface TimeFilterPreviewHeaderProps {
 /** Owns the hover selection so moving across the chart does not re-render the chart subtree. */
 export function TimeFilterPreviewHeader({ sparklineKey }: TimeFilterPreviewHeaderProps): JSX.Element {
     const { aggregations, summaryLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { hoverSelection } = useValues(volumeSparklineLogic({ sparklineKey }))
+    const { hoverSelection } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     const { timezone } = useValues(teamLogic)
 
     return (

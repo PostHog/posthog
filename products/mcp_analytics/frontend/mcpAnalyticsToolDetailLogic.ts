@@ -552,7 +552,11 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         },
     })),
 
-    // React to the shared filters' value, whatever changed it.
+    // The window and pinned interval reload through the urlToAction handler below instead of a
+    // listener on setDateFilter; the shared filters have no URL round-trip of their own here, so
+    // they reload directly the same way that handler reloads on a date change.
+    // The shared filters change from the filter bar, URL hydration, or the team's test-account default,
+    // so react to the value rather than to any one action.
     subscriptions(({ actions }) => ({
         sharedQueryFilters: (_: MCPSharedQueryFilters, previous: MCPSharedQueryFilters | undefined) => {
             if (previous) {

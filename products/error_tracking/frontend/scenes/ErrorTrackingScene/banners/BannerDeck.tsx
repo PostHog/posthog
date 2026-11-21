@@ -2,21 +2,20 @@ import { ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import type { ErrorTrackingBannerKey } from './bannerQueue'
 import { BannerStackControls } from './BannerStackControls'
 
-export function BannerDeck<T extends string>({
+export function BannerDeck({
     banners,
     current,
     onPrevious,
     onNext,
     renderCurrent,
-    dataAttrPrefix,
 }: {
-    banners: T[]
-    current: T
+    banners: ErrorTrackingBannerKey[]
+    current: ErrorTrackingBannerKey
     onPrevious: () => void
     onNext: () => void
-    dataAttrPrefix: string
     /** Renders the current banner, with the stack controls to place inside it. */
     renderCurrent: (navigation?: ReactNode) => ReactNode
 }): JSX.Element {
@@ -50,7 +49,6 @@ export function BannerDeck<T extends string>({
                             total={banners.length}
                             onPrevious={onPrevious}
                             onNext={onNext}
-                            dataAttrPrefix={dataAttrPrefix}
                         />
                     ) : undefined
                 )}

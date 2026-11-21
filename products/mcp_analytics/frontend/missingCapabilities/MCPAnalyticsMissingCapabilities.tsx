@@ -22,12 +22,12 @@ import { McpDateFilter } from '../components/McpDateFilter'
 import { MCP_FILTER_ACTIVE_CLASS, McpFacetSelect } from '../components/McpFacetSelect'
 import { McpFacetControl, McpSharedFilters } from '../components/McpSharedFilters'
 import { HarnessLogo } from '../dashboard/harness'
-import { isUnidentifiedClient } from '../dashboard/harnessRegistry'
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import {
     DEFAULT_DATE_FILTER,
     REPORT_OUTCOMES,
     ReportOutcome,
+    isUnidentifiedClient,
     mcpMissingCapabilitiesLogic,
     parsePersonProperties,
 } from './mcpMissingCapabilitiesLogic'

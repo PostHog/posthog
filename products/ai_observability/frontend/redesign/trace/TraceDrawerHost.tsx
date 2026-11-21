@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { DetailPanel, isDetailPanelFullWidth } from 'lib/components/DetailPanel/DetailPanel'
-import { isOverlayOpen } from 'lib/components/DetailPanel/shouldCloseOnEscape'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { DetailPanel, isDetailPanelFullWidth } from '../shared/components/DetailPanel'
 import { TraceDrawerToolbar } from './components/TraceDrawerToolbar'
+import { isOverlayOpen } from './shouldCloseOnEscape'
 import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './traceDrawerLists'
 import { TraceStepDirection, traceDrawerLogic } from './traceDrawerLogic'
 import { TraceViewHost } from './TraceViewHost'

@@ -65,7 +65,6 @@ interface McpSharedFiltersProps {
     pageKey: string
     dataAttrPrefix: string
     className?: string
-    /** The page's search and date range, which lead the row. */
     children?: ReactNode
     /** Whether the page's own filters are set, so "Clear filters" shows for them too. */
     hasPageFilters?: boolean

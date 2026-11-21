@@ -2,9 +2,8 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
-import { shouldCloseOnEscape } from 'lib/components/DetailPanel/shouldCloseOnEscape'
-
 import type { EvaluationReportRunApi } from '../generated/api.schemas'
+import { shouldCloseOnEscape } from '../redesign/trace/shouldCloseOnEscape'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { evaluationReportRunsLogic } from './evaluationReportRunsLogic'
 import { ReportDrawerSource, evaluationReportTracking, takeNextDrawerSource } from './evaluationReportTracking'

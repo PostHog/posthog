@@ -58,7 +58,8 @@ export function ShareOverTimeChart({
         () => createTooltipDateFormatter({ interval, timezone, allDays: labels }),
         [interval, timezone, labels]
     )
-    // Custom tooltip: the value formatter can't see the call counts.
+    // A custom tooltip, because the config's value formatter sees only the share, not the hovered
+    // day, so it cannot look up the call count behind it.
     const renderTooltip = useCallback(
         (ctx: TooltipContext) => {
             const callsAt = (s: Series): number => s.data[ctx.dataIndex] ?? 0

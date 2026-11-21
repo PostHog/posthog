@@ -1,8 +1,12 @@
 import { ComponentType, ReactNode } from 'react'
 
-import { BannerAction, BannerActionButton } from 'lib/components/BannerDeck/BannerActionButton'
-import { BannerDismissButton } from 'lib/components/BannerDeck/BannerDismissButton'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from 'lib/ui/quill'
+
+import {
+    BannerAction,
+    BannerActionButton,
+} from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/banners/BannerActionButton'
+import { BannerDismissButton } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/banners/BannerDismissButton'
 
 export interface ActivityCardProps {
     illustration: ComponentType<{ className?: string; loading?: 'lazy' | 'eager' }>

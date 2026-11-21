@@ -7,13 +7,11 @@ export function BannerStackControls({
     total,
     onPrevious,
     onNext,
-    dataAttrPrefix,
 }: {
     index: number
     total: number
     onPrevious: () => void
     onNext: () => void
-    dataAttrPrefix: string
 }): JSX.Element {
     return (
         <div className="flex items-center gap-1">
@@ -23,7 +21,7 @@ export function BannerStackControls({
                 aria-label="Previous recommendation"
                 disabled={index <= 0}
                 onClick={onPrevious}
-                data-attr={`${dataAttrPrefix}-previous`}
+                data-attr="error-tracking-banners-previous"
             >
                 <IconChevronLeft />
             </Button>
@@ -35,7 +33,7 @@ export function BannerStackControls({
                 size="icon-sm"
                 aria-label="Next recommendation"
                 onClick={onNext}
-                data-attr={`${dataAttrPrefix}-next`}
+                data-attr="error-tracking-banners-next"
             >
                 <IconChevronRight />
             </Button>

@@ -16,7 +16,6 @@ import { InstrumentationEmptyState } from '../components/InstrumentationEmptySta
 import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { HarnessLogo } from '../dashboard/harness'
-import { UNIDENTIFIED_HARNESS_LABEL } from '../dashboard/harnessRegistry'
 import { KpiTiles } from '../dashboard/KpiTiles'
 import { ToolRankingCard } from '../dashboard/ToolRankingCard'
 import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from '../feedback/constants'
@@ -32,6 +31,7 @@ import {
     rankToolsByP95,
     slowestToolsEmptyMessage,
 } from '../mcpDashboardOverviewLogic'
+import { UNIDENTIFIED_HARNESS_LABEL } from '../missingCapabilities/mcpMissingCapabilitiesLogic'
 import { ToolReportDrawer } from '../tool-quality/ToolReportDrawer'
 import { isMostlyLabeled } from './leaderboardShares'
 import { type FacetKey, mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'

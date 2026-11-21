@@ -34,7 +34,6 @@ import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
 import { InstrumentationEmptyState } from './components/InstrumentationEmptyState'
 import { formatMs, formatNumber } from './dashboard/formatters'
 import { HarnessLogo } from './dashboard/harness'
-import { UNIDENTIFIED_HARNESS_LABEL } from './dashboard/harnessRegistry'
 import { MetricTile } from './dashboard/MetricTile'
 import { SkeletonLine } from './dashboard/SkeletonLine'
 import { INSTRUMENTATION_FIXES } from './instrumentationFixes'
@@ -45,6 +44,7 @@ import {
     ToolSummary,
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
+import { UNIDENTIFIED_HARNESS_LABEL } from './missingCapabilities/mcpMissingCapabilitiesLogic'
 import { ExampleSessionDrawer } from './tool-quality/ExampleSessionDrawer'
 import { ToolExamples } from './tool-quality/ToolExamples'
 import { ToolJourneySankey } from './tool-quality/ToolJourneySankey'

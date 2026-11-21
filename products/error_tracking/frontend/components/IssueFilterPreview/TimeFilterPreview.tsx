@@ -2,23 +2,23 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef } from 'react'
 
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
-import type { SparklineDatum } from 'lib/components/VolumeSparkline/types'
-import { VolumeSparkline } from 'lib/components/VolumeSparkline/VolumeSparkline'
-import { volumeSparklineLogic } from 'lib/components/VolumeSparkline/volumeSparklineLogic'
 
 import { useSparklineDataIssueScene } from '../../hooks/use-sparkline-data'
 import { useSparklineEvents } from '../../hooks/use-sparkline-events'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { cancelEvent } from '../../utils'
 import { SpikeDetailsPopover } from '../SpikeDetailsPopover'
+import { errorTrackingVolumeSparklineLogic } from '../VolumeSparkline/errorTrackingVolumeSparklineLogic'
+import type { SparklineDatum } from '../VolumeSparkline/types'
+import { VolumeSparkline } from '../VolumeSparkline/VolumeSparkline'
 import { issueFilterPreviewLogic } from './issueFilterPreviewLogic'
 import { TimeFilterPreviewHeader } from './TimeFilterPreviewHeader'
 
 export function TimeFilterPreview(): JSX.Element {
     const { issueId, spikeEvents } = useValues(errorTrackingIssueSceneLogic)
     const sparklineKey = issueId || 'issue-unknown'
-    const { clickedSpike } = useValues(volumeSparklineLogic({ sparklineKey }))
-    const { setClickedSpike } = useActions(volumeSparklineLogic({ sparklineKey }))
+    const { clickedSpike } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+    const { setClickedSpike } = useActions(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     const { applyDateRangeFilter } = useActions(issueFilterPreviewLogic)
     const sparklineData = useSparklineDataIssueScene()
     const sparklineEvents = useSparklineEvents()

@@ -39,6 +39,18 @@ const SEARCH_DEBOUNCE_MS = 300
 // One page of reports. Each "Load more" appends the next page.
 export const MISSING_CAPABILITIES_PAGE_SIZE = 50
 
+// This value mirrors mcp_harness.UNIDENTIFIED_HARNESS_LABEL. Keep the two in sync.
+export const UNIDENTIFIED_HARNESS_LABEL = 'Unidentified client'
+
+/** Whether a report tells us nothing about which client filed it.
+ *
+ * The SDK only stamps `$mcp_client_name` on `$mcp_initialize`, so a report may not
+ * identify its client.
+ */
+export function isUnidentifiedClient(harness: string): boolean {
+    return !harness || harness === UNIDENTIFIED_HARNESS_LABEL
+}
+
 /** Shared property filters plus harness/model facets, optionally suggested fixes only. */
 export function reportProperties(
     propertyFilters: AnyPropertyFilter[],

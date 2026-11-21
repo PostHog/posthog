@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
-import type { SparklineEvent } from 'lib/components/VolumeSparkline/types'
 import { Dayjs } from 'lib/dayjs'
 
+import type { SparklineEvent } from '../components/VolumeSparkline/types'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 export function useSparklineEvents(): SparklineEvent<string>[] {

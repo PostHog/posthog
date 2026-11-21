@@ -2,9 +2,6 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import type { SparklineData } from 'lib/components/VolumeSparkline/types'
-import { VolumeSparkline } from 'lib/components/VolumeSparkline/VolumeSparkline'
-import { volumeSparklineLogic } from 'lib/components/VolumeSparkline/volumeSparklineLogic'
 import { dayjs } from 'lib/dayjs'
 import { formatPercentage } from 'lib/utils/numbers'
 import { formatBucketLabel, normalizeBucket } from 'lib/utils/timeBuckets'
@@ -12,15 +9,13 @@ import { formatBucketLabel, normalizeBucket } from 'lib/utils/timeBuckets'
 import type { MCPToolQualityRowBucket } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
+import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
+import type { SparklineData } from 'products/error_tracking/frontend/components/VolumeSparkline/types'
+import { VolumeSparkline } from 'products/error_tracking/frontend/components/VolumeSparkline/VolumeSparkline'
+
 import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber } from '../dashboard/formatters'
 
 export type BucketIssue = 'errors' | 'slow' | null
-
-// CSS variables, which the shared sparkline resolves for the canvas. They match the row's error rate and p95 badges.
-export const ISSUE_COLORS: Record<Exclude<BucketIssue, null>, string> = {
-    errors: 'var(--danger)',
-    slow: 'var(--warning)',
-}
 
 /** Errors win over latency, so a bucket that is both reads as failing. */
 export function bucketIssue(bucket: MCPToolQualityRowBucket, slowThresholdMs: number | null): BucketIssue {
@@ -58,20 +53,15 @@ export function ToolVolumeCell({
         () =>
             labels.map((label) => {
                 const bucket = byBucket.get(label)
-                const issue = bucket ? bucketIssue(bucket, slowThresholdMs) : null
-                return {
-                    date: dayjs(label).toDate(),
-                    value: bucket?.calls ?? 0,
-                    color: issue ? ISSUE_COLORS[issue] : undefined,
-                }
+                return { date: dayjs(label).toDate(), value: bucket?.calls ?? 0 }
             }),
-        [labels, byBucket, slowThresholdMs]
+        [labels, byBucket]
     )
     // Like error tracking, the hovered bucket shows under the chart instead of in a tooltip.
-    const { hoveredIndex, isBarHighlighted } = useValues(volumeSparklineLogic({ sparklineKey }))
+    const { hoveredIndex, isBarHighlighted } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     const hoveredLabel = isBarHighlighted && hoveredIndex !== null ? labels[hoveredIndex] : undefined
     const hovered = hoveredLabel ? byBucket.get(hoveredLabel) : undefined
-    // The stat behind a colored bar is emphasized in the bar's color, so the hover says why.
+    // The stat that makes the bucket an issue is emphasized in the hover.
     const hoveredIssue = hovered ? bucketIssue(hovered, slowThresholdMs) : null
 
     return (
@@ -83,7 +73,6 @@ export function ToolVolumeCell({
                     layout="compact"
                     xAxis="minimal"
                     sparklineKey={sparklineKey}
-                    dataAttr="mcp-tool-volume-sparkline"
                 />
             </div>
             <div className="flex h-4 w-full items-center justify-between gap-1 px-1 text-[10px] leading-none text-muted">

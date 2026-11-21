@@ -30,3 +30,7 @@ function sessionsUrl(searchParams: Record<string, any>, sessionId?: string): str
 export function mcpSessionUrl(sessionId: string, searchParams: Record<string, any> = {}): string {
     return sessionsUrl(searchParams, sessionId)
 }
+
+export function mcpSessionsUrl(searchParams: Record<string, any> = {}): string {
+    return sessionsUrl(searchParams)
+}

@@ -11,9 +11,9 @@ import {
 
 import { initKeaTests } from '~/test/init'
 
+import { errorTrackingVolumeSparklineLogic } from './errorTrackingVolumeSparklineLogic'
 import type { SparklineData, SparklineEvent } from './types'
 import { VolumeSparkline } from './VolumeSparkline'
-import { volumeSparklineLogic } from './volumeSparklineLogic'
 
 let cleanupJsdom: () => void
 let cleanupRaf: () => void
@@ -249,7 +249,7 @@ describe('VolumeSparkline', () => {
 
             hoverAtIndex(wrapper, 2, data.length)
 
-            expect(volumeSparklineLogic({ sparklineKey: SPARKLINE_KEY }).values.hoverSelection).toEqual({
+            expect(errorTrackingVolumeSparklineLogic({ sparklineKey: SPARKLINE_KEY }).values.hoverSelection).toEqual({
                 kind: 'bin',
                 index: 2,
                 datum: data[2],
@@ -258,7 +258,7 @@ describe('VolumeSparkline', () => {
 
         it('clears the hover when the chart unmounts', () => {
             // Keep the logic alive past the chart teardown, like a parent still rendering from it.
-            const logic = volumeSparklineLogic({ sparklineKey: SPARKLINE_KEY })
+            const logic = errorTrackingVolumeSparklineLogic({ sparklineKey: SPARKLINE_KEY })
             const unmountLogic = logic.mount()
             const data = buildData()
             const { container, unmount } = render(
@@ -347,7 +347,7 @@ describe('VolumeSparkline', () => {
 
             hoverFirstPill(container)
 
-            expect(volumeSparklineLogic({ sparklineKey: SPARKLINE_KEY }).values.hoverSelection).toEqual({
+            expect(errorTrackingVolumeSparklineLogic({ sparklineKey: SPARKLINE_KEY }).values.hoverSelection).toEqual({
                 kind: 'event',
                 event: firstSeen,
             })
@@ -365,7 +365,7 @@ describe('VolumeSparkline', () => {
 
             rerenderWith(remaining)
 
-            expect(volumeSparklineLogic({ sparklineKey: SPARKLINE_KEY }).values.hoverSelection).toBeNull()
+            expect(errorTrackingVolumeSparklineLogic({ sparklineKey: SPARKLINE_KEY }).values.hoverSelection).toBeNull()
         })
     })
 })

@@ -6,7 +6,7 @@ import { DataTableNode, HogQLFilters, NodeKind } from '~/queries/schema/schema-g
 
 import { LAB_ORDER, labSqlExpression } from '../aiLabs'
 import { labMark } from '../aiLabs'
-import { HARNESS_BY_LABEL, UNIDENTIFIED_HARNESS_LABEL, harnessMark } from '../dashboard/harnessRegistry'
+import { HARNESS_BY_LABEL, harnessMark } from '../dashboard/harnessRegistry'
 import type { DateFilter } from '../mcpAnalyticsToolQualityLogic'
 
 export const MCP_ACTIVITY_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-activity')
@@ -21,7 +21,7 @@ export const MCP_ACTIVITY_ERROR_COLUMN = `if(${MCP_IS_ERROR_EXPR}, coalesce(null
 export const MCP_ACTIVITY_SESSION_COLUMN = 'properties.$session_id -- Session'
 export const MCP_ACTIVITY_DURATION_COLUMN = 'properties.$mcp_duration_ms -- Duration (ms)'
 
-const harnessLabels = [...Object.keys(HARNESS_BY_LABEL), UNIDENTIFIED_HARNESS_LABEL]
+const harnessLabels = [...Object.keys(HARNESS_BY_LABEL), 'Unidentified client']
 const clientMarkSql = hogql`transform(properties.$virt_mcp_harness, ${harnessLabels}, ${harnessLabels.map(harnessMark)}, 'Other harnesses')`
 const modelMarkSql = hogql`transform(${hogql.raw(labSqlExpression('properties.$mcp_llm_model'))}, ${LAB_ORDER}, ${LAB_ORDER.map(labMark)}, 'Unbranded model')`
 

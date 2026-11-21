@@ -8,9 +8,11 @@ import * as megaphonePng from '@posthog/brand/hoggies/png/megaphone'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { HoggiePngProps, pngHoggie } from 'lib/brand/hoggies'
-import { BannerAction } from 'lib/components/BannerDeck/BannerActionButton'
-import { BannerDeck } from 'lib/components/BannerDeck/BannerDeck'
 import { urls } from 'scenes/urls'
+
+import { BannerAction } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/banners/BannerActionButton'
+import { BannerDeck } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/banners/BannerDeck'
+import type { ErrorTrackingBannerKey } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/banners/bannerQueue'
 
 import { FixWithAgentButton } from '../components/FixWithAgentButton'
 import { formatNumber } from '../dashboard/formatters'
@@ -133,13 +135,13 @@ export function ActivityCards(): JSX.Element | null {
     }
 
     return (
+        // The deck only counts the keys and finds the current one, so the card keys stand in for its banner keys.
         <BannerDeck
-            banners={cards}
-            current={currentCard}
+            banners={cards as unknown as ErrorTrackingBannerKey[]}
+            current={currentCard as unknown as ErrorTrackingBannerKey}
             onPrevious={showPreviousCard}
             onNext={showNextCard}
             renderCurrent={(navigation) => renderCard(currentCard, navigation)}
-            dataAttrPrefix="mcp-analytics-activity-cards"
         />
     )
 }

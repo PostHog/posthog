@@ -2,7 +2,7 @@ export type SparklineDatum = {
     date: Date
     value: number
     color?: string
-    /** With `color`, flags the bar as a detected spike: the color plus animated stripes. */
+    /** With `color`, flags the bar as a detected spike: its own color plus animated stripes. */
     isSpike?: boolean
     /** For a spike, how many times the detection baseline its bucket reached. */
     spikeMultiplier?: number
@@ -25,7 +25,7 @@ export type VolumeSparklineHoverSelection =
     | { kind: 'bin'; index: number; datum: SparklineDatum }
     | { kind: 'event'; event: SparklineEvent<string> }
 
-export type VolumeSparklineHoverValues = {
+export type ErrorTrackingVolumeSparklineHoverValues = {
     hoveredIndex: number | null
     hoveredDatum: SparklineDatum | null
     isBarHighlighted: boolean

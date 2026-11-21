@@ -1,8 +1,9 @@
 import { ComponentType, ReactNode } from 'react'
 
-import { BannerAction, BannerActionButton } from 'lib/components/BannerDeck/BannerActionButton'
-import { BannerDismissButton } from 'lib/components/BannerDeck/BannerDismissButton'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from 'lib/ui/quill'
+
+import { BannerAction, BannerActionButton } from './BannerActionButton'
+import { BannerDismissButton } from './BannerDismissButton'
 
 export interface BannerCalloutProps {
     illustration: ComponentType<{ className?: string; loading?: 'lazy' | 'eager' }>

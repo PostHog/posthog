@@ -102,9 +102,7 @@ function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
         </Badge>
     )
     return pct >= DESTRUCTIVE_ERROR_RATE_PCT ? (
-        <Tooltip
-            title={`${DESTRUCTIVE_ERROR_RATE_PCT}% or more of calls failed. Volume bars turn red in intervals that reach this.`}
-        >
+        <Tooltip title={`${DESTRUCTIVE_ERROR_RATE_PCT}% or more of calls failed.`}>
             <span tabIndex={0}>{badge}</span>
         </Tooltip>
     ) : (
@@ -113,13 +111,9 @@ function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
 }
 
 function VolumeHead(): JSX.Element {
-    const { facets } = useValues(mcpFacetsLogic)
-    const slowThreshold = facets?.p95 ? ` (${formatMs(Math.round(facets.p95))})` : ''
     return (
         <TableHead align="right">
-            <Tooltip
-                title={`Calls per interval. A red bar had an error rate of ${DESTRUCTIVE_ERROR_RATE_PCT}% or more. An amber bar was slower than the p95 of all calls${slowThreshold}.`}
-            >
+            <Tooltip title="Calls per interval. Hover a bar for its calls, error rate and p95.">
                 <span tabIndex={0} className="inline-flex items-center gap-1">
                     Volume
                     <IconInfo className="size-3" />
@@ -290,7 +284,7 @@ function ToolRows(): JSX.Element {
                         <span className="inline-flex items-center whitespace-nowrap">
                             {slowThresholdMs !== null && row.p95_duration_ms > slowThresholdMs ? (
                                 <Tooltip
-                                    title={`Slower than the p95 of all calls (${formatMs(slowThresholdMs)}), the same threshold as the Slow filter. Volume bars turn amber in intervals above it.`}
+                                    title={`Slower than the p95 of all calls (${formatMs(slowThresholdMs)}), the same threshold as the Slow filter.`}
                                 >
                                     <span tabIndex={0}>
                                         <Badge variant="warning">{formatMs(row.p95_duration_ms)}</Badge>

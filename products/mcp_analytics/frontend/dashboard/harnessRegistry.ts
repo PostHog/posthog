@@ -6,13 +6,6 @@ import { hashCodeForString } from 'lib/utils/strings'
 
 import { labColor, shadeColor } from '../colors'
 
-// Mirrors mcp_harness.UNIDENTIFIED_HARNESS_LABEL.
-export const UNIDENTIFIED_HARNESS_LABEL = 'Unidentified client'
-
-export function isUnidentifiedClient(harness: string): boolean {
-    return !harness || harness === UNIDENTIFIED_HARNESS_LABEL
-}
-
 const HARNESS_BRAND_COLORS = {
     vscode: '#007acc',
     coderabbit: '#ff570a',
@@ -95,14 +88,14 @@ export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
 }
 
 export function harnessMark(label: string): BrandMarkName {
-    if (label === UNIDENTIFIED_HARNESS_LABEL) {
-        return UNIDENTIFIED_HARNESS_LABEL
+    if (label === 'Unidentified client') {
+        return 'Unidentified client'
     }
     return HARNESS_BY_LABEL[label]?.mark ?? 'Other harnesses'
 }
 
 export function harnessColor(theme: ChartTheme, label: string): string | undefined {
-    if (label === 'Other' || label === UNIDENTIFIED_HARNESS_LABEL) {
+    if (label === 'Other' || label === 'Unidentified client') {
         return theme.axisColor
     }
     const descriptor = HARNESS_BY_LABEL[label]

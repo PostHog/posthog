@@ -17,6 +17,7 @@ import { resolveVariableColor } from 'lib/charts/utils/color'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { errorTrackingVolumeSparklineLogic } from './errorTrackingVolumeSparklineLogic'
 import { EVENT_LABEL_BAR_GAP, EVENT_LABEL_HEIGHT, EventMarkers } from './EventMarkers'
 import { SpikeStripes } from './SpikeStripes'
 import { SpikeTooltip } from './SpikeTooltip'
@@ -27,7 +28,6 @@ import type {
     VolumeSparklineLayout,
     VolumeSparklineXAxisMode,
 } from './types'
-import { volumeSparklineLogic } from './volumeSparklineLogic'
 
 export type { VolumeSparklineLayout, VolumeSparklineXAxisMode } from './types'
 
@@ -61,8 +61,6 @@ export type VolumeSparklineProps = {
     onRangeSelect?: (startDate: Date, endDate: Date) => void
     onBucketClick?: (startDate: Date, endDate: Date) => void
     onSpikeClick?: (datum: SparklineDatum, clientX: number, clientY: number) => void
-    /** Defaults to error tracking's value. */
-    dataAttr?: string
 }
 
 export function VolumeSparkline({
@@ -75,11 +73,10 @@ export function VolumeSparkline({
     onRangeSelect,
     onBucketClick,
     onSpikeClick,
-    dataAttr = 'error-tracking-volume-sparkline',
 }: VolumeSparklineProps): JSX.Element {
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
-    const { setHoveredEvent } = useActions(volumeSparklineLogic({ sparklineKey }))
+    const { setHoveredEvent } = useActions(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     // Quill reports clicks relative to its wrapper; the spike popover anchors in viewport coords.
     const cursorRef = useRef({ x: 0, y: 0 })
 
@@ -97,9 +94,11 @@ export function VolumeSparkline({
                 // Canvas can't resolve `var(--…)`; `BAR_COLOR` is already a hex literal.
                 color: BAR_COLOR,
                 data: data.map((datum) => datum.value),
-                // A colored bar is solid, and a spike also gets stripes from `SpikeStripes`. quill's
-                // `hatch` is a de-emphasis treatment, so it reads as unfinished rather than flagged.
-                bars: data.map((datum) => (datum.color ? { color: resolveVariableColor(datum.color) } : {})),
+                // Solid here, striped by `SpikeStripes`. quill's `hatch` is a de-emphasis
+                // treatment, so it reads as unfinished rather than flagged.
+                bars: data.map((datum) =>
+                    datum.isSpike && datum.color ? { color: resolveVariableColor(datum.color) } : {}
+                ),
             },
         ],
         [data]
@@ -199,7 +198,7 @@ export function VolumeSparkline({
                 onDateRangeZoom={onDateRangeZoom}
                 onPointClick={onPointClick}
                 isPointClickable={isPointClickable}
-                dataAttr={dataAttr}
+                dataAttr="error-tracking-volume-sparkline"
             >
                 <HoverReporter sparklineKey={sparklineKey} data={data} />
                 {hasSpikes && (
@@ -227,8 +226,8 @@ function bucketEnd(data: SparklineData, index: number): Date | null {
  *  mousemove-driven re-renders stay contained to this null-rendering component. */
 function HoverReporter({ sparklineKey, data }: { sparklineKey: string; data: SparklineData }): null {
     const { hoverIndex } = useChartHover()
-    const { hoverSelection } = useValues(volumeSparklineLogic({ sparklineKey }))
-    const { setHoveredBin } = useActions(volumeSparklineLogic({ sparklineKey }))
+    const { hoverSelection } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+    const { setHoveredBin } = useActions(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     const paused = hoverSelection?.kind === 'event'
 
     useEffect(() => {
