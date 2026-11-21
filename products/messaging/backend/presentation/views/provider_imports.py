@@ -16,7 +16,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import OrganizationAdminWritePermissions, get_authenticator_scopes
 from posthog.scopes.checks import scopes_not_covered
 
 from products.messaging.backend.facade.provider_imports import (
@@ -29,6 +29,7 @@ from products.messaging.backend.facade.provider_imports import (
     ProviderImportRejected,
     ProviderImportUnavailable,
     get_provider_import_run,
+    import_provider_retains_credentials,
     list_import_providers,
     list_provider_import_runs,
     start_provider_import,
@@ -220,6 +221,9 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             400: OpenApiResponse(
                 description="The provider or a step is unknown, or the API key is missing or rejected."
             ),
+            403: OpenApiResponse(
+                description="No project-wide workflow edit access, or the provider stores its API key and the caller isn't an organization admin."
+            ),
             409: OpenApiResponse(description="An import from this provider is running, or a different key is stored."),
             503: OpenApiResponse(description="The provider did not respond while checking the API key."),
         },
@@ -256,6 +260,13 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 raise PermissionDenied("You need edit access to persons to import contacts.")
         if data["provider"] not in {provider.key for provider in self._providers()}:
             raise ValidationError(f"Unknown import provider: {data['provider']}.")
+        if import_provider_retains_credentials(data["provider"]) and not (
+            OrganizationAdminWritePermissions().has_permission(request, self)
+        ):
+            raise PermissionDenied(
+                "Only organization admins can start this import, because it stores the provider's API key as an integration."
+            )
+
         try:
             run = start_provider_import(
                 self.team_id,

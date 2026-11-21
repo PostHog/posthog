@@ -6,6 +6,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
@@ -15,6 +16,11 @@ from products.messaging.backend.services.customerio_client import CustomerIOAPIE
 @patch("products.messaging.backend.provider_imports.runs.start_provider_import_workflow")
 @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
 class TestProviderImportsAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/messaging_provider_imports/"
 
@@ -34,6 +40,60 @@ class TestProviderImportsAPI(APIBaseTest):
             "app_api_key": "app-key"
         }
         assert self.client.get(f"{self._url()}{response.json()['id']}/").json()["id"] == response.json()["id"]
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, status.HTTP_403_FORBIDDEN),
+            ("member_with_project_admin", OrganizationMembership.Level.MEMBER, True, status.HTTP_403_FORBIDDEN),
+            ("admin", OrganizationMembership.Level.ADMIN, False, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_only_organization_admins_can_start_an_import_that_stores_the_key(
+        self,
+        _mock_client_class: MagicMock,
+        start_workflow: MagicMock,
+        _name: str,
+        level: OrganizationMembership.Level,
+        project_admin: bool,
+        expected_status: int,
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        if project_admin:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=self.organization_membership,
+                access_level="admin",
+            )
+
+        response = self.client.post(
+            self._url(), {"provider": "customerio", "steps": ["suppressions"], "api_key": "app-key"}
+        )
+
+        assert response.status_code == expected_status, response.json()
+        stored = Integration.objects.filter(team_id=self.team.id, kind="customerio-app").exists()
+        assert stored == (expected_status == status.HTTP_201_CREATED)
+        assert start_workflow.called == stored
+
+    @patch("products.messaging.backend.provider_imports.resend.ResendClient")
+    @patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=True)
+    def test_members_can_start_an_import_that_does_not_keep_the_key(
+        self, _flag: MagicMock, _resend_client: MagicMock, _mock_client_class: MagicMock, start_workflow: MagicMock
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self._url(), {"provider": "resend", "steps": ["suppressions"], "api_key": "re_key"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        start_workflow.assert_called_once()
+        assert not Integration.objects.filter(team_id=self.team.id).exists()
 
     def test_rejects_a_second_import_while_one_is_running(
         self, _mock_client_class: MagicMock, _start_workflow: MagicMock
