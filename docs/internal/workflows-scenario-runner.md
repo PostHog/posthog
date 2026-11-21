@@ -461,9 +461,10 @@ A breaking point from an earlier step still stands.
 - A refusal at intake over the card's `refused_at_intake` gate stops the drive inside its step, without waiting for the step to end.
 - An event counts as offered in its step once Kafka acknowledged it by the step's end, or by the stop when the drive stopped early, however late the generator's last timer ran. The live judge counts a transactional unit once it was sent, and the final count once cdp-api answered. A broken bar and the ramp report the step's rate from the same count, whether the live or the final judge read the break.
 - A step whose generator offered fewer than `minOffered` of its units, or had none to offer, or whose bar could not be read, stops the drive as a harness limit, except a last step that a stop ended before its planned length: `ramp_broke_by` names the `generator` that could not offer the step, or the `run_host` that could not read it.
+- A step in which the runner's event loop lagged more than 250 ms at p99 stops the drive as a harness limit with `ramp_broke_by` `runner`. The runner process also hosts the provider edge, so a busy loop answers webhooks late, slows the workers that wait on them, and would otherwise read as a product break. Host CPU cannot show it, because one saturated core leaves the host mostly idle. Each step in the scorecard's `units.steps` records the lag as `loopLagP99Ms` and the runner's own CPU time as `runnerCpuMs`.
 - The units already in flight are still journaled, and the run converges and is judged as usual. Steps after the stop are not driven and not judged.
 - Invariants are judged after convergence. A failed invariant breaks at the step that offered the unit that took its count over its gate, and, except for `refused_at_intake`, its reason says it was found after the drive. Units offered at the same moment are ordered by step.
-- The run's breaking point is the earliest break across bars, gates, invariants and harness limits, and the scale before it is the last sustained scale. Within one step, a generator shortfall comes first, then a bar, then a gate or invariant, then a metric the run host could not read or a halt the dev target called.
+- The run's breaking point is the earliest break across bars, gates, invariants and harness limits, and the scale before it is the last sustained scale. Within one step, a generator shortfall or a lagging runner comes first, then a bar, then a gate or invariant, then a metric the run host could not read or a halt the dev target called.
 - A failed invariant whose crossing unit falls in no step leaves no sustained scale, also beside a break in a step, because it could have failed at any scale.
 - A first step that fails its admission is a harness limit at that step, with no sustained scale, because no scale was measured against the profile.
 - A drive that ends partway through a step, such as an interrupted one, is a harness limit at that step, never a ceiling, and that limit outranks a bar the run host could not read in the step.
@@ -887,18 +888,18 @@ Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and t
 
 **Ramp**, only on the scorecard of a card with `drive.stopOnBreak`. A card without it stores none of these properties. Each property is `null` when it has no value:
 
-| Property                   | Type           | Meaning                                                                                                                                          |
-| -------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ramp_steps`               | array or null  | One entry per step the drive ran: its `scale`, its real `started_at` and `ended_at`, and `stretched`, why it ran past its planned end, or `null` |
-| `ramp_end`                 | string or null | `broke`, `ceiling` when every step held, or `harness_limit` when the harness could not drive or read a step                                      |
-| `ramp_sustained_scale`     | number or null | The scale of the last step that held, `null` when the first step broke or a failure falls in no step                                             |
-| `ramp_broke_scale`         | number or null | The scale of the step that broke                                                                                                                 |
-| `ramp_broke_offered_per_s` | number or null | Units offered per second in the step that broke                                                                                                  |
-| `ramp_broke_by`            | string or null | The bar, gate or invariant that broke, `convergence` for a run that did not converge, or `generator`, `run_host` or `target` for a harness limit |
-| `ramp_broke_kind`          | string or null | `bar`, `gate`, `invariant` or `harness`                                                                                                          |
-| `ramp_broke_part`          | string or null | The part of the system the bar read, such as `db:cyclotron` or `role:<role>`; `null` for a whole-system invariant or gate                        |
-| `ramp_broke_at`            | string or null | ISO 8601 start of the step that broke, or the bar's breaking point                                                                               |
-| `ramp_end_reason`          | string or null | Why the ramp ended, in one line                                                                                                                  |
+| Property                   | Type           | Meaning                                                                                                                                                    |
+| -------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ramp_steps`               | array or null  | One entry per step the drive ran: its `scale`, its real `started_at` and `ended_at`, and `stretched`, why it ran past its planned end, or `null`           |
+| `ramp_end`                 | string or null | `broke`, `ceiling` when every step held, or `harness_limit` when the harness could not drive or read a step                                                |
+| `ramp_sustained_scale`     | number or null | The scale of the last step that held, `null` when the first step broke or a failure falls in no step                                                       |
+| `ramp_broke_scale`         | number or null | The scale of the step that broke                                                                                                                           |
+| `ramp_broke_offered_per_s` | number or null | Units offered per second in the step that broke                                                                                                            |
+| `ramp_broke_by`            | string or null | The bar, gate or invariant that broke, `convergence` for a run that did not converge, or `generator`, `runner`, `run_host` or `target` for a harness limit |
+| `ramp_broke_kind`          | string or null | `bar`, `gate`, `invariant` or `harness`                                                                                                                    |
+| `ramp_broke_part`          | string or null | The part of the system the bar read, such as `db:cyclotron` or `role:<role>`; `null` for a whole-system invariant or gate                                  |
+| `ramp_broke_at`            | string or null | ISO 8601 start of the step that broke, or the bar's breaking point                                                                                         |
+| `ramp_end_reason`          | string or null | Why the ramp ended, in one line                                                                                                                            |
 
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:

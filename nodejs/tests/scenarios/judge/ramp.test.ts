@@ -472,7 +472,11 @@ describe('ramp', () => {
         unitIds: crossedBy ? [crossedBy] : [],
         ...(crossedBy && { crossedBy }),
     })
-    const harnessAt = (index: number, by: 'generator' | 'run_host', offeredUnits = UNITS_PER_STEP[index]): Broke => ({
+    const harnessAt = (
+        index: number,
+        by: 'generator' | 'run_host' | 'runner',
+        offeredUnits = UNITS_PER_STEP[index]
+    ): Broke => ({
         scale: STEPS[index].scale,
         offeredPerSecond: offeredUnits / 120,
         by,
@@ -608,6 +612,16 @@ describe('ramp', () => {
                 sustainedScale: 1,
                 broke: harnessAt(1, 'generator', 200),
                 reason: 'the generator offered 200 of 240 units in the 2x step, under minOffered 0.9',
+            },
+        ],
+        [
+            "a step where the runner's event loop lagged, below the step where a bar broke",
+            { steps: [driven(0), { ...driven(1), loopLagP99Ms: 900 }, driven(2)], bars: [brokeAt(5)] },
+            {
+                end: 'harness_limit',
+                sustainedScale: 1,
+                broke: harnessAt(1, 'runner'),
+                reason: "the runner's event loop lagged 900 ms at p99 in the 2x step, over 250 ms",
             },
         ],
         [
