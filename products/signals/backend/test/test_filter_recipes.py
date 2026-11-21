@@ -185,8 +185,11 @@ class TestFilterRecipeExecution(SimpleTestCase):
             ("null", []),
         ]
     )
-    def test_array_map_and_empty_policy(self, payload: str, expected: object) -> None:
-        self.assertEqual(self.execute(bindings("array<string>", "json_array_map", "empty_array"), payload), expected)
+    def test_array_map_and_empty_policy(self, payload: str, expected: list[str]) -> None:
+        engine = bindings("array<string>", "json_array_map", "empty_array")
+        self.assertEqual(self.execute(engine, payload), expected)
+        self.assertEqual(self.execute(engine, payload, "empty(value)"), int(not expected))
+        self.assertEqual(self.execute(engine, payload, "notEmpty(value)"), int(bool(expected)))
 
     @parameterized.expand(
         [
@@ -199,9 +202,9 @@ class TestFilterRecipeExecution(SimpleTestCase):
         ]
     )
     def test_array_shape_and_elements_fail_closed(self, payload: str) -> None:
-        self.assert_malformed(
-            bindings("array<string>", "json_array_map", "empty_array"), payload, "NOT has(value, 'internal')"
-        )
+        engine = bindings("array<string>", "json_array_map", "empty_array")
+        self.assert_malformed(engine, payload, "NOT has(value, 'internal')")
+        self.assert_malformed(engine, payload, "empty(value)")
 
     def test_json_array_and_column_recipes(self) -> None:
         self.assertEqual(self.execute(bindings("array<string>"), '{"value":["a","b"]}'), ["a", "b"])
