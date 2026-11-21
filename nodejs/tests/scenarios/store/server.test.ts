@@ -147,6 +147,17 @@ describe('run store', () => {
         expect((await read(`${RUNS_PATH}/${runId}`)).body).toMatchObject({ scorecard: failed })
     })
 
+    it('refuses a re-report from another evidence location, and keeps the first run as it was', async () => {
+        const runId = randomUUID()
+        await ingest({ scorecard: scorecardFixture(runId), host: 'box-1' })
+        const first = (await read(`${RUNS_PATH}/${runId}`)).body
+
+        const elsewhere = scorecardFixture(runId, { status: 'failed', evidence_dir: '/tmp/elsewhere/evidence' })
+        expect((await ingest({ scorecard: elsewhere, host: 'box-2' })).status).toBe(409)
+
+        expect((await read(`${RUNS_PATH}/${runId}`)).body).toEqual(first)
+    })
+
     it.each([
         ['leaves them out', {}],
         ['sends them as null', { series: null, topology: null, manifest: null, host: null }],
