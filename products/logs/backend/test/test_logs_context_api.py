@@ -21,6 +21,7 @@ from products.logs.backend.context_query_runner import (
     LogsContextRunner,
     differing_attrs,
     is_id_like_key,
+    normalize_trace_id,
     parse_padding,
     self_time_nano,
 )
@@ -28,6 +29,7 @@ from products.logs.backend.context_query_runner import (
 _NOW = "2026-06-23T13:00:00Z"
 _TRACE_HEX = "4bf92f3577b34da6a3ce929d0e0e4736"
 _OTHER_TRACE_HEX = "00f067aa0ba902b7a3ce929d0e0e4736"
+_UNSET_TRACE_HEX = "0" * 32
 
 
 def _b64_hex(value: str) -> str:
@@ -58,6 +60,16 @@ class TestContextHelpers(TestCase):
     def test_parse_padding_rejects(self, _name: str, raw: str) -> None:
         with self.assertRaises(ValueError):
             parse_padding(raw)
+
+    @parameterized.expand(
+        [
+            ("unset_hex", _UNSET_TRACE_HEX),
+            ("unset_base64", _b64_hex(_UNSET_TRACE_HEX)),
+        ]
+    )
+    def test_normalize_trace_id_rejects(self, _name: str, raw: str) -> None:
+        with self.assertRaises(ValueError):
+            normalize_trace_id(raw)
 
     def test_self_time_subtracts_the_union_of_child_intervals(self) -> None:
         start = dt.datetime(2026, 6, 23, 12, 0, tzinfo=dt.UTC)
@@ -414,7 +426,39 @@ class TestLogsContextAPI(ClickhouseTestMixin, APIBaseTest):
         assert body["timeline"][2]["attrs"] == ""
         keys = {(key["key"], key["value"]): key["log_count"] for key in body["correlation_keys"]}
         assert keys == {("trace_id", _TRACE_HEX): 1, ("request_id", "req-7"): 2}
-        assert any(suggestion["tool"] == "logs-context" for suggestion in body["next"])
+        assert {"traceId": _TRACE_HEX, "around": "2026-06-23T12:00:00Z"} in [
+            suggestion["query"]["anchor"] for suggestion in body["next"]
+        ]
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_log_anchor_without_a_trace_offers_no_trace_pivot(self) -> None:
+        self._insert_logs(
+            [
+                self._log(
+                    "00000000-0000-0000-0000-000000000001",
+                    _T0,
+                    "untraced anchor",
+                    trace_hex=_UNSET_TRACE_HEX,
+                    attributes={"request_id": "req-7"},
+                ),
+                self._log(
+                    "00000000-0000-0000-0000-000000000002",
+                    _T0 + dt.timedelta(minutes=1),
+                    "same request",
+                    trace_hex=_UNSET_TRACE_HEX,
+                    attributes={"request_id": "req-7"},
+                ),
+                self._log("00000000-0000-0000-0000-000000000003", _T0, "unrelated", trace_hex=_UNSET_TRACE_HEX),
+            ]
+        )
+
+        body = self._request(
+            {"anchor": {"logUuid": "00000000-0000-0000-0000-000000000001", "timestamp": "2026-06-23T12:00:00Z"}}
+        )
+
+        assert body["anchor"]["trace_id"] is None
+        assert body["correlation_keys"] == [{"key": "request_id", "value": "req-7", "log_count": 2}]
+        assert all("traceId" not in suggestion["query"]["anchor"] for suggestion in body["next"])
 
     @time_machine.travel(_NOW, tick=False)
     def test_unknown_log_anchor_is_not_found(self) -> None:
