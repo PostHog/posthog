@@ -11,6 +11,7 @@ export type EmailDomainSetupEntry =
     | 'add_sender'
     | 'transactional'
     | 'configure'
+    | 'email_step'
     | 'sandbox_sender_banner'
 
 export const emailDomainSetupPath = (
