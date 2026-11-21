@@ -273,3 +273,33 @@ export function Sizes(): JSX.Element {
         </div>
     )
 }
+
+export function MenuItemsWithLongLabels(): JSX.Element {
+    const sizes = ['xs', 'sm', 'base', 'lg'] as const
+
+    return (
+        <div className="flex gap-4">
+            {sizes.map((size) => (
+                <div key={size} className="flex w-[220px] flex-col rounded border p-1">
+                    <ButtonPrimitive size={size} menuItem>
+                        <IconSearch />
+                        Short label
+                    </ButtonPrimitive>
+                    <ButtonPrimitive size={size} menuItem>
+                        <IconSearch />
+                        Open this page with new events table
+                    </ButtonPrimitive>
+                    <ButtonPrimitive size={size} menuItem>
+                        <IconSearch />
+                        Open this page with classic events table
+                    </ButtonPrimitive>
+                    <ButtonPrimitive size={size} menuItem>
+                        <IconSearch />
+                        With badge
+                        <span className="ml-auto h-6 rounded border px-1 text-xs">badge</span>
+                    </ButtonPrimitive>
+                </div>
+            ))}
+        </div>
+    )
+}
