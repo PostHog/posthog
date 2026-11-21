@@ -727,7 +727,19 @@ async fn retrieve_multipart_parts(
 
         // Process based on field name
         if field_name == "event.properties" {
+            if properties_json.is_some() {
+                return Err(AiRejection::DuplicatePropertiesPart);
+            }
             properties_size = field_data.len();
+            // Checked before parsing because a parsed JSON value can take many
+            // times its serialized size in memory.
+            let combined_size = event_size + properties_size;
+            if exceeds_max_ai_event_bytes(combined_size, max_event_bytes) {
+                return Err(AiRejection::EventAndPropertiesTooBig {
+                    size: combined_size,
+                    max: max_event_bytes as usize,
+                });
+            }
             let (properties, part_info) =
                 process_properties_part(field_data, content_type, content_encoding)?;
             properties_json = Some(properties);
