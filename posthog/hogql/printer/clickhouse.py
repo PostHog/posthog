@@ -170,6 +170,11 @@ _JSON_KEY_PATH_FUNCTIONS = frozenset(
 _JSON_FUNCTIONS_WITH_TRAILING_TYPE = frozenset({"JSONExtract", "JSONExtractKeysAndValues"})
 
 
+WHOLE_DOCUMENT_FILTER_ERROR = (
+    "Can't filter on the whole properties column. Filter on the properties you need, like properties.$current_url."
+)
+
+
 def _group_type_index_of_blob(column_name: str) -> int | None:
     group_column_match = re.fullmatch(r"group(\d+)_properties", column_name)
     return int(group_column_match.group(1)) if group_column_match else None
@@ -179,6 +184,7 @@ class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
     _unmasked_blob_type: ast.FieldType | None = None
+    _in_filter_condition: bool = False
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -520,7 +526,22 @@ class ClickHousePrinter(BasePrinter):
         if not self.context.team_id:
             raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
-        return super().visit_select_query(node)
+        # A subquery inside a filter starts outside any filter: its select list runs for the rows its own filter keeps.
+        with self._filter_condition(False):
+            return super().visit_select_query(node)
+
+    def _visit_filter_condition(self, node: ast.Expr) -> str:
+        with self._filter_condition(True):
+            return super()._visit_filter_condition(node)
+
+    @contextmanager
+    def _filter_condition(self, in_filter_condition: bool) -> Iterator[None]:
+        previous = self._in_filter_condition
+        self._in_filter_condition = in_filter_condition
+        try:
+            yield
+        finally:
+            self._in_filter_condition = previous
 
     def _collect_table_top_level_settings(self, table: Table) -> None:
         super()._collect_table_top_level_settings(table)
@@ -689,6 +710,8 @@ class ClickHousePrinter(BasePrinter):
         resolved_field = self._events_json_document_field(type)
         if resolved_field is None:
             return None
+        if self._in_filter_condition and not self._document_feeds_key_read():
+            raise QueryError(WHOLE_DOCUMENT_FILTER_ERROR)
         prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
         if resolved_field.name == "properties":
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
@@ -702,6 +725,46 @@ class ClickHousePrinter(BasePrinter):
         else:
             serialized = json_document_sql(field_sql)
         return serialized
+
+    def _document_feeds_key_read(self) -> bool:
+        """Whether the document being printed goes straight into a read of one of its keys.
+
+        The native events table has no stored document, so the printer rebuilds one for every row the expression runs
+        on, and a filter runs on every row the query scans. A key read that no subcolumn answers, such as a restricted
+        key or a JSON function with a computed key, still needs the rebuilt document and stays allowed. Any other use
+        in a filter compares or searches the text of the whole document.
+        """
+        index = len(self.stack) - 1
+        if index >= 0 and isinstance(self.stack[index], ast.FieldType):
+            index -= 1
+        if index < 0:
+            return False
+        if isinstance(self.stack[index], ast.PropertyType):
+            return True
+        document = self.stack[index]
+        reader, index = self._reader_of(index)
+        if isinstance(reader, ast.Call) and reader.name == "toString" and len(reader.args) == 1:
+            # On the legacy table `toString(properties)` is the stored document, so queries pass it to JSON functions.
+            document = reader
+            reader, index = self._reader_of(index)
+        if isinstance(reader, ast.PropertyAccess):
+            return True
+        if not isinstance(reader, ast.Call) or not reader.name.startswith("JSON") or not reader.args:
+            return False
+        first_arg = reader.args[0]
+        while isinstance(first_arg, ast.Alias) and first_arg.hidden:
+            first_arg = first_arg.expr
+        return first_arg is document
+
+    def _reader_of(self, index: int) -> tuple[AST | None, int]:
+        """The node that consumes `self.stack[index]`, and its index, past the hidden aliases in between."""
+        index -= 1
+        while index >= 0:
+            node = self.stack[index]
+            if not (isinstance(node, ast.Alias) and node.hidden):
+                return node, index
+            index -= 1
+        return None, index
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
         """The `$feature_flags` map without restricted flags, or None when a restricted `$feature_flags` hides them all."""
