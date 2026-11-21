@@ -39,6 +39,7 @@ export interface emailDomainStatusLogicValues {
     sender: IntegrationConfigApi | null // emailDomainSenderLogic
     currentTeamId: number | null // teamLogic
     allRecordsFound: boolean
+    domainVerified: boolean
     foundCount: number
     integrationId: number | null
     lastCheckFailed: boolean
@@ -50,7 +51,6 @@ export interface emailDomainStatusLogicValues {
     restartResult: boolean | null
     restartResultLoading: boolean
     sendingRestored: boolean
-    sendingStopped: boolean
     setupEvidenceFound: boolean
     status: EmailDomainStatusApi | null
     statusLoading: boolean
@@ -127,7 +127,11 @@ export interface emailDomainStatusLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         integrationId: (arg: string) => number | null
-        sendingStopped: (sender: any, sendingRestored: any) => boolean
+        domainVerified: (
+            status: EmailDomainStatusApi | null,
+            sender: IntegrationConfigApi | null,
+            sendingRestored: boolean
+        ) => boolean
         records: (status: EmailDomainStatusApi | null) => EmailDomainStatusRecordApi[]
         foundCount: (records: EmailDomainStatusRecordApi[]) => number
         allRecordsFound: (records: EmailDomainStatusRecordApi[], foundCount: number) => boolean
@@ -265,10 +269,13 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             (id: string): number | null => integrationIdOf(id),
         ],
         // A sender that stopped sending keeps `verified`, so the domain needs verifying again before it is ready.
-        sendingStopped: [
-            (s) => [s.sender, s.sendingRestored],
-            (sender: IntegrationConfigApi | null, sendingRestored: boolean): boolean =>
-                !sendingRestored && !!sender && isSendingStopped(sender),
+        domainVerified: [
+            (s) => [s.status, s.sender, s.sendingRestored],
+            (
+                status: EmailDomainStatusApi | null,
+                sender: IntegrationConfigApi | null,
+                sendingRestored: boolean
+            ): boolean => !!status?.verified && (sendingRestored || !sender || !isSendingStopped(sender)),
         ],
         records: [
             (s) => [s.status],
@@ -315,7 +322,7 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             // A poll only reports the provider's answer, and email/verify records it. The attempt cap keeps a
             // provider that answers verified but never records out of a loop.
             const recordAttempts: number = cache.verificationRecordAttempts ?? 0
-            const verified = !!status?.verified && !values.sendingStopped
+            const verified = values.domainVerified
             if (status?.status === 'verified' && !verified && recordAttempts < MAX_VERIFICATION_RECORD_ATTEMPTS) {
                 cache.verificationRecordAttempts = recordAttempts + 1
                 actions.recordVerification()

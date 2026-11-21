@@ -38,7 +38,7 @@ interface PhaseInput {
     sender: IntegrationConfigApi | null
     senderFailed: boolean
     senderMissing: boolean
-    sendingStopped: boolean
+    domainVerified: boolean
     status: EmailDomainStatusApi | null
     statusUnavailable: boolean
     recordsAdded: boolean
@@ -53,7 +53,7 @@ const phaseOf = ({
     sender,
     senderFailed,
     senderMissing,
-    sendingStopped,
+    domainVerified,
     status,
     statusUnavailable,
     recordsAdded,
@@ -69,7 +69,7 @@ const phaseOf = ({
     if (!sender || !status) {
         return 'loading'
     }
-    if (status.verified && !sendingStopped) {
+    if (domainVerified) {
         return 'ready'
     }
     const inProgress = recordsAdded || returnedFromAutoConfigure || STATUSES_IN_PROGRESS.includes(status.status)
@@ -146,10 +146,10 @@ export interface emailDomainLogicValues {
     senderLoading: boolean // emailDomainSenderLogic
     senderMissing: boolean // emailDomainSenderLogic
     allRecordsFound: boolean // emailDomainStatusLogic
+    domainVerified: boolean // emailDomainStatusLogic
     foundCount: number // emailDomainStatusLogic
     pollingStopped: boolean // emailDomainStatusLogic
     records: EmailDomainStatusRecordApi[] // emailDomainStatusLogic
-    sendingStopped: boolean // emailDomainStatusLogic
     setupEvidenceFound: boolean // emailDomainStatusLogic
     status: EmailDomainStatusApi | null // emailDomainStatusLogic
     statusLoading: boolean // emailDomainStatusLogic
@@ -194,7 +194,7 @@ export interface emailDomainLogicMeta {
             sender: IntegrationConfigApi | null,
             senderFailed: boolean,
             senderMissing: boolean,
-            sendingStopped: any,
+            domainVerified: any,
             status: EmailDomainStatusApi | null,
             statusUnavailable: boolean,
             recordsAdded: boolean,
@@ -244,7 +244,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 'foundCount',
                 'pollingStopped',
                 'records',
-                'sendingStopped',
+                'domainVerified',
                 'setupEvidenceFound',
                 'status',
                 'statusUnavailable',
@@ -277,7 +277,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 s.sender,
                 s.senderFailed,
                 s.senderMissing,
-                s.sendingStopped,
+                s.domainVerified,
                 s.status,
                 s.statusUnavailable,
                 s.recordsAdded,
@@ -289,7 +289,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                 sender: IntegrationConfigApi | null,
                 senderFailed: boolean,
                 senderMissing: boolean,
-                sendingStopped: boolean,
+                domainVerified: boolean,
                 status: EmailDomainStatusApi | null,
                 statusUnavailable: boolean,
                 recordsAdded: boolean,
@@ -301,7 +301,7 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
                     sender,
                     senderFailed,
                     senderMissing,
-                    sendingStopped,
+                    domainVerified,
                     status,
                     statusUnavailable,
                     recordsAdded,
