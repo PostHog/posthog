@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.messaging.backend.provider_imports.sendgrid_handlebars import liquid_literal
 from products.messaging.backend.provider_imports.sendgrid_templates import convert_version, plain_text_from_html
 
 RENDERS = json.loads((Path(__file__).parent / "fixtures" / "sendgrid_template_renders.json").read_text())
@@ -25,86 +26,135 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("unclosed_block", "{{#if a}}unclosed"),
-            ("condition", "<p>{{#if vip}}Hi{{else}}Hello{{/if}}</p>"),
-            ("condition_on_an_empty_object", "{{#if settings}}{{name}}{{/if}}"),
-            ("loop_over_an_object", "{{#each orders}}{{this.name}}{{/each}}"),
-            ("this", "<p>{{this}}</p>"),
-            ("stray_close", "{{/if}}"),
-            ("partial", "{{> partial}}"),
-            ("helper", "{{helper a b}}"),
-            ("section", "{{#section}}x{{/section}}"),
-            ("loop_value", "{{#each xs}}{{@index}}{{/each}}"),
-            ("parent_path", "{{#each xs}}{{../name}}{{/each}}"),
-            ("format_date", "{{formatDate t}}"),
-            ("insert", '{{insert name "default=x"}}'),
-            ("else_if", "{{#if a}}A{{else if b}}B{{/if}}"),
-            ("unless", "{{#unless a}}A{{/unless}}"),
-            ("with", "{{#with a}}{{b}}{{/with}}"),
-            ("lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}'),
-            ("key_loop", "{{#each o}}{{@key}}={{this}}{{/each}}"),
-            ("tilde", "<p>{{~name}}</p>"),
-            ("spaced_tilde", '<a href="https://example.com">{{ ~#if allow}}{{token}}{{/if}}</a>'),
-            ("entity", '<a href="{{&#35;if allow}}https://example.com">{{token}}</a>{{&#47;if}}'),
-            ("comment_tag", "<p>{ {{~!c}}% echo person.properties.secret %}</p>"),
-            ("block_in_a_comment", "<!-- {{#if allow}} --><p>{{token}}</p><!-- {{/if}} -->"),
-            ("block_after_a_stray_angle_bracket", "x < <!--{{#if allow}}-->>{{token}} <i<!--{{/if}}-->b> y"),
-            ("block_in_an_attribute", '<a href="{{#if allow}}https://example.com">{{token}}</a>{{/if}}'),
-            ("block_in_a_tag", '<a {{#if allow}} href="https://example.com">{{token}}</a>{{/if}}'),
-            ("block_in_a_link", '<a href="https://example.com">{{#if allow}}{{token}}{{/if}}</a>'),
-            ("block_in_a_style_block", "<style>{{#if dark}}p{color:#fff}{{/if}}</style><p>{{token}}</p>"),
-            ("value_in_an_unquoted_attribute", "<a href={{token}}>x</a>"),
-            ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>'),
-            ("value_as_an_attribute_name", "<p {{token}}>x</p>"),
-            ("unsubscribe_tag_in_a_string", '{{ insert name "default=<%body%>" }}'),
-            ("event_handler_hidden_by_an_angle_bracket", '<a title="a>b" onclick="{{first_name}}">x</a>'),
-            ("event_handler_hidden_by_a_tag_like_value", '<a title="<%%>" onclick="{{first_name}}">x</a>'),
-            ("a_body_tag", "<p><%body%></p>"),
-            ("brace_before_a_unsubscribe_link", "x{<%asm_group_unsubscribe_url%>y"),
-            ("unsubscribe_link_in_an_event_handler", '<a onclick="<%asm_group_unsubscribe_url%>">x</a>'),
-            ("unsubscribe_link_in_a_quoted_attribute", '<a title="<%asm_group_unsubscribe_url%>">x</a>'),
-            ("unsubscribe_link_in_an_unquoted_attribute", "<a href=<%asm_group_unsubscribe_url%>>x</a>"),
-            ("unsubscribe_link_in_a_comment", "<!-- <%asm_group_unsubscribe_url%> --><p>x</p>"),
-            ("escaped_body_tag_in_a_style_block", "<style>&lt;%body%&gt;</style><p>x</p>"),
+            ("this", "<p>{{this}}</p>", "{{this}}"),
+            ("partial", "{{> partial}}", "{{> partial}}"),
+            ("braces_in_an_unescaped_value", "{{{ a}}b }}}", "{{{ a}}b }}}"),
+            ("entity_in_a_value", "<p>{{ a&quot;b }}</p>", "{{ a&quot;b }}"),
+            ("deep_groups_in_a_value", "{{eq " + "(a " * 60 + "b}}", "{{eq " + "(a " * 60 + "b}}"),
+            ("helper", "{{helper a b}}", "{{helper a b}}"),
+            ("section", "{{#section}}x{{/section}}", "{{#section}}"),
+            ("or", "{{#or a b}}x{{else}}y{{/or}}", "{{#or a b}}"),
+            ("inverted_section", "{{^items}}none{{/items}}", "{{^items}}"),
+            ("loop_index_under_a_kept_each", "{{#each a}}{{#each b key=1}}{{@index}}{{/each}}{{/each}}", "{{@index}}"),
             (
-                "unsubscribe_tag_beside_a_block_in_an_attribute",
-                '<a href="<%subject%>{{#if allow}}u">{{token}}</a>{{/if}}',
+                "value_under_an_each_that_stays_as_written",
+                "{{#each items key=1}}<li>{{label}}</li>{{/each}}",
+                "{{label}}",
             ),
-            ("unsubscribe_tag_guarded_by_a_helper", '{{#if (lookup p "a")}}x<%body%>y{{/if}}'),
-            ("raw_value", "<p>{{{ body.html }}}</p>"),
-            ("value_in_a_plain_attribute", '<a href="https://example.com/?id={{id}}">Go</a>'),
+            (
+                "else_if_under_a_block_that_stays_as_written",
+                "{{#if a includeZero=x}}A{{else if b}}B{{/if}}",
+                "{{else if b}}",
+            ),
+            ("escaped_tag_opening_an_attribute", "\\{{<img src=x }}{{token}}", "{{token}}"),
+            ("lookup", '{{#if (lookup permissions "allow")}}{{token}}{{/if}}', '{{#if (lookup permissions "allow")}}'),
+            ("key_loop", "{{#each o}}{{@key}}={{this}}{{/each}}", "{{@key}}"),
+            ("format_date_without_a_format", "{{formatDate t}}", "{{formatDate t}}"),
+            ("format_date_with_an_ordinal", '{{formatDate t "Do MMM"}}', '{{formatDate t "Do MMM"}}'),
+            ("value_in_an_unquoted_attribute", "<a href={{token}}>x</a>", "{{token}}"),
+            ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>', "{{token}}"),
+            ("value_as_an_attribute_name", "<p {{token}}>x</p>", "{{token}}"),
+            ("raw_value_in_an_attribute", '<a href="{{{token}}}">x</a>', "{{{token}}}"),
+            (
+                "event_handler_hidden_by_an_angle_bracket",
+                '<a title="a>b" onclick="{{first_name}}">x</a>',
+                "{{first_name}}",
+            ),
+            (
+                "event_handler_hidden_by_a_tag_like_value",
+                '<a title="<%%>" onclick="{{first_name}}">x</a>',
+                "{{first_name}}",
+            ),
             (
                 "value_in_an_event_handler_that_looks_like_an_attribute",
                 "<a onclick=\"const x='{{token}}'; go(x)\">x</a>",
+                "{{token}}",
             ),
-            ("value_after_an_unclosed_script", "<script>var u = {{x}};"),
-            ("value_after_an_unclosed_comment", "<!-- <p>{{x}}</p>"),
+            ("value_after_an_unclosed_script", "<script>var u = {{x}};", "{{x}}"),
+            ("value_after_an_unclosed_comment", "<!-- <p>{{x}}</p>", "{{x}}"),
             (
                 "value_after_a_head_closing_tag_in_a_css_string",
                 '<head><style>p{content:"</head>"}{{name}}</style></head>',
+                "{{name}}",
             ),
-            ("value_in_a_tag_that_never_closes", "<a href={{id}} <b>x"),
-            ("value_at_the_end_of_an_open_tag", "<a href={{id}}"),
-            ("value_after_a_double_escaped_script", "<script><!--<script></script>{{x}}</script>"),
-            ("liquid_size_property", "<p>{{size}}</p>"),
-            ("liquid_first_property", "<p>{{items.first}}</p>"),
-            ("deep_nesting", "".join(f"{{{{#with {'a' * 1900}}}}}" for _ in range(40)) + "{{this}}" * 500),
+            ("value_in_a_tag_that_never_closes", "<a href={{id}} <b>x", "{{id}}"),
+            ("value_after_a_double_escaped_script", "<script><!--<script></script>{{x}}</script>", "{{x}}"),
+            (
+                "value_after_branches_that_end_in_different_places",
+                '<a href="{{#if x}}https://example.com">{{t}}</a>{{/if}} {{after}}',
+                "{{after}}",
+            ),
+            ("liquid_size_property", "<p>{{size}}</p>", "{{size}}"),
+            ("liquid_first_property", "<p>{{items.first}}</p>", "{{items.first}}"),
+            ("a_body_tag", "<p><%body%></p>", "<%body%>"),
+            (
+                "unsubscribe_link_in_an_event_handler",
+                '<a onclick="<%asm_group_unsubscribe_url%>">x</a>',
+                "<%asm_group_unsubscribe_url%>",
+            ),
+            (
+                "unsubscribe_link_in_a_quoted_attribute",
+                '<a title="<%asm_group_unsubscribe_url%>">x</a>',
+                "<%asm_group_unsubscribe_url%>",
+            ),
+            (
+                "unsubscribe_link_in_a_comment",
+                "<!-- <%asm_group_unsubscribe_url%> --><p>x</p>",
+                "<%asm_group_unsubscribe_url%>",
+            ),
         ]
     )
-    def test_anything_but_a_supported_form_keeps_the_whole_template_as_text(self, _name: str, html: str) -> None:
+    def test_a_tag_without_a_faithful_liquid_form_stays_as_written(self, _name: str, html: str, kept: str) -> None:
+        converted = convert_version({"html_content": html + "<p>{{name}}</p>", "generate_plain_content": False})
+
+        assert kept in converted.html
+        assert kept in " ".join(converted.notes)
+        assert (liquid_literal(kept) if kept.startswith("{{") else kept) in converted.html
+
+    def test_the_rest_of_the_template_converts_around_a_tag_kept_as_written(self) -> None:
+        converted = convert_version(
+            {"html_content": "<p>Hi {{first_name}}</p><p>{{helper a}}</p>", "generate_plain_content": False}
+        )
+
+        assert converted.html == "<p>Hi {{ variables.first_name }}</p><p>{% raw %}{{helper a}}{% endraw %}</p>"
+
+    def test_paths_that_grow_with_nesting_stop_before_the_output_gets_too_large(self) -> None:
+        html = "".join(f"{{{{#with {'a' * 1900}}}}}" for _ in range(40)) + "{{this}}" * 20_000 + "{{/with}}" * 40
+
+        started = time.monotonic()
+        converted = convert_version({"html_content": html, "generate_plain_content": False})
+
+        assert time.monotonic() - started < 5
+        assert "too large" in " ".join(converted.notes)
+        assert "variables." not in converted.html
+
+    @parameterized.expand([("unclosed_block", "{{#if a}}unclosed"), ("stray_close", "{{/if}}{{name}}")])
+    def test_a_template_that_isnt_valid_handlebars_stays_as_text(self, _name: str, html: str) -> None:
         converted = convert_version({"html_content": html})
 
         assert "this template's tags" in " ".join(converted.notes)
-        for part in (converted.html, converted.text):
-            assert "variables." not in part
-            assert "{% if" not in part
-            assert "{{ unsubscribe_url }}" not in part
-            assert "\x00" not in part
+        assert "variables." not in converted.html + converted.text
 
     @parameterized.expand(
         [
-            ("value", "<p>Hi {{ name }}</p>", "{{ variables.name |"),
+            ("value", "<p>Hi {{ name }}</p>", "{{ variables.name }}"),
             ("unsubscribe_link", "<p>{{unsubscribe}}</p>", "{{ unsubscribe_url }}"),
+            ("unescaped_unsubscribe_link", '<a href="{{{unsubscribe}}}">Leave</a>', '<a href="{{ unsubscribe_url }}">'),
+            (
+                "unsubscribe_link_tag",
+                "<p><%asm_group_unsubscribe_url%></p>",
+                '<p><a href="{{ unsubscribe_url }}">Unsubscribe From This List</a></p>',
+            ),
+            (
+                "value_after_a_loop_that_closes_its_own_tags",
+                '<h1>x</h1>{{#each xs}}<p>{{this}}</p>{{/each}}<a href="{{after}}">y</a>',
+                '<a href="{{ variables.after }}">',
+            ),
+            (
+                "global_unsubscribe_tag",
+                '<a href="<%asm_global_unsubscribe_raw_url%>">x</a>',
+                '<a href="{{ unsubscribe_url }}">',
+            ),
             (
                 "unsubscribe_tag_in_an_attribute",
                 '<a href="<%asm_group_unsubscribe_raw_url%>">Leave</a>',
@@ -136,7 +186,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         converted = convert_version({"html_content": "<p>{<b>{{name}}</b></p>"})
 
         assert "{{{" not in converted.text
-        assert converted.text.endswith('{{ variables.name | join: "," }}')
+        assert converted.text.endswith("{{ variables.name }}")
 
     @parameterized.expand(
         [
@@ -167,21 +217,43 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         )
 
         assert plain_text_from_html(html) == (
-            "Hi {{ variables.n }}\n{% if variables.a > 1 %}Leave ({{ unsubscribe_url }}){% endif %}\nTom & Ann\n"
+            "Hi {{ variables.n | strip_html }}\n{% if variables.a > 1 %}Leave ({{ unsubscribe_url }}){% endif %}\nTom & Ann\n"
             "{% raw %}{{ person.properties.secret }}{% endraw %} {% raw %}{{ x }}{% endraw %}"
         )
+
+    @parameterized.expand(
+        [
+            (
+                "a_value_after_raw_html",
+                "<p>{{{intro}}}</p><p>Hi {{name}}</p>",
+                "{{ variables.intro | strip_html }}\nHi {{ variables.name }}",
+            ),
+            (
+                "values_in_the_title_and_an_outlook_comment",
+                "<head><title>Order {{id}}</title></head><body><!--[if mso]>{{first_name}}<![endif]--><p>Hi</p></body>",
+                "Hi",
+            ),
+            (
+                "a_condition_that_closes_after_the_title",
+                "<head><title>{{#if a}}Sale</title></head><body>x{{/if}}",
+                "{% if variables.a != blank and variables.a != 0 %}x{% endif %}",
+            ),
+        ]
+    )
+    def test_plain_text_built_from_converted_html(self, _name: str, html: str, text: str) -> None:
+        assert convert_version({"html_content": html}).text == text
 
     def test_plain_text_prints_values_without_html_escaping(self) -> None:
         converted = convert_version({"html_content": '<p>{{name}} <a href="<%asm_preferences_raw_url%>">Go</a></p>'})
 
-        assert converted.text == '{{ variables.name | join: "," }} Go ({{ unsubscribe_url }})'
+        assert converted.text == "{{ variables.name }} Go ({{ unsubscribe_url }})"
 
     def test_an_unsubscribe_tag_kept_as_text_stays_whole_in_the_plain_part(self) -> None:
         converted = convert_version(
-            {"html_content": '<a href="{{url}}">Track</a><p><a href="<%asm_group_unsubscribe_raw_url%>">Leave</a></p>'}
+            {"html_content": '{{#if a}}<p><a href="<%asm_group_unsubscribe_raw_url%>">Leave</a></p>'}
         )
 
-        assert converted.text == "Track ({% raw %}{{url}}{% endraw %})Leave (<%asm_group_unsubscribe_raw_url%>)"
+        assert converted.text == "{% raw %}{{#if a}}{% endraw %}Leave (<%asm_group_unsubscribe_raw_url%>)"
 
     def test_a_tag_kept_as_text_stays_text_in_the_plain_part(self) -> None:
         converted = convert_version({"html_content": '<p>{{helper endraw" | append: person.properties.secret}}</p>'})
