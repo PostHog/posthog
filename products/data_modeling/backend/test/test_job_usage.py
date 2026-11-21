@@ -20,6 +20,8 @@ class TestJobUsageCollector(BaseTest):
             """INSERT INTO sharded_query_log_archive_v3
             (initial_query_start_time, team_id, initial_query_id, is_initial_query, type,
              event_time_microseconds, read_bytes, read_rows, ProfileEvents_OSCPUVirtualTimeMicroseconds,
+             result_bytes, ProfileEvents_ReadBufferFromS3Bytes, ProfileEvents_S3GetObject,
+             ProfileEvents_S3HeadObject, ProfileEvents_S3ListObjects,
              lc_temporal__workflow_id, lc_temporal__workflow_run_id, lc_feature) VALUES""",
             [
                 (
@@ -32,6 +34,11 @@ class TestJobUsageCollector(BaseTest):
                     read_bytes,
                     2,
                     10,
+                    7,
+                    500,
+                    4,
+                    1,
+                    3,
                     "example-refresh",
                     "run-1",
                     feature,
@@ -60,7 +67,7 @@ class TestJobUsageCollector(BaseTest):
                 }
             ],
         )
-        self.assertEqual(rows, [(self.team.id, "example-refresh", "run-1", 150, 6, 30, 2)])
+        self.assertEqual(rows, [(self.team.id, "example-refresh", "run-1", 150, 6, 30, 2, 21, 1500, 15, 9)])
 
     def test_replaces_totals_and_leaves_missing_and_ambiguous_runs_unknown(self) -> None:
         finished = datetime(2026, 10, 15, 20, tzinfo=UTC)
@@ -93,7 +100,7 @@ class TestJobUsageCollector(BaseTest):
         bootstrap_client.execute.return_value = [("ops.example.com", 9000, 1, 1, "online", "ops")]
         cluster = ClickhouseCluster(bootstrap_client)
         client = MagicMock()
-        client.execute.return_value = [(self.team.id, "example-refresh", "run-1", 4096, 800, 2000, 4)]
+        client.execute.return_value = [(self.team.id, "example-refresh", "run-1", 4096, 800, 2000, 4, 64, 9000, 12, 3)]
         with patch.object(ConnectionInfo, "make_pool") as make_pool:
             make_pool.return_value.get_client.return_value.__enter__.return_value = client
             JobUsageCollector.collect(cluster, finished.date(), {})
@@ -108,6 +115,10 @@ class TestJobUsageCollector(BaseTest):
         self.assertEqual(
             (measured.read_bytes, measured.read_rows, measured.cpu_microseconds, measured.query_count),
             (4096, 800, 2000, 4),
+        )
+        self.assertEqual(
+            (measured.result_bytes, measured.s3_read_bytes, measured.s3_get_requests, measured.s3_list_requests),
+            (64, 9000, 12, 3),
         )
         self.assertIsNotNone(measured.usage_updated_at)
         self.assertEqual(measured.updated_at, measured.usage_updated_at)
@@ -129,7 +140,7 @@ class TestJobUsageCollector(BaseTest):
         DataModelingJob.objects.filter(id=job.id).update(created_at=created)
         cluster = MagicMock()
         cluster.any_host_by_role.return_value.result.return_value = [
-            (self.team.id, "cross-midnight", "run-1", 10, 2, 0, 2)
+            (self.team.id, "cross-midnight", "run-1", 10, 2, 0, 2, 0, 0, 0, 0)
         ]
         JobUsageCollector.collect(cluster, datetime(2026, 10, 15).date(), {})
         read = cluster.any_host_by_role.call_args.args[0]

@@ -39,6 +39,7 @@ from posthog.hogql.utils import alias_output_columns
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -92,6 +93,7 @@ from products.data_modeling.backend.temporal.activities.incremental_write import
 )
 from products.data_modeling.backend.temporal.activities.utils import (
     bind_data_modeling_log_context,
+    record_worker_time,
     strip_hostname_from_error,
 )
 from products.data_quality.backend.facade import api as data_quality_facade
@@ -1052,6 +1054,56 @@ async def _open_delta_table(table_uri: str, storage_options: dict[str, str]) -> 
     return await asyncio.to_thread(deltalake.DeltaTable, table_uri, storage_options=storage_options)
 
 
+@frozen
+class _TableFiles:
+    """The parquet files a run left in the Delta table, which price its storage and its publish copy."""
+
+    table_files: int
+    table_bytes: int
+    written_files: int | None
+    written_bytes: int | None
+
+
+@frozen
+class _WriteOutcome:
+    row_count: int
+    file_uris: list[str]
+    files: _TableFiles | None
+
+
+def _read_live_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str, int]:
+    add_actions = pa.table(delta_table.get_add_actions(flatten=True))
+    paths = typing.cast(list[str], add_actions.column("path").to_pylist())
+    sizes = typing.cast(list[int], add_actions.column("size_bytes").to_pylist())
+    return dict(zip(paths, sizes, strict=True))
+
+
+async def _live_file_sizes(delta_table: deltalake.DeltaTable) -> dict[str, int] | None:
+    """Size in bytes of each live file, keyed by its path in the table, or None when the read fails.
+
+    The sizes are a measurement of a write that is already committed, so a failure here must not fail the run.
+    The error goes to error tracking only, because its text can name storage hosts and run logs are customer-visible.
+    """
+    try:
+        return await asyncio.to_thread(_read_live_file_sizes, delta_table)
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
+def _table_files(live: dict[str, int] | None, before: dict[str, int] | None) -> _TableFiles | None:
+    """``before`` holds the files that were live when the run started: empty for a rebuild, None when unknown."""
+    if live is None:
+        return None
+    written = None if before is None else [size for path, size in live.items() if path not in before]
+    return _TableFiles(
+        table_files=len(live),
+        table_bytes=sum(live.values()),
+        written_files=None if written is None else len(written),
+        written_bytes=None if written is None else sum(written),
+    )
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -1061,7 +1113,7 @@ async def _materialize_fully(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
-) -> tuple[int, list[str]]:
+) -> _WriteOutcome:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
     # The rebuild rewrites the table in place, so a failure after the delete leaves a partial table.
@@ -1143,11 +1195,13 @@ async def _materialize_fully(
 
     await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
     file_uris: list[str] = []
+    files: _TableFiles | None = None
     if delta_table is not None:
         await logger.ainfo("Compacting delta table")
         await _compact(delta_table)
         await _vacuum(delta_table, logger)
         file_uris = delta_table.file_uris()
+        files = _table_files(await _live_file_sizes(delta_table), before={})
         if not file_uris and row_count == 0 and pa_schema is not None:
             # delta-rs writes no parquet for an empty batch. emit one so the
             # queryable folder has a file with a schema attached that's queryable
@@ -1165,7 +1219,7 @@ async def _materialize_fully(
             mode="full_refresh",
             table_uri=table_uri,
         )
-    return row_count, file_uris
+    return _WriteOutcome(row_count=row_count, file_uris=file_uris, files=files)
 
 
 async def _materialize_incrementally(
@@ -1177,7 +1231,7 @@ async def _materialize_incrementally(
     logger: FilteringBoundLogger,
     cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
-) -> tuple[int, list[str]]:
+) -> _WriteOutcome:
     """Upsert only the rows at or after the watermark into the existing table.
 
     The watermark is saved after the last upsert but before the queryable publish. That is only
@@ -1193,6 +1247,9 @@ async def _materialize_incrementally(
     # compare equal to pyarrow's. arro3 exposes the Arrow PyCapsule interface, which pa.schema()
     # consumes at runtime even though its stubs don't advertise it.
     target_schema = pa.schema(typing.cast(typing.Any, delta_table.schema().to_arrow()))
+    # Rows on the job at this point come from an earlier attempt of the same run. That attempt's files are
+    # already live and nothing marks them as this run's, so the files the run wrote stay unmeasured.
+    files_before = None if objects.job.rows_materialized else await _live_file_sizes(delta_table)
     window = IncrementalWindow(incremental_key=config.incremental_key, since=plan.since)
 
     row_count = 0
@@ -1274,7 +1331,11 @@ async def _materialize_incrementally(
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
     # name parquet the publish can no longer copy.
-    return row_count, delta_table.file_uris()
+    return _WriteOutcome(
+        row_count=row_count,
+        file_uris=delta_table.file_uris(),
+        files=_table_files(await _live_file_sizes(delta_table), before=files_before),
+    )
 
 
 @tracer.start_as_current_span("materialize_view.compact")
@@ -1298,6 +1359,21 @@ async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogge
         dry_run=False,
         full=True,
     )
+
+
+@database_sync_to_async_pool
+def _record_table_files(job: DataModelingJob, files: _TableFiles | None) -> None:
+    if files is None:
+        return
+    job.table_files = files.table_files
+    job.table_bytes = files.table_bytes
+    job.written_files = files.written_files
+    job.written_bytes = files.written_bytes
+    try:
+        job.save(update_fields=["table_files", "table_bytes", "written_files", "written_bytes", "updated_at"])
+    except Exception as error:
+        # The table and the watermark are committed by now, so a failed save must not make Temporal repeat them.
+        capture_exception(error)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -1346,6 +1422,11 @@ def _watermark_table_uri(objects: MatviewInputObjects) -> str:
 @activity.defn
 async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     """Materialize a view by executing its query and writing to delta lake."""
+    async with record_worker_time(inputs.team_id, inputs.job_id, attempt=activity.info().attempt):
+        return await _materialize_view(inputs)
+
+
+async def _materialize_view(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -1420,7 +1501,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
             try:
                 if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
+                    outcome = await _materialize_incrementally(
                         objects,
                         plan,
                         hogql_query,
@@ -1431,7 +1512,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                         person_property_sink,
                     )
                 else:
-                    row_count, file_uris = await _materialize_fully(
+                    outcome = await _materialize_fully(
                         objects,
                         plan,
                         hogql_query,
@@ -1447,8 +1528,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 await cdp_sink.discard()
                 raise
 
-            activity_span.set_attribute("rows_materialized", row_count)
-            await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
+            await _record_table_files(objects.job, outcome.files)
+            activity_span.set_attribute("rows_materialized", outcome.row_count)
+            await logger.ainfo(f"Materialized node {objects.node.name} with {outcome.row_count} rows")
         quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
             inputs.team_id, str(objects.saved_query.id)
         )
@@ -1465,9 +1547,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         result = MaterializeViewResult(
             node_id=objects.node.id,
             node_name=objects.node.name,
-            row_count=row_count,
+            row_count=outcome.row_count,
             table_uri=table_uri,
-            file_uris=file_uris,
+            file_uris=outcome.file_uris,
             saved_query_id=str(objects.saved_query.id),
             quality_audit=quality_audit,
             incremental=plan.incremental,

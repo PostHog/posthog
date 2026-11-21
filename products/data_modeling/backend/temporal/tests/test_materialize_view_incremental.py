@@ -23,6 +23,7 @@ import deltalake
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import get_incremental_state, set_incremental_state
+from products.data_modeling.backend.facade.models import DataModelingJob
 from products.data_modeling.backend.temporal.activities import MaterializeViewInputs, materialize_view_activity
 from products.data_modeling.backend.temporal.activities.incremental_write import (
     DuplicateUniqueKeyError,
@@ -136,6 +137,26 @@ async def _run(
             materialize_view_activity,
             MaterializeViewInputs(team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)),
         )
+
+
+def _live_object_sizes(table_uri: str) -> dict[str, int]:
+    live = deltalake.DeltaTable(table_uri, storage_options=get_aws_storage_options()).file_uris()
+    s3 = get_s3_client()
+    return {uri: s3.info(uri)["size"] for uri in live}
+
+
+def _file_columns(job: DataModelingJob) -> dict[str, int | None]:
+    return {
+        "table_files": job.table_files,
+        "table_bytes": job.table_bytes,
+        "written_files": job.written_files,
+        "written_bytes": job.written_bytes,
+    }
+
+
+async def _forget_rows(job: DataModelingJob) -> None:
+    job.rows_materialized = 0
+    await database_sync_to_async(job.save)(update_fields=["rows_materialized"])
 
 
 async def _configure(asaved_query, config: dict | None = None) -> None:
@@ -627,6 +648,67 @@ class TestIncrementalMaterialization:
 
         assert result.row_count == 2
         assert _rows(first.table_uri) == [(DAY1, 1), (DAY2, 20), (DAY3, 30)]
+
+    async def test_the_job_records_the_files_a_run_wrote_and_the_table_it_left(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+
+        with _settings(bucket_name):
+            first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [1]))
+            await database_sync_to_async(ajob.refresh_from_db)()
+            after_rebuild = _file_columns(ajob)
+            rebuilt = _live_object_sizes(first.table_uri)
+
+            # Every run has its own job in production, so the next run starts from a job with no rows.
+            await _forget_rows(ajob)
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY2], [20]))
+            await database_sync_to_async(ajob.refresh_from_db)()
+            after_update = _file_columns(ajob)
+            updated = _live_object_sizes(first.table_uri)
+
+            # The job keeps its rows this time, which is what a retry sees after an attempt that wrote some.
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY3], [30]))
+            await database_sync_to_async(ajob.refresh_from_db)()
+            retried = _live_object_sizes(first.table_uri)
+
+        whole_table = sum(rebuilt.values())
+        assert after_rebuild == {
+            "table_files": len(rebuilt),
+            "table_bytes": whole_table,
+            "written_files": len(rebuilt),
+            "written_bytes": whole_table,
+        }
+        added = [size for uri, size in updated.items() if uri not in rebuilt]
+        assert after_update == {
+            "table_files": len(updated),
+            "table_bytes": sum(updated.values()),
+            "written_files": len(added),
+            "written_bytes": sum(added),
+        }
+        assert _file_columns(ajob) == {
+            "table_files": len(retried),
+            "table_bytes": sum(retried.values()),
+            "written_files": None,
+            "written_bytes": None,
+        }
+        assert ajob.attempts == 1
+        assert ajob.worker_seconds > 0
+
+    async def test_a_delta_log_that_cannot_be_measured_leaves_the_run_intact(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        with (
+            _settings(bucket_name),
+            unittest.mock.patch.object(
+                deltalake.DeltaTable, "get_add_actions", side_effect=Exception("Offset overflow error")
+            ),
+        ):
+            result = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [1]))
+
+        assert _rows(result.table_uri) == [(DAY1, 1)]
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert set(_file_columns(ajob).values()) == {None}
 
     async def test_a_duplicate_key_across_batches_fails_the_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
