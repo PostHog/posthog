@@ -1,4 +1,3 @@
-import json
 import asyncio
 from typing import Any
 
@@ -716,30 +715,40 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             ],
         )
         result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
+        message = mock_async.chat_postMessage.await_args.kwargs
+        assert message["channel"] == "C1"
+        assert message["blocks"] == gallery.blocks
         mock_async.files_upload_v2.assert_awaited_once()
-        kwargs = mock_async.files_upload_v2.await_args.kwargs
-        assert kwargs["channel"] == "C1"
-        assert "initial_comment" not in kwargs
-        assert json.loads(kwargs["blocks"]) == gallery.blocks
-        assert kwargs["file_uploads"] == gallery.file_uploads
-        mock_async.chat_postMessage.assert_not_awaited()
+        assert mock_async.files_upload_v2.await_args.kwargs == {"channel": "C1", "file_uploads": gallery.file_uploads}
         assert result.main_message_sent is True
 
+    @parameterized.expand(
+        [
+            ("recovers", [TimeoutError(), {"ok": True, "files": [{"id": "F1"}]}], 0),
+            ("keeps_timing_out", [TimeoutError(), TimeoutError(), TimeoutError()], 1),
+        ]
+    )
     @patch("products.subscriptions.backend.logic.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
     def test_deliver_slack_gallery_retries_timeout(
-        self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
+        self,
+        _name: str,
+        upload_responses: list[Any],
+        expected_undelivered: int,
+        mock_sleep: AsyncMock,
+        MockSlackIntegration: MagicMock,
     ) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
-        mock_async.files_upload_v2 = AsyncMock(side_effect=[TimeoutError(), {"ok": True, "files": [{"id": "F1"}]}])
+        mock_async.files_upload_v2 = AsyncMock(side_effect=upload_responses)
         gallery = SlackGallery(
             channel="C1",
             initial_comment="hi",
             file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
         )
         result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
-        assert mock_async.files_upload_v2.await_count == 2
-        mock_sleep.assert_awaited_once_with(1)
+        assert mock_async.files_upload_v2.await_count == len(upload_responses)
+        mock_async.chat_postMessage.assert_awaited_once()
         assert result.main_message_sent is True
+        assert result.undelivered_asset_count == expected_undelivered
 
     def test_deliver_slack_gallery_empty_uploads_sends_plain_message(self, MockSlackIntegration: MagicMock) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
@@ -773,7 +782,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=1)
         )
         mock_async.files_upload_v2.assert_awaited_once()
-        mock_async.chat_postMessage.assert_not_awaited()
+        mock_async.chat_postMessage.assert_awaited_once()
 
 
 class TestSlackErrorTruncation(APIBaseTest):
