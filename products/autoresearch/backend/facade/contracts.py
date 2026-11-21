@@ -182,6 +182,7 @@ class Pipeline:
     training_phase: str
     next_research_at: datetime | None
     not_promoted_reason: str | None
+    promotion_margin: float
     success_auc: float | None
     plateau_iterations: int
     output_person_property: str

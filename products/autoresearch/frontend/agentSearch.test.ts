@@ -1,4 +1,13 @@
-import { buildAgentSearch, experimentLogGroups, experimentTitle, runHeadline, statusBrief } from './agentSearch'
+import {
+    buildAgentSearch,
+    experimentLogGroups,
+    experimentTitle,
+    formatRunDuration,
+    notMadeLiveReason,
+    ruledOut,
+    runHeadline,
+    statusBrief,
+} from './agentSearch'
 import { AutoresearchModelApi, AutoresearchTrainingRunApi, IterationTrailApi } from './generated/api.schemas'
 
 function iteration(
@@ -178,6 +187,7 @@ describe('statusBrief', () => {
             distillation: 'Recency wins',
             recommendedNext: 'Try sessions',
             live: { runNumber: 1, holdoutScore: 0.948, realizedScore: 0.874 },
+            bestInTraining: null,
             scoredAlongside: null,
         })
     })
@@ -185,6 +195,7 @@ describe('statusBrief', () => {
     it('reads the plain summary, at most three next steps, and the scored-alongside model', () => {
         const runs = [
             run('run-2', '2026-01-02T00:00:00Z', [], {
+                best_holdout_score: 0.951,
                 reader_summary: 'Run 2 found part of the reason.',
                 next_steps: ['One', ' ', 'Two', 'Three', 'Four'],
             } as Partial<AutoresearchTrainingRunApi>),
@@ -199,7 +210,74 @@ describe('statusBrief', () => {
         expect(statusBrief(runs, champion, challenger)).toMatchObject({
             readerSummary: 'Run 2 found part of the reason.',
             nextSteps: ['One', 'Two', 'Three'],
+            bestInTraining: { runNumber: 2, score: 0.951 },
             scoredAlongside: { runNumber: 2, holdoutScore: 0.94, realizedScore: 0.893 },
         })
+    })
+})
+
+describe('ruledOut', () => {
+    it('drops the agent lineage notes and keeps plain labels', () => {
+        const r = run('run-1', '2026-01-01T00:00:00Z', [], {
+            summary: {
+                dead_ends: [
+                    { agent_description: 'Builds on iter2 (RF sqrt)' },
+                    { agent_description: 'Model-only on iter2 SQL/materialization' },
+                    { agent_description: 'Session counts. AUC fell.' },
+                ],
+            } as any,
+        })
+        expect(ruledOut(r)).toEqual(['Session counts'])
+    })
+})
+
+describe('formatRunDuration', () => {
+    it.each([
+        [30, 'under a minute'],
+        [60, '1 minute'],
+        [62 * 60, '62 minutes'],
+        [90 * 60, '90 minutes'],
+        [120 * 60, '2 hours'],
+        [125 * 60, '2 hours 5 minutes'],
+    ])('formats %i seconds as %s', (seconds, expected) => {
+        const start = '2026-01-01T00:00:00Z'
+        expect(formatRunDuration(start, new Date(Date.parse(start) + seconds * 1000).toISOString())).toEqual(expected)
+    })
+})
+
+describe('notMadeLiveReason', () => {
+    const champion = { role: 'champion', source_training_run: 'run-3', holdout_score: 0.858 } as AutoresearchModelApi
+    const challenger = { role: 'challenger', source_training_run: 'run-4', promoted_at: null } as AutoresearchModelApi
+
+    it.each([
+        [
+            'a gain under the margin',
+            { best_holdout_score: 0.861 },
+            challenger,
+            'the gain of 0.003 is under the 0.005 needed to replace the live model',
+        ],
+        [
+            'a rolled-back promotion',
+            { best_holdout_score: 0.87 },
+            { ...challenger, metrics: { not_promoted_reason: 'fit failed' } },
+            'it failed a check before going live',
+        ],
+        [
+            'a gain over the margin against the model that was live then',
+            { best_holdout_score: 0.87 },
+            challenger,
+            'its gain over the model that was live then was under the 0.005 needed to replace it',
+        ],
+        ['a run that scored below the live model', { best_holdout_score: 0.85 }, challenger, null],
+        [
+            'a model that was live before',
+            { best_holdout_score: 0.87 },
+            { ...challenger, role: 'archived', promoted_at: '2026-01-04T00:00:00Z' },
+            null,
+        ],
+        ['a run still in progress', { status: 'running', best_holdout_score: 0.87 }, challenger, null],
+    ])('explains %s', (_, overrides, model, expected) => {
+        const r = run('run-4', '2026-01-04T00:00:00Z', [], overrides as Partial<AutoresearchTrainingRunApi>)
+        expect(notMadeLiveReason(r, model as AutoresearchModelApi, champion, 0.005)).toEqual(expected)
     })
 })

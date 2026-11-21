@@ -12,7 +12,7 @@ const FILTER_OPTIONS: { value: ExperimentLogFilter; label: string }[] = [
     { value: 'all', label: 'All' },
     { value: 'kept', label: 'Improved' },
     { value: 'discarded', label: 'No gain' },
-    { value: 'crashed', label: 'Crashed' },
+    { value: 'crashed', label: 'Failed' },
 ]
 
 /** Every run, newest first, with its experiments and the approaches it ruled out. Only the latest run shows its experiments by default. */

@@ -7,5 +7,5 @@ export const EXPERIMENT_STATUS: Record<
 > = {
     kept: { type: 'success', label: 'Improved', color: 'var(--success)', dotClassName: 'bg-success' },
     discarded: { type: 'default', label: 'No gain', color: 'var(--color-text-secondary)', dotClassName: 'bg-muted' },
-    crashed: { type: 'danger', label: 'Crashed', color: 'var(--danger)', dotClassName: 'bg-danger' },
+    crashed: { type: 'danger', label: 'Failed', color: 'var(--danger)', dotClassName: 'bg-danger' },
 }

@@ -29,6 +29,7 @@ import {
     type StatusBrief,
     buildAgentSearch,
     experimentLogGroups,
+    notMadeLiveReason,
     runRoles,
     scoredChallenger,
     statusBrief,
@@ -364,6 +365,7 @@ export interface autoresearchPipelineLogicValues {
     modelsError: boolean
     modelsLoaded: boolean
     modelsLoading: boolean
+    notMadeLiveReasons: Record<string, string>
     onlinePerformance: OnlinePerformanceRowApi[]
     onlinePerformanceError: boolean
     onlinePerformanceLoading: boolean
@@ -933,6 +935,12 @@ export interface autoresearchPipelineLogicMeta {
             champion: AutoresearchModelApi | null,
             scoredChallenger: AutoresearchModelApi | null
         ) => Record<string, RunRole>
+        notMadeLiveReasons: (
+            trainingRuns: AutoresearchTrainingRunApi[],
+            modelByTrainingRun: Record<string, AutoresearchModelApi>,
+            champion: AutoresearchModelApi | null,
+            pipeline: AutoresearchPipelineApi | null
+        ) => Record<string, string>
         queuedSuggestionCount: (suggestions: AutoresearchSuggestionApi[]) => number
         agentSearch: (
             trainingRuns: AutoresearchTrainingRunApi[],
@@ -1697,6 +1705,32 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 champion: AutoresearchModelApi | null,
                 scoredChallenger: AutoresearchModelApi | null
             ): Record<string, RunRole> => runRoles(champion, scoredChallenger),
+        ],
+        notMadeLiveReasons: [
+            (s) => [s.trainingRuns, s.modelByTrainingRun, s.champion, s.pipeline],
+            (
+                trainingRuns: AutoresearchTrainingRunApi[],
+                modelByTrainingRun: Record<string, AutoresearchModelApi>,
+                champion: AutoresearchModelApi | null,
+                pipeline: AutoresearchPipelineApi | null
+            ): Record<string, string> => {
+                const reasons: Record<string, string> = {}
+                if (!pipeline) {
+                    return reasons
+                }
+                for (const run of trainingRuns) {
+                    const reason = notMadeLiveReason(
+                        run,
+                        modelByTrainingRun[run.id],
+                        champion,
+                        pipeline.promotion_margin
+                    )
+                    if (reason) {
+                        reasons[run.id] = reason
+                    }
+                }
+                return reasons
+            },
         ],
         queuedSuggestionCount: [
             (s) => [s.suggestions],

@@ -27,7 +27,7 @@ function DriverRow({
                     {f.name}
                 </span>
                 {isNew && (
-                    <Tooltip title="Not in the champion's top drivers">
+                    <Tooltip title="Not in the live model's top drivers">
                         <LemonTag type="highlight" size="small" className="shrink-0">
                             New
                         </LemonTag>
@@ -116,7 +116,7 @@ export function FeatureImportanceChart({
                 )}
                 {droppedFeatures.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
-                        Champion top drivers not in this list:
+                        Top drivers of the live model that are not in this list:
                         {droppedFeatures.map((name) => (
                             <LemonTag key={name} type="muted" size="small" className="font-mono">
                                 {name}
