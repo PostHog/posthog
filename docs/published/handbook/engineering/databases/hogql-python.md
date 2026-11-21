@@ -59,6 +59,24 @@ Circular dependencies fail with a query error. Soft saves skip column inference 
 Query preparation shares a 60-second cooperative deadline across parsing, resolution, transformations, and printing.
 AST visitors check the deadline while walking; native parser calls are checked when they return, rather than interrupted mid-call.
 
+## Scalar WITH aliases
+
+Scalar `WITH` aliases can refer to columns from the query's `FROM` and `JOIN` tables:
+
+```sql
+WITH toStartOfDay(timestamp) AS day
+SELECT day, count()
+FROM events
+GROUP BY day
+```
+
+Aliases become available as their source tables enter scope. An alias used in a `JOIN ON` clause cannot depend on a table joined later.
+In a nested SELECT with its own `FROM`, scalar aliases bind to that SELECT's tables, even when an outer query uses the same table alias.
+Aliases introduced inside a scalar `WITH` expression belong to that SELECT and are not visible in an outer query.
+Define table-dependent scalar aliases inside each subquery that has its own `FROM`, rather than inheriting them from an outer SELECT.
+A column read by name in another SELECT or `UNION` branch with its own `FROM` cannot share a name with a table-dependent scalar alias. Rename the column or the alias.
+Property references such as `properties.$browser` and `person.properties.email` also work in scalar aliases. Query preparation expands any required lazy joins.
+
 ## Embedding text
 
 `embedText(text, model)` requires string literals for both arguments and a team in the query context.
