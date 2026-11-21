@@ -4347,3 +4347,26 @@ def test_shard_predicate_resets_the_typed_columns_derived_from_removed_propertie
     assert [name for name, _ in predicate.mat_cols] == expected_reset
     for name in expected_reset:
         assert f"`{name}` != ''" in predicate.sql
+
+
+def test_property_removal_refusal_counts_a_typed_column_that_kept_the_value():
+    request = DeletionRequestContext(
+        request_id="r",
+        team_id=1,
+        start_time=datetime(2026, 1, 1, tzinfo=UTC),
+        end_time=datetime(2026, 2, 1, tzinfo=UTC),
+        events=["$feature_flag_called"],
+        properties=["$feature_flag_request_id"],
+        hogql_predicate="properties.plan = 'pro'",
+    )
+    cluster = Mock()
+    cluster.any_host.side_effect = lambda fn: Mock(result=lambda: fn(_ColumnCommentClient()))
+
+    with patch("posthog.dags.data_deletion_requests._refuse_unsweepable") as refuse:
+        _refuse_property_removal_unsweepable(
+            cluster, [FLAG_EVALUATIONS_JSON], request, "2026-03-01 00:00:00.000000", log=logging.getLogger()
+        )
+
+    hogql_excluded_call = refuse.call_args_list[1]
+    predicate, _ = hogql_excluded_call.args[3](FLAG_EVALUATIONS_JSON)
+    assert "`request_id` != ''" in predicate
