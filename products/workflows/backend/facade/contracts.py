@@ -1422,3 +1422,10 @@ class SandboxSenderStatus:
     display_name: str
     organization_blocked: bool
     adoption_enabled: bool
+
+
+@frozen
+class ConversionGoalBackfill:
+    workflows_read: int
+    revisions_read: int
+    goals_found: int
