@@ -5764,6 +5764,27 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 403, response.json()
         assert "person:read" in response.json().get("detail", "")
 
+    @parameterized.expand(
+        [
+            ("person_read_cannot_size_groups", ["hog_flow:read", "person:read"], 403),
+            ("group_read_can_size_groups", ["hog_flow:read", "group:read"], 200),
+        ]
+    )
+    def test_user_blast_radius_group_audience_requires_group_read_scope(self, _name, scopes, expected_status):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="sizing", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_user_blast_radius",
+            return_value=BlastRadiusResult(affected=1, total=2),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "group_type_index": 0},
+                headers={"authorization": f"Bearer {key}"},
+            )
+
+        assert response.status_code == expected_status, response.json()
+
     def test_user_blast_radius_personal_api_key_with_person_read_scope_allowed(self):
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(

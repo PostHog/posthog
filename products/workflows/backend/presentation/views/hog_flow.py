@@ -5749,7 +5749,8 @@ class HogFlowViewSet(
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
         # session auth, so live sizing while editing is unaffected.
         if self.action == "user_blast_radius":
-            return ["hog_flow:read", "person:read"]
+            data = request.data if isinstance(request.data, dict) else {}
+            return ["hog_flow:read", "person:read" if data.get("group_type_index") is None else "group:read"]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
         # on top of workflow read, same as user_blast_radius. A hog_flow:read-only token must not be
