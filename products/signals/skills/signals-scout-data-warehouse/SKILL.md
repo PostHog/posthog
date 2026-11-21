@@ -52,6 +52,18 @@ If it returns nothing (no armed schemas), the import-integrity lane isn't in pla
 
 If everything is `Completed` and fresh, the integrity lane is nearly done — only the silent-staleness and webhook checks below can still find something behind a green status. A quiet integrity lane is exactly when the optimization lane earns its run.
 
+## Run budget
+
+A run has a fixed wall-clock budget, and a run still working when it runs out fails without a close-out, so the next run can't see what it covered.
+You can't see the clock, so budget in calls, not minutes.
+The SQL sweeps are cheap; per-candidate REST drill-downs, activity-log dating, and `query_log` probes are what run out the clock on a large project.
+
+- **Sweep everything, then rank, then drill.** Run the schema sweep and the failed-view sweep before any drill-down, so every candidate is on the list before the early stop can cut the run short. Rank from the sweep alone: source-level cascades (many armed schemas `Failed` under one `source_id`) first, then tight-cadence schemas stale or stuck `Running`, then single `Failed` schemas and failed views, then webhook and row-cliff checks. Drop a candidate a `noise:` / `addressed:` / `dedupe:` entry gates before you spend a REST call on it.
+- **Drill down at most 5 candidates per run**, at about 3 REST calls each. Date an onset from the activity log only for a candidate you are about to file or edit.
+- **Stop the broad sweep after the first validated P1/P2 gap.** Once one localized P1/P2 import gap is validated this run and covered, by a new report or by an edit that adds material evidence to the live report that already covers it (a relapse, a wider blast radius, a new error class), drill no further candidates, skip the matview waste check and the whole optimization lane, and close out. A known gap whose live report (a `report:` pointer) has nothing new is not re-drilled: refresh it from the sweep numbers at most every few runs and move on, without triggering the stop, or a long-lived known gap would starve every other candidate.
+- **Defer what you didn't reach.** Rewrite `deferred:data_warehouse:candidates` with every ranked candidate you didn't drill (source/schema ids from the sweep, one line each with its sweep status). Write it as soon as you know the run will stop early, not only at close-out. The next run drills these first, ahead of new candidates, so a deferral delays a finding by one run instead of dropping it. Remove a line once the candidate is filed, ruled out, or healthy again in the sweep.
+- **Cap the optimization lane.** When it runs: one hot-tables sweep and one query-shapes sweep on the 1-day window, then the 7-day recheck and sample lookup for at most 2 candidates (the lane's report cap). If a probe times out, don't retry or widen it; narrow it once, or leave the lane to the next run and say so.
+
 ## How a run works
 
 Cycle between these moves; skip what's not useful.
@@ -60,7 +72,7 @@ Cycle between these moves; skip what's not useful.
 
 Three cheap reads cold-start a run:
 
-- `scout-scratchpad-search` (`text=warehouse`) — durable steering: the watchlist of high-value sources/schemas and their freshness baselines, `noise:` / `addressed:` / `dedupe:` entries gating re-reports, plus `report:` / `reviewer:` entries pointing at the open report for a source/schema and who owns it.
+- `scout-scratchpad-search` (`text=warehouse`) — durable steering: the watchlist of high-value sources/schemas and their freshness baselines, `noise:` / `addressed:` / `dedupe:` entries gating re-reports, `report:` / `reviewer:` entries pointing at the open report for a source/schema and who owns it, and the `deferred:` candidates a previous run didn't reach.
 - `scout-runs-list` (last 7d) — what prior warehouse runs found and ruled out.
 - `scout-project-profile-get` — products in use and integrations. **Warehouse tables are not events**, so the profile won't enumerate them; it only tells you whether the warehouse is in use at all.
 - `inbox-reports-list` (`search`=source/schema name, `ordering=-updated_at`) — the reports already in the inbox. A contradiction on a source/schema you've reported before is an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve` before authoring. Your own report-channel reports persist their backing signals under `source_product=signals_scout`, so don't filter `source_product=data_warehouse` — you'd miss every report you authored.
@@ -78,7 +90,7 @@ WHERE should_sync AND deleted = 0
 ORDER BY status, hours_since_sync DESC
 ```
 
-`system.source_schemas` carries `should_sync`, `status`, `sync_type`, `last_synced_at`, `latest_error`, `source_id` — the fields you triage on. Group the `Failed` rows by `source_id` to find cascades (one source whose tables all fail at once is **one source-level finding**, not N). What the system table does **not** have: `sync_frequency` (the promised cadence) and the **source-level** `status` / `latest_error`. Get those from REST, but only for the handful of candidates the SQL sweep surfaced:
+`system.source_schemas` carries `should_sync`, `status`, `sync_type`, `last_synced_at`, `latest_error`, `source_id` — the fields you triage on. Group the `Failed` rows by `source_id` to find cascades (one source whose tables all fail at once is **one source-level finding**, not N). What the system table does **not** have: `sync_frequency` (the promised cadence) and the **source-level** `status` / `latest_error`. Get those from REST, but only for the top-ranked candidates within the drill-down cap (see "Run budget"):
 
 - `external-data-schemas-list` (`search=<schema name>`) — the one candidate's `sync_frequency`, `incremental_field`, full `latest_error`. **Footgun: never call it unfiltered to page the whole project, and never use `external-data-sources-list` for the schema sweep — each source there embeds all its schemas, so the response is many MB on a large project.**
 - `external-data-sources-retrieve {id}` (pass the `source_id` value from `system.source_schemas` as `id`) — the source's connection-level `status` (`Error`/`Running`/…) and `latest_error`, to confirm a cascade is a broken _connection_ rather than N independent table failures.
@@ -199,7 +211,7 @@ The reader check itself **deliberately drops the `query_duration_ms > 5000` filt
 
 ### Save memory as you go
 
-Write a scratchpad entry whenever you observe something a future run should know. Encode the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, `reviewer:`:
+Write a scratchpad entry whenever you observe something a future run should know. Encode the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`, `reviewer:`, `deferred:`:
 
 - key `pattern:data_warehouse:watchlist` — _"High-value imports: source `Stripe` (Postgres CDC, 12 armed schemas), schema `public.orders` (1hour, ~2M rows, the revenue join), webhook schema `stripe.charges`. Check these first."_
 - key `pattern:data_warehouse:orders-freshness` — _"`public.orders` syncs hourly, baseline freshness < 90 min, ~2M rows. Only a multi-hour staleness or a Failed status matters."_
@@ -211,6 +223,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 - key `pattern:data_warehouse:opt-watchlist` — _"Hot tables by daily query_log burn: `prod_postgres_invoice_with_annual` (165 slow runs / 17 users / p50 11s / 11 TB read), `iwa_summary_customer_month` (73 / 5 / 18.6s / 98 TB read), … Recheck weekly, not every run."_
 - key `report:data_warehouse:opt-invoice-annual` — _"Report `019f…` suggests materializing the recurring `prod_postgres_invoice_with_annual` join (2026-07-15: 165 slow q/day, 17 users, 11 TB read). Edit with fresh numbers at most every few runs while live; on decline or fix, write `addressed:` and stop."_
 - key `addressed:data_warehouse:opt-usage-report-view` — _"Team declined materializing the usage-report query (2026-07-10, acceptable cost). Never re-file unless burn grows ~3×."_
+- key `deferred:data_warehouse:candidates` — _"Stopped early 2026-07-16 after filing the `Stripe` cascade. Not drilled, in rank order: schema `0190…` (Running, 9h stale), schema `0191…` (Failed, PK error), view `0192…` (Failed). Drill these first next run."_ One entry, rewritten each run; empty it when nothing is deferred.
 
 By run #5 you should know the project's high-value imports and their freshness baselines, which sources are throwaway mirrors, the optimization watchlist and what's already been suggested — so a real import contradiction or a new burn hotspot stands out immediately and cheaply.
 
@@ -226,7 +239,7 @@ For a candidate that clears the bar, the call is **edit an existing report, auth
 
 ### Close out
 
-Summarize the run in one paragraph: which sources/schemas you checked, which reports you authored or edited, what you remembered, and what you ruled out. The harness saves it as the run summary; future runs read it via `scout-runs-list`. Don't write a separate "run metadata" scratchpad entry. "Every armed import is fresh and Completed on schedule" is a real, useful outcome.
+Summarize the run in one paragraph: which sources/schemas you checked, which reports you authored or edited, what you remembered, and what you ruled out. Name why the run stopped (`first P1/P2 covered`, `drill-down cap reached`, `optimization skipped: live P1/P2`, `probe timeout`, or `sweep complete`) and how many candidates you deferred. The harness saves it as the run summary; future runs read it via `scout-runs-list`. Don't write a separate "run metadata" scratchpad entry. "Every armed import is fresh and Completed on schedule" is a real, useful outcome.
 
 ## Untrusted data — errors, table names, and source labels
 
@@ -293,4 +306,5 @@ Harness-level:
 - No armed schemas **and** no queryable warehouse tables **and** no views → `not-in-use:` entry, close out empty. (No armed schemas but tables/views present → the integrity lane is nearly empty, but run the matview sweep and the optimization lane first.)
 - Roster clean, every armed schema `Completed` and fresh within cadence, no broken webhooks, and the optimization sweep found nothing above the bar (or everything it found is already filed/`addressed:`) → close out empty; refresh `pattern:` baselines if stale.
 - Candidates all gated by `noise:` / `addressed:` / `dedupe:` entries, or an existing inbox report → edit-or-skip and close out.
+- First localized P1/P2 import gap validated and covered by a new or edited report, or the drill-down cap reached → write `deferred:data_warehouse:candidates` and close out (see "Run budget").
 - You've filed (or edited) reports for what's solid → close out. One sharp import gap report beats a laundry list of wobbles, and one validated materialization suggestion beats ten "this query looks slow" notes.
