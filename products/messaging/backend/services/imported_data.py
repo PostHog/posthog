@@ -244,20 +244,15 @@ def _name_match_key(name: str) -> str:
     return " ".join(name.split()).casefold()
 
 
-def _marketing_categories_by_name(team_id: int) -> tuple[dict[str, str], set[str]]:
-    """The id of each live marketing category by its name, ignoring case and spacing, and the names only deleted ones
-    carry. The oldest live category wins a tie."""
-    live: dict[str, str] = {}
-    deleted: set[str] = set()
-    rows = MessageCategory.objects.filter(team_id=team_id, category_type=MessageCategoryType.MARKETING).order_by(
-        "created_at", "id"
-    )
-    for name, category_id, is_deleted in rows.values_list("name", "id", "deleted"):
-        if is_deleted:
-            deleted.add(_name_match_key(name))
-        else:
-            live.setdefault(_name_match_key(name), str(category_id))
-    return live, deleted - set(live)
+def _live_marketing_categories_by_name(team_id: int) -> dict[str, str]:
+    """The id of each live marketing category by its name, ignoring case and spacing. The oldest wins a tie."""
+    ids: dict[str, str] = {}
+    rows = MessageCategory.objects.filter(
+        team_id=team_id, deleted=False, category_type=MessageCategoryType.MARKETING
+    ).order_by("created_at", "id")
+    for name, category_id in rows.values_list("name", "id"):
+        ids.setdefault(_name_match_key(name), str(category_id))
+    return ids
 
 
 def import_categories(
@@ -266,9 +261,8 @@ def import_categories(
     """Create the marketing categories that don't exist yet. An existing one keeps any edit made to it.
 
     A category whose name matches a live marketing category is mapped to that one instead of being created, so
-    importing from several tools doesn't show recipients the same choice twice. One whose name only a deleted category
-    carries is left out, so a reused category someone deleted stays deleted. Nothing stores the match, so it is made
-    again on every run, and a category renamed since then is created on the next run.
+    importing from several tools doesn't show recipients the same choice twice. Nothing stores the match, so it is made
+    again on every run: a reused category someone renamed or deleted since then is created again on the next run.
     """
     by_key = {category.key: category for category in categories}
     existing = {row.key: row for row in MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key))}
@@ -282,14 +276,12 @@ def import_categories(
                 cursor.execute(
                     "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"message-category-import:{team_id}"]
                 )
-            by_name, deleted_names = _marketing_categories_by_name(team_id)
+            by_name = _live_marketing_categories_by_name(team_id)
             new_rows: list[MessageCategory] = []
             for key, category in sorted(missing.items()):
                 name_key = _name_match_key(category.name)
                 if name_key in by_name:
                     matched[key] = by_name[name_key]
-                    continue
-                if name_key in deleted_names:
                     continue
                 row = MessageCategory(
                     team_id=team_id,

@@ -355,7 +355,7 @@ class TestCategoryImport(BaseTest):
         [
             ("live_with_other_case_and_spacing", {}, "reused"),
             ("transactional", {"category_type": MessageCategoryType.TRANSACTIONAL}, "created"),
-            ("deleted", {"deleted": True}, "left_out"),
+            ("deleted", {"deleted": True}, "created"),
         ]
     )
     def test_an_imported_category_follows_the_existing_category_with_its_name(
@@ -372,28 +372,11 @@ class TestCategoryImport(BaseTest):
 
         live = MessageCategory.objects.filter(team_id=self.team.id, deleted=False, category_type="marketing")
         assert first.ids_by_key == second.ids_by_key
-        if outcome == "left_out":
-            assert first.ids_by_key == {}
-            assert not live.exists()
-            return
         assert live.count() == 1
         expected_id = str(existing.id) if outcome == "reused" else str(live.get().id)
         assert first.ids_by_key == {"tool_a_digest": expected_id, "tool_b_digest": expected_id}
         assert (first.created, first.matched) == ((0, 2) if outcome == "reused" else (1, 1))
         assert (second.created, second.matched) == (0, 2 if outcome == "reused" else 1)
-
-    def test_a_reused_category_someone_deletes_stays_deleted_on_the_next_import(self) -> None:
-        existing = self._category("Weekly digest")
-        imported = [ImportedCategory(key="tool_digest", name="Weekly digest")]
-        assert imported_data.import_categories(self.team.id, imported, None).ids_by_key == {
-            "tool_digest": str(existing.id)
-        }
-
-        MessageCategory.objects.filter(id=existing.id).update(deleted=True)
-        again = imported_data.import_categories(self.team.id, imported, None)
-
-        assert again.ids_by_key == {}
-        assert not MessageCategory.objects.filter(team_id=self.team.id, deleted=False).exists()
 
 
 REGION = ImportSettingSpec(
