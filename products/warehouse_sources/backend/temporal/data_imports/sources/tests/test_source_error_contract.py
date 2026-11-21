@@ -73,6 +73,7 @@ ALL_AUTH_STATUSES = frozenset(AUTH_FAILURES)
 # `redacted`: the only placeholder config that reaches the vendor holds `1`, and the redaction of
 #   secrets masks each `1` in the error text, so the status code in the text no longer reads `401`.
 NOT_CHECKABLE: dict[str, str] = {
+    "AmazonKinesis": "schemas",
     "AmazonS3": "schemas",
     "AppStoreConnect": "no-request",
     "AppleSearchAds": "no-request",
