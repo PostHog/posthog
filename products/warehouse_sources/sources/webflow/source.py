@@ -8,6 +8,8 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     ExternalWebhookInfo,
     FieldType,
+    IncrementalField,
+    IncrementalFieldType,
     ReleaseStatus,
     ResumableSource,
     ResumableSourceManager,
@@ -26,6 +28,8 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.webflow._config import WebflowSourceConfig
 from products.warehouse_sources.sources.webflow.settings import (
+    ANALYZE_INCREMENTAL_FIELD,
+    ANALYZE_REPORTS,
     COLLECTION_SCHEMA_PREFIX,
     SCHEMA_TO_WEBHOOK_EVENTS,
     STATIC_ENDPOINTS,
@@ -46,6 +50,16 @@ if TYPE_CHECKING:
     from products.warehouse_sources.sources.sdk import HogFunctionTemplateDC
 
 logger = structlog.get_logger(__name__)
+
+# Analyze reports take a startTime/endTime window, so they can sync from the last synced day.
+ANALYZE_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": ANALYZE_INCREMENTAL_FIELD,
+        "type": IncrementalFieldType.DateTime,
+        "field": ANALYZE_INCREMENTAL_FIELD,
+        "field_type": IncrementalFieldType.DateTime,
+    }
+]
 
 
 @SourceRegistry.register
@@ -80,7 +94,7 @@ class WebflowSource(
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Your Webflow API token is invalid or expired. Please generate a new token and reconnect.",
-            "403 Client Error": "Your Webflow API token is missing a required scope. Grant the read scopes for the resources you want to sync and reconnect.",
+            "403 Client Error": "Your Webflow API token is missing a required scope. Grant the read scopes for the resources you want to sync and reconnect. The Analyze tables also need the Analyze add-on on your Webflow workspace.",
             # Webflow returns 409 Conflict on the Products/Orders list endpoints when the
             # connected site does not have ecommerce enabled, and on other resources when
             # the site has unpublished changes. Both are deterministic state/config issues
@@ -110,13 +124,13 @@ class WebflowSource(
     ) -> list[SourceSchema]:
         # Webflow has no verified server-side timestamp range filter on its list
         # endpoints (the createdOn/lastUpdated query params are exact-match, not
-        # ranges), so every endpoint is full-refresh only for now.
+        # ranges), so only the windowed Analyze reports support incremental sync.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=endpoint in ANALYZE_REPORTS,
                 supports_append=False,
-                incremental_fields=[],
+                incremental_fields=ANALYZE_INCREMENTAL_FIELDS if endpoint in ANALYZE_REPORTS else [],
                 supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,
             )
             for endpoint in STATIC_ENDPOINTS
@@ -234,6 +248,8 @@ class WebflowSource(
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=self.get_webhook_source_manager(inputs),
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property
@@ -247,12 +263,12 @@ class WebflowSource(
 Create a **Site API token** in Webflow under **Site settings → Apps & integrations → API access**, and copy the **Site ID** from the same page (or from your site's URL in the Designer).
 
 Grant the read scopes for the resources you want to sync:
-- `sites:read`
+- `sites:read` (also the Analyze tables, which need the Analyze add-on on your workspace)
 - `cms:read` (collections and collection items)
 - `ecommerce:read` (products and orders)
 - `pages:read`
 - `users:read`
-- `forms:read`
+- `forms:read` (forms and form submissions)
 """,
             iconPath="/static/services/webflow.png",
             docsUrl="https://posthog.com/docs/cdp/sources/webflow",

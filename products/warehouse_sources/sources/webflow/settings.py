@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Optional
+from datetime import UTC, datetime
+from typing import Literal, Optional
 
 # Webflow Data API v2. The legacy v1 API was deprecated on 2025-03-31, so this
 # source only ever talks to v2 (Bearer token + scopes).
@@ -98,9 +99,65 @@ WEBFLOW_ENDPOINTS: dict[str, WebflowEndpointConfig] = {
         path="/sites/{site_id}/forms",
         data_key="forms",
     ),
+    # No date filter on this endpoint, so it is full refresh only.
+    "form_submissions": WebflowEndpointConfig(
+        name="form_submissions",
+        path="/sites/{site_id}/form_submissions",
+        data_key="formSubmissions",
+        partition_key="dateSubmitted",
+    ),
 }
 
-STATIC_ENDPOINTS = tuple(WEBFLOW_ENDPOINTS.keys())
+ANALYZE_REPORT_PATH = "/sites/{site_id}/analyze/reports/{report}"
+
+# Analyze rejects a startTime before this date and a window wider than 100 days.
+ANALYZE_HISTORY_START = datetime(2025, 4, 9, tzinfo=UTC)
+ANALYZE_MAX_WINDOW_DAYS = 100
+ANALYZE_METRIC_SCOPES = ("session", "user", "pageview")
+ANALYZE_TOP_PAGES_LIMIT = 250
+ANALYZE_INCREMENTAL_FIELD = "timestamp"
+
+
+@dataclass(frozen=True)
+class WebflowAnalyzeReportConfig:
+    name: str
+    # Report name in the URL path: /sites/{site_id}/analyze/reports/{report}.
+    report: str
+    primary_keys: list[str]
+    window_days: int
+    sort_mode: Optional[Literal["asc"]]
+
+
+# Analyze reports need a time window instead of offset pagination, so they are not in
+# WEBFLOW_ENDPOINTS. Every report is bucketed by UTC day.
+ANALYZE_REPORTS: dict[str, WebflowAnalyzeReportConfig] = {
+    "analyze_traffic": WebflowAnalyzeReportConfig(
+        name="analyze_traffic",
+        report="traffic",
+        primary_keys=["timestamp"],
+        window_days=ANALYZE_MAX_WINDOW_DAYS,
+        sort_mode="asc",
+    ),
+    # Top pages aggregates over the whole window, so one request per day gives a per-day grain.
+    # All rows of a day share one timestamp, so the order is not strictly ascending.
+    "analyze_top_pages": WebflowAnalyzeReportConfig(
+        name="analyze_top_pages",
+        report="top_pages",
+        primary_keys=["timestamp", "pageId", "itemSlug"],
+        window_days=1,
+        sort_mode=None,
+    ),
+    # Site-wide average, not per page.
+    "analyze_time_on_page": WebflowAnalyzeReportConfig(
+        name="analyze_time_on_page",
+        report="time_on_page",
+        primary_keys=["timestamp"],
+        window_days=ANALYZE_MAX_WINDOW_DAYS,
+        sort_mode="asc",
+    ),
+}
+
+STATIC_ENDPOINTS = (*WEBFLOW_ENDPOINTS.keys(), *ANALYZE_REPORTS.keys())
 
 # Webhook registrations live under the site, one registration per trigger type.
 WEBHOOK_PATH = "/sites/{site_id}/webhooks"
