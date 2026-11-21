@@ -18,6 +18,17 @@ const card = {
 
 const profile = { name: 'synthetic', traffic: { event_email: { ratePerSecond: 2 } }, settings: {} }
 
+const overTheLimit = {
+    ...card,
+    drive: {
+        ...card.drive,
+        ramp: [
+            { scale: 1, for: '15s' },
+            { scale: 41, for: '15s' },
+        ],
+    },
+}
+
 const TWICE_DECLARED_BARS = [
     { name: 'pickup_p99_under', params: { seconds: 5, queues: ['email'] } },
     { name: 'pickup_p99_under', params: { seconds: 10, queues: ['hogflow'] } },
@@ -377,6 +388,28 @@ describe('load', () => {
             'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',
             'profile: Alias resolution is disabled',
         ],
+        [
+            "an event load whose top step passes 80% of one workflow's rate limit",
+            overTheLimit,
+            undefined,
+            'setup.teams: event_email sends 82 units a second to each team',
+        ],
+        [
+            'an event kind listed twice, which seeds two workflows that both match its events',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    traffic: [{ name: 'event_email' }, { name: 'event_email' }],
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 21, for: '15s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.traffic: event_email is listed 2 times; list each traffic kind once',
+        ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
     })
@@ -545,6 +578,31 @@ describe('load', () => {
         ["settings for the runner's load producer", { KAFKA_PRODUCER_LINGER_MS: '100' }],
     ])('accepts %s', (_name, settings) => {
         expect(loadCard(card, { ...profile, settings }).profile.settings).toEqual(settings)
+    })
+
+    it.each<[string, object, object]>([
+        ['an event load spread over enough teams', { ...overTheLimit, setup: { teams: 2 } }, profile],
+        [
+            'an event load under a rate limit the profile raises',
+            overTheLimit,
+            { ...profile, settings: { CDP_RATE_LIMITER_REFILL_RATE: '1000' } },
+        ],
+        [
+            'an event load under a quoted rate limit the profile raises',
+            overTheLimit,
+            { ...profile, settings: { CDP_RATE_LIMITER_REFILL_RATE: '"1000"' } },
+        ],
+        [
+            'a transactional load, which no workflow rate limit slows',
+            {
+                ...overTheLimit,
+                drive: { ...overTheLimit.drive, traffic: [{ name: 'transactional_email' }] },
+                invariants: [{ name: 'at_least_once' }, { name: 'refused_at_intake' }],
+            },
+            { ...profile, traffic: { transactional_email: { ratePerSecond: 2 } } },
+        ],
+    ])('loads %s', (_name, content, profileContent) => {
+        expect(loadCard(content, profileContent).card.id).toBe(card.id)
     })
 
     const settings = { CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: '10000', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }

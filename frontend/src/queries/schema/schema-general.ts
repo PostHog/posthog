@@ -4763,7 +4763,7 @@ export interface WebPageDirectoryRow extends WebPageDirectoryMetrics {
 }
 
 export interface WebPageDirectorySiteTotals extends WebPageDirectoryMetrics {
-    serverLogs: integer
+    serverLogs?: integer
 }
 
 export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBase {
@@ -4772,6 +4772,8 @@ export interface WebPageDirectoryQueryResponse extends AnalyticsQueryResponseBas
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    preComputeStale?: boolean
+    preComputedAt?: string
 }
 export type CachedWebPageDirectoryQueryResponse = CachedQueryResponse<WebPageDirectoryQueryResponse>
 
