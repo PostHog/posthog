@@ -1617,20 +1617,24 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def _filtered_logs_query(self, query_data: dict) -> LogsQuery:
         """The shared date-range + filters subset of LogsQuery used by aggregation actions."""
         date_range_data = query_data.get("dateRange")
-        return LogsQuery(
-            # The body serializers document dateRange as optional, so an absent range must
-            # default rather than 400 (get_model rejects None).
-            dateRange=self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h"),
-            # A null list in the body must default like an absent one instead of failing validation.
-            severityLevels=query_data.get("severityLevels") or [],
-            serviceNames=query_data.get("serviceNames") or [],
-            searchTerm=query_data.get("searchTerm", None),
-            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
-            # Patterns and Group are modes of the same viewer, so they inherit its scope. Dropping
-            # these would mine or aggregate the whole project and label the result one session.
-            personId=query_data.get("personId", None),
-            sessionId=query_data.get("sessionId", None),
-        )
+        # The body serializers document dateRange as optional, so an absent range must
+        # default rather than 400 (get_model rejects None).
+        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
+        try:
+            return LogsQuery(
+                dateRange=date_range,
+                # A null list in the body must default like an absent one instead of failing validation.
+                severityLevels=query_data.get("severityLevels") or [],
+                serviceNames=query_data.get("serviceNames") or [],
+                searchTerm=query_data.get("searchTerm", None),
+                filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+                # Patterns and Group are modes of the same viewer, so they inherit its scope. Dropping
+                # these would mine or aggregate the whole project and label the result one session.
+                personId=query_data.get("personId", None),
+                sessionId=query_data.get("sessionId", None),
+            )
+        except ValidationError as e:
+            raise serializers.ValidationError(str(e)) from e
 
     def _session_team_has_logs(self) -> bool:
         try:
@@ -1723,7 +1727,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             logs_query_params["liveLogsCheckpoint"] = live_logs_checkpoint
         if after_cursor:
             logs_query_params["after"] = after_cursor
-        query = LogsQuery(**logs_query_params)
+        try:
+            query = LogsQuery(**logs_query_params)
+        except ValidationError as e:
+            # Not self.get_model: it reports the error to error tracking, and a malformed body is the caller's mistake.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         analytics_props = get_request_analytics_properties(request)
 
         def make_runner(date_range: DateRange) -> LogsQueryRunner:
