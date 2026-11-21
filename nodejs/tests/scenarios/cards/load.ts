@@ -139,11 +139,11 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
 // the queue.
 const RATE_LIMIT_SHARE = 0.8
 
-// The roles inherit the runner's environment under the profile settings, and parse the limit as the server does.
+// The card may load on a machine other than the run host, so only the profile can set the limit its roles run with.
 function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): string[] {
     const key = 'CDP_RATE_LIMITER_REFILL_RATE'
     const fallback = Number(defaults[key])
-    const raw = profile.settings[key] ?? process.env[key]
+    const raw = profile.settings[key]
     const limit = raw === undefined ? fallback : parseNumberFromEnv(key, String(raw), fallback)
     const ceiling = limit * RATE_LIMIT_SHARE
     const topScale = Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
