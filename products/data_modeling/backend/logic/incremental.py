@@ -12,6 +12,7 @@ rebuilt from all of its source rows. It is what lets any aggregate be incrementa
 including non-associative ones that other systems have to reject.
 """
 
+import copy
 import json
 import hashlib
 from collections.abc import Callable
@@ -226,6 +227,27 @@ def _clamp_temporal_watermark(watermark: Any) -> Any:
     if isinstance(watermark, date):
         return min(watermark, watermark_now().date())
     return watermark
+
+
+def carry_definition_fingerprint(saved_query, previous_query: dict | None) -> None:
+    """Moves each engine's fingerprint from `previous_query` to the saved query's current query.
+
+    For a rewrite that changes the text of the query and not its result. Without it the next run sees
+    a changed definition and rebuilds the table. It changes the instance only: the caller saves it.
+    """
+    config = get_incremental_config(saved_query)
+    state = saved_query.incremental_state
+    if config is None or not isinstance(state, dict):
+        return
+    previous = definition_fingerprint(previous_query, config)
+    if previous is None:
+        return
+    current = definition_fingerprint(saved_query.query, config)
+    carried = copy.deepcopy(state)
+    for engine_state in (carried, *(value for value in carried.values() if isinstance(value, dict))):
+        if engine_state.get("definition_fingerprint") == previous:
+            engine_state["definition_fingerprint"] = current
+    saved_query.incremental_state = carried
 
 
 def clear_incremental_state(saved_query, *, scope: Optional[str] = None) -> None:

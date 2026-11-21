@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import Expression, JSONField, Model, Value
 from django.db.models.fields.json import KeyTransform
 
@@ -23,7 +24,7 @@ from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.temporal.common.client import sync_connect
@@ -37,10 +38,17 @@ from products.data_modeling.backend.facade.api import (
     MaterializationRanRecentlyError,
     MaterializationRefusedError,
     MaterializationRunDirection,
+    ModelRenameBlockedError,
+    ModelRenamePlan,
+    ModelRenamePlanStaleError,
+    ModelRenameRefusedError,
     SavedQueryNotFoundError,
+    allowed_saved_query_ids,
+    apply_model_rename,
     delete_saved_query_by_id,
     disable_saved_query_materialization,
     enable_saved_query_materialization,
+    plan_model_rename,
     run_related_node_materializations,
 )
 from products.data_modeling.backend.facade.contracts import VIEW_ENGINE_ANNOTATIONS
@@ -203,6 +211,79 @@ class SavedQueryMaterializeSerializer(serializers.Serializer):
     )
 
 
+RENAME_NAME_HELP_TEXT = "The model's new name."
+RENAME_BLOCKED_DETAIL = (
+    "A view that references this one cannot be updated, so the rename was not applied. "
+    "Request the rename plan to see which one."
+)
+RENAME_NEEDS_EDIT_ACCESS_DETAIL = "You need edit access to every model that reads this model to rename it."
+RENAME_PLAN_STALE_DETAIL = (
+    "The views that reference this one changed after the rename plan was made. Request the plan again."
+)
+
+
+class SavedQueryRenamePlanRequestSerializer(serializers.Serializer):
+    """Body of the `rename_plan` action."""
+
+    name = serializers.CharField(help_text=RENAME_NAME_HELP_TEXT)
+
+
+class SavedQueryRenameRequestSerializer(serializers.Serializer):
+    """Body of the `rename` action."""
+
+    name = serializers.CharField(help_text=RENAME_NAME_HELP_TEXT)
+    plan_token = serializers.CharField(
+        help_text="The plan_token of the rename plan you reviewed for this name. The rename is refused "
+        "with a 409 when the models that read this model changed after that plan was made."
+    )
+
+
+class SavedQueryRenameRewriteSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Id of the model whose query the rename updates.")
+    name = serializers.CharField(help_text="Name of that model.")
+    before = serializers.CharField(help_text="The model's SQL now.")
+    after = serializers.CharField(help_text="The model's SQL after the rename. Only the references change.")
+
+
+class SavedQueryRenameBlockedSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Id of the model whose query cannot be updated.")
+    name = serializers.CharField(help_text="Name of that model.")
+    reason = serializers.CharField(
+        help_text="Why its query cannot be updated, as a sentence to show the user: the SQL is not valid HogQL, "
+        "or the updated SQL could not be proven equivalent to the original."
+    )
+
+
+class SavedQueryRenameJoinSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Id of the saved join the rename updates.")
+    # The metaclass moves declared fields off the class, so this does not replace `Field.field_name` at runtime.
+    field_name = serializers.CharField(  # type: ignore[assignment]
+        help_text="Name of the join field on the source table."
+    )
+    source_table_name_before = serializers.CharField(help_text="The join's source table now.")
+    source_table_name_after = serializers.CharField(help_text="The join's source table after the rename.")
+    joining_table_name_before = serializers.CharField(help_text="The table the join joins now.")
+    joining_table_name_after = serializers.CharField(help_text="The table the join joins after the rename.")
+
+
+class SavedQueryRenamePlanSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The name the model is stored under after the rename.")
+    dependents = SavedQueryRenameRewriteSerializer(
+        many=True, help_text="The models that read this model, with their SQL before and after."
+    )
+    blocked = SavedQueryRenameBlockedSerializer(
+        many=True,
+        help_text="The models that read this model and whose SQL cannot be updated. "
+        "The rename is refused while any model is blocked.",
+    )
+    joins = SavedQueryRenameJoinSerializer(
+        many=True,
+        help_text="The saved joins that name this model as their source or joining table. "
+        "The rename changes that name to the new one.",
+    )
+    plan_token = serializers.CharField(help_text="Send this back to the `rename` action to apply this plan.")
+
+
 class SavedQueryListQuerySerializer(serializers.Serializer):
     include_columns = serializers.BooleanField(
         default=True,
@@ -232,7 +313,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         # Read actions stay out: building a database selects every view in the team, SQL body
         # included, and neither serializer reads it. Only the write paths below do, to check a
         # name collision and to resolve a query's source tables.
-        should_include_database = self.action == "create" or (
+        should_include_database = self.action in {"create", "rename", "rename_plan"} or (
             self.action in {"update", "partial_update"} and ("name" in request_data or "query" in request_data)
         )
 
@@ -735,6 +816,164 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
 
         return response.Response(status=status.HTTP_200_OK)
+
+    def _validated_new_name(self, saved_query: DataWarehouseSavedQuery, name: str) -> tuple[str, dict[str, Any]]:
+        """The validated name, and the serializer context it was checked with, which carries a built database."""
+        serializer = self.get_serializer(saved_query, data={"name": name}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        new_name = serializer.validated_data["name"]
+        if new_name == saved_query.name:
+            raise serializers.ValidationError({"name": "The model already has this name."})
+        return new_name, serializer.context
+
+    def _require_edit_access(self, plan: ModelRenamePlan) -> None:
+        # A rename writes the SQL of every model it lists, so it needs the same access as editing each one.
+        ids = [item.saved_query_id for item in (*plan.rewrites, *plan.blocked)]
+        if ids and not set(ids) <= allowed_saved_query_ids(
+            self.team_id, self.user_access_control, required_level="editor", ids=ids
+        ):
+            raise exceptions.PermissionDenied(RENAME_NEEDS_EDIT_ACCESS_DETAIL)
+
+    @extend_schema(
+        request=SavedQueryRenamePlanRequestSerializer,
+        responses={
+            200: SavedQueryRenamePlanSerializer,
+            403: OpenApiResponse(description=RENAME_NEEDS_EDIT_ACCESS_DETAIL),
+        },
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
+    def rename_plan(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Show what renaming this model changes in the models that read it and the joins that name it.
+
+        Changes nothing.
+        """
+        saved_query: DataWarehouseSavedQuery = self.get_object()
+        body = SavedQueryRenamePlanRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        new_name, _ = self._validated_new_name(saved_query, body.validated_data["name"])
+
+        try:
+            plan = plan_model_rename(self.team, saved_query.id, new_name)
+        except ModelRenameRefusedError as error:
+            raise serializers.ValidationError(str(error))
+        self._require_edit_access(plan)
+        payload = {
+            "name": new_name,
+            "dependents": [
+                {"id": item.saved_query_id, "name": item.name, "before": item.before, "after": item.after}
+                for item in plan.rewrites
+            ],
+            "blocked": [{"id": item.saved_query_id, "name": item.name, "reason": item.reason} for item in plan.blocked],
+            "joins": [
+                {
+                    "id": item.join_id,
+                    "field_name": item.field_name,
+                    "source_table_name_before": item.source_table_name_before,
+                    "source_table_name_after": item.source_table_name_after,
+                    "joining_table_name_before": item.joining_table_name_before,
+                    "joining_table_name_after": item.joining_table_name_after,
+                }
+                for item in plan.joins
+            ],
+            "plan_token": plan.token,
+        }
+        return response.Response(SavedQueryRenamePlanSerializer(payload).data)
+
+    @extend_schema(
+        request=SavedQueryRenameRequestSerializer,
+        responses={
+            200: editing.DataWarehouseSavedQuerySerializer,
+            403: OpenApiResponse(description=RENAME_NEEDS_EDIT_ACCESS_DETAIL),
+            409: OpenApiResponse(description=RENAME_PLAN_STALE_DETAIL),
+        },
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])
+    def rename(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Rename this model and update the models that read it and the joins that name it, in one change.
+
+        Every reference to the old name becomes the new name, and keeps its `models.` prefix if it had one.
+        The update does not change what those models compute, so none of them is rebuilt. Nothing is renamed
+        when any of them is blocked.
+        """
+        saved_query: DataWarehouseSavedQuery = self.get_object()
+        body = SavedQueryRenameRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        old_name = saved_query.name
+        new_name, context = self._validated_new_name(saved_query, body.validated_data["name"])
+
+        with transaction.atomic():
+            try:
+                plan = apply_model_rename(
+                    self.team,
+                    saved_query.id,
+                    new_name,
+                    body.validated_data["plan_token"],
+                    authorize=self._require_edit_access,
+                )
+            except ModelRenamePlanStaleError:
+                raise Conflict(RENAME_PLAN_STALE_DETAIL)
+            except ModelRenameBlockedError:
+                raise serializers.ValidationError(RENAME_BLOCKED_DETAIL)
+            except ModelRenameRefusedError as error:
+                raise serializers.ValidationError(str(error))
+            except DataWarehouseSavedQuery.DoesNotExist:
+                raise exceptions.NotFound()
+            user = cast(User, request.user)
+            was_impersonated = is_impersonated(request)
+            log_activity(
+                organization_id=self.team.organization_id,
+                team_id=self.team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=saved_query.id,
+                scope="DataWarehouseSavedQuery",
+                activity="updated",
+                detail=Detail(
+                    name=new_name,
+                    changes=[
+                        Change(
+                            type="DataWarehouseSavedQuery",
+                            action="changed",
+                            field="name",
+                            before=old_name,
+                            after=new_name,
+                        )
+                    ],
+                ),
+            )
+            # The rewrites are queryset updates, which no activity receiver sees, so each is logged here.
+            rewritten = {
+                dependent.pk: dependent
+                for dependent in DataWarehouseSavedQuery.objects.filter(
+                    team_id=self.team_id, pk__in=[item.saved_query_id for item in plan.rewrites]
+                ).only("id", "query")
+            }
+            for item in plan.rewrites:
+                after_query = rewritten[item.saved_query_id].query or {}
+                log_activity(
+                    organization_id=self.team.organization_id,
+                    team_id=self.team_id,
+                    user=user,
+                    was_impersonated=was_impersonated,
+                    item_id=item.saved_query_id,
+                    scope="DataWarehouseSavedQuery",
+                    activity="updated",
+                    detail=Detail(
+                        name=item.name,
+                        changes=[
+                            Change(
+                                type="DataWarehouseSavedQuery",
+                                action="changed",
+                                field="query",
+                                before={**after_query, "query": item.before},
+                                after=after_query,
+                            )
+                        ],
+                    ),
+                )
+        saved_query.refresh_from_db()
+        # The context the name was validated with: a fresh one would build the team's database a third time.
+        return response.Response(self.get_serializer_class()(saved_query, context=context).data)
 
     @extend_schema(request=None, responses={200: lineage.SavedQueryDependenciesSerializer})
     @action(methods=["GET"], detail=True)

@@ -352,20 +352,52 @@ def is_reserved_models_name(name: str) -> bool:
     return name == "models" or name.startswith("models.")
 
 
-def models_namespace_chain(saved_query: Any) -> list[str] | None:
-    """The `models.` path an authored saved query also resolves under, or None when it gets only its stored name.
-
-    `origin` is nullable on old rows, so authored means "not machine-made" rather than an exact origin match.
-    """
+def is_authored_model(saved_query: Any) -> bool:
+    # `origin` is nullable on old rows, so authored means "not machine-made" rather than an exact origin match.
     origin = getattr(saved_query, "origin", None)
     if origin in (DataWarehouseSavedQueryOrigin.ENDPOINT, DataWarehouseSavedQueryOrigin.MANAGED_VIEWSET):
-        return None
-    if getattr(saved_query, "managed_viewset_id", None) is not None:
-        return None
+        return False
+    return getattr(saved_query, "managed_viewset_id", None) is None
+
+
+def models_namespace_chain(saved_query: Any) -> list[str] | None:
+    """The `models.` path an authored saved query also resolves under, or None when it gets only its stored name."""
     name: str = saved_query.name
-    if is_reserved_models_name(name) or is_reserved_system_name(name):
+    if not is_authored_model(saved_query) or is_reserved_models_name(name) or is_reserved_system_name(name):
         return None
     return ["models", *name.split(".")]
+
+
+def _without_table(root: TableNode, path: list[str], table: FieldOrTable | None) -> TableNode:
+    """`root` with `table` taken off `path`, copying only the nodes on the path. A table that another
+    source put at the path, or the nodes nested under it, stay."""
+    first, *rest = path
+    child = root.children.get(first)
+    if child is None:
+        return root
+    if rest:
+        updated: TableNode | None = _without_table(child, rest, table)
+    elif child.table is not table:
+        return root
+    else:
+        updated = child.model_copy(update={"table": None}) if child.children else None
+    children = {name: node for name, node in root.children.items() if name != first}
+    if updated is not None:
+        children[first] = updated
+    return root.model_copy(update={"children": children})
+
+
+def _with_table(root: TableNode, path: list[str], table: FieldOrTable | None) -> TableNode:
+    """`root` with `table` at `path`, unless a table already holds the path, as `Database._add_views` merges."""
+    first, *rest = path
+    child = root.children.get(first) or TableNode(name=first)
+    if rest:
+        updated = _with_table(child, rest, table)
+    elif child.table is not None:
+        return root
+    else:
+        updated = child.model_copy(update={"table": table})
+    return root.model_copy(update={"children": {**root.children, first: updated}})
 
 
 def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
@@ -1014,6 +1046,60 @@ class Database(BaseModel):
         if alias_node is None or self.is_table_access_denied(table_name):
             return None
         return alias_node
+
+    def with_model_renamed(
+        self, old_name: str, new_name: str, rewritten_queries: Mapping[str, str] | None = None
+    ) -> Database:
+        """A copy in which the authored model stored as `old_name` answers to `new_name` and `models.<new_name>`,
+        and no longer to its old names, as if the database were built after the rename. Each authored model named
+        in `rewritten_queries` reads as its rewritten query, so a model that reads it expands the new text.
+        The model's join fields move with it, as the rename moves its saved joins.
+
+        Only the nodes on the changed paths are copied. Every other node and every table is shared with this
+        database, so the copy costs no catalog build. Raises KeyError when `old_name` is not an authored model.
+        """
+        old_alias, new_alias = f"models.{old_name}", f"models.{new_name}"
+        model_node = self._authored_model_node(old_name)
+        if model_node is None:
+            raise KeyError(old_name)
+        new_chain = new_name.split(".")
+        model = model_node.table
+        # The resolver names a model's rows after its table, so the copy carries the new name. A materialized
+        # model's table is named after its backing table, which a rename does not move.
+        if isinstance(model, SavedQuery):
+            model = model.model_copy(update={"name": new_name})
+        tables = _without_table(self.tables, old_name.split("."), model_node.table)
+        tables = _with_table(tables, new_chain, model)
+        renamed = self.model_copy(update={"tables": tables})
+        renamed._models_aliases = {alias: chain for alias, chain in self._models_aliases.items() if alias != old_alias}
+        renamed._models_alias_nodes = {
+            alias: node for alias, node in self._models_alias_nodes.items() if alias != old_alias
+        }
+        # As the catalog build does: a stored `models.x` gets no further alias, and owns its name over an alias.
+        if not is_reserved_models_name(new_name) and not tables.has_child(["models", *new_chain]):
+            renamed._models_aliases[new_alias] = new_chain
+            renamed._models_alias_nodes[new_alias] = TableNode(name=new_chain[-1], table=model)
+        for name, query in (rewritten_queries or {}).items():
+            view_node = renamed._authored_model_node(name)
+            if view_node is None or view_node.table is None:
+                continue
+            chain = name.split(".")
+            view = view_node.table.model_copy(update={"query": query})
+            renamed.tables = _with_table(_without_table(renamed.tables, chain, view_node.table), chain, view)
+            if f"models.{name}" in renamed._models_alias_nodes:
+                renamed._models_alias_nodes[f"models.{name}"] = TableNode(name=chain[-1], table=view)
+        return renamed
+
+    def _authored_model_node(self, name: str) -> TableNode | None:
+        """The node of the authored model stored as `name`: its `models.` alias, or its stored path when it has none."""
+        alias_node = self._models_alias_nodes.get(f"models.{name}")
+        if alias_node is not None:
+            return alias_node
+        try:
+            node = self.tables.get_child(name.split("."))
+        except ResolutionError:
+            return None
+        return node if isinstance(node.table, SavedQuery) and node.table.name == name else None
 
     def get_table_node(self, table_name: str | list[str]) -> TableNode:
         if isinstance(table_name, str):

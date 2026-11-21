@@ -21,6 +21,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
     Database,
+    is_authored_model,
     is_reserved_models_name,
     models_namespace_chain,
 )
@@ -221,6 +222,13 @@ def _authored_model_answering_to(
 INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
     "This view's incremental settings changed while you were editing it. Reload the view and try again."
 )
+
+
+RENAME_NEEDS_PLAN_DETAIL = (
+    "Other models read this model. Request its rename plan, then rename it with the rename action, "
+    "so their SQL is updated in the same change."
+)
+RENAMED_BY_SOMEONE_ELSE_DETAIL = "Someone else renamed this view. Reload it and try again."
 
 
 class DataWarehouseSavedQuerySerializer(
@@ -791,6 +799,16 @@ class DataWarehouseSavedQuerySerializer(
 
         with transaction.atomic():
             try:
+                # Before the row lock below: the check locks this model together with the models that read it,
+                # in one statement ordered by id, as the rename action does, so concurrent renames cannot deadlock.
+                if (
+                    "name" in validated_data
+                    and validated_data["name"] != instance.name
+                    and is_authored_model(instance)
+                    and instance.engine.has_lineage.available
+                    and modeling_api.rename_needs_plan(instance.team, instance.id, validated_data["name"])
+                ):
+                    raise serializers.ValidationError({"name": RENAME_NEEDS_PLAN_DETAIL})
                 # `FOR NO KEY UPDATE`, not `FOR UPDATE`: this lock is held across a DAG lock, and
                 # `FOR UPDATE` conflicts with the `KEY SHARE` lock a concurrent materialization
                 # takes on this row for its job's foreign key, which deadlocks the two. It still
@@ -802,6 +820,10 @@ class DataWarehouseSavedQuerySerializer(
                 )
             except DataWarehouseSavedQuery.DoesNotExist:
                 raise exceptions.NotFound("Not found.")
+            # The check above compared against the name read before any lock, so a rename that landed since
+            # would be undone here, leaving the models it rewrote reading a name that no longer exists.
+            if "name" in validated_data and locked_instance.name != instance.name:
+                raise serializers.ValidationError({"name": RENAMED_BY_SOMEONE_ELSE_DETAIL})
             before_update = copy.copy(locked_instance)
 
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query
