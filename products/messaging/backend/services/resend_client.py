@@ -19,7 +19,6 @@ import requests
 from posthog.dataclasses import frozen
 
 PAGE_SIZE = 100
-# The pace until a response says what the account's limit is.
 REQUESTS_PER_SECOND = 2
 # Resend's limit is shared with the customer's live sends, so the import uses only this much of it.
 SHARE_OF_LIMIT = 0.8
@@ -182,7 +181,6 @@ class ResendClient:
             return
         window = _policy_window_seconds(response)
         remaining = _int_header(response, "ratelimit-remaining")
-        # A full window means live sending used the rest of the limit, even when this request got through.
         squeezed = response.status_code == 429 or remaining == 0
         with self._lock:
             now = time.monotonic()
@@ -193,7 +191,6 @@ class ResendClient:
             elif not squeezed:
                 self._share = min(self._share + SHARE_REGAINED_PER_REQUEST, SHARE_OF_LIMIT)
             self._interval = window / (limit * self._share)
-            # The import waits for the next window instead of taking a 429.
             if remaining == 0:
                 reset = min(float(_int_header(response, "ratelimit-reset") or window), MAX_RETRY_AFTER_SECONDS)
                 self._next_request_at = max(self._next_request_at, now + reset)
@@ -207,7 +204,6 @@ def _int_header(response: requests.Response, name: str) -> int | None:
 
 
 def _policy_window_seconds(response: requests.Response) -> float:
-    # For example `10;w=1`, 10 requests in a window of 1 second.
     match = re.search(r"w=(\d+)", str(response.headers.get("ratelimit-policy", "")))
     return float(match.group(1)) if match and int(match.group(1)) > 0 else 1.0
 

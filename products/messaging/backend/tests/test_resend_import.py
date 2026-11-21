@@ -1096,7 +1096,6 @@ class TestResendClientPace(SimpleTestCase):
             if url.endswith("/contacts/c3"):
                 rejected.set()
                 return FakeResend._response(401, {"name": "invalid_api_key", "message": "API key is invalid"})
-            # The first reads are still in flight when the rejection arrives, as they are against the real API.
             rejected.wait(timeout=5)
             return FakeResend._response(200, {})
 
