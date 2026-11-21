@@ -70,8 +70,7 @@ class ContactsImportOutcome:
     removed: int = 0
     failed_lists: int = 0
     retried_chunks: int = 0
-    # The contacts capture took from the lists that create people, and how many of them were new. None from a
-    # workflow that didn't count them.
+    # None from a workflow that didn't count what capture took.
     sent: int | None = None
     new_people: int | None = None
 

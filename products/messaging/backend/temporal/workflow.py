@@ -182,8 +182,7 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                             chunk=chunk,
                             send_events=plan.send_events,
                             created_by_id=plan.created_by_id,
-                            # The people this list waits for came from a list whose events didn't all go out, so
-                            # it fills its cohort with the people who already exist instead of waiting for the rest.
+                            # The people this list waits for won't come, so it fills with the ones who exist.
                             wait_for_people=not people_not_sent,
                         ),
                         start_to_close_timeout=CHUNK_TIMEOUT,

@@ -40,7 +40,6 @@ TOO_MANY_CONTACTS_MESSAGE = (
 _IDENTITY_NAMES = frozenset({"email", "id", "distinct_id"})
 _NAME_SEPARATORS = re.compile(r"[^a-z0-9]+")
 
-# `people` and `new_people` are set once capture took the contacts, so the step never counts people a failed send left out.
 CONTACT_COUNT_LABELS = (
     ("people", "Contacts sent to PostHog"),
     ("new_people", "New people"),
