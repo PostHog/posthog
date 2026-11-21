@@ -66,6 +66,22 @@ describe('DataTable', () => {
         expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
     })
 
+    it('keeps a controlled selection on its record when the rows change order', () => {
+        const props = {
+            columns: [{ accessorKey: 'name', header: 'Name' }] as ColumnDef<TestRow>[],
+            selectable: true,
+            rowSelection: { Ada: true },
+            getRowId: (row: TestRow) => row.name,
+            rowSelectionLabel: (row: TestRow) => `Select ${row.name}`,
+        }
+        const { container, rerender } = render(<DataTable {...props} data={[{ name: 'Ada' }, { name: 'Grace' }]} />)
+        rerender(<DataTable {...props} data={[{ name: 'Grace' }, { name: 'Ada' }]} />)
+
+        const states = Array.from(container.querySelectorAll('tbody tr')).map((row) => row.getAttribute('data-state'))
+
+        expect(states).toEqual([null, 'selected'])
+    })
+
     it.each([
         ['selects', [], ['Ada', 'Grace', 'Linus', 'Margaret']],
         ['clears', ['Ada', 'Grace', 'Linus', 'Margaret', 'Ken'], ['Ken']],

@@ -44,16 +44,19 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
+import { AnalyticsBulkBar } from './AnalyticsBulkBar'
+import { AnalyticsBulkTagsDialog } from './AnalyticsBulkTagsDialog'
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { AnalyticsDeleteDialog } from './AnalyticsDeleteDialog'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
-import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
+import { AnalyticsListRow, analyticsListColumns, analyticsListRowId } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { analyticsPinnedLogic } from './analyticsPinnedLogic'
+import { analyticsSelectionLogic } from './analyticsSelectionLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTagsDialog } from './AnalyticsTagsDialog'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
@@ -62,6 +65,11 @@ import { ShareToSpaceDialog } from './ShareToSpaceDialog'
 
 const SCROLL_PREFETCH_MARGIN = '1200px 0px'
 const EMPTY_COLLECTION: ReactNode = <Text size="sm">Nothing in this collection.</Text>
+// Only items can be picked. A folder is not a thing the bulk bar can act on.
+const rowSelectionDisabledReason = (row: AnalyticsListRow): string | null =>
+    row.kind === 'item' ? null : 'Folders can’t be selected'
+const rowSelectionLabel = (row: AnalyticsListRow): string =>
+    `Select ${row.kind === 'item' ? row.item.name : row.folder.name}`
 
 export const scene: SceneExport = {
     component: AnalyticsList,
@@ -93,6 +101,8 @@ function AnalyticsListContent(): JSX.Element {
         feedQuery,
     } = useValues(analyticsListLogic)
     const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
+    const { rowSelection } = useValues(analyticsSelectionLogic)
+    const { setRowSelection } = useActions(analyticsSelectionLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
     const { hidePinHint } = useActions(analyticsPinnedLogic)
@@ -237,7 +247,7 @@ function AnalyticsListContent(): JSX.Element {
         }
         return (
             <div
-                className={cn('flex min-h-0 flex-col transition-opacity', feedStale && 'opacity-60')}
+                className={cn('flex min-h-0 flex-col gap-3 transition-opacity', feedStale && 'opacity-60')}
                 aria-busy={feedStale || hasMore}
             >
                 {rows.length > 0 && (
@@ -260,12 +270,19 @@ function AnalyticsListContent(): JSX.Element {
                                     setFilters({ orderBy })
                                 }
                             }}
+                            selectable
+                            rowSelection={rowSelection}
+                            onRowSelectionChange={setRowSelection}
+                            rowSelectionDisabledReason={rowSelectionDisabledReason}
+                            rowSelectionLabel={rowSelectionLabel}
+                            getRowId={analyticsListRowId}
                             className="flex min-h-0 flex-col [--quill-table-sticky-bg:var(--card)]"
                             empty={EMPTY_COLLECTION}
                             rowClassName={rowHoverGroup}
                         />
                     </Card>
                 )}
+                <AnalyticsBulkBar />
             </div>
         )
     }
@@ -366,6 +383,7 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
+            <AnalyticsBulkTagsDialog />
             <AnalyticsTagsDialog />
             <AnalyticsDeleteDialog />
             <TodayAnalyticsNewFolderDialog />

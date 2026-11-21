@@ -7,6 +7,7 @@ import { toast } from '@posthog/quill'
 
 import api from 'lib/api'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -58,6 +59,7 @@ export function shareTargetKey(target: Pick<ShareToSpaceTarget, 'type' | 'ref'>)
 export interface analyticsShareLogicValues {
     browseCrumbs: ShareDestination[]
     browsePath: string | null
+    bulkTargets: ShareToSpaceTarget[]
     creatingFolder: boolean
     currentFolder: string | null
     entry: FileSystemEntry | null
@@ -179,6 +181,19 @@ export interface analyticsShareLogicActions {
     openShareToSpace: (target: ShareToSpaceTarget) => {
         target: ShareToSpaceTarget
     }
+    openBulkShareToSpace: (targets: ShareToSpaceTarget[]) => {
+        targets: ShareToSpaceTarget[]
+    }
+    moveItems: (
+        targets: ShareToSpaceTarget[],
+        destination: ShareDestination
+    ) => {
+        destination: ShareDestination
+        targets: ShareToSpaceTarget[]
+    }
+    itemsMoved: (moved: ShareToSpaceTarget[]) => {
+        moved: ShareToSpaceTarget[]
+    }
     setNewFolderName: (name: string) => {
         name: string
     }
@@ -281,6 +296,25 @@ async function listChildFolders(parent: string, depth: number, breakpoint: () =>
     }
 }
 
+/** Moves one item into a destination, or to personal with null. Returns whether it was in a collection before. */
+async function moveTarget(
+    target: ShareToSpaceTarget,
+    destination: ShareDestination | null,
+    dialogEntry: FileSystemEntry | null
+): Promise<{ wasShared: boolean }> {
+    const entry = dialogEntry ?? (await findEntry(target))
+    if (!entry) {
+        throw new Error('This item has no row in the project file system yet.')
+    }
+    if (target.type === 'canvas' && destination) {
+        await assertCanvasShareable(target.ref)
+    }
+    const wasShared = analyticsSpaceOfPath(entry.path) !== null
+    const folder = destination ? destination.path : `${UNFILED_FOLDER}/${ANALYTICS_TYPE_INFO[target.type].pluralLabel}`
+    await api.fileSystem.move(entry.id, `${folder}/${escapePath(target.name)}`)
+    return { wasShared }
+}
+
 async function findEntry(target: ShareToSpaceTarget): Promise<FileSystemEntry | null> {
     const found = await api.fileSystem.list({ ref: target.ref, ...fileSystemTypeParams(target.type) })
     return found.results[0] ?? null
@@ -301,12 +335,17 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
     })),
     actions({
         openShareToSpace: (target: ShareToSpaceTarget) => ({ target }),
+        /** Opens the dialog for several items at once, from the Analytics list's bulk bar. */
+        openBulkShareToSpace: (targets: ShareToSpaceTarget[]) => ({ targets }),
         closeShareToSpace: true,
         entryLoaded: (entry: FileSystemEntry | null) => ({ entry }),
         shareToSpaceDone: true,
         loadItemSpace: (target: ShareToSpaceTarget) => ({ target }),
         /** Moves an item straight into a collection or folder, or to personal with null, with no dialog. */
         moveItem: (target: ShareToSpaceTarget, destination: ShareDestination | null) => ({ target, destination }),
+        moveItems: (targets: ShareToSpaceTarget[], destination: ShareDestination) => ({ targets, destination }),
+        /** The items a bulk move reached, so the list can clear their rows from the selection. */
+        itemsMoved: (moved: ShareToSpaceTarget[]) => ({ moved }),
         itemSpaceLoaded: (key: string, space: string | null) => ({ key, space }),
         /** Opens a collection or folder in the dialog. Null shows every collection. */
         browseTo: (path: string | null) => ({ path }),
@@ -391,27 +430,54 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
             null as ShareToSpaceTarget | null,
             {
                 openShareToSpace: (_, { target }) => target,
+                openBulkShareToSpace: () => null,
                 closeShareToSpace: () => null,
                 shareToSpaceDone: () => null,
+            },
+        ],
+        // One open is for one item or for several, never both, so each open clears the other.
+        bulkTargets: [
+            [] as ShareToSpaceTarget[],
+            {
+                openBulkShareToSpace: (_, { targets }) => targets,
+                openShareToSpace: () => [],
+                closeShareToSpace: () => [],
+                shareToSpaceDone: () => [],
             },
         ],
         entry: [
             null as FileSystemEntry | null,
             {
                 openShareToSpace: () => null,
+                openBulkShareToSpace: () => null,
                 entryLoaded: (_, { entry }) => entry,
                 closeShareToSpace: () => null,
             },
         ],
         entryLoading: [
             false,
-            { openShareToSpace: () => true, entryLoaded: () => false, closeShareToSpace: () => false },
+            {
+                openShareToSpace: () => true,
+                // A bulk open looks up no entry, so the picker must not wait for one.
+                openBulkShareToSpace: () => false,
+                entryLoaded: () => false,
+                closeShareToSpace: () => false,
+            },
         ],
-        sharing: [false, { moveItem: () => true, shareToSpaceDone: () => false, closeShareToSpace: () => false }],
+        sharing: [
+            false,
+            {
+                moveItem: () => true,
+                moveItems: () => true,
+                shareToSpaceDone: () => false,
+                closeShareToSpace: () => false,
+            },
+        ],
         browsePath: [
             null as string | null,
             {
                 openShareToSpace: () => null,
+                openBulkShareToSpace: () => null,
                 browseTo: (_, { path }) => path,
             },
         ],
@@ -419,6 +485,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
             '',
             {
                 openShareToSpace: () => '',
+                openBulkShareToSpace: () => '',
                 browseTo: () => '',
                 setPickerSearch: (_, { search }) => search,
             },
@@ -430,6 +497,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
             {
                 setNewFolderOpen: (_, { open }) => open,
                 openShareToSpace: () => false,
+                openBulkShareToSpace: () => false,
                 browseTo: () => false,
                 setPickerSearch: () => false,
             },
@@ -441,6 +509,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                 setNewFolderName: (_, { name }) => name,
                 setNewFolderOpen: () => '',
                 openShareToSpace: () => '',
+                openBulkShareToSpace: () => '',
                 browseTo: () => '',
                 setPickerSearch: () => '',
             },
@@ -603,6 +672,10 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                 actions.entryLoaded(null)
             }
         },
+        openBulkShareToSpace: () => {
+            // The collections and their counts change behind this dialog, so each open reads them again.
+            actions.loadSpaces()
+        },
         loadItemSpace: async ({ target }) => {
             // A failed lookup records nothing, so the item is not mistaken for one in no collection.
             const entry = await findEntry(target).catch(() => undefined)
@@ -618,7 +691,12 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
         },
         moveHere: () => {
             const destination = values.browseCrumbs.at(-1)
-            if (values.target && destination && !values.moveDisabledReason) {
+            if (!destination || values.moveDisabledReason) {
+                return
+            }
+            if (values.bulkTargets.length) {
+                actions.moveItems(values.bulkTargets, destination)
+            } else if (values.target) {
                 actions.moveItem(values.target, destination)
             }
         },
@@ -644,7 +722,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                     actions.loadSpaces()
                 }
                 // The user may have closed the dialog or opened another folder while the folder was created.
-                if (values.target && values.browsePath === parent) {
+                if ((values.target || values.bulkTargets.length) && values.browsePath === parent) {
                     actions.browseTo(entry.path)
                 }
             } catch {
@@ -660,18 +738,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
             try {
                 const dialogEntry =
                     values.target && shareTargetKey(values.target) === shareTargetKey(target) ? values.entry : null
-                const entry = dialogEntry ?? (await findEntry(target))
-                if (!entry) {
-                    throw new Error('This item has no row in the project file system yet.')
-                }
-                if (target.type === 'canvas' && destination) {
-                    await assertCanvasShareable(target.ref)
-                }
-                const wasShared = analyticsSpaceOfPath(entry.path) !== null
-                const folder = destination
-                    ? destination.path
-                    : `${UNFILED_FOLDER}/${ANALYTICS_TYPE_INFO[target.type].pluralLabel}`
-                await api.fileSystem.move(entry.id, `${folder}/${escapePath(target.name)}`)
+                const { wasShared } = await moveTarget(target, destination, dialogEntry)
                 toast.success({
                     title: destination
                         ? wasShared
@@ -696,6 +763,47 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
             } catch (error) {
                 toast.error({ title: error instanceof Error ? error.message : 'Couldn’t move this item.' })
             }
+            actions.shareToSpaceDone()
+        },
+        moveItems: async ({ targets, destination }) => {
+            const moved: ShareToSpaceTarget[] = []
+            let firstError: string | null = null
+            // One item that can't move, such as a private canvas, must not stop the rest.
+            for (const target of targets) {
+                try {
+                    await moveTarget(target, destination, null)
+                    moved.push(target)
+                    actions.itemSpaceLoaded(shareTargetKey(target), analyticsSpaceOfPath(destination.path))
+                } catch (error) {
+                    firstError ??= error instanceof Error ? error.message : 'Couldn’t move this item.'
+                }
+            }
+            const failed = targets.length - moved.length
+            if (!failed) {
+                toast.success({ title: `Added ${pluralize(moved.length, 'item')} to ${destination.name}` })
+            } else if (moved.length) {
+                toast.warning({
+                    title: `Added ${moved.length} of ${pluralize(targets.length, 'item')} to ${destination.name}`,
+                    description: firstError ?? undefined,
+                })
+            } else {
+                toast.error({
+                    title: `Couldn’t add ${pluralize(targets.length, 'item')} to ${destination.name}`,
+                    description: firstError ?? undefined,
+                })
+            }
+            if (moved.length) {
+                actions.itemsMoved(moved)
+                if (removeProjectIdIfPresent(router.values.location.pathname) === urls.analyticsSpaces()) {
+                    actions.refreshSpaces()
+                }
+            }
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('analytics items moved', {
+                item_count: targets.length,
+                moved_count: moved.length,
+                into_folder: splitPath(destination.path).length > 1,
+            })
             actions.shareToSpaceDone()
         },
     })),

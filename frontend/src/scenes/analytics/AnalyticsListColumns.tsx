@@ -30,6 +30,7 @@ import { analyticsListLogic } from './analyticsListLogic'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsItemRowId } from './analyticsSelectionLogic'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import {
     ANALYTICS_DRAG_SCOPE,
@@ -42,6 +43,11 @@ import {
 export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: 'item'; item: AnalyticsItem }
 
 export type AnalyticsListColumns = ColumnDef<AnalyticsListRow>[]
+
+/** A stable id for a row, so a selection stays on its item while pages load and the list reloads. */
+export function analyticsListRowId(row: AnalyticsListRow): string {
+    return row.kind === 'folder' ? `folder:${row.folder.path}` : analyticsItemRowId(row.item)
+}
 
 function EmptyCell(): JSX.Element {
     return (
