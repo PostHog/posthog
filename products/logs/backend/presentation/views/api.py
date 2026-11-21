@@ -1584,6 +1584,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                     logger.exception("logs_api_concurrency_slot_release_failed", team_id=self.team_id)
                 self._logs_api_slot = None
 
+    def handle_exception(self, exc: Exception) -> Response:
+        # Filters compile into HogQL on every read action, so a filter the caller got wrong (such as a
+        # message regex RE2 cannot compile) is a 400 everywhere, not a 500 reported to error tracking.
+        if isinstance(exc, QueryError | ExposedCHQueryError):
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return super().handle_exception(exc)
+
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
         """Normalize a flat filter array (from MCP) to the nested PropertyGroupFilter structure."""
