@@ -32,8 +32,8 @@ from posthog.models.event.sql import (
     EVENTS_JSON_CLEANER,
     EVENTS_PROPERTIES_JSON_TYPE,
     PERSON_PROPERTIES_JSON_TYPE,
-    _cast_cleaned_properties,
-    _cast_temporary_properties,
+    cast_cleaned_properties,
+    cast_temporary_properties,
 )
 from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
@@ -235,8 +235,8 @@ FROM (
     SELECT
         uuid,
         event,
-        {_cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE())} AS properties,
-        {_cast_temporary_properties("temporary_properties")} AS temporary_properties,
+        {cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE())} AS properties,
+        {cast_temporary_properties("temporary_properties")} AS temporary_properties,
         {cleaned_alias}.properties_null_keys AS properties_null_keys,
         {cleaned_alias}.temporary_properties_null_keys AS temporary_properties_null_keys,
         timestamp,
@@ -245,7 +245,7 @@ FROM (
         created_at,
         _timestamp,
         person_id,
-        {_cast_cleaned_properties("person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE())} AS person_properties,
+        {cast_cleaned_properties("person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE())} AS person_properties,
         {cleaned_alias}.person_properties_null_keys AS person_properties_null_keys,
         person_created_at,
         person_mode,
