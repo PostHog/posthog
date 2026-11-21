@@ -1,5 +1,7 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { context, propagation, trace } from '@opentelemetry/api'
+import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node'
 import { DateTime, Settings } from 'luxon'
 import { register } from 'prom-client'
 
@@ -250,6 +252,41 @@ describe('HogFunctionHandler', () => {
         expect(handlerResult.nextAction?.id).toBe('exit')
         expect(invocationResult.logs).toHaveLength(1)
         expect(invocationResult.logs[0].message).toContain('[Action:function] Function completed')
+    })
+
+    it('tags each step span with the ids the workflow logs carry', async () => {
+        const exporter = new InMemorySpanExporter()
+        const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] })
+        provider.register()
+        try {
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+            await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+            const stepSpans = exporter.getFinishedSpans().filter((span) => span.name.startsWith('hogFlow.'))
+            expect(stepSpans.map((span) => span.name).sort()).toEqual([
+                'hogFlow.action.hogFunction.buildHogFunction',
+                'hogFlow.action.hogFunction.buildInvocation',
+                'hogFlow.action.hogFunction.emailValidation',
+                'hogFlow.action.hogFunction.executeWithAsyncFunctions',
+                'hogFlow.action.hogFunction.recipientPreferences',
+            ])
+            for (const span of stepSpans) {
+                expect(span.attributes).toMatchObject({
+                    team_id: team.id,
+                    log_source_id: invocation.hogFlow.id,
+                    instance_id: invocation.id,
+                    'hog_flow.action.type': 'function',
+                })
+            }
+        } finally {
+            await provider.shutdown()
+            trace.disable()
+            context.disable()
+            propagation.disable()
+        }
     })
 
     describe('with groups', () => {
