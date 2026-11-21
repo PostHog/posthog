@@ -243,7 +243,8 @@ def without_materialization(definitions: PropertyGroupDefinitions) -> PropertyGr
 
 
 # Flag calls carry no $ai_* keys, so the ai groups are left out. The feature_flags group is hidden, so HogQL reads
-# $feature/* keys from the JSON until the retained window carries the column.
+# $feature/* keys from the JSON until every part inside the TTL was written after migration 0392 and stores the map.
+# A part written before 0392 computes the map from the JSON on every read.
 # No column on this table family carries a CODEC.
 flag_evaluations_property_group_definitions: PropertyGroupDefinitions = {
     "properties": {

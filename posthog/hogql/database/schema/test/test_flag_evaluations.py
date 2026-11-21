@@ -415,6 +415,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                             "$lib": "web",
                             "token": "t",
                             "keep": "yes",
+                            "$feature_flag": "beta",
+                            "$feature_flag_response": "true",
                             "$feature/beta": True,
                             "$feature/variant": 'a"b',
                             "$feature/nulled": None,
@@ -456,6 +458,15 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert "equals(flag_evaluations.properties_group_custom[" in (map_read.clickhouse or "")
         assert "properties_group_custom" not in (json_read.clickhouse or "")
         assert map_read.results == json_read.results == [(EVENT_PROBE,)]
+
+    def test_feature_flag_property_filter_reads_the_json_while_the_group_is_hidden(self):
+        read = self._execute(
+            "properties.`$feature/beta`",
+            " AND properties.`$feature/beta` = 'true'",
+            modifiers=HogQLQueryModifiers(propertyGroupsMode=PropertyGroupsMode.OPTIMIZED),
+        )
+
+        assert "properties_group_feature_flags" not in (read.clickhouse or "")
 
     @parameterized.expand(
         [

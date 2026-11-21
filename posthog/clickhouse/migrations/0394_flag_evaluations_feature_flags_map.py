@@ -14,8 +14,10 @@ from posthog.run_mode import run_mode
 # flag_evaluations read table. Dev and the local stacks keep the storage table and the read table on the data nodes.
 #
 # The setting change comes first, so a part written after the column exists already uses the bucketed layout.
-# The ALTERs change metadata only. A part written before them has no map files, and ClickHouse computes the
-# map from the JSON when a query reads that part.
+# ClickHouse does not replicate a settings-only ALTER, so the setting change runs on every host of the storage role.
+# The column ALTERs replicate, so each runs on one host per shard.
+# The ALTERs change metadata only. A part written before them has no map files, and ClickHouse computes the map
+# from the JSON when a query reads that part.
 
 
 def operations_for(storage_role: NodeRole, read_table_roles: list[NodeRole]):
@@ -24,7 +26,7 @@ def operations_for(storage_role: NodeRole, read_table_roles: list[NodeRole]):
             f"ALTER TABLE {FLAG_EVALUATIONS_DATA_TABLE} MODIFY SETTING {FLAG_EVALUATIONS_MAP_SERIALIZATION_SETTINGS}",
             node_roles=[storage_role],
             sharded=True,
-            is_alter_on_replicated_table=True,
+            is_alter_on_replicated_table=False,
         ),
         *[
             run_sql_with_exceptions(

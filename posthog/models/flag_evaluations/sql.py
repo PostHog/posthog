@@ -195,8 +195,9 @@ def _single_line(pieces: Iterable[str]) -> str:
     return "".join(f"\n    , {' '.join(piece.split())}" for piece in pieces)
 
 
-# The bucketed layout lets a read of one key of a wide map skip most of the map's data. The zero-level setting applies it to freshly inserted parts too, which otherwise keep the basic layout
-# until a merge. A mutation such as MATERIALIZE COLUMN keeps the layout the part already has.
+# The bucketed layout lets a read of one key of a wide map skip most of the map's data. The zero-level
+# setting applies it to freshly inserted parts too, which otherwise keep the basic layout until a merge.
+# A mutation such as MATERIALIZE COLUMN keeps the layout the part already has.
 FLAG_EVALUATIONS_MAP_SERIALIZATION_SETTINGS = (
     "map_serialization_version = 'with_buckets', "
     "map_serialization_version_for_zero_level_parts = 'with_buckets', "
