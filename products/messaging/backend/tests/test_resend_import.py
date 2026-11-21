@@ -9,6 +9,7 @@ from typing import Any, cast
 from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -1030,24 +1031,30 @@ class TestResendTemplateConversion(SimpleTestCase):
 
 
 class TestResendClientPace(SimpleTestCase):
+    LIMIT = {"ratelimit-limit": "10", "ratelimit-policy": "10;w=1"}
+
     @parameterized.expand(
         [
-            ("no_limit_headers", {}, [0.5, 0.5, 0.5]),
-            (
-                "limit_headers",
-                {"ratelimit-limit": "10", "ratelimit-policy": "10;w=1", "ratelimit-remaining": "6"},
-                [0.5, 0.125, 0.125],
-            ),
+            ("no_limit_headers", [(200, {})], [0.5, 0.5, 0.5]),
+            ("limit_headers", [(200, {**LIMIT, "ratelimit-remaining": "6"})], [0.5, 0.125, 0.125]),
             (
                 "window_used_up",
-                {"ratelimit-limit": "10", "ratelimit-remaining": "0", "ratelimit-reset": "1"},
+                [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "0", "ratelimit-reset": "1"})],
                 [1.0, 1.0, 1.0],
             ),
-            ("garbage_limit", {"ratelimit-limit": "-3", "ratelimit-policy": "x"}, [0.5, 0.5, 0.5]),
+            ("garbage_limit", [(200, {"ratelimit-limit": "-3", "ratelimit-policy": "x"})], [0.5, 0.5, 0.5]),
+            (
+                "live_sending_got_a_429",
+                [
+                    (429, {**LIMIT, "ratelimit-remaining": "0", "ratelimit-reset": "1", "retry-after": "1"}),
+                    (200, {**LIMIT, "ratelimit-remaining": "6"}),
+                ],
+                [1.0, 0.25, 0.25, 0.25],
+            ),
         ]
     )
     def test_requests_follow_the_rate_limit_resend_reports(
-        self, _name: str, headers: dict[str, str], gaps: list[float]
+        self, _name: str, responses: list[tuple[int, dict[str, str]]], gaps: list[float]
     ) -> None:
         clock = [0.0]
         sent_at: list[float] = []
@@ -1056,8 +1063,9 @@ class TestResendClientPace(SimpleTestCase):
             clock[0] += seconds
 
         def get(*_: Any, **__: Any) -> MagicMock:
+            status, headers = responses[min(len(sent_at), len(responses) - 1)]
             sent_at.append(clock[0])
-            return FakeResend._response(200, {}, headers)
+            return FakeResend._response(status, {}, headers)
 
         client_module = "products.messaging.backend.services.resend_client"
         with (
@@ -1069,7 +1077,7 @@ class TestResendClientPace(SimpleTestCase):
             for _ in range(4):
                 client.get("/domains")
 
-        assert [later - earlier for earlier, later in zip(sent_at, sent_at[1:])] == gaps
+        assert [later - earlier for earlier, later in zip(sent_at, sent_at[1:])] == pytest.approx(gaps, abs=0.01)
 
     def test_a_rejected_read_stops_the_rest_of_the_page(self) -> None:
         reads: list[str] = []

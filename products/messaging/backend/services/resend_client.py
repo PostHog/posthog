@@ -23,6 +23,10 @@ PAGE_SIZE = 100
 REQUESTS_PER_SECOND = 2
 # Resend's limit is shared with the customer's live sends, so the import uses only this much of it.
 SHARE_OF_LIMIT = 0.8
+# A 429 means live sending needs more of the limit, so the import halves its share and wins it back over a few
+# hundred requests.
+MIN_SHARE_OF_LIMIT = 0.1
+SHARE_REGAINED_PER_REQUEST = 0.002
 # A request takes longer than the limit allows between requests, so the one-per-contact reads overlap.
 MAX_PARALLEL_REQUESTS = 4
 MAX_RATE_LIMIT_WAITS = 5
@@ -78,6 +82,8 @@ class ResendClient:
         self._max_transient_retries = max_transient_retries
         self._next_request_at = 0.0
         self._interval = 1 / REQUESTS_PER_SECOND
+        self._share = SHARE_OF_LIMIT
+        self._share_cut_at = float("-inf")
         self._lock = threading.Lock()
 
     def __repr__(self) -> str:
@@ -176,12 +182,19 @@ class ResendClient:
             return
         window = _policy_window_seconds(response)
         with self._lock:
-            self._interval = window / (limit * SHARE_OF_LIMIT)
+            now = time.monotonic()
+            # Parallel requests in one window all see the same 429, and that is one sign of live sending, not several.
+            if response.status_code == 429 and now - self._share_cut_at >= window:
+                self._share = max(self._share / 2, MIN_SHARE_OF_LIMIT)
+                self._share_cut_at = now
+            elif response.status_code != 429:
+                self._share = min(self._share + SHARE_REGAINED_PER_REQUEST, SHARE_OF_LIMIT)
+            self._interval = window / (limit * self._share)
             remaining = _int_header(response, "ratelimit-remaining")
             # Live sending used up the rest of this window, so the import waits for the next one instead of a 429.
             if remaining == 0:
                 reset = min(float(_int_header(response, "ratelimit-reset") or window), MAX_RETRY_AFTER_SECONDS)
-                self._next_request_at = max(self._next_request_at, time.monotonic() + reset)
+                self._next_request_at = max(self._next_request_at, now + reset)
 
 
 def _int_header(response: requests.Response, name: str) -> int | None:
