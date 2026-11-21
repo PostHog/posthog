@@ -15,10 +15,16 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, GitLabIntegrationError
 
 from products.signals.backend.github_actor import github_mention_for_user
+from products.signals.backend.gitlab_merge_requests import (
+    MergeRequestRef,
+    fetch_merge_request,
+    gitlab_connection_for_merge_request,
+    merge_request_ref_for_repository,
+    parse_implementation_pr_url,
+)
 from products.signals.backend.models import (
     SignalActorKind,
     SignalReport,
@@ -60,9 +66,11 @@ _FINISHED_REPORT_STATUSES = frozenset(
 
 _PULL_REQUEST_URL_BODY = (
     r"[A-Za-z][A-Za-z0-9+.-]*://(www\.)?github\.com/+[^/?#]+/+[^/?#]+/+pull/+[+-]?[ \t\r\n\f\v]*[0-9]+"
+    # A gitlab.com merge request. The project path excludes quotes so the array form stays inside one element.
+    r'|https://(www\.)?gitlab\.com/+[^?#"]+/+-/+merge_requests/+[0-9]+'
 )
-_PULL_REQUEST_URL_PATTERN = rf"^{_PULL_REQUEST_URL_BODY}([/?#].*)?$"
-_PULL_REQUEST_URL_ARRAY_PATTERN = rf'"{_PULL_REQUEST_URL_BODY}([/?#][^"]*)?"'
+_PULL_REQUEST_URL_PATTERN = rf"^({_PULL_REQUEST_URL_BODY})([/?#].*)?$"
+_PULL_REQUEST_URL_ARRAY_PATTERN = rf'"({_PULL_REQUEST_URL_BODY})([/?#][^"]*)?"'
 _PR_BEARING_LEGACY_TASK_RELATIONSHIPS = (TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_DISCUSSION)
 
 
@@ -286,7 +294,7 @@ def fetch_implementation_prs_for_reports(
     for report_id, prs in result.items():
         identities: set[tuple[str, int]] = set()
         for pr in prs:
-            parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+            parsed = parse_implementation_pr_url(pr.url)
             if parsed is None:
                 continue
             identity = (parsed.repository.lower(), parsed.number)
@@ -302,7 +310,7 @@ def fetch_implementation_prs_for_reports(
 def pull_request_matches_id(pr: ImplementationPr, requested_id: str, team_id: int) -> bool:
     if pr.id == requested_id:
         return True
-    parsed = GitHubIntegrationBase.parse_pull_request_url(pr.url)
+    parsed = parse_implementation_pr_url(pr.url)
     return parsed is not None and requested_id == str(
         uuid5(NAMESPACE_URL, f"signals:{team_id}:{parsed.repository.lower()}:{parsed.number}")
     )
@@ -339,8 +347,12 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
     if not SignalReport.objects.filter(team_id=team_id).exists():
         return []
     # Narrow by task output before resolving reports so webhooks do not scan the whole inbox.
-    owner, repo = repository.split("/", 1)
-    url_body = rf'[^:"]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}'
+    if (merge_request := merge_request_ref_for_repository(repository, pr_number)) is not None:
+        project = "/+".join(re.escape(part) for part in merge_request.project_path.split("/"))
+        url_body = rf"https://(www\.)?gitlab\.com/+{project}/+-/+merge_requests/+0*{pr_number}"
+    else:
+        owner, repo = repository.split("/", 1)
+        url_body = rf'[^:"]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}'
     url_pattern = rf"^{url_body}([/?#]|$)"
     array_url_pattern = rf'"{url_body}([/?#"]|$)'
     task_ids = list(
@@ -376,7 +388,7 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
         report_id
         for report_id, report_prs in prs.items()
         if any(
-            (parsed := GitHubIntegrationBase.parse_pull_request_url(pr.url)) is not None
+            (parsed := parse_implementation_pr_url(pr.url)) is not None
             and parsed.repository.lower() == repository.lower()
             and parsed.number == pr_number
             for pr in report_prs
@@ -392,7 +404,7 @@ def implementation_pr_needed_by_another_report(*, team_id: int, report_id: str, 
     report still using it closes it. No retry can change the answer while the other report runs, so
     a caller that reports per-PR outcomes records this as a skip rather than a failure.
     """
-    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    parsed = parse_implementation_pr_url(pr_url)
     if parsed is None:
         return False
     return (
@@ -486,7 +498,7 @@ def _close_implementation_pr(
             return None
         pr_url = pr.url
 
-        parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+        parsed = parse_implementation_pr_url(pr_url)
         if parsed is None:
             logger.warning("close_implementation_pr_unparseable_url", report_id=str(report_id), pr_url=pr_url)
             return False
@@ -500,6 +512,24 @@ def _close_implementation_pr(
                 pr_url=pr_url,
             )
             return None
+
+        if isinstance(parsed, MergeRequestRef):
+            if expected_head_sha is not None or comment_marker is not None:
+                # Only supersession pins a head or dedupes its comment, and it targets GitHub pull requests only.
+                logger.info("close_implementation_pr_gitlab_unsupported", report_id=str(report_id), pr_url=pr_url)
+                return None
+            return _close_merge_request(
+                team_id,
+                report_id,
+                ref=parsed,
+                comment=_pr_close_comment(
+                    reason,
+                    report_link=f"[linked PostHog report]({build_report_url(team_id, report_id, ReportLinkSource.GITHUB_PR)})",
+                    actor_mention=None,
+                    replacement_pr_url=replacement_pr_url,
+                ),
+                before_close=before_close,
+            )
 
         github = GitHubIntegration.first_for_team_repository(
             team_id, parsed.repository, source="signals_implementation_pr", priority=priority
@@ -598,6 +628,47 @@ def _close_implementation_pr(
     except Exception:
         logger.exception("close_implementation_pr_unexpected_error", report_id=str(report_id))
         return False
+
+
+def _close_merge_request(
+    team_id: int,
+    report_id: str,
+    *,
+    ref: MergeRequestRef,
+    comment: str,
+    before_close: Callable[[], bool] | None,
+) -> bool | None:
+    """The GitLab half of `_close_implementation_pr`, with the same return values."""
+    from products.signals.backend.report_assignments import update_assignments_for_pull_request
+
+    integration = gitlab_connection_for_merge_request(team_id, ref)
+    if integration is None:
+        logger.info("close_implementation_pr_no_integration", report_id=str(report_id), repository=ref.repository)
+        return False
+    merge_request = fetch_merge_request(integration, ref)
+    if merge_request is None:
+        return False
+    state = merge_request.state
+    if state in {SignalReportAssignment.PrState.MERGED, SignalReportAssignment.PrState.CLOSED}:
+        update_assignments_for_pull_request(
+            team_ids=[team_id], repository=ref.repository, pr_number=ref.number, pr_state=state
+        )
+        return None
+    if state not in {SignalReportAssignment.PrState.DRAFT, SignalReportAssignment.PrState.OPEN}:
+        return False
+    gitlab = GitLabIntegration(integration)
+    project_id = int(integration.config["project_id"])
+    try:
+        gitlab.add_merge_request_note(project_id, ref.number, comment)
+    except GitLabIntegrationError:
+        logger.warning("close_implementation_pr_comment_failed", report_id=str(report_id), repository=ref.repository)
+    if before_close is not None and not before_close():
+        return False
+    gitlab.close_merge_request(project_id, ref.number)
+    update_assignments_for_pull_request(
+        team_ids=[team_id], repository=ref.repository, pr_number=ref.number, pr_state="closed"
+    )
+    return True
 
 
 def close_implementation_pr_for_report(

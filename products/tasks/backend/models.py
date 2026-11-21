@@ -1629,12 +1629,16 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_tool_allowlist: list[str] | None = None,
         profile: TaskProfile,
         github_access: GithubAccess | None = None,
+        repository_integration_id: int | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
 
         Shared by `create_and_run` (which then creates and dispatches the run) and
         `create_without_run` (which discards the run state). One path keeps the
         GitHub-integration resolution and authorship logic from drifting between them.
+
+        `repository_integration_id` names the team's GitLab connection for a GitLab project. Such a
+        task resolves no GitHub integration, because its runs push with the connection's token.
         """
         created_by = User.objects.get(id=user_id)
 
@@ -1665,7 +1669,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_resolution_allowed = Task.attaches_github(
+        if (
+            repository_integration_id is not None
+            and repository_integration_id
+            not in IntegrationManager.gitlab.token.get_many(team.id, [repository_integration_id])
+        ):
+            raise ValueError(f"Team {team.id} does not have GitLab connection {repository_integration_id}")
+        github_resolution_allowed = repository_integration_id is None and Task.attaches_github(
             origin_product, profile, has_repository=bool(repository), github_access=github_access
         )
         github_integration = None
@@ -1713,7 +1723,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if user_github_integration is not None:
                 github_user_integration = user_github_integration.integration
 
-        if not github_integration and github_user_integration is None:
+        if not github_integration and github_user_integration is None and repository_integration_id is None:
             # Every entry is cloned, so a private second repository fails the run just as surely
             # as a private first one.
             private_repositories = [name for name in resolved_repositories if not is_public_sandbox_repo(name)]
@@ -1758,6 +1768,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             created_by=created_by,
             github_integration_id=github_integration_id,
             github_user_integration=github_user_integration,
+            repository_integration_id=repository_integration_id,
             repository=repository,
             repositories=resolved_repositories,
             channel=channel,
@@ -2062,6 +2073,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
         options: TaskRunOptions | None = None,
         source: TaskSource | None = None,
+        repository_integration_id: int | None = None,
     ) -> "Task":
         startup_requested_at = django_timezone.now()
         from products.tasks.backend.logic.services.workflow_dispatch import (
@@ -2125,6 +2137,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             extra_run_state = settings.extra_run_state
         if runtime is None:
             runtime = profile.runtimes[0]
+        if repository_integration_id is not None and github_read_access:
+            # The read-only GitHub token is minted for the run's repository names, and a GitHub
+            # repository can share a GitLab project's path.
+            raise ValueError("A GitLab task cannot request read-only GitHub access")
         task, extra_state = Task._build_task(
             team=team,
             title=title,
@@ -2173,6 +2189,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             mcp_tool_allowlist=mcp_tool_allowlist,
             github_access=options.github_access if options is not None else None,
+            repository_integration_id=repository_integration_id,
         )
         if options is not None:
             task.options = run_options_record(options)

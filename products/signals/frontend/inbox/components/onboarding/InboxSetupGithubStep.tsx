@@ -14,7 +14,7 @@ import { InboxGithubAccessExplanation } from './InboxGithubAccessExplanation'
 import { InboxSetupImplementation } from './InboxSetupImplementation'
 
 export function InboxSetupGithubStep(): JSX.Element {
-    const { hasGithubIntegration, saving } = useValues(inboxSetupLogic)
+    const { hasGithubIntegration, hasCodeConnection, saving } = useValues(inboxSetupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { connectGithub } = useActions(inboxSetupLogic)
     const restrictionReason = useRestrictedArea({
@@ -24,7 +24,13 @@ export function InboxSetupGithubStep(): JSX.Element {
     return (
         <>
             <GuidedWizardSection
-                title={hasGithubIntegration ? 'GitHub is connected' : 'Connect GitHub for code context'}
+                title={
+                    hasGithubIntegration
+                        ? 'GitHub is connected'
+                        : hasCodeConnection
+                          ? 'GitLab is connected'
+                          : 'Connect GitHub for code context'
+                }
                 description="Self-driving uses your code to explain what's happening in your product and suggest what to do next."
             >
                 {!hasGithubIntegration && restrictionReason ? (
@@ -44,7 +50,7 @@ export function InboxSetupGithubStep(): JSX.Element {
                     />
                 )}
             </GuidedWizardSection>
-            {!hasGithubIntegration && (
+            {!hasCodeConnection && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 empty:hidden">
                     <InboxGithubAccessExplanation />
                 </div>

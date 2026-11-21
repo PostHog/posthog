@@ -15,6 +15,7 @@ from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import OrganizationMembership, User
+from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalTeamConfig
@@ -1155,19 +1156,29 @@ class TestGetTaskProcessingContextActivity:
             assert stored == expected_state
 
     @pytest.mark.django_db(transaction=True)
-    def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):
+    @pytest.mark.parametrize("on_gitlab", [False, True])
+    def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task, on_gitlab):
         # Signals implementation PRs are bot-authored and always opt into the PR
         # follow-up loop ("babysitting"), independent of the org-level `tasks-pr-loop`
         # rollout that gates other origins.
         test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
-        test_task.save(update_fields=["origin_product"])
+        if on_gitlab:
+            test_task.repository_integration_id = Integration.objects.create(
+                team=test_task.team,
+                kind="gitlab",
+                integration_id="gitlab-acme-app",
+                config={"hostname": "https://gitlab.com", "path_with_namespace": "acme/app", "project_id": 7},
+                sensitive_config={"access_token": "glpat-example"},
+            ).id
+        test_task.save(update_fields=["origin_product", "repository_integration_id"])
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
         with patch(ALL_FLAGS_TARGET, return_value=_flags({"tasks-pr-loop": False})):
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
-        assert result.pr_loop_enabled is True
+        assert (result.pr_loop_enabled, result.pr_babysit_enabled) == (True, True)
+        assert result.has_gitlab_credentials is on_gitlab
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize("pr_loop_flag", [False, True])

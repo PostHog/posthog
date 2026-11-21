@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { AgentSteeringSection } from '../config/AgentSteeringSection'
+import { GitlabProjectsList } from '../config/GitlabProjectsList'
 import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
@@ -16,6 +17,7 @@ import { SettingsSection } from './SettingsSection'
 
 export function SettingsTab(): JSX.Element {
     const usageEnabled = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
+    const gitlabEnabled = useFeatureFlag('SELF_DRIVING_GITLAB')
     useMountedLogic(integrationsLogic)
     const { product: inboxUsageProduct, spendProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
     const showBillingUsage = inboxUsageProduct != null || spendProduct != null || inboxUsageLoading
@@ -31,10 +33,15 @@ export function SettingsTab(): JSX.Element {
             <AgentSteeringSection />
             <SettingsSection
                 title="Code access"
-                description="Connect GitHub so agents can read repositories and open pull requests."
+                description={
+                    gitlabEnabled
+                        ? 'Connect GitHub or a GitLab project so agents can read code and open pull requests.'
+                        : 'Connect GitHub so agents can read repositories and open pull requests.'
+                }
             >
                 {/* The OAuth round trip returns to `next`; land back on this tab so the result is in view. */}
                 <GithubIntegration next={urls.inbox('settings')} connectSurface="signals_agent_setup" />
+                <GitlabProjectsList />
                 <RepoRoutingRules />
             </SettingsSection>
             <SettingsSection

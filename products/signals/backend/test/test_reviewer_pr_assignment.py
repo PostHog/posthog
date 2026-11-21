@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team, User
+from posthog.models import Integration, Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 
@@ -28,6 +28,7 @@ from products.signals.backend.report_assignments import (
 from products.signals.backend.reviewer_exclusions import create_exclusion
 from products.signals.backend.reviewer_pr_assignment import (
     assign_reviewers_to_pull_request,
+    deliver_pull_request_assignment,
     opted_in_assignee_logins,
     schedule_reviewer_pr_assignment,
 )
@@ -1106,3 +1107,69 @@ class TestDirectlyResponsibleIndividual:
             calls = self._assign(team, report, github)
 
         assert calls == expected_calls
+
+
+class TestGitLabMergeRequestReviewer:
+    MR_URL = "https://gitlab.com/acme/web/-/merge_requests/7"
+
+    @staticmethod
+    def _gitlab(*, reviewers: list[dict], access_level: int, updates: list[dict]):
+        def request(method: str, url: str, **kwargs: object) -> MagicMock:
+            path = url.split("/api/v4/", 1)[1]
+            if method == "PUT":
+                updates.append(kwargs["json"])  # type: ignore[arg-type]
+                body: object = {}
+            elif path.startswith("users?"):
+                body = [{"id": 99, "public_email": "reviewer@example.com"}]
+            elif "/members/all/" in path:
+                body = {"id": 99, "state": "active", "access_level": access_level}
+            else:
+                body = {"iid": 7, "state": "opened", "draft": True, "web_url": TestGitLabMergeRequestReviewer.MR_URL}
+                body["reviewers"] = reviewers
+            return MagicMock(status_code=200, json=MagicMock(return_value=body))
+
+        return request
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("reviewers", "access_level", "expected_updates"),
+        [
+            ([], 30, [{"reviewer_ids": [99]}]),
+            ([{"id": 5}], 30, []),
+            ([], 20, []),
+        ],
+    )
+    def test_suggested_reviewer_is_requested_on_the_merge_request(
+        self, org_and_team, reviewers, access_level, expected_updates
+    ):
+        org, team = org_and_team
+        reviewer = User.objects.create(email="reviewer@example.com", first_name="Reviewer")
+        OrganizationMembership.objects.create(user=reviewer, organization=org)
+        Integration.objects.create(
+            team=team,
+            kind="gitlab",
+            integration_id="gitlab-1",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "acme/web", "project_id": 42},
+            sensitive_config={"access_token": "glpat-example"},
+        )
+        report = _make_report(team)
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"user_uuid": str(reviewer.uuid)}]),
+        )
+        updates: list[dict] = []
+
+        with (
+            patch("products.signals.backend.reviewer_pr_assignment.assignment_side_effects_allowed", return_value=True),
+            patch("products.signals.backend.self_driving_gitlab.feature_enabled_or_false", return_value=True),
+            patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None)),
+            patch(
+                "posthog.models.integration.gitlab.gitlab_request",
+                side_effect=self._gitlab(reviewers=reviewers, access_level=access_level, updates=updates),
+            ),
+        ):
+            deliver_pull_request_assignment(team_id=team.id, report_id=str(report.id), pr_url=self.MR_URL)
+
+        assert updates == expected_updates

@@ -21,6 +21,7 @@ import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
+    parseMergeRequestUrl,
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
@@ -162,9 +163,10 @@ function ReportCardRaw({
     const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(primaryReportPullRequest(report).url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
-    const hasPr = prUrlParts != null
-    const prNumber = prUrlParts?.number ?? null
-    const repoSlug = prUrlParts?.repoSlug ?? null
+    const mergeRequest = prUrl && !prUrlParts ? parseMergeRequestUrl(prUrl) : null
+    const hasPr = prUrlParts != null || mergeRequest != null
+    const prNumber = prUrlParts?.number ?? (mergeRequest ? String(mergeRequest.number) : null)
+    const repoSlug = prUrlParts?.repoSlug ?? mergeRequest?.repository ?? null
 
     const isReady = report.status === 'ready'
     // A Monitoring row names its merged PR in the band across its top, so it drops the corner PR badge
@@ -376,9 +378,10 @@ function ReportCardRaw({
                             prNumber={prNumber}
                             // No link in preview mode: the sample PR url is fabricated, and a link would
                             // stay keyboard-focusable inside the otherwise non-routable card.
-                            prUrl={preview ? null : prUrl}
+                            prUrl={preview ? null : (mergeRequest?.url ?? prUrl)}
                             state={prState}
                             ciStatus={ciStatus}
+                            provider={mergeRequest ? 'gitlab' : 'github'}
                         />
                     </div>
                 ) : null}

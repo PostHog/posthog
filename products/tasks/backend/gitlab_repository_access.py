@@ -3,13 +3,38 @@ import logging
 
 import requests
 
-from posthog.integrations import IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
 
 logger = logging.getLogger(__name__)
 
 # The sandbox network allowlist and the clone URL cover gitlab.com only.
 GITLAB_COM = "https://gitlab.com"
+
+
+def _connected_gitlab_com_projects(team_id: int) -> list[tuple[str, IntegrationRecord]]:
+    """Each gitlab.com connection with the project path it covers, read from the stored config only."""
+    projects: list[tuple[str, IntegrationRecord]] = []
+    for integration in IntegrationManager.gitlab.token.list(team_id):
+        hostname = str(integration.config.get("hostname") or "").rstrip("/").lower()
+        path = str(integration.config.get("path_with_namespace") or "").strip()
+        if hostname == GITLAB_COM and path:
+            projects.append((path, integration))
+    return projects
+
+
+def team_gitlab_project_paths(team_id: int) -> list[str]:
+    """The gitlab.com project paths the team connected, lowercased like repository names."""
+    return sorted({path.lower() for path, _ in _connected_gitlab_com_projects(team_id)})
+
+
+def gitlab_project_for_repository(team_id: int, repository: str) -> IntegrationRecord | None:
+    """The team's gitlab.com connection that covers ``repository``, or None."""
+    wanted = repository.strip().lower()
+    return next(
+        (integration for path, integration in _connected_gitlab_com_projects(team_id) if path.lower() == wanted),
+        None,
+    )
 
 
 def gitlab_repository_error(integration: IntegrationRecord, repository: str) -> str | None:

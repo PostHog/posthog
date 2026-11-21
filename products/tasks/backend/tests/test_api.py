@@ -3346,6 +3346,83 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
+            ("flag_off", False, "acme/app", None, False, False),
+            ("gitlab_project", True, "acme/group/app", None, True, False),
+            ("github_reaches_the_same_path", True, "acme/web", None, False, True),
+            (
+                "gitlab_access_check_fails",
+                True,
+                "acme/group/app",
+                "The GitLab token can't push to acme/group/app.",
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_create_signal_report_task_in_a_gitlab_project(
+        self, _name, flag_enabled, repository, gitlab_error, expect_gitlab, expect_github
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        # The flag-off team has no GitHub, so only the GitLab connection could have served it.
+        github = (
+            Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id="gh-team",
+                config={"installation_id": "gh-team"},
+                repository_cache=[{"full_name": "acme/web", "name": "web", "id": 1}],
+                repository_cache_updated_at=django_timezone.now(),
+            )
+            if flag_enabled
+            else None
+        )
+        gitlab = Integration.objects.create(
+            team=self.team,
+            kind="gitlab",
+            integration_id="gitlab-1",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": repository, "project_id": 1},
+            sensitive_config={"access_token": "glpat-example"},
+        )
+        report = SignalReport.objects.create(team=self.team)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=RepoSelectionResult(repository=repository, reason="test").model_dump_json(),
+        )
+
+        with (
+            patch("products.signals.backend.self_driving_gitlab.feature_enabled_or_false", return_value=flag_enabled),
+            patch("products.tasks.backend.facade.api.gitlab_repository_error", return_value=gitlab_error),
+            patch("products.signals.backend.facade.github_optional.github_optional_pilot_enabled", return_value=False),
+            patch("products.signals.backend.facade.github_optional.pilot_repository_integration_id", return_value=None),
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Signal Task",
+                    "description": "From a signal report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(report.id),
+                },
+                format="json",
+            )
+
+        if gitlab_error:
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["detail"], gitlab_error)
+            self.assertFalse(Task.objects.filter(signal_report=report).exists())
+            return
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(
+            (task.repository, task.repository_integration_id, task.github_integration_id),
+            (repository, gitlab.id if expect_gitlab else None, github.id if github and expect_github else None),
+        )
+
+    @parameterized.expand(
+        [
             ("allowed", tasks_access.DesktopAccessDecision.ALLOWED, True),
             ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, False),
             ("unresolvable", DesktopAccessResolutionError("cannot verify"), False),

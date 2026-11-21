@@ -299,6 +299,27 @@ class TestTaskRunArtefacts(BaseTest):
 
     @parameterized.expand(
         [
+            ("github", "https://github.com/posthog/posthog/pull/1"),
+            ("gitlab", "https://gitlab.com/acme/platform/web/-/merge_requests/7"),
+        ]
+    )
+    def test_shipped_pull_request_blocks_another_implementation(self, _name, pr_url):
+        report = self._report()
+        task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.COMPLETED, output={"pr_url": pr_url})
+
+        with transaction.atomic(), self.assertRaises(ReportTaskCapExceeded) as raised:
+            enforce_report_task_cap(
+                team_id=self.team.id, report_id=str(report.id), relationship=TASK_RUN_TYPE_IMPLEMENTATION
+            )
+
+        assert (
+            raised.exception.detail == "This report already has a pull request. Open the existing task to continue it."
+        )
+
+    @parameterized.expand(
+        [
             ("direct_claim", SignalActorKind.USER),
             ("agent_claim", SignalActorKind.AGENT),
         ]

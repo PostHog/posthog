@@ -1122,6 +1122,10 @@ When a signal includes **Attached images**, the URLs are publicly reachable — 
 {remediation_guidance}"""
 
 
+_GITLAB_REPOSITORY_NOTE = """
+The checked-out repository is a GitLab project. `gh` has no access to it, so skip the `gh` steps for this repository, and read its history with `git` instead."""
+
+
 def _research_protocol(code_available: bool) -> str:
     code_evidence = (
         """- **Code:** Trace the code path behind the signal's claim — find the relevant files, read the implementation, and understand how the logic actually works. Even if the signal doesn't mention specific files, search for the feature/component and dig in. Also look for `posthog.capture` calls or feature flag checks nearby — these show what the team tracks and gates, which helps gauge importance.
@@ -1255,6 +1259,7 @@ def build_initial_research_prompt(
     steering_section: str = "",
     code_available: bool = True,
     source_issue_urls: Sequence[str] = (),
+    gitlab_repository: bool = False,
 ) -> str:
     """Build the opening prompt for the first signal in a multi-turn research session."""
     signal_block = _render_signal_for_research(first_signal, 1, total_signals)
@@ -1290,7 +1295,9 @@ def build_initial_research_prompt(
     # scout fleet. Empty for a team that left none, so a quiet project pays nothing for the section.
     steering_block = f"\n{steering_section}\n" if steering_section else ""
 
-    return f"""{_research_preamble(code_available)}
+    gitlab_note = _GITLAB_REPOSITORY_NOTE if code_available and gitlab_repository else ""
+
+    return f"""{_research_preamble(code_available)}{gitlab_note}
 
 {investigation_instruction.format(total_signals=total_signals)}
 {report_context}
@@ -1909,6 +1916,7 @@ async def run_multi_turn_research(
         steering_section=steering_section,
         code_available=code_available,
         source_issue_urls=own_source_issue_urls,
+        gitlab_repository=context.repository_integration_id is not None,
     )
     session, first_response = await MultiTurnSession.start(
         prompt=initial_prompt,

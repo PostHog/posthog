@@ -118,10 +118,8 @@ class WakeablePullRequest:
     github_integration: GitHubIntegration | UserGitHubIntegration
 
 
-def load_wakeable_pull_request(ctx: TaskProcessingContext, activity_name: str) -> WakeablePullRequest | None:
-    if not ctx.has_github_credentials:
-        return None
-
+def load_wakeable_pr_url(ctx: TaskProcessingContext, activity_name: str) -> str | None:
+    """The run's pull or merge request URL, or None when there is none or the task refuses CI wakes."""
     try:
         task_run = TaskRun.objects.get(id=ctx.run_id)
     except TaskRun.DoesNotExist:
@@ -129,8 +127,15 @@ def load_wakeable_pull_request(ctx: TaskProcessingContext, activity_name: str) -
         return None
     if wake_refusal(task_run.task, source="ci_follow_up") is not None:
         return None
-
     pr_url = (task_run.output or {}).get("pr_url")
+    return pr_url if isinstance(pr_url, str) and pr_url else None
+
+
+def load_wakeable_pull_request(ctx: TaskProcessingContext, activity_name: str) -> WakeablePullRequest | None:
+    if not ctx.has_github_credentials:
+        return None
+
+    pr_url = load_wakeable_pr_url(ctx, activity_name)
     if not pr_url:
         return None
 

@@ -17,6 +17,7 @@ export type InboxAgentActivationView = 'connecting' | 'activating' | 'confirm' |
 export interface inboxAgentActivationLogicValues {
     completed: boolean // inboxSetupLogic
     error: string | null // inboxSetupLogic
+    hasCodeConnection: boolean // inboxSetupLogic
     hasGithubIntegration: boolean // inboxSetupLogic
     quickActivationPending: boolean // inboxSetupLogic
     saving: boolean // inboxSetupLogic
@@ -77,7 +78,7 @@ export const inboxAgentActivationLogic = kea<inboxAgentActivationLogicType>([
             teamLogic,
             ['currentTeamId'],
             inboxSetupLogic,
-            ['error', 'completed', 'saving', 'quickActivationPending', 'hasGithubIntegration'],
+            ['error', 'completed', 'saving', 'quickActivationPending', 'hasGithubIntegration', 'hasCodeConnection'],
             router,
             ['searchParams'],
         ],
