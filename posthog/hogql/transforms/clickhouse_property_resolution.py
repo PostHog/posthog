@@ -1884,7 +1884,10 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             # The cleaner drops a null value from the document and lists its key in `<column>_null_keys`. The legacy
             # flag_evaluations text still holds the key, and `response` documents JSONHas as the null-versus-missing test.
             null_keys = _synthetic_column_field(
-                field_type, NULL_KEYS_COLUMNS[field.name], is_nullable=False, database_field=StringArrayDatabaseField
+                field_type,
+                NULL_KEYS_COLUMNS[source.json_column or field.name],
+                is_nullable=False,
+                database_field=StringArrayDatabaseField,
             )
             assert null_keys is not None
             return _call("or", [presence, _call("has", [null_keys, _const(first_key.replace(".", "%2E"))])])
