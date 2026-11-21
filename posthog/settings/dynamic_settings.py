@@ -393,8 +393,9 @@ CONSTANCE_CONFIG = {
     "FLAG_EVALUATIONS_READS_JSON": (
         False,
         "When on, a project that reads the native JSON events table also reads its flag calls from flag_evaluations_json, "
-        "the flag_evaluations table in the native JSON schema, in HogQL queries, the flag Usage tab counts, and cohort "
-        "backfills. A project on the legacy events table keeps reading flag_evaluations. Turn it on only after "
+        "the flag_evaluations table in the native JSON schema, in HogQL queries (including the batch query of a cohort "
+        "backfill) and the flag Usage tab counts. The cohort seeder and the last_called_at sync keep reading "
+        "flag_evaluations. A project on the legacy events table keeps reading flag_evaluations. Turn it on only after "
         "flag_evaluations_json holds 90 days of flag calls and matches flag_evaluations. Takes up to two minutes to "
         "apply. Turning it off restores flag_evaluations, which keeps receiving every flag call.",
         bool,

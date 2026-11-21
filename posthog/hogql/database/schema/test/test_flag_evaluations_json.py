@@ -71,6 +71,22 @@ class TestFlagEvaluationsJsonPrinting(BaseTest):
         assert "CAST(flag_evaluations.person_properties.plan, 'Nullable(String)')" in sql
         assert "JSONExtractRaw" not in sql
 
+    @parameterized.expand(
+        [
+            ("temporary_property", "properties.$set", "flag_evaluations.temporary_properties.`$set`"),
+            ("virtual_flag_key", "properties.`$feature/x`", "flag_evaluations.properties.`$feature_flags`"),
+            (
+                "json_has",
+                "JSONHas(properties, '$feature_flag_response')",
+                "isNotNull(flag_evaluations.properties.`$feature_flag_response`)",
+            ),
+        ]
+    )
+    def test_json_path_applies_the_native_only_property_rewrites(self, _name: str, read: str, expected: str):
+        sql = self._print(f"SELECT {read} FROM posthog.flag_evaluations", native_events=True, reads_json=True)
+
+        assert expected in sql
+
     @parameterized.expand([("switch_off", False), ("switch_on", True)])
     def test_flag_call_union_reads_flag_properties_as_the_events_side_does(self, _name: str, reads_json: bool):
         OrganizationFeatureFlagsConfig.objects.update_or_create(
