@@ -164,7 +164,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
-    MCPAnalyticsPerson: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsPerson'),
+    MCPAnalyticsUser: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsUser'),
     McpGateway: () => import('../../products/mcp_store/frontend/gateway/McpGatewayScene'),
     McpGatewayServer: () => import('../../products/mcp_store/frontend/gateway/GatewayServerScene'),
     McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),

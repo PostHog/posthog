@@ -26,12 +26,12 @@ import { formatMs, formatNumber } from '../dashboard/formatters'
 import { HarnessLabel } from '../dashboard/HarnessLabel'
 import { SkeletonLine } from '../dashboard/SkeletonLine'
 import { INSTRUMENTATION_FIXES } from '../instrumentationFixes'
-import { mcpPeopleLogic } from './mcpPeopleLogic'
-import { PersonReport } from './PersonReport'
-import { personReportLogic } from './personReportLogic'
+import { mcpUsersLogic } from './mcpUsersLogic'
+import { UserReport } from './UserReport'
+import { userReportLogic } from './userReportLogic'
 
-export function mcpPersonUrl(distinctId: string, dateFrom: string | null, dateTo: string | null): string {
-    return combineUrl(urls.mcpAnalyticsPerson(distinctId), {
+export function mcpUserUrl(distinctId: string, dateFrom: string | null, dateTo: string | null): string {
+    return combineUrl(urls.mcpAnalyticsUser(distinctId), {
         date_from: dateFrom ?? undefined,
         date_to: dateTo ?? undefined,
     }).url
@@ -39,24 +39,24 @@ export function mcpPersonUrl(distinctId: string, dateFrom: string | null, dateTo
 
 const COLUMNS = ['Calls', 'Sessions', 'Error rate', 'p95', 'Top tool', 'Harness', 'Last seen']
 
-function PeopleTable(): JSX.Element {
-    const { people, filteredPeople, peopleLoading, peopleFailed, search, openedPerson } = useValues(mcpPeopleLogic)
-    const { openPerson, loadPeople } = useActions(mcpPeopleLogic)
+function UsersTable(): JSX.Element {
+    const { users, filteredUsers, usersLoading, usersFailed, search, openedUser } = useValues(mcpUsersLogic)
+    const { openUser, loadUsers } = useActions(mcpUsersLogic)
 
-    if (!peopleLoading && !peopleFailed && people.length === 0) {
+    if (!usersLoading && !usersFailed && users.length === 0) {
         return (
             <Card size="sm">
-                <InstrumentationEmptyState fix={INSTRUMENTATION_FIXES.identify} dataAttr="mcp-people-setup" />
+                <InstrumentationEmptyState fix={INSTRUMENTATION_FIXES.identify} dataAttr="mcp-users-setup" />
             </Card>
         )
     }
     return (
         // pt-0: no card header.
         <Card size="sm" className="gap-0 overflow-hidden pt-0">
-            <Table fullWidth stickyHeader className="max-h-[44rem]" aria-busy={peopleLoading}>
+            <Table fullWidth stickyHeader className="max-h-[44rem]" aria-busy={usersLoading}>
                 <TableHeader>
                     <TableRow>
-                        <TableHead expand>Person</TableHead>
+                        <TableHead expand>User</TableHead>
                         {COLUMNS.map((column) => (
                             <TableHead
                                 key={column}
@@ -67,7 +67,7 @@ function PeopleTable(): JSX.Element {
                         ))}
                     </TableRow>
                 </TableHeader>
-                {peopleLoading && people.length === 0 ? (
+                {usersLoading && users.length === 0 ? (
                     <TableBody>
                         {[0, 1, 2, 3, 4].map((i) => (
                             <TableRow key={i}>
@@ -82,53 +82,51 @@ function PeopleTable(): JSX.Element {
                             </TableRow>
                         ))}
                     </TableBody>
-                ) : peopleFailed ? (
+                ) : usersFailed ? (
                     <TableEmpty className="py-6 text-secondary">
-                        Couldn't load people.{' '}
-                        <button type="button" className="underline" onClick={() => loadPeople()}>
+                        Couldn't load users.{' '}
+                        <button type="button" className="underline" onClick={() => loadUsers()}>
                             Try again
                         </button>
                     </TableEmpty>
-                ) : filteredPeople.length === 0 ? (
+                ) : filteredUsers.length === 0 ? (
                     <TableEmpty className="py-6 text-secondary">
-                        {search ? 'No people match this search.' : 'No people in this date range.'}
+                        {search ? 'No users match this search.' : 'No users in this date range.'}
                     </TableEmpty>
                 ) : (
                     <TableBody>
-                        {filteredPeople.map((person) => (
+                        {filteredUsers.map((user) => (
                             <TableRow
-                                key={person.distinctId}
+                                key={user.distinctId}
                                 className={cn(
                                     'cursor-pointer',
-                                    person.distinctId === openedPerson && 'bg-fill-highlight-100'
+                                    user.distinctId === openedUser && 'bg-fill-highlight-100'
                                 )}
-                                onClick={() => openPerson(person.distinctId)}
-                                data-attr="mcp-people-row"
+                                onClick={() => openUser(user.distinctId)}
+                                data-attr="mcp-users-row"
                             >
                                 <TableCell expand>
-                                    <div className="truncate font-medium">{person.label}</div>
-                                    {person.label !== person.distinctId ? (
-                                        <div className="truncate text-xs text-secondary">{person.distinctId}</div>
+                                    <div className="truncate font-medium">{user.label}</div>
+                                    {user.label !== user.distinctId ? (
+                                        <div className="truncate text-xs text-secondary">{user.distinctId}</div>
                                     ) : null}
                                 </TableCell>
-                                <TableCell align="right">{formatNumber(person.calls)}</TableCell>
-                                <TableCell align="right">{formatNumber(person.sessions)}</TableCell>
+                                <TableCell align="right">{formatNumber(user.calls)}</TableCell>
+                                <TableCell align="right">{formatNumber(user.sessions)}</TableCell>
                                 <TableCell align="right">
-                                    {formatPercentage(person.calls ? (person.errors / person.calls) * 100 : 0, {
+                                    {formatPercentage(user.calls ? (user.errors / user.calls) * 100 : 0, {
                                         compact: true,
                                     })}
                                 </TableCell>
-                                <TableCell align="right">
-                                    {person.p95Ms !== null ? formatMs(person.p95Ms) : '–'}
+                                <TableCell align="right">{user.p95Ms !== null ? formatMs(user.p95Ms) : '–'}</TableCell>
+                                <TableCell>
+                                    <span className="font-mono">{user.topTool}</span>
                                 </TableCell>
                                 <TableCell>
-                                    <span className="font-mono">{person.topTool}</span>
-                                </TableCell>
-                                <TableCell>
-                                    <HarnessLabel category={person.topHarness} />
+                                    <HarnessLabel category={user.topHarness} />
                                 </TableCell>
                                 <TableCell align="right" className="whitespace-nowrap">
-                                    <TZLabel time={person.lastSeen} />
+                                    <TZLabel time={user.lastSeen} />
                                 </TableCell>
                             </TableRow>
                         ))}
@@ -139,58 +137,58 @@ function PeopleTable(): JSX.Element {
     )
 }
 
-/** The People tab: who calls the server, with each person's usage in a drawer. */
-export function MCPAnalyticsPeople(): JSX.Element {
-    const { dateFilter, search, peopleLoading, openedPerson, openedPosition, previousPerson, nextPerson, people } =
-        useValues(mcpPeopleLogic)
-    const { setDateFilter, setSearch, loadPeople, openPerson } = useActions(mcpPeopleLogic)
-    const openedLabel = people.find((person) => person.distinctId === openedPerson)?.label ?? openedPerson
+/** The Users tab: who calls the server, with each user's usage in a drawer. */
+export function MCPAnalyticsUsers(): JSX.Element {
+    const { dateFilter, search, usersLoading, openedUser, openedPosition, previousUser, nextUser, users } =
+        useValues(mcpUsersLogic)
+    const { setDateFilter, setSearch, loadUsers, openUser } = useActions(mcpUsersLogic)
+    const openedLabel = users.find((user) => user.distinctId === openedUser)?.label ?? openedUser
 
     return (
         <div className="flex flex-col gap-4">
             <McpSharedFilters
-                pageKey="mcp-people"
-                dataAttrPrefix="mcp-people"
-                onRefresh={loadPeople}
-                refreshing={peopleLoading}
+                pageKey="mcp-users"
+                dataAttrPrefix="mcp-users"
+                onRefresh={loadUsers}
+                refreshing={usersLoading}
                 hasPageFilters={!!search}
                 onClearPageFilters={() => setSearch('')}
             >
                 <AnalyticsSearchInput
                     value={search}
                     onChange={setSearch}
-                    label="Search people"
-                    placeholder="Search people"
-                    dataAttr="mcp-people-search"
+                    label="Search users"
+                    placeholder="Search users"
+                    dataAttr="mcp-users-search"
                     className="max-w-64 min-w-32 flex-[1_1_8rem]"
                 />
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
                     dateTo={dateFilter.dateTo}
                     onChange={setDateFilter}
-                    dataAttr="mcp-people-date-filter"
+                    dataAttr="mcp-users-date-filter"
                 />
             </McpSharedFilters>
             <div data-quill>
-                <PeopleTable />
+                <UsersTable />
             </div>
-            {openedPerson ? (
+            {openedUser ? (
                 <MCPDetailDrawer
-                    noun="person"
+                    noun="user"
                     title={openedLabel}
                     position={openedPosition}
-                    onPrevious={previousPerson ? () => openPerson(previousPerson) : null}
-                    onNext={nextPerson ? () => openPerson(nextPerson) : null}
-                    fullPageHref={mcpPersonUrl(openedPerson, dateFilter.dateFrom, dateFilter.dateTo)}
-                    onClose={() => openPerson(null)}
-                    data-attr="mcp-people-drawer"
+                    onPrevious={previousUser ? () => openUser(previousUser) : null}
+                    onNext={nextUser ? () => openUser(nextUser) : null}
+                    fullPageHref={mcpUserUrl(openedUser, dateFilter.dateFrom, dateFilter.dateTo)}
+                    onClose={() => openUser(null)}
+                    data-attr="mcp-users-drawer"
                 >
                     <BindLogic
-                        logic={personReportLogic}
-                        props={{ distinctId: openedPerson, dateFrom: dateFilter.dateFrom, dateTo: dateFilter.dateTo }}
+                        logic={userReportLogic}
+                        props={{ distinctId: openedUser, dateFrom: dateFilter.dateFrom, dateTo: dateFilter.dateTo }}
                     >
                         <div data-quill>
-                            <PersonReport />
+                            <UserReport />
                         </div>
                     </BindLogic>
                 </MCPDetailDrawer>

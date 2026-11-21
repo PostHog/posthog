@@ -33,7 +33,7 @@ const DRAWER_PARAMS = [SESSION_PARAM, CALL_PARAM, TIMESTAMP_PARAM]
 const EVENT_LOOKUP_MARGIN_SECONDS = 15
 
 export function toActivityDrawerRow(result: unknown): ActivityDrawerRow | null {
-    const event = Array.isArray(result) ? result[0] : null
+    const event = Array.isArray(result) ? result[result.length - 1] : null
     if (!event?.uuid || !event.timestamp) {
         return null
     }

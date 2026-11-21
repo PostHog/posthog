@@ -50,7 +50,7 @@ export const INSTRUMENTATION_FIXES: Record<InstrumentationFix['key'], Instrument
         key: 'identify',
         docsUrl: DOCS.identify,
         emptyState: {
-            title: "People aren't identified",
+            title: "Users aren't identified",
             detail: 'Calls are tied to anonymous session IDs, not people. Add identify to see who uses your server.',
         },
         prompt: `${SDK}, but every tool call is attributed to an anonymous session ID instead of a person. Add an identify callback to instrument() that reads the request's auth (with getRequestHeaders in TypeScript) and returns the user's distinct ID, with their email and name as properties. Use the same distinct ID my product already uses for this user in PostHog. Follow ${DOCS.identify}.`,

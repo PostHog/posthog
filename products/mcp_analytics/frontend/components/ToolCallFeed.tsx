@@ -32,7 +32,7 @@ function IntentCell({ value }: { value: unknown }): JSX.Element {
 
 // The cell is rendered; read the raw model from the row's event.
 function ModelCell({ value, record }: { value: unknown; record: unknown }): JSX.Element {
-    const event = Array.isArray(record) ? record[0] : null
+    const event = Array.isArray(record) ? record[record.length - 1] : null
     if (event?.properties && !event.properties.$mcp_llm_model) {
         return (
             <NotCaptured reason="This call arrived without the model that made it." fix={INSTRUMENTATION_FIXES.model} />

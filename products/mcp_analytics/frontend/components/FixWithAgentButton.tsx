@@ -26,7 +26,6 @@ export function FixWithAgentButton({
         <AgentPromptButton
             actions={[{ key: `mcp-analytics-${fix.key}`, label: 'prompt', buildPrompt: () => fix.prompt }]}
             labelMode="destination"
-            destinationVerb="Fix in"
             excludeAgentKeys={excludeAgentKeys}
             variant="primary"
             size={size}

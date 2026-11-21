@@ -17,27 +17,27 @@ import { IntervalType } from '~/types'
 import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import { type ExampleCall, toExampleCalls } from '../tool-quality/toolReportQueries'
 import {
-    type PersonTopDimension,
-    personRecentCallsQuery,
-    personSeriesQuery,
-    personTopQuery,
-    personTotalsQuery,
-} from './peopleQueries'
+    type UserTopDimension,
+    userRecentCallsQuery,
+    userSeriesQuery,
+    userTopQuery,
+    userTotalsQuery,
+} from './usersQueries'
 
-export interface PersonReportLogicProps {
+export interface UserReportLogicProps {
     distinctId: string
     dateFrom: string | null
     dateTo: string | null
 }
 
-export interface PersonTotals {
+export interface UserTotals {
     calls: number
     sessions: number
     errors: number
     p95Ms: number
 }
 
-export interface PersonSeries {
+export interface UserSeries {
     labels: string[]
     calls: number[]
     sessions: number[]
@@ -45,15 +45,15 @@ export interface PersonSeries {
     p95Ms: number[]
 }
 
-export type PersonTopRows = Record<PersonTopDimension, unknown[][]>
+export type UserTopRows = Record<UserTopDimension, unknown[][]>
 
-export interface PersonRecentCall extends ExampleCall {
+export interface UserRecentCall extends ExampleCall {
     isError: boolean
 }
 
-const EMPTY_TOTALS: PersonTotals = { calls: 0, sessions: 0, errors: 0, p95Ms: 0 }
+const EMPTY_TOTALS: UserTotals = { calls: 0, sessions: 0, errors: 0, p95Ms: 0 }
 
-function toTotals(row: unknown[] | undefined): PersonTotals {
+function toTotals(row: unknown[] | undefined): UserTotals {
     return row
         ? {
               calls: Number(row[1] ?? 0),
@@ -64,11 +64,11 @@ function toTotals(row: unknown[] | undefined): PersonTotals {
         : EMPTY_TOTALS
 }
 
-/** One person's usage of the server: totals against the period before, a series per bucket, top usage and recent calls. */
-export const personReportLogic = kea([
-    path((key) => ['products', 'mcp_analytics', 'frontend', 'people', 'personReportLogic', key]),
-    props({} as PersonReportLogicProps),
-    key((props: PersonReportLogicProps) => `${props.distinctId}|${props.dateFrom}|${props.dateTo}`),
+/** One user's usage of the server: totals against the period before, a series per bucket, top usage and recent calls. */
+export const userReportLogic = kea([
+    path((key) => ['products', 'mcp_analytics', 'frontend', 'users', 'userReportLogic', key]),
+    props({} as UserReportLogicProps),
+    key((props: UserReportLogicProps) => `${props.distinctId}|${props.dateFrom}|${props.dateTo}`),
     connect(() => ({
         values: [mcpAnalyticsFiltersLogic, ['queryFilters as sharedQueryFilters'], teamLogic, ['timezone']],
     })),
@@ -97,12 +97,12 @@ export const personReportLogic = kea([
     }),
     loaders(({ props, values }) => ({
         totals: [
-            null as { current: PersonTotals; previous: PersonTotals } | null,
+            null as { current: UserTotals; previous: UserTotals } | null,
             {
                 loadTotals: async (_: void, breakpoint) => {
                     const window = buildComparisonWindow(props.dateFrom, props.dateTo, values.timezone, values.interval)
                     const response = await api.query(
-                        personTotalsQuery(
+                        userTotalsQuery(
                             props.distinctId,
                             window.currentStart,
                             { date_from: window.dateFrom, date_to: window.dateTo },
@@ -119,11 +119,11 @@ export const personReportLogic = kea([
             },
         ],
         series: [
-            null as PersonSeries | null,
+            null as UserSeries | null,
             {
                 loadSeries: async (_: void, breakpoint) => {
                     const response = await api.query(
-                        personSeriesQuery(
+                        userSeriesQuery(
                             props.distinctId,
                             values.interval,
                             values.dateRange,
@@ -149,14 +149,14 @@ export const personReportLogic = kea([
             },
         ],
         topRows: [
-            null as PersonTopRows | null,
+            null as UserTopRows | null,
             {
                 loadTopRows: async (_: void, breakpoint) => {
-                    const dimensions: PersonTopDimension[] = ['tools', 'harnesses', 'models']
+                    const dimensions: UserTopDimension[] = ['tools', 'harnesses', 'models']
                     const responses = await Promise.all(
                         dimensions.map((dimension) =>
                             api.query(
-                                personTopQuery(
+                                userTopQuery(
                                     props.distinctId,
                                     dimension,
                                     values.dateRange,
@@ -168,16 +168,16 @@ export const personReportLogic = kea([
                     breakpoint()
                     return Object.fromEntries(
                         dimensions.map((dimension, i) => [dimension, (responses[i].results ?? []) as unknown[][]])
-                    ) as PersonTopRows
+                    ) as UserTopRows
                 },
             },
         ],
         recentCalls: [
-            [] as PersonRecentCall[],
+            [] as UserRecentCall[],
             {
                 loadRecentCalls: async (_: void, breakpoint) => {
                     const response = await api.query(
-                        personRecentCallsQuery(
+                        userRecentCallsQuery(
                             props.distinctId,
                             values.dateRange,
                             values.sharedQueryFilters as MCPSharedQueryFilters

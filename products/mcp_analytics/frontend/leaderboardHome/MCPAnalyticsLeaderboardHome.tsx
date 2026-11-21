@@ -206,7 +206,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     ) : null}
                     <ShareWidget
                         {...shareProps}
-                        title="Top people"
+                        title="Top users"
                         description="The people whose agents made the most calls. Each shows their email when they have one, otherwise their distinct ID."
                         rows={facets.user}
                         loading={loadingFacet('user')}

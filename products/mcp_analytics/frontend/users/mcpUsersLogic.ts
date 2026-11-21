@@ -10,93 +10,92 @@ import { urls } from 'scenes/urls'
 import type { MCPDetailDrawerPosition } from '../components/MCPDetailDrawer'
 import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import type { DateFilter } from '../mcpAnalyticsToolQualityLogic'
-import { type PersonRow, peopleQuery, toPersonRows } from './peopleQueries'
+import { type UserRow, usersQuery, toUserRows } from './usersQueries'
 
-export const PEOPLE_DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
+export const USERS_DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 
-/** The People tab: identified callers of the server, with one opened in a drawer. */
-export const mcpPeopleLogic = kea([
-    path(['products', 'mcp_analytics', 'frontend', 'people', 'mcpPeopleLogic']),
+/** The Users tab: identified callers of the server, with one opened in a drawer. */
+export const mcpUsersLogic = kea([
+    path(['products', 'mcp_analytics', 'frontend', 'users', 'mcpUsersLogic']),
     connect(() => ({
         values: [mcpAnalyticsFiltersLogic, ['queryFilters as sharedQueryFilters']],
     })),
     actions({
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSearch: (search: string) => ({ search }),
-        openPerson: (distinctId: string | null) => ({ distinctId }),
+        openUser: (distinctId: string | null) => ({ distinctId }),
     }),
     reducers({
         dateFilter: [
-            PEOPLE_DEFAULT_DATE_FILTER as DateFilter,
+            USERS_DEFAULT_DATE_FILTER as DateFilter,
             { setDateFilter: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }) },
         ],
         search: ['', { setSearch: (_, { search }) => search }],
-        openedPerson: [null as string | null, { openPerson: (_, { distinctId }) => distinctId }],
+        openedUser: [null as string | null, { openUser: (_, { distinctId }) => distinctId }],
     }),
     loaders(({ values }) => ({
-        people: [
-            [] as PersonRow[],
+        users: [
+            [] as UserRow[],
             {
-                loadPeople: async (_: void, breakpoint) => {
+                loadUsers: async (_: void, breakpoint) => {
                     const response = await api.query(
-                        peopleQuery(
+                        usersQuery(
                             { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
                             values.sharedQueryFilters as MCPSharedQueryFilters
                         )
                     )
                     breakpoint()
-                    return toPersonRows(response.results)
+                    return toUserRows(response.results)
                 },
             },
         ],
     })),
     reducers({
-        peopleFailed: [false, { loadPeople: () => false, loadPeopleFailure: () => true }],
+        usersFailed: [false, { loadUsers: () => false, loadUsersFailure: () => true }],
     }),
     selectors({
-        filteredPeople: [
-            (s) => [s.people, s.search],
-            (people: PersonRow[], search: string): PersonRow[] => {
+        filteredUsers: [
+            (s) => [s.users, s.search],
+            (users: UserRow[], search: string): UserRow[] => {
                 const term = search.trim().toLowerCase()
                 return term
-                    ? people.filter(
-                          (person) =>
-                              person.label.toLowerCase().includes(term) ||
-                              person.distinctId.toLowerCase().includes(term)
+                    ? users.filter(
+                          (user) =>
+                              user.label.toLowerCase().includes(term) || user.distinctId.toLowerCase().includes(term)
                       )
-                    : people
+                    : users
             },
         ],
         openedPosition: [
-            (s) => [s.filteredPeople, s.openedPerson],
-            (people: PersonRow[], openedPerson: string | null): MCPDetailDrawerPosition | null => {
-                const index = people.findIndex((person) => person.distinctId === openedPerson)
-                return index >= 0 ? { index, total: people.length } : null
+            (s) => [s.filteredUsers, s.openedUser],
+            (users: UserRow[], openedUser: string | null): MCPDetailDrawerPosition | null => {
+                const index = users.findIndex((user) => user.distinctId === openedUser)
+                return index >= 0 ? { index, total: users.length } : null
             },
         ],
-        previousPerson: [
-            (s) => [s.filteredPeople, s.openedPosition],
-            (people: PersonRow[], position: MCPDetailDrawerPosition | null): string | null =>
-                position && position.index > 0 ? people[position.index - 1].distinctId : null,
+        previousUser: [
+            (s) => [s.filteredUsers, s.openedPosition],
+            (users: UserRow[], position: MCPDetailDrawerPosition | null): string | null =>
+                position && position.index > 0 ? users[position.index - 1].distinctId : null,
         ],
-        nextPerson: [
-            (s) => [s.filteredPeople, s.openedPosition],
-            (people: PersonRow[], position: MCPDetailDrawerPosition | null): string | null =>
-                position && position.index < people.length - 1 ? people[position.index + 1].distinctId : null,
+        nextUser: [
+            (s) => [s.filteredUsers, s.openedPosition],
+            (users: UserRow[], position: MCPDetailDrawerPosition | null): string | null =>
+                position && position.index < users.length - 1 ? users[position.index + 1].distinctId : null,
         ],
     }),
     listeners(({ actions }) => ({
-        setDateFilter: () => actions.loadPeople(),
-        openPerson: ({ distinctId }) => {
+        setDateFilter: () => actions.loadUsers(),
+        openUser: ({ distinctId }) => {
             if (distinctId) {
-                posthog.capture('mcp analytics drawer opened', { list: 'people' })
+                posthog.capture('mcp analytics drawer opened', { list: 'users' })
             }
         },
     })),
     subscriptions(({ actions }) => ({
         sharedQueryFilters: (_: MCPSharedQueryFilters, previous: MCPSharedQueryFilters | undefined) => {
             if (previous) {
-                actions.loadPeople()
+                actions.loadUsers()
             }
         },
     })),
@@ -118,7 +117,7 @@ export const mcpPeopleLogic = kea([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        [urls.mcpAnalyticsPeople()]: (_, searchParams) => {
+        [urls.mcpAnalyticsUsers()]: (_, searchParams) => {
             const dateFrom = typeof searchParams.date_from === 'string' ? searchParams.date_from : '-7d'
             const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
             if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
@@ -126,5 +125,5 @@ export const mcpPeopleLogic = kea([
             }
         },
     })),
-    afterMount(({ actions }) => actions.loadPeople()),
+    afterMount(({ actions }) => actions.loadUsers()),
 ])

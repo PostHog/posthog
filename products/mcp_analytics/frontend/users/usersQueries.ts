@@ -20,9 +20,9 @@ const IDENTIFIED = `distinct_id != 'anonymous'
 const SESSION = 'toString(properties.$session_id)'
 const DURATION = 'toFloat(properties.$mcp_duration_ms)'
 // ponytail: 200 rows and no paging, add paging when projects outgrow it.
-const PEOPLE_LIMIT = 200
+const USERS_LIMIT = 200
 
-export interface PersonRow {
+export interface UserRow {
     distinctId: string
     label: string
     calls: number
@@ -34,7 +34,7 @@ export interface PersonRow {
     topHarness: string
 }
 
-export function peopleQuery(dateRange: DateRange, filters: MCPSharedQueryFilters): HogQLQuery {
+export function usersQuery(dateRange: DateRange, filters: MCPSharedQueryFilters): HogQLQuery {
     return withFilters(
         hogql`SELECT
     distinct_id,
@@ -50,13 +50,13 @@ FROM events
 WHERE event = '$mcp_tool_call' AND {filters} AND ${hogql.raw(IDENTIFIED)}
 GROUP BY distinct_id
 ORDER BY calls DESC
-LIMIT ${hogql.raw(String(PEOPLE_LIMIT))}`,
+LIMIT ${hogql.raw(String(USERS_LIMIT))}`,
         dateRange,
         filters
     )
 }
 
-export function toPersonRows(results: unknown[][] | undefined): PersonRow[] {
+export function toUserRows(results: unknown[][] | undefined): UserRow[] {
     return (results ?? []).map(
         ([distinctId, label, calls, sessions, errors, p95Ms, lastSeen, topTool, topHarness]) => ({
             distinctId: String(distinctId ?? ''),
@@ -72,8 +72,8 @@ export function toPersonRows(results: unknown[][] | undefined): PersonRow[] {
     )
 }
 
-/** Calls, sessions, errors and p95 for one person, split into the selected period and the one before it. */
-export function personTotalsQuery(
+/** Calls, sessions, errors and p95 for one user, split into the selected period and the one before it. */
+export function userTotalsQuery(
     distinctId: string,
     currentStart: string,
     dateRange: DateRange,
@@ -94,7 +94,7 @@ GROUP BY is_current`,
     )
 }
 
-export function personSeriesQuery(
+export function userSeriesQuery(
     distinctId: string,
     interval: IntervalType,
     dateRange: DateRange,
@@ -116,18 +116,18 @@ ORDER BY bucket`,
     )
 }
 
-export type PersonTopDimension = 'tools' | 'harnesses' | 'models'
+export type UserTopDimension = 'tools' | 'harnesses' | 'models'
 
-const DIMENSION_EXPR: Record<PersonTopDimension, string> = {
+const DIMENSION_EXPR: Record<UserTopDimension, string> = {
     tools: MCP_TOOL_EXPR,
     harnesses: MCP_HARNESS_EXPR,
     models: `coalesce(nullIf(${MCP_MODEL_EXPR}, ''), 'Unknown')`,
 }
 
 /** Rows of [label, calls, errors, error rate %], most called first. */
-export function personTopQuery(
+export function userTopQuery(
     distinctId: string,
-    dimension: PersonTopDimension,
+    dimension: UserTopDimension,
     dateRange: DateRange,
     filters: MCPSharedQueryFilters
 ): HogQLQuery {
@@ -147,8 +147,8 @@ LIMIT 50`,
     )
 }
 
-/** The person's newest calls, in the columns `toExampleCalls` reads, plus whether each failed. */
-export function personRecentCallsQuery(
+/** The user's newest calls, in the columns `toExampleCalls` reads, plus whether each failed. */
+export function userRecentCallsQuery(
     distinctId: string,
     dateRange: DateRange,
     filters: MCPSharedQueryFilters

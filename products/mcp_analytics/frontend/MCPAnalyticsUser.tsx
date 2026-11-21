@@ -9,24 +9,24 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
-import { PEOPLE_DEFAULT_DATE_FILTER } from './people/mcpPeopleLogic'
-import { PersonReport } from './people/PersonReport'
-import { type PersonReportLogicProps, personReportLogic } from './people/personReportLogic'
+import { USERS_DEFAULT_DATE_FILTER } from './users/mcpUsersLogic'
+import { UserReport } from './users/UserReport'
+import { type UserReportLogicProps, userReportLogic } from './users/userReportLogic'
 
-export const scene: SceneExport<PersonReportLogicProps> = {
-    component: MCPAnalyticsPerson,
-    logic: personReportLogic,
+export const scene: SceneExport<UserReportLogicProps> = {
+    component: MCPAnalyticsUser,
+    logic: userReportLogic,
     paramsToProps: ({ params: { distinctId }, searchParams }) => ({
         distinctId: decodeURIComponent(distinctId ?? ''),
         dateFrom:
-            typeof searchParams.date_from === 'string' ? searchParams.date_from : PEOPLE_DEFAULT_DATE_FILTER.dateFrom,
+            typeof searchParams.date_from === 'string' ? searchParams.date_from : USERS_DEFAULT_DATE_FILTER.dateFrom,
         dateTo: typeof searchParams.date_to === 'string' ? searchParams.date_to : null,
     }),
 }
 
-export function MCPAnalyticsPerson(): JSX.Element {
-    const { distinctId, dateRange } = useValues(personReportLogic)
-    const { loadAll } = useActions(personReportLogic)
+export function MCPAnalyticsUser(): JSX.Element {
+    const { distinctId, dateRange } = useValues(userReportLogic)
+    const { loadAll } = useActions(userReportLogic)
     const { date_from: dateFrom, date_to: dateTo } = dateRange
     const setDates = (from: string | null, to: string | null): void => {
         const { currentLocation } = router.values
@@ -46,31 +46,26 @@ export function MCPAnalyticsPerson(): JSX.Element {
                 description={null}
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
-                    name: 'People',
-                    path: combineUrl(urls.mcpAnalyticsPeople(), {
+                    name: 'Users',
+                    path: combineUrl(urls.mcpAnalyticsUsers(), {
                         date_from: dateFrom ?? undefined,
                         date_to: dateTo ?? undefined,
                     }).url,
-                    key: 'mcp-analytics-people',
+                    key: 'mcp-analytics-users',
                 }}
             />
             <div className="flex flex-wrap items-center gap-3 px-4 pb-2">
-                <McpSharedFilters
-                    pageKey="mcp-person"
-                    dataAttrPrefix="mcp-person"
-                    onRefresh={loadAll}
-                    refreshing={false}
-                >
+                <McpSharedFilters pageKey="mcp-user" dataAttrPrefix="mcp-user" onRefresh={loadAll} refreshing={false}>
                     <McpDateFilter
                         dateFrom={dateFrom}
                         dateTo={dateTo}
                         onChange={setDates}
-                        dataAttr="mcp-person-date-filter"
+                        dataAttr="mcp-user-date-filter"
                     />
                 </McpSharedFilters>
             </div>
             <div className="px-4 pb-4" data-quill>
-                <PersonReport />
+                <UserReport />
             </div>
         </SceneContent>
     )

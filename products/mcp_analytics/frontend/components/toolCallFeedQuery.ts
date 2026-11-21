@@ -39,8 +39,8 @@ export const MCP_MODEL_EXPR = 'toString(properties.$mcp_llm_model)'
 
 export const MCP_ACTIVITY_MODEL_COLUMN = hogql`withIcon(properties.$mcp_llm_model, ${hogql.raw(modelMarkSql)}) -- Model`
 
+// `*` goes last: the table puts day labels in the first column, and `*` never shows. Readers take the last cell.
 export const MCP_ACTIVITY_COLUMNS = [
-    '*',
     `${MCP_TOOL_EXPR} -- Tool`,
     MCP_ACTIVITY_INTENT_COLUMN,
     MCP_ACTIVITY_ERROR_COLUMN,
@@ -49,6 +49,7 @@ export const MCP_ACTIVITY_COLUMNS = [
     MCP_ACTIVITY_MODEL_COLUMN,
     MCP_ACTIVITY_SESSION_COLUMN,
     'timestamp',
+    '*',
 ]
 
 export const ACTIVITY_DEFAULT_DATE_FROM = '-7d'

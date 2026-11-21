@@ -15,16 +15,16 @@ import { deltaPct } from '../mcpDashboardOverviewLogic'
 import { ResultTable, SectionHeader } from '../MCPToolReport'
 import { SessionDrawer } from '../sessions/SessionDrawer'
 import { ExampleCallRow } from '../tool-quality/ExampleCallRow'
-import type { PersonTopDimension } from './peopleQueries'
-import { type PersonRecentCall, personReportLogic } from './personReportLogic'
+import { type UserRecentCall, userReportLogic } from './userReportLogic'
+import type { UserTopDimension } from './usersQueries'
 
-const TOP_TABS: { value: PersonTopDimension; label: string }[] = [
+const TOP_TABS: { value: UserTopDimension; label: string }[] = [
     { value: 'tools', label: 'Tools' },
     { value: 'harnesses', label: 'Harnesses' },
     { value: 'models', label: 'Models' },
 ]
 
-const TOP_LABEL: Record<PersonTopDimension, { header: string; render: (label: string) => JSX.Element }> = {
+const TOP_LABEL: Record<UserTopDimension, { header: string; render: (label: string) => JSX.Element }> = {
     tools: { header: 'Tool', render: (label) => <span className="truncate font-mono">{label}</span> },
     harnesses: { header: 'Harness', render: (label) => <HarnessLabel category={label} /> },
     models: {
@@ -41,8 +41,8 @@ const TOP_LABEL: Record<PersonTopDimension, { header: string; render: (label: st
     },
 }
 
-/** One person's report, on its page and in the People drawer. Mount it under a `personReportLogic`. */
-export function PersonReport(): JSX.Element {
+/** One user's report, on its page and in the Users drawer. Mount it under a `userReportLogic`. */
+export function UserReport(): JSX.Element {
     const {
         totals,
         totalsLoading,
@@ -54,10 +54,10 @@ export function PersonReport(): JSX.Element {
         topRowsLoading,
         recentCalls,
         recentCallsLoading,
-    } = useValues(personReportLogic)
+    } = useValues(userReportLogic)
     const theme = useChartTheme()
-    const [topTab, setTopTab] = useState<PersonTopDimension>('tools')
-    const [openedCall, setOpenedCall] = useState<PersonRecentCall | null>(null)
+    const [topTab, setTopTab] = useState<UserTopDimension>('tools')
+    const [openedCall, setOpenedCall] = useState<UserRecentCall | null>(null)
 
     const current = totals?.current
     const previous = totals?.previous
@@ -160,7 +160,7 @@ export function PersonReport(): JSX.Element {
                 <ToggleGroup
                     className="self-start"
                     value={[topTab]}
-                    onValueChange={(next) => next[0] && setTopTab(next[0] as PersonTopDimension)}
+                    onValueChange={(next) => next[0] && setTopTab(next[0] as UserTopDimension)}
                     aria-label="Top usage breakdown"
                 >
                     {TOP_TABS.map((tab) => (
@@ -168,7 +168,7 @@ export function PersonReport(): JSX.Element {
                             key={tab.value}
                             value={tab.value}
                             size="sm"
-                            data-attr={`mcp-person-top-${tab.value}`}
+                            data-attr={`mcp-user-top-${tab.value}`}
                         >
                             {tab.label}
                         </ToggleGroupItem>
@@ -199,7 +199,7 @@ export function PersonReport(): JSX.Element {
                     focusedEventId={openedCall.uuid}
                     stacked
                     onClose={() => setOpenedCall(null)}
-                    dataAttr="mcp-person-session-drawer"
+                    dataAttr="mcp-user-session-drawer"
                 />
             ) : null}
         </div>

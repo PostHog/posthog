@@ -29,10 +29,10 @@ import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPAnalyticsMissingCapabilities } from './missingCapabilities/MCPAnalyticsMissingCapabilities'
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
-import { MCPAnalyticsPeople } from './people/MCPAnalyticsPeople'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 import { MCPSetupMode } from './setupMode/MCPSetupMode'
 import { SetupGuideButton } from './setupMode/SetupGuideButton'
+import { MCPAnalyticsUsers } from './users/MCPAnalyticsUsers'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -95,11 +95,11 @@ function MCPAnalyticsSceneBody(): JSX.Element {
             'data-attr': 'mcp-analytics-sessions-tab',
         },
         {
-            key: 'people',
-            label: 'People',
-            content: <MCPAnalyticsPeople />,
-            link: combineUrl(urls.mcpAnalyticsPeople(), tabParams).url,
-            'data-attr': 'mcp-analytics-people-tab',
+            key: 'users',
+            label: 'Users',
+            content: <MCPAnalyticsUsers />,
+            link: combineUrl(urls.mcpAnalyticsUsers(), tabParams).url,
+            'data-attr': 'mcp-analytics-users-tab',
         },
         {
             key: 'tool-quality',

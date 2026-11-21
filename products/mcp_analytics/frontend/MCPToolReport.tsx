@@ -49,7 +49,7 @@ import { ExampleSessionDrawer } from './tool-quality/ExampleSessionDrawer'
 import { ToolExamples } from './tool-quality/ToolExamples'
 import { ToolJourneySankey } from './tool-quality/ToolJourneySankey'
 
-// Renderer for the "person" column in the Top people table. The loader maps each row's
+// Renderer for the "person" column in the Top users table. The loader maps each row's
 // person into a [distinct_id, _, person_properties] array. Wrap it back into the shape
 // PersonDisplay expects.
 function renderPersonCell(value: unknown): JSX.Element {
@@ -343,7 +343,7 @@ function StatTiles({
             goodDirection: 'down',
         },
         {
-            label: 'People',
+            label: 'Users',
             value: summary?.users ?? 0,
             formatValue: formatNumber,
             data: spark(daily.users),
@@ -429,7 +429,7 @@ type TopTab = 'harnesses' | 'models' | 'users'
 const TOP_TABS: { value: TopTab; label: string }[] = [
     { value: 'harnesses', label: 'Harnesses' },
     { value: 'models', label: 'Models' },
-    { value: 'users', label: 'People' },
+    { value: 'users', label: 'Users' },
 ]
 
 const TOP_PAGE_SIZE = 5
@@ -622,7 +622,7 @@ export function MCPToolReport(): JSX.Element {
                                         compact: true,
                                     }),
                             },
-                            { header: 'People', align: 'right', render: (r) => formatNumber(Number(r[3] ?? 0)) },
+                            { header: 'Users', align: 'right', render: (r) => formatNumber(Number(r[3] ?? 0)) },
                         ]}
                     />
                 ) : (

@@ -81,7 +81,7 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
         tooltip:
             '95th-percentile call duration: 95% of calls finished faster than this. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
     },
-    { key: 'users', label: 'People', align: 'right', tooltip: 'Unique people who called this tool' },
+    { key: 'users', label: 'Users', align: 'right', tooltip: 'Unique users who invoked this tool' },
     {
         key: 'sessions',
         label: 'Sessions',

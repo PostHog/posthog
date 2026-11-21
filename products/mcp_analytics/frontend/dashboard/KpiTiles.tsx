@@ -44,7 +44,7 @@ export function retryFailedSources(sources: { failed?: boolean; retry?: () => vo
 
 export function kpiTileUrls(searchParams: Record<string, any>): {
     sessions: string
-    people: string
+    users: string
     toolQuality: string
     toolQualityByErrorRate: string
     intentClustering: string
@@ -52,7 +52,7 @@ export function kpiTileUrls(searchParams: Record<string, any>): {
     const { landing: _landing, search: _search, ...sharedParams } = searchParams
     return {
         sessions: combineUrl(urls.mcpAnalyticsSessions(), sharedParams).url,
-        people: combineUrl(urls.mcpAnalyticsPeople(), sharedParams).url,
+        users: combineUrl(urls.mcpAnalyticsUsers(), sharedParams).url,
         toolQuality: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
         toolQualityByErrorRate: combineUrl(urls.mcpAnalyticsToolQuality(), {
             ...sharedParams,
@@ -146,7 +146,7 @@ export function KpiTiles({
 }): JSX.Element {
     const {
         sessions: sessionsHref,
-        people: peopleHref,
+        users: usersHref,
         toolQuality: toolQualityHref,
         toolQualityByErrorRate: toolQualityByErrorRateHref,
         intentClustering: intentClusteringHref,
@@ -154,10 +154,10 @@ export function KpiTiles({
 
     const tiles: TileSpec[] = [
         {
-            label: 'People',
+            label: 'Users',
             dataAttr: 'mcp-dashboard-kpi-users',
             metric: kpis.users,
-            href: peopleHref,
+            href: usersHref,
             format: formatNumber,
             color: theme.colors[0],
             loading: kpisLoading || usersLoading,
