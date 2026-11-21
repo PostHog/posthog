@@ -2912,6 +2912,13 @@ class TestIsConnectionDroppedError:
             # `IdleInTransactionSessionTimeout` Postgres itself raises for the server-side timeout
             # (already covered by the type check); same transient class, so the reconnect must catch it.
             psycopg.errors.ProtocolViolation("idle transaction timeout"),
+            # PgBouncer's own `client_idle_timeout` setting disconnects a client that is not inside
+            # a transaction and has gone longer than the configured limit without a statement in
+            # flight — exactly what the offset-chunking fallback's autocommit connection does
+            # between pages while the destination's slow delta-merge runs. Same bare error-packet
+            # shape as `query_wait_timeout`/`idle transaction timeout` above; same transient class,
+            # so the reconnect must catch it.
+            psycopg.errors.ProtocolViolation("client_idle_timeout"),
             # psycopg's own message when `PQconnectStart` reports the connection BAD before the
             # handshake begins and libpq has no server-reported error text to attach — a purely
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
