@@ -2,13 +2,16 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api, { ApiError } from 'lib/api'
+import { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { integrationsEmailStatusRetrieve } from 'products/integrations/frontend/generated/api'
+import {
+    integrationsEmailStatusRetrieve,
+    integrationsEmailVerifyCreate,
+} from 'products/integrations/frontend/generated/api'
 import type {
     EmailDomainSetupRecordKindEnumApi,
     EmailDomainStatusApi,
@@ -223,12 +226,14 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             null as boolean | null,
             {
                 restartVerification: async (): Promise<boolean | null> => {
-                    if (!values.integrationId) {
+                    if (!values.integrationId || !values.currentTeamId) {
                         return null
                     }
                     try {
-                        // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsEmailVerifyCreate returns void and demands a config body the endpoint ignores
-                        const result = await api.integrations.verifyEmail(values.integrationId)
+                        const result = await integrationsEmailVerifyCreate(
+                            String(values.currentTeamId),
+                            values.integrationId
+                        )
                         if (result.status === 'success') {
                             actions.verificationRecorded()
                         }
@@ -381,12 +386,11 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             }
         },
         recordVerification: async () => {
-            if (!values.integrationId) {
+            if (!values.integrationId || !values.currentTeamId) {
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsEmailVerifyCreate returns void and demands a config body the endpoint ignores
-                const result = await api.integrations.verifyEmail(values.integrationId)
+                const result = await integrationsEmailVerifyCreate(String(values.currentTeamId), values.integrationId)
                 if (result.status === 'success') {
                     actions.verificationRecorded()
                 }
