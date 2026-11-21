@@ -276,6 +276,7 @@ The copy reads the `SELECT *` shape of the table, which leaves `MATERIALIZED` co
 Its three typed columns are `DEFAULT` columns that read JSON paths: `flag_key` and `response` from `properties`, and `request_id` from `temporary_properties`.
 The job discovers them through their `column_materializer::` comments on the read table, because a JSON drop leaves the derived value in place.
 Discovery matches a column on both source columns, so a request that names `$feature_flag_request_id` resets `request_id` too.
+The copy does not drop keys from `temporary_properties`, so a request that names `$feature_flag_request_id` still refuses while a row inside the 60-day column TTL holds that key, as on `sharded_events_json`.
 
 #### Duplicate rows
 

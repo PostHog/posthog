@@ -1277,8 +1277,8 @@ def _shard_predicate(
     does not hold or leaves originals behind.
     """
     # A table with no typed columns, such as events_json, has no column comments and so yields nothing.
-    # temporary_properties is a source only on the native JSON tables, where a request names its keys
-    # the same way.
+    # On the native JSON tables a typed column can read temporary_properties. A request lists those keys
+    # in its properties, so discovery matches columns that read either column.
     mat_cols: list[tuple[str, bool]] = []
     person_mat_cols: list[tuple[str, bool]] = []
     if deletion_request.properties:
@@ -1721,7 +1721,7 @@ def copy_property_removal_shard(
     ClickHouse, and the write overwrites each monthly file.
     """
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
+    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target.uses_new_events_schema)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1746,7 +1746,7 @@ def delete_property_removal_shard(
     """
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
+    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target.uses_new_events_schema)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
     # Another removal on the team may rewrite these rows once the marker is gone, so a stale run must not
@@ -1960,7 +1960,7 @@ def verify_property_removal_shard(
     """Fail when this shard kept an original, lost a uuid, or holds a target property on a cleaned row."""
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
+    hogql_compiled = _compile_predicate(deletion_request, target.deletion_target.uses_new_events_schema)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
