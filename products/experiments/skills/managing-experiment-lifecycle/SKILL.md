@@ -153,6 +153,19 @@ A background PostHog Code task then removes the experiment's feature flag code a
 - `repository` ("organization/repository") picks the target when several repositories are connected. Omit it to fall back to the experiment's saved repository, the team default, or the only connected repository. With several candidates and no default, the cleanup is skipped unless provided.
 - Track progress with `experiment-cleanup-task` — the PR URL appears there once opened; a cleanup typically takes several minutes.
 
+### Suggest the next experiment (after end and ship variant)
+
+Once `experiment-end` or `experiment-ship-variant` succeeds, close with one or two ideas for the next experiment, drawn from what this one showed.
+Name the result behind each idea:
+
+- A winner: the next change in the same direction, or the same change on another page or flow.
+- Inconclusive with little traffic: a bigger change, because only large effects show up with few people.
+- An unexpected metric that turned significant: a follow-up experiment with that metric as the primary.
+- A setup fault that `diagnosing-experiment-health` found: its fix, carried into the next experiment.
+
+Leave out advice that fits any experiment.
+Suggest a new experiment, never a reset or relaunch of this one, and create it only when the user asks (`creating-experiments`).
+
 ### Archive (`experiment-archive`)
 
 Hides a stopped experiment from the default list view.
