@@ -18,13 +18,19 @@ import {
     CyclotronV2Worker,
     countStaleCommit,
 } from '../cyclotron-v2'
-import { StateOpener, encodeJob, encodeStateColumns, v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import {
+    StateOpener,
+    acceptsPendingWake,
+    encodeJob,
+    encodeStateColumns,
+    v2JobToInvocation,
+} from '../cyclotron-v2/job-codec'
 import { IDEMPOTENCY_CLAIM_LOCK_TIMEOUT_MS } from '../cyclotron-v2/manager'
 import { CyclotronV2IdempotencyKey, CyclotronV2IdempotentClaim, CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { IdempotentInvocation, IdempotentJobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
-export { extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
+export { acceptsPendingWake, extractActionId, extractDistinctId, extractPersonId } from '../cyclotron-v2/job-codec'
 
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
@@ -376,6 +382,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
             await job.reschedule({
                 ...encodeStateColumns(result.invocation),
                 scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                wakeOnPendingWake: acceptsPendingWake(result.invocation),
                 queueName: result.invocation.queue,
                 priority: priorityPersistedOnlyAcrossEmailQueueTransitions(result.invocation, job.queueName),
             })
