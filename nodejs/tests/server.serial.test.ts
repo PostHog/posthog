@@ -130,6 +130,18 @@ describe('server', () => {
         }
     }, 180_000)
 
+    it('refuses to start the classify worker without the Valkey of its rate limit', async () => {
+        const server = new PluginServer({
+            LOG_LEVEL: 'debug',
+            PLUGIN_SERVER_MODE: PluginServerMode.cdp_cyclotron_worker_classify,
+            PERSONHOG_ENABLED: true,
+            PERSONHOG_ADDR: 'localhost:50052',
+            SES_RATE_LIMITER_VALKEY_HOST: '',
+        })
+        await server.start()
+        expect(process.exit).toHaveBeenCalledWith(1)
+    })
+
     // Replay modes are handled by IngestionSessionReplayServer (see ingestion-session-replay-server.test.ts)
     it('should error on startup with replay mode', async () => {
         const server = new PluginServer({

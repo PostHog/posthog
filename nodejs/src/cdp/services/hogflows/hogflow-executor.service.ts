@@ -387,7 +387,8 @@ export class HogFlowExecutorService {
             logs.push(this.logExecutionTriggerInfo(invocation))
         }
 
-        const runsOneActionOnly = invocation.queue === SANDBOX_QUEUE
+        // The sandbox and classify workers run only their own step, so the rest of the run spends neither budget.
+        const runsOneActionOnly = invocation.queue === SANDBOX_QUEUE || invocation.queue === 'classify'
 
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation

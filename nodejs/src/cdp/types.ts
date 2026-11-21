@@ -345,6 +345,7 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
     'hogflow',
     'email',
     'emailsandbox',
+    'classify',
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 

@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import {
     HogFlowPersonLookup,
@@ -226,4 +228,16 @@ export function countPendingTrigger(result: CyclotronJobInvocationResult): void 
         // A send can wait past the hour it was queued, and `conversion_by_start` files the run under that hour.
         timestamp: result.invocation.queueCreatedAt,
     })
+}
+
+export function routeBackToHogFlowQueue(
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
+    result.invocation.queue = 'hogflow'
+    result.invocation.queueParameters = null
+    result.invocation.queueScheduledAt = DateTime.now()
+    if (result.invocation.state?.currentAction) {
+        result.invocation.state.currentAction.routingOnlyReschedule = true
+    }
+    return result
 }

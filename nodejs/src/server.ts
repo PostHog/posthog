@@ -29,6 +29,10 @@ import { CdpCohortMembershipTriggerConsumer } from './cdp/consumers/cdp-cohort-m
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
 import { CdpCyclotronDeadLetterWorker } from './cdp/consumers/cdp-cyclotron-dead-letter-worker.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import {
+    CdpCyclotronWorkerClassify,
+    createClassifyJobQueue,
+} from './cdp/consumers/cdp-cyclotron-worker-classify.consumer'
 import { CdpCyclotronWorkerEmailSandbox } from './cdp/consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
@@ -124,6 +128,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpCyclotronWorkerEmail ||
             capabilities.cdpCyclotronWorkerEmailSandbox ||
+            capabilities.cdpCyclotronWorkerClassify ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpCohortMembershipTriggers ||
             capabilities.cdpCyclotronWorkerBatchResolve ||
@@ -429,6 +434,18 @@ export class PluginServer implements NodeServer {
                       )
                     : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        if (capabilities.cdpCyclotronWorkerClassify) {
+            serviceLoaders.push(async () => {
+                const worker = new CdpCyclotronWorkerClassify(
+                    this.config,
+                    cdpDeps!,
+                    createClassifyJobQueue(this.config)
+                )
                 await worker.start()
                 return worker.service
             })

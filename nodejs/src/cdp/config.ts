@@ -177,6 +177,11 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
 
+    // The classify worker claims one token per classification, so these bound the calls a second to the model.
+    CDP_CLASSIFY_RATE_LIMIT_REFILL_PER_SECOND: number
+    CDP_CLASSIFY_RATE_LIMIT_CAPACITY: number
+    CDP_CLASSIFY_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
+
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -490,6 +495,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
         CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
+
+        CDP_CLASSIFY_RATE_LIMIT_REFILL_PER_SECOND: 5,
+        CDP_CLASSIFY_RATE_LIMIT_CAPACITY: 5,
+        CDP_CLASSIFY_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
