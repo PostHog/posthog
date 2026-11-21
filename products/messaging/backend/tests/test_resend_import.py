@@ -993,7 +993,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
         runs.finish_run(self.team.id, run.id)
         run.refresh_from_db()
         assert run.progress["contacts"]["last_error"] == (
-            "3 contacts didn't reach PostHog, so they aren't people yet. Import again to retry."
+            "3 contacts didn't reach PostHog, so their people weren't created or updated. Import again to retry."
             if capture_refuses
             else None
         )

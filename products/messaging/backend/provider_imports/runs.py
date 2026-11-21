@@ -231,16 +231,19 @@ def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping
         not_sent = 0
         if (sent := outcome.get("sent")) is not None:
             counts = progress.setdefault("counts", {})
-            # A step stored before the workflow counted sends saved its contacts as `people`.
-            to_send = counts.get("people_to_send", counts.get("people", 0))
-            not_sent = max(to_send - sent, 0)
-            counts.update(people=sent, new_people=outcome.get("new_people") or 0, not_sent=not_sent)
+            if "people_to_send" not in counts:
+                # Stored before this count existed: its contacts sit in `people`, and its parts don't say who is new.
+                counts["people_to_send"] = counts.get("people", 0)
+            else:
+                counts["new_people"] = outcome.get("new_people") or 0
+            not_sent = max(counts["people_to_send"] - sent, 0)
+            counts.update(people=sent, not_sent=not_sent)
             progress["imported"] = sent
         if not_sent:
             progress.update(
                 status=ImportStepStatus.FAILED.value,
-                last_error=f"{not_sent:,} {'contact' if not_sent == 1 else 'contacts'} didn't reach PostHog, so they "
-                "aren't people yet. Import again to retry.",
+                last_error=f"{not_sent:,} {'contact' if not_sent == 1 else 'contacts'} didn't reach PostHog, so their "
+                "people weren't created or updated. Import again to retry.",
             )
         elif outcome.get("failed_lists"):
             progress.update(status=ImportStepStatus.FAILED.value, last_error=PEOPLE_IMPORT_FAILED_MESSAGE)
