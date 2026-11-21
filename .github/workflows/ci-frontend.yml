@@ -963,7 +963,7 @@ jobs:
               run: pnpm exec oxfmt "./{products,frontend/src}/**/*.{ts,tsx}"
 
             - parallel:
-                  - name: Run typescript check (tsgo)
+                  - name: Run TypeScript check (tsc)
                     run: pnpm --filter=@posthog/frontend typescript:check
 
                   - name: Check if schema.json and validators.js are up to date

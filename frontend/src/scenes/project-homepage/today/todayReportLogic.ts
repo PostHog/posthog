@@ -19,7 +19,9 @@ import {
     discussQuestionProperties,
     parseInboxReportLinkSource,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
+import type { InboxReportActionSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import type { ReportDiscussionIntent } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import {
     todayExcerptChoiceCreate,
@@ -124,13 +126,13 @@ export interface todayReportLogicActions {
         reportUrl: string,
         question: string,
         agentQuestion?: string | undefined,
-        intent?: import('products/signals/frontend/inbox/inboxTaskKickoffLogic').ReportDiscussionIntent | undefined,
+        intent?: ReportDiscussionIntent | undefined,
         pullRequestUrl?: string | undefined,
         background?: boolean | undefined
     ) => {
         agentQuestion: string | undefined
         background: boolean | undefined
-        intent: import('products/signals/frontend/inbox/inboxTaskKickoffLogic').ReportDiscussionIntent | undefined
+        intent: ReportDiscussionIntent | undefined
         pullRequestUrl: string | undefined
         question: string
         report: SignalReport
@@ -139,7 +141,7 @@ export interface todayReportLogicActions {
     implementReport: (
         report: SignalReport,
         feedback: string | undefined,
-        surface: import('products/signals/frontend/inbox/inboxAnalytics').InboxReportActionSurface,
+        surface: InboxReportActionSurface,
         openedFromLink?: boolean | undefined,
         repository?: string | undefined
     ) => {
@@ -147,7 +149,7 @@ export interface todayReportLogicActions {
         openedFromLink: boolean
         report: SignalReport
         repository: string | undefined
-        surface: import('products/signals/frontend/inbox/inboxAnalytics').InboxReportActionSurface
+        surface: InboxReportActionSurface
     } // inboxTaskKickoffLogic
     openReportDiscussion: (
         report: SignalReport,
@@ -562,7 +564,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 return
             }
             captureTodayReportOpened({
-                report: signalReportSnapshot(report),
+                report: signalReportSnapshot(report, context?.ranking),
                 openMethod: context ? 'click' : 'deeplink',
                 linkSource,
                 list: context?.list ?? null,

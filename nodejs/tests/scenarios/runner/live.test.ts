@@ -8,6 +8,8 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import type { JournalEntry } from '../judge/judge'
 import type { MetricSample } from '../judge/measurements'
+import { edgeTruth } from '../judge/truth'
+import type { TruthRecord } from '../provider-edge/truth'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { LIVE_FILE, LiveLog, LiveRecord, openLiveLog } from './live'
 
@@ -76,7 +78,7 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [OFFERED],
-            edgeUrl: UNREACHABLE_EDGE,
+            truth: edgeTruth(UNREACHABLE_EDGE),
         })
         await log.stop()
         log.write(END)
@@ -139,7 +141,7 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [],
-            edgeUrl: UNREACHABLE_EDGE,
+            truth: edgeTruth(UNREACHABLE_EDGE),
         })
         await secondRead
         await log.stop()
@@ -162,7 +164,7 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [],
-            edgeUrl: UNREACHABLE_EDGE,
+            truth: edgeTruth(UNREACHABLE_EDGE),
         })
         log[Symbol.dispose]()
         await following
@@ -181,7 +183,7 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [],
-            edgeUrl: UNREACHABLE_EDGE,
+            truth: edgeTruth(UNREACHABLE_EDGE),
         })
 
         await expect(log.stop()).resolves.toBeUndefined()
@@ -190,7 +192,15 @@ describe('live log', () => {
     })
 
     it("follows only this run's truth when the edge cannot name its head at first", async () => {
-        const records = [1, 2, 3].map((seq) => ({ seq, at: seq, kind: 'delivery', unitId: `unit-${seq}` }))
+        const records: TruthRecord[] = [1, 2, 3].map((seq) => ({
+            seq,
+            at: new Date(seq).toISOString(),
+            kind: 'webhook',
+            unitId: `unit-${seq}`,
+            actionId: 'webhook',
+            status: 200,
+            detail: {},
+        }))
         let headReads = 0
         let headFailed: () => void = () => undefined
         const firstHeadFailed = new Promise<void>((resolve) => (headFailed = resolve))
@@ -207,7 +217,8 @@ describe('live log', () => {
                 return
             }
             const after = Number(url.searchParams.get('after'))
-            response.end(JSON.stringify({ records: records.filter(({ seq }) => seq > after) }))
+            const page = records.filter(({ seq }) => seq > after)
+            response.end(JSON.stringify({ records: page, next: page.at(-1)?.seq ?? after }))
         })
         await new Promise<void>((resolve) => edge.listen(0, '127.0.0.1', resolve))
         const log = openLiveLog(runDir)
@@ -219,13 +230,21 @@ describe('live log', () => {
             queue: () => [],
             writer: () => [],
             journal: () => [],
-            edgeUrl: `http://127.0.0.1:${(edge.address() as AddressInfo).port}`,
+            truth: edgeTruth(`http://127.0.0.1:${(edge.address() as AddressInfo).port}`),
         })
         await firstHeadFailed
         await log.stop()
         await new Promise((resolve) => edge.close(resolve))
 
-        expect(linesOf()).toEqual([START, expect.objectContaining({ type: 'tick', truth: [records[2]] })])
+        expect(linesOf()).toEqual([
+            START,
+            expect.objectContaining({
+                type: 'tick',
+                truth: [
+                    { seq: 3, at: records[2].at, kind: 'webhook', unitId: 'unit-3', actionId: 'webhook', status: 200 },
+                ],
+            }),
+        ])
     })
 
     it.each<[string, (log: LiveLog) => Promise<void> | void, boolean]>([

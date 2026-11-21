@@ -4,15 +4,17 @@ import hmac
 import hashlib
 import logging
 from collections.abc import Callable, Mapping
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.conf import settings
+from django.conf import settings as django_settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
+
+from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_team_action
@@ -32,22 +34,38 @@ from products.messaging.backend.provider_imports.base import (
     ImportProvider,
     ImportStepBlocked,
     ImportStepError,
+    PeopleImportPlan,
     StepCheckpoint,
 )
 from products.messaging.backend.provider_imports.registry import get_provider
 from products.messaging.backend.temporal.client import RUN_EXECUTION_TIMEOUT, start_provider_import_workflow
 from products.workflows.backend.facade.api import can_edit_workflows
+from products.workflows.backend.facade.people_import import (
+    discard_staged_contacts,
+    fail_contacts_cohort,
+    staged_contact_imports,
+)
 
 logger = logging.getLogger(__name__)
+
+STAGED_CONTACTS_CLEANUP_FAILED = Counter(
+    "messaging_provider_import_staged_contacts_cleanup_failed_total",
+    "Times the hourly sweep couldn't delete the contacts a provider import stored.",
+)
 
 # A run still active after the workflow's execution timeout has no workflow left to finish it.
 STALE_RUN_AGE = RUN_EXECUTION_TIMEOUT + timedelta(hours=1)
 MAX_STEP_WARNINGS = 50
 MAX_STEP_ITEMS = 200
 UNEXPECTED_ERROR_MESSAGE = "An unexpected error interrupted this step."
+PEOPLE_IMPORT_FAILED_MESSAGE = "Some contacts couldn't become people or join their cohort. Import again to finish."
 
 
 class ProviderImportAlreadyRunning(Exception):
+    pass
+
+
+class InvalidImportSettings(Exception):
     pass
 
 
@@ -70,25 +88,31 @@ class _StepClaim:
 
 
 def start_run(
-    team_id: int, provider_key: str, steps: list[str], api_key: str | None, created_by_id: int | None
+    team_id: int,
+    provider_key: str,
+    steps: list[str],
+    api_key: str | None,
+    created_by_id: int | None,
+    settings: Mapping[str, str] | None = None,
 ) -> ProviderImportRun:
     """Check the credentials, claim a queued run, store the credentials, and start the run's workflow.
 
-    Raises UnknownImportProvider, InvalidImportSteps, ProviderImportAlreadyRunning, the ImportCredentials* errors and
-    ImportProviderUnavailable.
+    Raises UnknownImportProvider, InvalidImportSteps, InvalidImportSettings, ProviderImportAlreadyRunning, the
+    ImportCredentials* errors and ImportProviderUnavailable.
     """
     provider = get_provider(provider_key)
     ordered_steps = _order_steps(provider, steps)
+    resolved_settings = _resolve_settings(provider, settings or {})
 
     _fail_stale_runs(team_id)
     if _runs(team_id).filter(provider=provider.key, status__in=ACTIVE_IMPORT_STATUSES).exists():
         raise ProviderImportAlreadyRunning(f"A {provider.label} import is already running.")
 
-    credentials = provider.check_credentials(team_id, api_key)
+    credentials = provider.check_credentials(team_id, api_key, resolved_settings, ordered_steps)
     provider.check_step_access(team_id, credentials, ordered_steps)
     progress = {step: _new_step_progress() for step in ordered_steps}
     if provider.resumes_after_failure:
-        _continue_failed_steps(team_id, provider.key, progress, _key_id(credentials.api_key))
+        _continue_failed_steps(team_id, provider.key, progress, resolved_settings, _key_id(credentials.api_key))
     try:
         with transaction.atomic():
             # Create the run before storing the credentials. A concurrent start then waits on the active-run index
@@ -99,6 +123,7 @@ def start_run(
                 steps=ordered_steps,
                 created_by_id=created_by_id,
                 progress=progress,
+                settings=resolved_settings,
             )
             if provider.retains_credentials:
                 run.integration_id = provider.store_credentials(team_id, credentials, created_by_id)
@@ -118,17 +143,18 @@ def start_run(
     return run
 
 
-def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
+def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> list[PeopleImportPlan]:
     """Run one step from its saved checkpoint, and save each page together with the step's progress.
 
     `attempt` is the Temporal attempt number. An older attempt can keep running after Temporal starts a newer one,
-    so each page write checks that its attempt still owns the step.
+    so each page write checks that its attempt still owns the step. Returns the contact lists the step stored, which
+    the run's workflow sends next.
     """
     run = _runs(team_id).get(id=run_id)
     provider = get_provider(run.provider)
     claim = _claim_step(team_id, run_id, step, attempt)
     if claim.completed:
-        return
+        return _people_imports(team_id, run_id, step)
 
     context = ImportContext(
         team_id=team_id,
@@ -136,6 +162,11 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         integration_id=run.integration_id,
         api_key=run.temporary_api_key,
         steps=tuple(run.steps),
+        run_id=str(run_id),
+        settings=run.settings,
+        completed_steps=tuple(
+            key for key in run.steps if run.progress.get(key, {}).get("status") == ImportStepStatus.COMPLETED.value
+        ),
     )
     try:
         _check_required_steps(provider, run, step)
@@ -143,8 +174,9 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
             _check_creator_access(team_id, run.created_by_id)
             _save_page(team_id, run_id, step, attempt, page)
             if page.checkpoint is None:
-                return
+                return _people_imports(team_id, run_id, step)
         _update_owned_step(team_id, run_id, step, attempt, _mark_completed)
+        return _people_imports(team_id, run_id, step)
     except (StaleImportAttempt, ImportRunClosed):
         raise
     except Exception as e:
@@ -182,7 +214,28 @@ def _check_required_steps(provider: ImportProvider, run: ProviderImportRun, step
 
 def finish_run(team_id: int, run_id: UUID) -> None:
     """Fail the steps that did not complete, and set the run's final status. A run that already ended stays as it is."""
+    # Before the run closes, so a storage error retries the finish. It also removes what a save that rolled back, or
+    # a step that failed, stored.
+    discard_staged_contacts(team_id, str(run_id))
     _close_run(team_id, run_id)
+
+
+def record_people_import(team_id: int, run_id: UUID, step: str, outcome: Mapping[str, int]) -> None:
+    """Save how sending a step's contact lists went. A list that failed fails the step, so the run shows it."""
+    with transaction.atomic():
+        run = _runs(team_id).select_for_update().get(id=run_id)
+        if run.status not in ACTIVE_IMPORT_STATUSES:
+            return
+        progress = run.progress.setdefault(step, _new_step_progress())
+        progress["people_import"] = dict(outcome)
+        if outcome.get("failed_lists"):
+            progress.update(status=ImportStepStatus.FAILED.value, last_error=PEOPLE_IMPORT_FAILED_MESSAGE)
+        run.save(update_fields=["progress"])
+
+
+def _people_imports(team_id: int, run_id: UUID, step: str) -> list[PeopleImportPlan]:
+    progress = _runs(team_id).get(id=run_id).progress.get(step, {})
+    return [PeopleImportPlan(**plan) for plan in progress.get("people_imports", [])]
 
 
 def close_stale_runs() -> int:
@@ -193,8 +246,45 @@ def close_stale_runs() -> int:
         .values_list("team_id", "id")
     )
     for team_id, run_id in stale:
-        _close_run(team_id, run_id)
+        _close_stale_run(team_id, run_id)
+    _discard_contacts_of_ended_runs()
     return len(stale)
+
+
+def _discard_contacts_of_ended_runs() -> None:
+    # Every hour until the delete succeeds, whatever state the run is in or even when it no longer exists. Only a
+    # run that can still be importing keeps its contacts.
+    try:
+        staged = staged_contact_imports()
+    except Exception:
+        STAGED_CONTACTS_CLEANUP_FAILED.inc()
+        logger.exception("Failed to list the contacts provider imports stored")
+        return
+    run_ids_by_team: dict[int, list[str]] = {}
+    for team_id, run_id in staged:
+        if _is_uuid(run_id):
+            run_ids_by_team.setdefault(team_id, []).append(run_id)
+    active = {
+        (team_id, str(run_id))
+        for team_id, run_ids in run_ids_by_team.items()
+        for run_id in ProviderImportRun.objects.unscoped()
+        .filter(team_id=team_id, id__in=run_ids, status__in=ACTIVE_IMPORT_STATUSES)
+        .values_list("id", flat=True)
+    }
+    for team_id, run_id in staged - active:
+        try:
+            discard_staged_contacts(team_id, run_id)
+        except Exception:
+            STAGED_CONTACTS_CLEANUP_FAILED.inc()
+            logger.exception("Failed to delete the contacts a provider import stored", extra={"run_id": run_id})
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
 
 
 def list_runs(team_id: int, limit: int) -> list[ProviderImportRun]:
@@ -226,13 +316,33 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
     return [key for key in known if key in steps]
 
 
+def _resolve_settings(provider: ImportProvider, settings: Mapping[str, str]) -> dict[str, str]:
+    specs = {spec.key: spec for spec in provider.settings}
+    if unknown := sorted(set(settings) - set(specs)):
+        raise InvalidImportSettings(f"{provider.label} has no setting named {', '.join(unknown)}.")
+    resolved: dict[str, str] = {}
+    for key, spec in specs.items():
+        value = settings.get(key, spec.default)
+        if value is None:
+            raise InvalidImportSettings(f"Choose a value for {spec.label}.")
+        if value not in {choice.value for choice in spec.choices}:
+            raise InvalidImportSettings(f"{value} isn't a valid value for {spec.label}.")
+        resolved[key] = value
+    return resolved
+
+
 def _continue_failed_steps(
-    team_id: int, provider_key: str, progress: dict[str, dict[str, Any]], key_id: str | None
+    team_id: int,
+    provider_key: str,
+    progress: dict[str, dict[str, Any]],
+    settings: Mapping[str, str],
+    key_id: str | None,
 ) -> None:
     for step_progress in progress.values():
         step_progress["key_id"] = key_id
     latest = _runs(team_id).filter(provider=provider_key).order_by("-created_at").first()
-    if latest is None or latest.status != ProviderImportStatus.FAILED:
+    # A checkpoint only makes sense for the settings that wrote it, such as the region it was reading.
+    if latest is None or latest.status != ProviderImportStatus.FAILED or latest.settings != settings:
         return
     for step, step_progress in progress.items():
         previous = latest.progress.get(step, {})
@@ -244,7 +354,7 @@ def _continue_failed_steps(
 def _key_id(api_key: str | None) -> str | None:
     if not api_key:
         return None
-    return hmac.new(settings.SECRET_KEY.encode(), api_key.encode(), hashlib.sha256).hexdigest()[:16]
+    return hmac.new(django_settings.SECRET_KEY.encode(), api_key.encode(), hashlib.sha256).hexdigest()[:16]
 
 
 def _fail_stale_runs(team_id: int) -> None:
@@ -254,7 +364,16 @@ def _fail_stale_runs(team_id: int) -> None:
         .values_list("id", flat=True)
     )
     for run_id in stale_ids:
-        _close_run(team_id, run_id)
+        _close_stale_run(team_id, run_id)
+
+
+def _close_stale_run(team_id: int, run_id: UUID) -> None:
+    try:
+        discard_staged_contacts(team_id, str(run_id))
+    except Exception:
+        # A run that never closes would block every later import, so it closes anyway.
+        logger.exception("Failed to delete the contacts a provider import stored", extra={"run_id": str(run_id)})
+    _close_run(team_id, run_id)
 
 
 def _close_run(team_id: int, run_id: UUID) -> None:
@@ -264,6 +383,11 @@ def _close_run(team_id: int, run_id: UUID) -> None:
             return
         for step in run.steps:
             progress = run.progress.setdefault(step, _new_step_progress())
+            if progress.get("people_imports") and "people_import" not in progress:
+                # The workflow ended before it sent the step's contacts, so their cohorts can't finish.
+                for plan in progress["people_imports"]:
+                    fail_contacts_cohort(team_id, plan["cohort_id"])
+                progress.update(status=ImportStepStatus.FAILED.value, last_error=PEOPLE_IMPORT_FAILED_MESSAGE)
             if progress["status"] != ImportStepStatus.COMPLETED:
                 progress["status"] = ImportStepStatus.FAILED
         completed = all(run.progress[step]["status"] == ImportStepStatus.COMPLETED for step in run.steps)
@@ -297,15 +421,22 @@ def _save_page(team_id: int, run_id: UUID, step: str, attempt: int, page: Import
     with transaction.atomic():
         run, progress = _lock_owned_step(team_id, run_id, step, attempt)
         saved = page.save()
-        progress["processed"] += page.processed
-        progress["imported"] += saved.imported
-        _add_warnings(progress, saved.warnings)
-        _add_counts(progress, saved.counts)
-        _add_items(progress, saved.items)
-        progress["checkpoint"] = page.checkpoint
-        if page.checkpoint is None:
-            _mark_completed(progress)
-        run.save(update_fields=["progress"])
+        if saved.error is None:
+            progress["processed"] += page.processed
+            progress["imported"] += saved.imported
+            _add_warnings(progress, saved.warnings)
+            _add_counts(progress, saved.counts)
+            _add_items(progress, saved.items)
+            if saved.people_imports:
+                progress["people_imports"] = progress.get("people_imports", []) + [
+                    asdict(replace(plan, created_by_id=run.created_by_id)) for plan in saved.people_imports
+                ]
+            progress["checkpoint"] = page.checkpoint
+            if page.checkpoint is None:
+                _mark_completed(progress)
+            run.save(update_fields=["progress"])
+    if saved.error is not None:
+        raise ImportStepError(saved.error)
 
 
 def _update_owned_step(

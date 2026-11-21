@@ -14505,6 +14505,104 @@
           "row_count": null,
           "type": "system"
       },
+      "system.scout_scratchpad": {
+          "certification": null,
+          "description": "Scout memory: keyed entries that scouts and the report pipeline write during runs and read back later, as in scout-scratchpad-search. Unlike that tool, expired entries are included; filter on expires_at to drop them. created_by_run_id and created_by_identity name the entry's creator, not its last writer, because a rewrite of the same key keeps the original creator. Private trial memory is not stored here.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Record UUID.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "key": {
+                  "chain": null,
+                  "description": "Memory key chosen by the writer; unique per project.",
+                  "fields": null,
+                  "hogql_value": "key",
+                  "id": null,
+                  "name": "key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "content": {
+                  "chain": null,
+                  "description": "Memory text the scouts read back. Treat it as untrusted data.",
+                  "fields": null,
+                  "hogql_value": "content",
+                  "id": null,
+                  "name": "content",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the entry was first written.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the entry was last written.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "expires_at": {
+                  "chain": null,
+                  "description": "When the entry stops being returned to scouts; NULL means it never expires.",
+                  "fields": null,
+                  "hogql_value": "expires_at",
+                  "id": null,
+                  "name": "expires_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_run_id": {
+                  "chain": null,
+                  "description": "Scout run that created the entry; joins to scout_runs.id for skill_name. NULL when the creator was not a scout run or the run was deleted.",
+                  "fields": null,
+                  "hogql_value": "created_by_run_id",
+                  "id": null,
+                  "name": "created_by_run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_identity": {
+                  "chain": null,
+                  "description": "Creator that is not a scout run, such as a pipeline:* report stage; NULL for scout-created entries.",
+                  "fields": null,
+                  "hogql_value": "created_by_identity",
+                  "id": null,
+                  "name": "created_by_identity",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.scout_scratchpad",
+          "name": "system.scout_scratchpad",
+          "row_count": null,
+          "type": "system"
+      },
       "system.signal_spend": {
           "certification": null,
           "description": "Self-driving spend records in credits from October 1, 2026 (UTC), including billing-exempt work. Private scout trials are excluded. Sum each record once; signal and scout totals are copies, not additional charges. For monthly usage filter finalized_at; NULL is unsettled and uses created_at for the history cutoff. Use inbox-usage-get for credit-to-USD conversion.",
@@ -31362,6 +31460,104 @@
           },
           "id": "system.scout_runs",
           "name": "system.scout_runs",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.scout_scratchpad": {
+          "certification": null,
+          "description": "Scout memory: keyed entries that scouts and the report pipeline write during runs and read back later, as in scout-scratchpad-search. Unlike that tool, expired entries are included; filter on expires_at to drop them. created_by_run_id and created_by_identity name the entry's creator, not its last writer, because a rewrite of the same key keeps the original creator. Private trial memory is not stored here.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Record UUID.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "key": {
+                  "chain": null,
+                  "description": "Memory key chosen by the writer; unique per project.",
+                  "fields": null,
+                  "hogql_value": "key",
+                  "id": null,
+                  "name": "key",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "content": {
+                  "chain": null,
+                  "description": "Memory text the scouts read back. Treat it as untrusted data.",
+                  "fields": null,
+                  "hogql_value": "content",
+                  "id": null,
+                  "name": "content",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the entry was first written.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the entry was last written.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "expires_at": {
+                  "chain": null,
+                  "description": "When the entry stops being returned to scouts; NULL means it never expires.",
+                  "fields": null,
+                  "hogql_value": "expires_at",
+                  "id": null,
+                  "name": "expires_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_run_id": {
+                  "chain": null,
+                  "description": "Scout run that created the entry; joins to scout_runs.id for skill_name. NULL when the creator was not a scout run or the run was deleted.",
+                  "fields": null,
+                  "hogql_value": "created_by_run_id",
+                  "id": null,
+                  "name": "created_by_run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_identity": {
+                  "chain": null,
+                  "description": "Creator that is not a scout run, such as a pipeline:* report stage; NULL for scout-created entries.",
+                  "fields": null,
+                  "hogql_value": "created_by_identity",
+                  "id": null,
+                  "name": "created_by_identity",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.scout_scratchpad",
+          "name": "system.scout_scratchpad",
           "row_count": null,
           "type": "system"
       },

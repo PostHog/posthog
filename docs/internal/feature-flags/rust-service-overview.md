@@ -139,7 +139,7 @@ This endpoint serves flag definitions for server-side SDKs that evaluate flags l
 
 Authenticated via:
 
-- Team secret API token (`Authorization: Bearer phs_...`), or
+- Project secret API key (`Authorization: Bearer phs_...`), or
 - Personal API key with `feature_flag:read` scope
 
 Current implementation returns flag definitions with cohort data from HyperCache, with PostgreSQL fallback on cache miss. Supports ETag-based conditional requests (`If-None-Match` header) to avoid re-transferring unchanged definitions. Rate limited per team (default 600/minute).
@@ -379,18 +379,16 @@ python manage.py invalidate_flags_auth_cache --team-id 12345 --dry-run
 
 ### Token sources
 
-The command collects token hashes from three sources and batch-deletes the corresponding Redis cache entries:
+The command collects token hashes from two sources and batch-deletes the corresponding Redis cache entries:
 
 | Source                  | Description                                                                                                          |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Team secret tokens      | `secret_api_token` and `secret_api_token_backup`, hashed with SHA-256                                                |
 | Project secret API keys | `ProjectSecretAPIKey.secure_value` for the team                                                                      |
 | Personal API keys       | `PersonalAPIKey` entries for users in the team's organization, filtered by `scoped_teams` and `scoped_organizations` |
 
 ### When to use
 
 - **Security incidents**: Force re-validation after a suspected token compromise
-- **Token rotation**: Clear stale cache entries after rotating team secret tokens
 - **Debugging**: Diagnose cache staleness issues by forcing a cache miss
 
 ### Options
@@ -430,19 +428,19 @@ Applied in order via Axum layers (defined in `router.rs`):
 
 ## Related files
 
-| File                                                         | Purpose                                           |
-| ------------------------------------------------------------ | ------------------------------------------------- |
-| `rust/feature-flags/src/main.rs`                             | Binary entry point, tracing setup                 |
-| `rust/feature-flags/src/server.rs`                           | Service initialization, resource creation         |
-| `rust/feature-flags/src/router.rs`                           | Axum router, routes, shared state                 |
-| `rust/feature-flags/src/config.rs`                           | Environment variable configuration                |
-| `rust/feature-flags/src/api/endpoint.rs`                     | `/flags` and `/decide` handler                    |
-| `rust/feature-flags/src/api/flag_definitions.rs`             | `/flags/definitions` handler                      |
-| `rust/feature-flags/src/api/auth.rs`                         | Authentication (secret tokens, personal API keys) |
-| `rust/feature-flags/src/api/types.rs`                        | Request/response types                            |
-| `rust/feature-flags/src/handler/flags.rs`                    | Core request processing pipeline                  |
-| `posthog/storage/team_access_cache.py`                       | Token auth cache with targeted invalidation       |
-| `posthog/management/commands/invalidate_flags_auth_cache.py` | Bulk cache invalidation management command        |
+| File                                                         | Purpose                                                     |
+| ------------------------------------------------------------ | ----------------------------------------------------------- |
+| `rust/feature-flags/src/main.rs`                             | Binary entry point, tracing setup                           |
+| `rust/feature-flags/src/server.rs`                           | Service initialization, resource creation                   |
+| `rust/feature-flags/src/router.rs`                           | Axum router, routes, shared state                           |
+| `rust/feature-flags/src/config.rs`                           | Environment variable configuration                          |
+| `rust/feature-flags/src/api/endpoint.rs`                     | `/flags` and `/decide` handler                              |
+| `rust/feature-flags/src/api/flag_definitions.rs`             | `/flags/definitions` handler                                |
+| `rust/feature-flags/src/api/auth.rs`                         | Authentication (project secret API keys, personal API keys) |
+| `rust/feature-flags/src/api/types.rs`                        | Request/response types                                      |
+| `rust/feature-flags/src/handler/flags.rs`                    | Core request processing pipeline                            |
+| `posthog/storage/team_access_cache.py`                       | Token auth cache with targeted invalidation                 |
+| `posthog/management/commands/invalidate_flags_auth_cache.py` | Bulk cache invalidation management command                  |
 
 ## See also
 

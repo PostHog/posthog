@@ -6726,6 +6726,12 @@ class HogQLQueryModifiers(BaseModel):
             " and the join would be a LEFT JOIN."
         ),
     )
+    optimizeCrossJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(
@@ -18152,6 +18158,7 @@ class ChartSettings(BaseModel):
         ),
     )
     metric: MetricChartSettings | None = None
+    movingAverageIntervals: float | None = None
     pie: PieChartSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
@@ -18162,6 +18169,7 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: str | None = None
     showAnnotations: bool | None = None
     showLegend: bool | None = None
+    showMovingAverage: bool | None = None
     showNullsAsZero: bool | None = None
     showPieTotal: bool | None = None
     showTotalRow: bool | None = None

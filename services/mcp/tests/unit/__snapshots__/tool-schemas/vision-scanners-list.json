@@ -14,7 +14,7 @@
             "type": "string"
         },
         "experiment_id": {
-            "description": "Filter to scanners whose targeting watches the given experiment.",
+            "description": "Filter to scanners whose scope watches the given experiment.",
             "type": "string"
         },
         "limit": {
@@ -31,6 +31,11 @@
         },
         "scanner_type": {
             "description": "Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.",
+            "type": "string"
+        },
+        "scope_kind": {
+            "description": "Filter to scanners whose scope is of this kind.\n\n* `experiment` - Experiment",
+            "enum": ["experiment"],
             "type": "string"
         },
         "search": {

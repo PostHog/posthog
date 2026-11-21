@@ -334,6 +334,11 @@ LOGIN_METHODS = [
         "backends": ["gitlab"],
     },
     {
+        "key": "chatgpt",
+        "display": "ChatGPT",
+        "backends": ["chatgpt", "posthog.api.sso.ChatGPTOpenIdConnect"],
+    },
+    {
         "key": "saml",
         "display": "SAML",
         # The `ee.` path is only carried by sessions issued before the move to `posthog.api.sso`.
