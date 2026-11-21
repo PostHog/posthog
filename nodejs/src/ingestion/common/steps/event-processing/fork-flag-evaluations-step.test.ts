@@ -298,14 +298,30 @@ describe('createForkFlagEvaluationsStep', () => {
                 producedOutputs: ['flag_evaluations'],
                 warnings: [],
             },
+            {
+                name: 'a kept-writes FLAG_EVALUATIONS_ONLY',
+                mode: FlagEvaluationsMode.FlagEvaluationsOnly,
+                keepWritingFlagCallsToEvents: true,
+                routesToRealtimeOnlyEvents: false,
+                outcome: 'continued_message_too_large',
+                producedOutputs: ['flag_evaluations'],
+                warnings: [],
+            },
         ])(
             'does not block the batch when the row exceeds the broker message limit for $name team',
-            async ({ mode, routesToRealtimeOnlyEvents, outcome, producedOutputs, warnings }) => {
+            async ({
+                mode,
+                keepWritingFlagCallsToEvents,
+                routesToRealtimeOnlyEvents,
+                outcome,
+                producedOutputs,
+                warnings,
+            }) => {
                 const { step, outputs } = createStep(enabledService({ routesToRealtimeOnlyEvents }))
                 outputs.queueMessages.mockRejectedValueOnce(
                     new MessageSizeTooLarge('too large', new Error('too large'))
                 )
-                const input = createInput([createProcessedEvent()], mode)
+                const input = createInput([createProcessedEvent()], mode, keepWritingFlagCallsToEvents)
 
                 const result = await step(input)
 
