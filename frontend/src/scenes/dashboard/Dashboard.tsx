@@ -25,7 +25,7 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { DashboardFilterBar } from 'products/dashboards/frontend/DashboardFilters'
@@ -144,6 +144,7 @@ function DashboardScene({
         placement,
         isPreview,
         dashboard,
+        dashboardMode,
         canEditDashboard,
         tiles,
         itemsLoading,
@@ -220,7 +221,10 @@ function DashboardScene({
     }
 
     return (
-        <SceneContent className={cn('dashboard', compact && 'gap-y-2')}>
+        <SceneContent
+            className={cn('dashboard', compact && 'gap-y-2')}
+            fullWidth={dashboardMode === DashboardMode.Fullscreen}
+        >
             {placement == DashboardPlacement.Dashboard && (
                 <DashboardHeader
                     loading={!dashboard && !dashboardFailedToLoad}
