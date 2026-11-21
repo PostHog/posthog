@@ -3,6 +3,7 @@ import {
     IconCode,
     IconDatabase,
     IconDecisionTree,
+    IconFlask,
     IconPulse,
     IconToggle,
     IconTrending,
@@ -17,6 +18,7 @@ export type HealthIssueCategory =
     | 'pipelines'
     | 'error_tracking'
     | 'feature_flags'
+    | 'experiments'
     | 'other'
 
 export type HealthIssueKind =
@@ -36,6 +38,9 @@ export type HealthIssueKind =
     | 'external_data_failure'
     | 'error_tracking_missing_source_maps'
     | 'stale_feature_flags'
+    | 'experiment_flag_state'
+    | 'experiment_forced_variant'
+    | 'experiment_no_metric'
 
 export interface CategoryConfig {
     label: string
@@ -95,6 +100,14 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
         icon: <IconToggle className="size-5" />,
         showInSummary: true,
     },
+    experiments: {
+        label: 'Experiments',
+        description: 'Experiment setup and configuration',
+        healthyDescription: 'Setup looks good',
+        icon: <IconFlask className="size-5" />,
+        // The checks run only for the teams a feature flag enables, so other teams never see an empty card.
+        showInSummary: false,
+    },
     other: {
         label: 'Other',
         description: 'Other health issues',
@@ -122,6 +135,11 @@ const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
 
     // Feature flags
     stale_feature_flags: 'feature_flags',
+
+    // Experiments
+    experiment_flag_state: 'experiments',
+    experiment_forced_variant: 'experiments',
+    experiment_no_metric: 'experiments',
 
     // Web analytics
     no_live_events: 'web_analytics',
@@ -152,6 +170,9 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     materialized_view_failure: 'Materialized view failure',
     error_tracking_missing_source_maps: 'Missing source maps',
     stale_feature_flags: 'Feature flag cleanup candidate',
+    experiment_flag_state: "Flag doesn't match experiment status",
+    experiment_forced_variant: 'Forced variant in release conditions',
+    experiment_no_metric: 'Experiment has no metric',
 }
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {
@@ -172,5 +193,6 @@ export const CATEGORY_ORDER: HealthIssueCategory[] = [
     'pipelines',
     'error_tracking',
     'feature_flags',
+    'experiments',
     'other',
 ]
