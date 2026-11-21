@@ -1,3 +1,4 @@
+import re
 import time
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -14,6 +15,7 @@ from posthog.egress.harmonic.observability import record_harmonic_admission_wait
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted, harmonic_request
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.logger import get_logger
 
 from .constants import (
     HARMONIC_BASE_URL,
@@ -44,6 +46,32 @@ _ENRICH_MAX_CONCURRENT_LOOKUPS = 24
 _ENRICH_MAX_ATTEMPTS = 3
 # Headroom below the lane's share, because the limiter decides in a worker thread after the pacing admits a request.
 _ENRICH_BUDGET_FRACTION = 0.8
+
+_DOMAIN_PATTERN = re.compile(r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$")
+
+LOGGER = get_logger(__name__)
+
+
+def _is_valid_domain(domain: str) -> bool:
+    # RFC 2606 reserves .invalid for names that must never resolve.
+    return bool(_DOMAIN_PATTERN.match(domain)) and not domain.endswith(".invalid")
+
+
+def _is_invalid_website_url_error(errors: Any) -> bool:
+    """True when Harmonic rejected the websiteUrl itself (a 422), not when the lookup failed.
+
+    Harmonic returns this inside a 200 GraphQL response, with the upstream status in
+    extensions.response. Retrying the same URL can never succeed, so it is not an outage.
+    """
+    if not isinstance(errors, list) or not errors:
+        return False
+    for error in errors:
+        response = error.get("extensions", {}).get("response", {}) if isinstance(error, dict) else None
+        if not isinstance(response, dict) or response.get("status") != 422:
+            return False
+        if "website_url" not in str(response.get("body")):
+            return False
+    return True
 
 
 class AsyncHarmonicClient:
@@ -116,6 +144,9 @@ class AsyncHarmonicClient:
             Company data dict or None if not found
         """
         domain = self._clean_domain(domain)
+        if not _is_valid_domain(domain):
+            LOGGER.warning("Skipping Harmonic lookup for invalid domain", domain=domain)
+            return None
 
         # Try domain variations
         domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
@@ -181,6 +212,10 @@ class AsyncHarmonicClient:
         sibling error — the suppressed error is captured rather than discarded, since that is
         exactly the failure mode that let the original bug hide with no signal anywhere.
 
+        A malformed domain, or one Harmonic rejects as an invalid website URL, is a not-found
+        logged as a warning. It comes from user input such as a mistyped signup email, so no
+        retry can fix it and it is not an error to page on.
+
         A shed variation always re-raises and is never suppressed by a sibling not-found. A shed
         means Harmonic was never asked, so writing the miss would archive "no Harmonic company"
         over our own throttling, and the sweep would not revisit it for up to 90 days.
@@ -189,12 +224,16 @@ class AsyncHarmonicClient:
         paces the www. fallback too. An exception from it propagates unchanged and ends the lookup.
         """
         domain = self._clean_domain(domain)
+        if not _is_valid_domain(domain):
+            LOGGER.warning("Skipping Harmonic lookup for invalid domain", domain=domain)
+            return HarmonicCompanyLookup(company=None, enrichment_urn=None)
         domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
 
         last_error: Optional[Exception] = None
         last_error_variation: Optional[str] = None
         shed_error: Optional[HarmonicEgressBudgetExhausted] = None
         saw_clean_not_found = False
+        saw_invalid_url = False
         not_found_urn: Optional[str] = None
         for domain_variation in domain_variations:
             if before_request is not None:
@@ -220,6 +259,9 @@ class AsyncHarmonicClient:
                 data = await response.json()
 
                 if "errors" in data:
+                    if _is_invalid_website_url_error(data["errors"]):
+                        saw_invalid_url = True
+                        continue
                     raise RuntimeError(f"Harmonic GraphQL errors for {domain_variation}: {data['errors']}")
 
                 result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
@@ -240,10 +282,12 @@ class AsyncHarmonicClient:
 
         if shed_error is not None:
             raise shed_error
-        if last_error is not None and not saw_clean_not_found:
+        if last_error is not None and not (saw_clean_not_found or saw_invalid_url):
             raise last_error
         if last_error is not None:
             capture_exception(last_error, {"domain": domain, "failed_variation": last_error_variation})
+        if saw_invalid_url and not saw_clean_not_found:
+            LOGGER.warning("Harmonic rejected the domain as an invalid website URL", domain=domain)
         return HarmonicCompanyLookup(company=None, enrichment_urn=not_found_urn)
 
     async def _enrich_company_by_domain_observing_denial(
