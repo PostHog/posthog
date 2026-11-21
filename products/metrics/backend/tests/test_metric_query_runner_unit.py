@@ -1,4 +1,5 @@
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -9,6 +10,7 @@ from posthog.hogql import ast
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.metric_query_runner import (
     _active_since_expr,
+    _bucket_time_text,
     _exponential_upper_edges,
     _Histogram,
     _histogram_quantile,
@@ -30,6 +32,22 @@ class TestPickInterval:
     def test_pick_interval(self, _name: str, delta: dt.timedelta, expected: str) -> None:
         start = dt.datetime(2026, 9, 15, 0, 0, 0, tzinfo=dt.UTC)
         assert _pick_interval(start, start + delta) == expected
+
+
+class TestBucketTimeText:
+    @parameterized.expand(
+        [
+            (
+                "datetime_keeps_its_offset",
+                dt.datetime(2026, 10, 5, 13, tzinfo=ZoneInfo("Asia/Kolkata")),
+                "2026-10-05T13:00:00+05:30",
+            ),
+            # ClickHouse returns week buckets as dates.
+            ("week_date_is_project_midnight", dt.date(2026, 10, 5), "2026-10-05T00:00:00+05:30"),
+        ]
+    )
+    def test_bucket_time_text(self, _name: str, value: dt.date, expected: str) -> None:
+        assert _bucket_time_text(value, ZoneInfo("Asia/Kolkata")) == expected
 
 
 class TestActiveSinceExpr:
