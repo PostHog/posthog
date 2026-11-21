@@ -5752,12 +5752,12 @@ class HogFlowViewSet(
         if self.action == "user_blast_radius":
             data = request.data if isinstance(request.data, dict) else {}
             filters = data.get("filters")
-            group_type_index = data.get("group_type_index")
+            # The serializer coerces a numeric string or float to an index, so any value that is not null sizes groups.
             return [
                 "hog_flow:read",
                 *audience_sizing_data_scopes(
                     filters if isinstance(filters, dict) else None,
-                    group_type_index if isinstance(group_type_index, int) else None,
+                    is_group_audience=data.get("group_type_index") is not None,
                 ),
             ]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload

@@ -5768,6 +5768,7 @@ class TestHogFlowAPI(APIBaseTest):
         [
             ("person_read_cannot_size_groups", ["hog_flow:read", "person:read"], 403),
             ("group_read_can_size_groups", ["hog_flow:read", "group:read"], 200),
+            ("person_read_cannot_size_groups_by_string_index", ["hog_flow:read", "person:read"], 403),
             ("group_read_cannot_run_a_hogql_filter", ["hog_flow:read", "group:read"], 403),
             ("both_scopes_can_run_a_hogql_filter", ["hog_flow:read", "group:read", "person:read"], 200),
         ]
@@ -5786,7 +5787,7 @@ class TestHogFlowAPI(APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                {"filters": {"properties": [prop]}, "group_type_index": 0},
+                {"filters": {"properties": [prop]}, "group_type_index": "0" if "string_index" in name else 0},
                 headers={"authorization": f"Bearer {key}"},
             )
 

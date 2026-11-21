@@ -47,10 +47,10 @@ REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS = 600
 AUDIENCE_COUNT_CACHE_SECONDS = 600
 
 
-def audience_sizing_data_scopes(filters: dict[str, Any] | None, group_type_index: int | None) -> list[str]:
+def audience_sizing_data_scopes(filters: dict[str, Any] | None, is_group_audience: bool) -> list[str]:
     """The API scopes, beyond workflow read, that sizing an audience needs for the data its filters read."""
     properties = filters.get("properties") if filters else None
-    return blast_radius_data_scopes(properties, group_type_index)
+    return blast_radius_data_scopes(properties, 0 if is_group_audience else None)
 
 
 def _realtime_audience_total(team: Team) -> int:
