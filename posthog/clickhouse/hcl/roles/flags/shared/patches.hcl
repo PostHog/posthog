@@ -1,6 +1,7 @@
-# The flags cluster is one shard with replicas. Its Kafka consumer and its storage table
-# share a host, so the MV writes straight into the storage table and there is no
-# writable_flag_evaluations proxy. The consumer runs four threads under its own group.
+# The flags cluster is one shard with replicas. Its Kafka consumers and its storage tables
+# share a host, so the MVs write straight into the storage tables and there is no
+# writable_flag_evaluations proxy. Both the sharded_flag_evaluations and the
+# sharded_flag_evaluations_json consumers run four threads under their own groups.
 database "posthog" {
   patch_table "sharded_flag_evaluations" {
     settings = {

@@ -132,9 +132,10 @@ role "batch_exports" {
 }
 
 # FLAGS satellite: the feature flag evaluation store, split off the main cluster. Holds
-# sharded_flag_evaluations, the Kafka consumer and the MV that fills it, plus the
-# flag_evaluations read table. The data nodes read it through that table, so prod data
-# points it at this cluster (roles/data/prod). Dev is not modeled: no flags cluster is
+# sharded_flag_evaluations and its native-JSON counterpart sharded_flag_evaluations_json,
+# each with a Kafka consumer and the MV that fills it, plus the flag_evaluations read table.
+# The data nodes read it through that table, so prod data points it at this cluster
+# (roles/data/prod). Dev is not modeled: no flags cluster is
 # confirmed there, and dev data keeps the storage table. The local stacks have no flags
 # node and keep the storage on data and the consumer on medium.
 role "flags" {

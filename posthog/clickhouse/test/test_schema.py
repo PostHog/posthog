@@ -483,16 +483,17 @@ def test_flag_evaluations_json_fills_typed_columns_from_the_cleaned_json() -> No
     )
 
     rows = sync_execute(
-        f"SELECT distinct_id, flag_key, response, request_id FROM {FLAG_EVALUATIONS_JSON_TABLE} "
+        "SELECT distinct_id, flag_key, response, request_id, inserted_at > timestamp, captured_at = created_at "
+        f"FROM {FLAG_EVALUATIONS_JSON_TABLE} "
         "WHERE team_id = %(team_id)s ORDER BY distinct_id",
         {"team_id": team_id},
     )
     assert rows == [
-        ("absent", "f", "", ""),
-        ("false", "f", "false", "r2"),
-        ("null", "f", "null", ""),
-        ("true", "f", "true", "r1"),
-        ("variant", "f", "variant-a", "r3"),
+        ("absent", "f", "", "", 1, 1),
+        ("false", "f", "false", "r2", 1, 1),
+        ("null", "f", "null", "", 1, 1),
+        ("true", "f", "true", "r1", 1, 1),
+        ("variant", "f", "variant-a", "r3", 1, 1),
     ]
 
 
