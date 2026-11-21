@@ -254,7 +254,12 @@ def _send(team: Team, people: list[StagedPerson], key: str) -> None:
             object_storage.write(acknowledged_key, json.dumps(sorted(acknowledged)))
         events = [event for event in events if event["event_uuid"] in unacknowledged]
     if events:
-        raise ContactsCaptureFailed(f"Capture didn't acknowledge {len(events)} events.")
+        new = {event["event_uuid"] for event, person in zip(set_events(people, key), people) if person.get("new")}
+        raise ContactsCaptureFailed(
+            f"Capture didn't acknowledge {len(events)} events.",
+            acknowledged=len(acknowledged),
+            new_people=len(acknowledged & new),
+        )
 
 
 def fill_contacts_cohort(

@@ -431,10 +431,11 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
             return CaptureInternalResult(status_code=200, ok=uuids)
 
         capture.side_effect = acknowledge_all_but_the_last
-        with self.assertRaises(provider_contacts.ContactsCaptureFailed):
+        with self.assertRaises(provider_contacts.ContactsCaptureFailed) as failed:
             provider_contacts.import_contact_chunk(
                 self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
             )
+        assert (failed.exception.acknowledged, failed.exception.new_people) == (1, 0)
         outcome = provider_contacts.import_contact_chunk(
             self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
         )

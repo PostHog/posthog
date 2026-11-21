@@ -3,7 +3,7 @@ from datetime import timedelta
 import temporalio.workflow
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, ChildWorkflowError, is_cancelled_exception
+from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError, is_cancelled_exception
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -153,6 +153,13 @@ class ProviderImportWorkflow(PostHogWorkflow):
 CONTACTS_IMPORT_WORKFLOW = "messaging-provider-contacts-import"
 
 
+def _acknowledged_people(error: ActivityError) -> tuple[int, int]:
+    cause = error.cause
+    if isinstance(cause, ApplicationError) and cause.type == "ContactsCaptureFailed" and len(cause.details) == 2:
+        return int(cause.details[0]), int(cause.details[1])
+    return 0, 0
+
+
 @workflow.defn(name=CONTACTS_IMPORT_WORKFLOW)
 class ProviderContactsImportWorkflow(PostHogWorkflow):
     """Sends a step's stored contact lists part by part, then sets each list's cohort to exactly its people."""
@@ -203,11 +210,15 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                     heartbeat_timeout=CHUNK_HEARTBEAT_TIMEOUT,
                     retry_policy=CHUNK_RETRY_POLICY,
                 )
-            except ActivityError:
+            except ActivityError as error:
                 # The lists fill separate cohorts, so one that fails does not stop the others.
                 workflow.logger.warning("Contact list import failed", extra={"cohort_id": plan.cohort_id})
                 failed_lists += 1
-                people_not_sent = people_not_sent or (sending and plan.send_events)
+                acknowledged, new_acknowledged = _acknowledged_people(error) if plan.send_events else (0, 0)
+                sent_people += acknowledged
+                new_people += new_acknowledged
+                # Lists below still wait for people from a part capture took some of.
+                people_not_sent = people_not_sent or (sending and plan.send_events and not acknowledged)
                 await workflow.execute_activity(
                     fail_contacts_cohort_activity,
                     cohort,

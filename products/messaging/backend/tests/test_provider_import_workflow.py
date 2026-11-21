@@ -122,7 +122,7 @@ async def test_the_run_deletes_its_stored_contacts_however_it_ends(ending: str) 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", [None, "fill", "send"])
+@pytest.mark.parametrize("failure", [None, "fill", "send", "partial send"])
 async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(failure: str | None) -> None:
     calls: list[str] = []
     recorded: list[ContactsImportOutcome] = []
@@ -141,6 +141,8 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(failur
         chunk_attempts[key] = chunk_attempts.get(key, 0) + 1
         if failure == "send" and key == ("prefix", 1):
             raise ApplicationError("Capture didn't acknowledge 3 events.")
+        if failure == "partial send" and key == ("prefix", 1):
+            raise ApplicationError("Capture didn't acknowledge 1 events.", 2, 1, type="ContactsCaptureFailed")
         if key == ("prefix", 1) and chunk_attempts[key] == 1:
             raise ApplicationError("The worker went away")
         calls.append(
@@ -197,6 +199,10 @@ async def test_stored_contacts_are_sent_part_by_part_before_the_next_step(failur
         "fill": (
             ["prefix chunk 1", "fail 7", "segment chunk 0", "fill 8"],
             ContactsImportOutcome(people=9, found=6, removed=1, failed_lists=1, retried_chunks=1, sent=6, new_people=2),
+        ),
+        "partial send": (
+            ["fail 7", "segment chunk 0", "fill 8"],
+            ContactsImportOutcome(people=6, found=4, removed=1, failed_lists=1, retried_chunks=0, sent=5, new_people=2),
         ),
         "send": (
             ["fail 7", "segment chunk 0 without waiting", "fill 8"],
