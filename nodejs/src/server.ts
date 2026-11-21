@@ -117,6 +117,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpSesWebhooks ||
             capabilities.cdpIntakeTransactionalEmail ||
             capabilities.cdpIntakeWorkflowWebhook ||
+            capabilities.cdpIntakeTransactionalPush ||
             capabilities.cdpPersonUpdates ||
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
@@ -366,6 +367,7 @@ export class PluginServer implements NodeServer {
         for (const [enabled, kind] of [
             [capabilities.cdpIntakeTransactionalEmail, 'transactional-email'],
             [capabilities.cdpIntakeWorkflowWebhook, 'workflow-webhook'],
+            [capabilities.cdpIntakeTransactionalPush, 'transactional-push'],
         ] as const) {
             if (enabled) {
                 serviceLoaders.push(async () => {

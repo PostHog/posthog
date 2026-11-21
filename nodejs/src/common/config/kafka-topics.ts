@@ -98,6 +98,7 @@ export const KAFKA_CDP_EVENTS_DLQ = `${prefix}cdp_events_dlq${suffix}`
 export const KAFKA_CDP_SES_WEBHOOKS = `${prefix}cdp_ses_webhooks${suffix}`
 export const KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL = `${prefix}cdp_intake_transactional_email${suffix}`
 export const KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK = `${prefix}cdp_intake_workflow_webhook${suffix}`
+export const KAFKA_CDP_INTAKE_TRANSACTIONAL_PUSH = `${prefix}cdp_intake_transactional_push${suffix}`
 // One dead-letter topic for both intake topics. A record holds the original message bytes and a fixed reason code.
 export const KAFKA_CDP_INTAKE_DLQ = `${prefix}cdp_intake_dlq${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`

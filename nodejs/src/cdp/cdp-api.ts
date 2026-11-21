@@ -32,13 +32,14 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
-import { RunIntake } from './intake/run-intake'
+import { IntakeProducer, intakeClusterOf, intakeModeOf, pushIntakeModeOf } from './intake/intake-producer'
+import { Committed, Recalled, Run, RunIntake, keyedRunId } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
+import { isLockTimeout } from './services/cyclotron-v2/manager'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
 import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -53,8 +54,9 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogf
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
-import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from './services/hogflows/hogflow-quota-limiting'
-import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
+import { HOG_FLOW_QUOTA_LIMITED_MESSAGE, checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
+import { hasSensitiveMessageStep } from './services/hogflows/hogflow-sensitivity'
+import { hasPushActions, matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import {
     SCHEDULED_RUNS_PER_BATCH,
     ScheduledRuns,
@@ -77,6 +79,16 @@ import {
     isRecipientFormatIssue,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
+import {
+    TRANSACTIONAL_PUSH_EVENT,
+    TRANSACTIONAL_PUSH_RUN_SCOPE,
+    TRANSACTIONAL_PUSH_TOKEN_CLAIMS,
+    TransactionalPushOutcome,
+    TransactionalPushRequestSchema,
+    sendsOnlyPush,
+    transactionalPushFingerprints,
+    transactionalPushRequestsTotal,
+} from './services/hogflows/transactional-push'
 import {
     ScheduledTransactionalSends,
     TransactionalSendResult,
@@ -574,6 +586,7 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
             asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema, CODE_SEND_TOKEN_CLAIMS))
         )
+        router.post('/api/projects/:team_id/hog_flows/:id/transactional_push', asyncHandler(this.postTransactionalPush))
         router.post(
             '/api/projects/:team_id/transactional_email/attachments/uploads',
             asyncHandler(this.postAttachmentUploads)
@@ -1549,7 +1562,8 @@ export class CdpApi {
                 if (!hogFlow || hogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }
-                if (hogFlow.trigger?.type !== 'api') {
+                // A push step reads the person's device tokens, which an email send key must not reach.
+                if (hogFlow.trigger?.type !== 'api' || hasPushActions(hogFlow.actions)) {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
                 const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
@@ -1707,6 +1721,178 @@ export class CdpApi {
         }
         const { status, body } = await this.attachmentUploads.prepare(parseInt(req.params.team_id), req.body)
         return res.status(status).json(body)
+    }
+
+    private postTransactionalPush = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        const reply = (outcome: TransactionalPushOutcome, status: number, body: Record<string, unknown>) => {
+            transactionalPushRequestsTotal.inc({ outcome })
+            return res.status(status).json(body)
+        }
+        try {
+            if (!this.transactionalEmailJwt.enabled) {
+                return reply('not_configured', 503, {
+                    error: 'Transactional push auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
+                })
+            }
+            if (
+                !this.verifyScopedWorkflowJwt(
+                    this.transactionalEmailJwt,
+                    req,
+                    res,
+                    'transactional push',
+                    TRANSACTIONAL_PUSH_TOKEN_CLAIMS
+                )
+            ) {
+                transactionalPushRequestsTotal.inc({ outcome: 'unauthorized' })
+                return
+            }
+            const parsed = TransactionalPushRequestSchema.safeParse(req.body)
+            if (!parsed.success) {
+                logger.warn('⚠️', 'Transactional push request failed validation', {
+                    team_id: req.params.team_id,
+                    hog_flow_id: req.params.id,
+                    issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
+                })
+                return reply('invalid_request', 400, { error: 'invalid_request' })
+            }
+            const { distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data
+
+            const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id))
+            if (!team) {
+                return reply('not_found', 404, { error: 'Team not found' })
+            }
+            const hogFlow = await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return reply('not_found', 404, { error: 'Workflow not found' })
+            }
+
+            // The first one is stored with a new claim. The others match a claim signed before a key rotation.
+            const fingerprints = transactionalPushFingerprints(this.fingerprintSigner, hogFlow.id, parsed.data)
+            const runId = idempotencyKey ? keyedRunId(team.id, TRANSACTIONAL_PUSH_RUN_SCOPE, idempotencyKey) : undefined
+            const answerClaim = (claimedFingerprint: string | undefined) =>
+                claimedFingerprint !== undefined && fingerprints.includes(claimedFingerprint)
+                    ? reply('replayed', 202, { status: 'queued', invocation_id: runId, replayed: true })
+                    : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
+            const intake = this.transactionalPushIntakeForRequest()
+            // An unsealed sensitive push stays off the topic, because its variables can hold a login code.
+            const isAsync =
+                intake.modeOf(team.id) === 'async' &&
+                (this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE || !hasSensitiveMessageStep(hogFlow))
+            // Checked before the workflow, so a retry still gets its answer after someone turns the workflow off.
+            if (runId) {
+                const claim = { runId, fingerprint: fingerprints[0] }
+                let recalled: Recalled
+                if (isAsync) {
+                    recalled = await intake.recallWithin(claim, 'transactional-push')
+                } else {
+                    try {
+                        recalled = await intake.recall(claim)
+                    } catch (error) {
+                        logger.error('🔑', 'Transactional push claim lookup failed', {
+                            error: error instanceof Error ? error.message : String(error),
+                        })
+                        return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                    }
+                }
+                if (recalled.status !== 'absent') {
+                    return answerClaim(recalled.claimedFingerprint)
+                }
+            }
+            if (hogFlow.trigger?.type !== 'api' || hogFlow.status !== 'active' || !sendsOnlyPush(hogFlow)) {
+                return reply('not_sendable', 400, { error: 'not_sendable' })
+            }
+
+            const event: HogFunctionInvocationGlobals['event'] = {
+                uuid: new UUIDT().toString(),
+                event: TRANSACTIONAL_PUSH_EVENT,
+                distinct_id: distinctId,
+                timestamp: DateTime.now().toISO(),
+                url: '',
+                properties: {},
+                elements_chain: '',
+            }
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                event,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+                variables,
+            }
+            const filterGlobals = convertToHogFunctionFilterGlobal({ event, person: undefined, groups: {}, variables })
+            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            invocation.state.triggerMetricPending = true
+            if (runId) {
+                invocation.id = runId
+            }
+
+            if ((await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)).isLimited) {
+                return reply('quota_limited', 429, { error: 'quota_limited' })
+            }
+            const run: Run = runId
+                ? { kind: 'transactional-push', invocation, claim: { fingerprint: fingerprints[0] } }
+                : { kind: 'transactional-push', invocation }
+
+            if (isAsync) {
+                // The intake consumer makes the claim, inserts the run and writes its rows.
+                switch (await intake.produce(run)) {
+                    case 'accepted':
+                        return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
+                    case 'unavailable':
+                        return reply('intake_unavailable', 503, { error: 'intake_unavailable' })
+                    case 'too_large':
+                        return reply('message_too_large', 413, { error: 'message_too_large' })
+                    case 'invalid':
+                        return reply('invalid_request', 400, { error: 'invalid_request' })
+                }
+            }
+
+            let committed: Committed
+            try {
+                // Two sends with one key can both pass the lookup above, and the insert lets only one through.
+                ;[committed] = await intake.launch([run], { wait: 'committed' })
+            } catch (error) {
+                if (isLockTimeout(error)) {
+                    return reply('idempotency_unavailable', 503, { error: 'idempotency_unavailable' })
+                }
+                throw error
+            }
+            if (committed.outcome !== 'created') {
+                return answerClaim(committed.outcome === 'replayed' ? fingerprints[0] : committed.claimedFingerprint)
+            }
+            // Best-effort rows, so the 202 waits for the hand-off to Kafka but not the acks.
+            const { produced } = await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
+            void produced.catch((error: unknown) =>
+                logger.warn('⚠️', 'Transactional push telemetry flush failed', {
+                    error: error instanceof Error ? error.message : String(error),
+                    invocation_id: invocation.id,
+                })
+            )
+
+            return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
+        } catch (e) {
+            logger.error('Error queueing transactional push', { error: e instanceof Error ? e.message : String(e) })
+            return reply('error', 500, { error: 'internal_error' })
+        }
+    }
+
+    // Its own topic and team list, so push moves onto Kafka without touching transactional email.
+    private transactionalPushIntakeForRequest(): RunIntake {
+        return new RunIntake({
+            hogflowQueue: this.hogflowQueue,
+            invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+            intake: {
+                modeOf: pushIntakeModeOf(this.config),
+                producer: new IntakeProducer(
+                    this.outputs,
+                    undefined,
+                    createInvocationSanitizer(this.config).seal,
+                    intakeClusterOf(this.config)
+                ),
+                sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
+            },
+        })
     }
 
     private transactionalSendsForRequest(): TransactionalSends {

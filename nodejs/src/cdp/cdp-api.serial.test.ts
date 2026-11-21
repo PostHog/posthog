@@ -79,6 +79,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { transactionalPushFingerprints } from './services/hogflows/transactional-push'
 import { FINGERPRINT_PURPOSE } from './services/hogflows/transactional-sends'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
@@ -5147,11 +5148,29 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
+        const withPushStep = (hogFlow: HogFlow): HogFlow => ({
+            ...hogFlow,
+            actions: [
+                ...hogFlow.actions,
+                {
+                    id: 'push',
+                    name: 'push',
+                    description: '',
+                    type: 'function_push',
+                    config: { template_id: 'template-native-push', inputs: {} },
+                    created_at: 0,
+                    updated_at: 0,
+                } as any,
+            ],
+        })
+
         it.each([
-            ['a workflow with another trigger', 'schedule', 'active'],
-            ['a transactional email that is not active', 'api', 'draft'],
-        ] as const)('refuses to run %s', async (_desc, trigger, status) => {
-            const other = await insertHogFlow(transactionalFlow(trigger, status))
+            ['a workflow with another trigger', 'schedule', 'active', false],
+            ['a transactional email that is not active', 'api', 'draft', false],
+            ['a workflow that also sends a push', 'api', 'active', true],
+        ] as const)('refuses to run %s', async (_desc, trigger, status, push) => {
+            const flow = transactionalFlow(trigger, status)
+            const other = await insertHogFlow(push ? withPushStep(flow) : flow)
 
             const res = await send(other.id, { Authorization: `Bearer ${mintToken(team.id, other.id)}` })
 
@@ -6042,6 +6061,254 @@ describe('CDP API', () => {
             expect(res.body.nextActionId).toBe('exit')
         })
     })
+    describe('transactional push', () => {
+        let mockQueueInvocations: jest.Mock
+        const body = { distinct_id: 'distinct_A_1', variables: { order_id: '42' } }
+
+        const mintToken = (
+            hogFlowId: string,
+            claims: Record<string, string> = { kind: 'push' },
+            { secret = 'local-dev-workflows-transactional-email-jwt' }: { secret?: string } = {}
+        ) =>
+            jwt.sign({ team_id: team.id, hog_flow_id: hogFlowId, ...claims }, secret, {
+                audience: 'posthog:workflows:send_transactional_email',
+                expiresIn: '2m',
+            })
+        const pushFlow = (status: HogFlow['status'] = 'active', stepType = 'function_push'): HogFlow =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus(status)
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: 'api' } },
+                        push: {
+                            type: stepType as any,
+                            config: {
+                                template_id: stepType === 'function_push' ? 'template-native-push' : 'template-email',
+                                inputs: {},
+                                message_category_type: 'transactional',
+                            },
+                        },
+                    },
+                    edges: [{ from: 'trigger', to: 'push', type: 'continue' }],
+                })
+                .build()
+        const send = (flowId: string, token: string, payload: Record<string, unknown> = body) =>
+            supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flowId}/transactional_push`)
+                .set({ Authorization: `Bearer ${token}` })
+                .send(payload)
+
+        beforeEach(() => {
+            mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['hogflowQueue'] = createMockJobQueue()
+            jest.spyOn(api['hogflowQueue'], 'queueInvocations').mockImplementation(mockQueueInvocations)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('queues one run on the workflow queue for the person, with the data', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+
+            const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+            expect(res.status).toEqual(202)
+            expect(res.body).toEqual({ status: 'queued', invocation_id: expect.any(String), replayed: false })
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            const [invocation] = mockQueueInvocations.mock.calls[0][0]
+            expect(invocation).toMatchObject({
+                id: res.body.invocation_id,
+                teamId: team.id,
+                functionId: hogFlow.id,
+                queue: 'hogflow',
+                state: {
+                    event: { event: '$transactional_push', distinct_id: 'distinct_A_1', properties: {} },
+                    variables: { order_id: '42' },
+                    triggerMetricPending: true,
+                },
+            })
+        })
+
+        it.each([
+            ['an email send token on the push route', 'transactional_push', {}],
+            ['a push token on the email route', 'transactional_email', { kind: 'push' }],
+        ])('refuses %s', async (_name, route, claims) => {
+            const hogFlow = await insertHogFlow(pushFlow())
+
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`)
+                .set({ Authorization: `Bearer ${mintToken(hogFlow.id, claims)}` })
+                .send({ ...body, to: 'user@example.com' })
+
+            expect(res.status).toEqual(401)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['a workflow that is turned off', 'draft', 'function_push', {}],
+            ['a workflow that no longer only sends a push', 'active', 'function_email', {}],
+        ])('refuses %s', async (_name, status, stepType) => {
+            const hogFlow = await insertHogFlow(pushFlow(status as HogFlow['status'], stepType))
+
+            const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+            expect(res.status).toEqual(400)
+            expect(res.body).toEqual({ error: 'not_sendable' })
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('refuses a send when the team is over its destinations quota', async () => {
+            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockImplementation((_teamId, resource) =>
+                Promise.resolve(resource === 'workflow_destinations_dispatched')
+            )
+            const hogFlow = await insertHogFlow(pushFlow())
+
+            const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+            expect(res.status).toEqual(429)
+            expect(res.body).toEqual({ error: 'quota_limited' })
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('answers a retry with the same key with the first send, and refuses the key for another request', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+            const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+
+            const queueIdempotently = jest.spyOn(api['hogflowQueue'], 'queueInvocationsIdempotently')
+
+            const first = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
+            const retry = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
+            const other = await send(hogFlow.id, mintToken(hogFlow.id), { ...keyed, distinct_id: 'someone-else' })
+
+            expect(first.status).toEqual(202)
+            expect(retry.body).toEqual({ status: 'queued', invocation_id: first.body.invocation_id, replayed: true })
+            expect(other.status).toEqual(422)
+            expect(queueIdempotently).toHaveBeenCalledTimes(1)
+            expect(await api['hogflowQueue'].findIdempotencyKey(first.body.invocation_id)).toMatchObject({
+                fingerprint: transactionalPushFingerprints(api['fingerprintSigner'], hogFlow.id, keyed)[0],
+            })
+        })
+
+        it('answers a retry with the first send after the workflow is turned off', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+            const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+            const first = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
+            jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockResolvedValue({
+                ...hogFlow,
+                status: 'draft',
+            })
+
+            const retry = await send(hogFlow.id, mintToken(hogFlow.id), keyed)
+            const fresh = await send(hogFlow.id, mintToken(hogFlow.id), { ...keyed, idempotency_key: 'another-key' })
+
+            expect(retry.body).toEqual({ status: 'queued', invocation_id: first.body.invocation_id, replayed: true })
+            expect(fresh.status).toEqual(400)
+        })
+
+        it('answers a failed team lookup as a server error, not as a missing team', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+            jest.spyOn(api['deps'].teamManager, 'getTeam').mockRejectedValueOnce(new Error('connection timeout'))
+
+            const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+            expect(res.status).toEqual(500)
+            expect(res.body).toEqual({ error: 'internal_error' })
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('queues one run when two sends with one key race past the lookup', async () => {
+            const hogFlow = await insertHogFlow(pushFlow())
+            const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+            jest.spyOn(api['hogflowQueue'], 'findIdempotencyKey').mockResolvedValue(null)
+
+            const [a, b] = await Promise.all([
+                send(hogFlow.id, mintToken(hogFlow.id), keyed),
+                send(hogFlow.id, mintToken(hogFlow.id), keyed),
+            ])
+
+            expect([a.body.replayed, b.body.replayed].sort()).toEqual([false, true])
+            expect(a.body.invocation_id).toEqual(b.body.invocation_id)
+        })
+
+        describe('with its team on the push intake topic', () => {
+            let produceOutput: jest.SpyInstance
+            const producedTo = (output: string) =>
+                produceOutput.mock.calls.filter(([name]) => name === output).map(([, message]) => message)
+
+            beforeEach(() => {
+                produceOutput = jest.spyOn(api['outputs'], 'produce').mockResolvedValue(undefined)
+                api['config'].CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS = String(team.id)
+            })
+
+            afterEach(() => {
+                api['config'].CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS = ''
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
+            })
+
+            it('answers on the broker ack and leaves the insert to the push consumer', async () => {
+                const hogFlow = await insertHogFlow(pushFlow())
+
+                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+                expect(res.status).toEqual(202)
+                expect(res.body).toEqual({ status: 'queued', invocation_id: expect.any(String), replayed: false })
+                expect(producedTo('cdp_intake_transactional_push')).toEqual([
+                    expect.objectContaining({ key: res.body.invocation_id }),
+                ])
+                expect(producedTo('cdp_intake_transactional_email')).toEqual([])
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            it('inserts the run itself when only email teams are on the intake topic', async () => {
+                api['config'].CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS = ''
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = '*'
+                const hogFlow = await insertHogFlow(pushFlow())
+
+                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(producedTo('cdp_intake_transactional_push')).toEqual([])
+            })
+
+            it('answers 503 intake_unavailable when the broker refuses the run', async () => {
+                produceOutput.mockImplementation((output: string) =>
+                    output === 'cdp_intake_transactional_push'
+                        ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
+                        : Promise.resolve()
+                )
+                const hogFlow = await insertHogFlow(pushFlow())
+
+                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+                expect(res.status).toEqual(503)
+                expect(res.body).toEqual({ error: 'intake_unavailable' })
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+            })
+
+            it.each([
+                ['inserts it itself while state sealing is off', false, 1, 0],
+                ['produces it sealed while state sealing is on', true, 0, 1],
+            ])('for a sensitive push, %s', async (_name, sealing, inserted, produced) => {
+                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+                const flow = pushFlow()
+                const step = flow.actions.find((action) => action.type === 'function_push')!
+                step.config = { ...step.config, sensitive: true } as typeof step.config
+                const hogFlow = await insertHogFlow(flow)
+
+                const res = await send(hogFlow.id, mintToken(hogFlow.id))
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(inserted)
+                expect(producedTo('cdp_intake_transactional_push')).toHaveLength(produced)
+            })
+        })
+    })
+
     describe('transactional email attachment uploads', () => {
         const LARGE_DAILY_CAP = 50_000_000_000
         let store: S3AttachmentStore

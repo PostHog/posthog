@@ -8,8 +8,10 @@ import { UUIDT } from '~/common/utils/utils'
 
 import {
     CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT,
     CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
     CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT,
     CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
 } from '../outputs/outputs'
 import { CyclotronJobInvocationHogFlow } from '../types'
@@ -22,6 +24,7 @@ import {
     intakeClusterOf,
     intakeModeOf,
     publishesSettled,
+    pushIntakeModeOf,
 } from './intake-producer'
 
 describe('IntakeProducer', () => {
@@ -40,6 +43,8 @@ describe('IntakeProducer', () => {
             [CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT),
             [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT),
             [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT),
+            [CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT]: recorder(CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT),
+            [CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT]: recorder(CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT),
         })
     }
 
@@ -94,6 +99,8 @@ describe('IntakeProducer', () => {
         ['b-1:9094', '*', 'async', 'workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, 'msk'],
         ['b-1:9094', '8', 'shadow', 'transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'warpstream'],
         ['', '*', 'async', 'workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, 'warpstream'],
+        ['b-1:9094', '*', 'async', 'transactional-push', CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT, 'msk'],
+        ['', '*', 'async', 'transactional-push', CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT, 'warpstream'],
     ] as const)(
         'with MSK brokers %p and MSK teams %p, routes a %s %s run of team 7 to %s',
         async (brokers, mskTeams, mode, kind, output, cluster) => {
@@ -298,6 +305,17 @@ describe('IntakeProducer', () => {
         ['8,9', '10', 'off'],
     ])('runs team 7 with shadow teams %p and async teams %p as %s', (shadow, asyncTeams, mode) => {
         const modeOf = intakeModeOf({ CDP_INTAKE_KAFKA_SHADOW_TEAMS: shadow, CDP_INTAKE_KAFKA_ASYNC_TEAMS: asyncTeams })
+
+        expect(modeOf(7)).toBe(mode)
+    })
+
+    it.each([
+        ['', 'off'],
+        ['8,9', 'off'],
+        ['7', 'async'],
+        ['*', 'async'],
+    ])('runs the pushes of team 7 with push async teams %p as %s', (pushTeams, mode) => {
+        const modeOf = pushIntakeModeOf({ CDP_INTAKE_KAFKA_PUSH_ASYNC_TEAMS: pushTeams })
 
         expect(modeOf(7)).toBe(mode)
     })

@@ -20,11 +20,15 @@ export const CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT = 'cdp_intake_transactional_e
 export const CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT = 'cdp_intake_workflow_webhook' as const
 export const CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT = 'cdp_intake_msk_transactional_email' as const
 export const CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT = 'cdp_intake_msk_workflow_webhook' as const
+export const CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT = 'cdp_intake_transactional_push' as const
+export const CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT = 'cdp_intake_msk_transactional_push' as const
 export type CdpIntakeRunOutput =
     | typeof CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT
     | typeof CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT
     | typeof CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT
     | typeof CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT
+    | typeof CDP_INTAKE_TRANSACTIONAL_PUSH_OUTPUT
+    | typeof CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT
 
 export const SES_WEBHOOKS_OUTPUT = 'ses_webhooks' as const
 export type SesWebhooksOutput = typeof SES_WEBHOOKS_OUTPUT
