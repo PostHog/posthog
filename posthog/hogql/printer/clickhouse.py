@@ -34,7 +34,7 @@ from posthog.hogql.escape_sql import (
     escape_clickhouse_string,
     safe_identifier,
 )
-from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS, find_hogql_aggregation
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
@@ -170,8 +170,8 @@ _JSON_KEY_PATH_FUNCTIONS = frozenset(
 _JSON_FUNCTIONS_WITH_TRAILING_TYPE = frozenset({"JSONExtract", "JSONExtractKeysAndValues"})
 
 
-WHOLE_DOCUMENT_FILTER_ERROR = (
-    "Can't filter on the whole properties column. Filter on the properties you need, like properties.$current_url."
+WHOLE_DOCUMENT_SEARCH_ERROR = (
+    "Can't search the whole properties column. Use the properties you need, like properties.$current_url."
 )
 
 
@@ -710,8 +710,8 @@ class ClickHousePrinter(BasePrinter):
         resolved_field = self._events_json_document_field(type)
         if resolved_field is None:
             return None
-        if self._in_filter_condition and not self._document_feeds_key_read():
-            raise QueryError(WHOLE_DOCUMENT_FILTER_ERROR)
+        if not self._document_read_is_allowed():
+            raise QueryError(WHOLE_DOCUMENT_SEARCH_ERROR)
         prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
         if resolved_field.name == "properties":
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
@@ -726,19 +726,20 @@ class ClickHousePrinter(BasePrinter):
             serialized = json_document_sql(field_sql)
         return serialized
 
-    def _document_feeds_key_read(self) -> bool:
-        """Whether the document being printed goes straight into a read of one of its keys.
+    def _document_read_is_allowed(self) -> bool:
+        """Whether the document being printed may be rebuilt where the query reads it.
 
         The native events table has no stored document, so the printer rebuilds one for every row the expression runs
-        on, and a filter runs on every row the query scans. A key read that no subcolumn answers, such as a restricted
-        key or a JSON function with a computed key, still needs the rebuilt document and stays allowed. Any other use
-        in a filter compares or searches the text of the whole document.
+        on. A filter and the arguments of an aggregate run on every row the query scans, so a search or a comparison
+        of the document text there is rejected. A key read that no subcolumn answers, such as a restricted key or a
+        JSON function with a computed key, still needs the rebuilt document and stays allowed. So does an aggregate
+        that takes the document itself, such as `argMax(properties, timestamp)`, because no key can replace it.
         """
         index = len(self.stack) - 1
         if index >= 0 and isinstance(self.stack[index], ast.FieldType):
             index -= 1
         if index < 0:
-            return False
+            return True
         if isinstance(self.stack[index], ast.PropertyType):
             return True
         document = self.stack[index]
@@ -749,12 +750,32 @@ class ClickHousePrinter(BasePrinter):
             reader, index = self._reader_of(index)
         if isinstance(reader, ast.PropertyAccess):
             return True
-        if not isinstance(reader, ast.Call) or not reader.name.startswith("JSON") or not reader.args:
+        if isinstance(reader, ast.Call) and reader.name.startswith("JSON") and reader.args:
+            first_arg = reader.args[0]
+            while isinstance(first_arg, ast.Alias) and first_arg.hidden:
+                first_arg = first_arg.expr
+            if first_arg is document:
+                return True
+        if self._in_filter_condition:
             return False
-        first_arg = reader.args[0]
-        while isinstance(first_arg, ast.Alias) and first_arg.hidden:
-            first_arg = first_arg.expr
-        return first_arg is document
+        aggregate = self._enclosing_aggregate()
+        if aggregate is None:
+            return True
+        # A tuple or an array only carries the document to the aggregate, as in `groupArray((uuid, properties))`.
+        while isinstance(reader, (ast.Tuple, ast.Array)) or (
+            isinstance(reader, ast.Call) and reader.name in ("tuple", "array")
+        ):
+            reader, index = self._reader_of(index)
+        return reader is aggregate
+
+    def _enclosing_aggregate(self) -> ast.Call | None:
+        """The innermost aggregate whose arguments are being printed, within the query being printed."""
+        for node in reversed(self.stack):
+            if isinstance(node, ast.SelectQuery):
+                return None
+            if isinstance(node, ast.Call) and find_hogql_aggregation(node.name):
+                return node
+        return None
 
     def _reader_of(self, index: int) -> tuple[AST | None, int]:
         """The node that consumes `self.stack[index]`, and its index, past the hidden aliases in between."""

@@ -614,10 +614,15 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 "having",
                 "SELECT event FROM events GROUP BY event HAVING any(toString(properties)) ILIKE '%pricing%'",
             ),
+            (
+                "conditional_aggregate",
+                "SELECT countIf(match(toString(properties), 'pricing')) FROM events",
+            ),
+            ("aggregate_of_document_text", "SELECT max(length(toString(properties))) FROM events"),
         ]
     )
-    def test_native_events_table_rejects_whole_document_filters(self, _name: str, select: str) -> None:
-        with pytest.raises(QueryError, match="Can't filter on the whole properties column"):
+    def test_native_events_table_rejects_whole_document_searches(self, _name: str, select: str) -> None:
+        with pytest.raises(QueryError, match="Can't search the whole properties column"):
             self._print_select(select, use_new_events_schema=True)
 
         legacy = self._print_select(select, use_new_events_schema=False)
@@ -633,6 +638,10 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 "subquery_select_list",
                 "SELECT count() FROM events WHERE distinct_id IN (SELECT toString(properties) FROM events)",
             ),
+            ("aggregated_document", "SELECT argMax(properties, timestamp) FROM events"),
+            ("aggregated_document_text", "SELECT any(toString(properties)) FROM events"),
+            ("aggregated_document_in_tuple", "SELECT groupArray((uuid, properties)) FROM events"),
+            ("aggregated_key_read", "SELECT countIf(properties.plan = 'free') FROM events"),
         ]
     )
     def test_native_events_table_keeps_key_reads_and_selected_documents(self, _name: str, select: str) -> None:
