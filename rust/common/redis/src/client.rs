@@ -408,6 +408,21 @@ impl Client for RedisClient {
         Ok(results)
     }
 
+    async fn zrangebyscore_withscores_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<(String, f64)>, CustomRedisError> {
+        let mut conn = self.conn();
+        let results = conn
+            .zrangebyscore_limit_withscores(k, min, max, offset, count)
+            .await?;
+        Ok(results)
+    }
+
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.conn();
         conn.zadd::<_, _, _, ()>(k, member, score).await?;
@@ -1725,6 +1740,43 @@ mod integration_tests {
             at_new_score,
             vec![member],
             "a plain zadd moves the member, which is the behavior NX exists to avoid"
+        );
+    }
+
+    // The driver decodes the flat `member, score, member, score` WITHSCORES reply into
+    // pairs; a mismatch would only show up against a real server.
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_zrangebyscore_withscores_limit_pages_with_scores() {
+        let (client, _container) = create_test_client().await;
+        let key = "withscores_page".to_string();
+        for (member, score) in [
+            ("a", 1_800_000_000),
+            ("b", 1_800_000_000),
+            ("c", 1_800_000_005),
+        ] {
+            client
+                .zadd(key.clone(), member.to_string(), score)
+                .await
+                .unwrap();
+        }
+
+        let page = client
+            .zrangebyscore_withscores_limit(
+                key.clone(),
+                "1800000000".to_string(),
+                "+inf".to_string(),
+                1,
+                2,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            page,
+            vec![
+                ("b".to_string(), 1_800_000_000.0),
+                ("c".to_string(), 1_800_000_005.0)
+            ]
         );
     }
 
