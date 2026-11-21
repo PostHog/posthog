@@ -142,7 +142,7 @@ async function fetchWithRetry(url) {
                 return { url, ok: true, status }
             }
 
-            if (attempt < RETRIES) {
+            if (attempt < RETRIES && status !== 404 && status !== 410) {
                 await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
             } else {
                 return { url, ok: false, status }
