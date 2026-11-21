@@ -32,6 +32,7 @@ import type {
     CustomPropertyOptionApi,
     CustomPropertyReferenceApi,
     CustomPropertySyncRunApi,
+    WarehousePersonPropertyMissingRowBehaviorEnumApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './customPropertyTypes'
@@ -39,6 +40,7 @@ import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
 export type CustomPropertyTargetType = 'account' | 'person' | 'group'
 export type CustomPropertyTargetTypeFilter = 'all' | CustomPropertyTargetType
+export type MissingRowBehavior = WarehousePersonPropertyMissingRowBehaviorEnumApi
 
 // Poll until a source's run settles so the UI reflects completion without a manual refresh: fast at
 // first (a small table finishes in seconds), then slower, and bounded so a stuck run can't poll
@@ -131,6 +133,7 @@ export interface CustomPropertyFormValues {
     // `encodeWarehouseSource`) plus the column mappings.
     warehouseSource: string | null
     columnMappings: ColumnPropertyMapping[]
+    missingRowBehavior: MissingRowBehavior
     isEnabled: boolean
 }
 
@@ -148,6 +151,7 @@ const DEFAULT_FORM_VALUES: CustomPropertyFormValues = {
     keyColumn: null,
     warehouseSource: null,
     columnMappings: [{ column: '', property: '', description: '' }],
+    missingRowBehavior: 'keep',
     isEnabled: true,
 }
 
@@ -963,7 +967,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 const isProfile = targetType === 'person' || targetType === 'group'
                 const isAccountWarehouse = !isProfile && sourceMode === 'data_warehouse'
                 // The binding + column map are create-only, so only require them when creating a new
-                // profile source. An existing source keeps only key_column and enabled editable.
+                // profile source. An existing source keeps its mutable sync settings editable.
                 const isNewProfileSource = isProfile && !values.editingDefinition?.source
                 return {
                     name: !name?.trim() ? 'Name is required' : undefined,
@@ -995,17 +999,26 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                     actions.setEditingDefinition(definition)
                 }
                 try {
-                    const { targetType, sourceMode, savedQuery, sourceColumn, keyColumn, isEnabled } = formValues
+                    const {
+                        targetType,
+                        sourceMode,
+                        savedQuery,
+                        sourceColumn,
+                        keyColumn,
+                        missingRowBehavior,
+                        isEnabled,
+                    } = formValues
                     const existingSource = editing?.source ?? null
                     // Person and group sources map columns from one warehouse object: a synced table's
                     // schema, or a materialized view.
                     if (targetType === 'person' || targetType === 'group') {
                         const binding = values.profileSourceBinding
                         if (existingSource) {
-                            // The binding + column map are create-only on the backend; only key_column
-                            // and is_enabled are mutable on a profile source.
+                            // The binding + column map are create-only on the backend; send only mutable
+                            // sync settings for an existing profile source.
                             await customPropertySourcesPartialUpdate(projectId, existingSource.id, {
                                 key_column: keyColumn ?? '',
+                                ...(targetType === 'person' ? { missing_row_behavior: missingRowBehavior } : {}),
                                 is_enabled: isEnabled,
                             })
                         } else if (!binding) {
@@ -1022,6 +1035,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                                 column_property_map: values.serializedColumnPropertyMap,
                                 column_descriptions: values.serializedColumnDescriptions,
                                 key_column: keyColumn.trim(),
+                                ...(targetType === 'person' ? { missing_row_behavior: missingRowBehavior } : {}),
                                 is_enabled: isEnabled,
                             })
                         }
@@ -1342,6 +1356,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                           definition.source?.column_descriptions
                       )
                     : [{ column: '', property: '', description: '' }],
+                missingRowBehavior:
+                    targetType === 'person' ? (definition.source?.missing_row_behavior ?? 'keep') : 'keep',
                 isEnabled: definition.source?.is_enabled ?? true,
             })
         },

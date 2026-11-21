@@ -169,6 +169,7 @@ describe('customPropertyDefinitionsLogic', () => {
             keyColumn: 'org_id',
             warehouseSource: null,
             columnMappings: [{ column: '', property: '', description: '' }],
+            missingRowBehavior: 'keep',
             isEnabled: true,
         })
     })
@@ -357,6 +358,7 @@ describe('customPropertyDefinitionsLogic', () => {
                 // A half-filled row is dropped rather than sent.
                 { column: '', property: '', description: '' },
             ],
+            missingRowBehavior: 'remove',
             isEnabled: true,
         })
 
@@ -373,6 +375,7 @@ describe('customPropertyDefinitionsLogic', () => {
             column_property_map: { plan: 'plan_tier' },
             column_descriptions: { plan: 'The plan tier' },
             key_column: 'distinct_id',
+            missing_row_behavior: 'remove',
             is_enabled: true,
         })
     })
@@ -552,6 +555,7 @@ describe('customPropertyDefinitionsLogic', () => {
             column_property_map: { mrr: 'mrr' },
             column_descriptions: {},
             key_column: 'org_id',
+            missing_row_behavior: 'keep',
             is_enabled: true,
         })
     })
@@ -820,7 +824,7 @@ describe('customPropertyDefinitionsLogic', () => {
 
     it('saves an existing person source even when its warehouse table is no longer selectable', async () => {
         // The table + column map are create-only and hidden on edit, so form validation must not
-        // require a re-selected warehouse table — only key_column and is_enabled stay editable.
+        // require a re-selected warehouse table because its sync settings stay editable.
         let patchedBody: Record<string, any> | null = null
         useMocks({
             ...defaultMocks(),
@@ -842,6 +846,7 @@ describe('customPropertyDefinitionsLogic', () => {
                     source_column: null,
                     key_column: 'distinct_id',
                     column_property_map: { plan: 'plan_tier' },
+                    missing_row_behavior: 'remove',
                 } as Partial<CustomPropertySourceApi>),
             })
         )
@@ -850,7 +855,11 @@ describe('customPropertyDefinitionsLogic', () => {
         await expectLogic(logic, () => logic.actions.submitCustomPropertyForm()).toDispatchActions([
             'submitCustomPropertyFormSuccess',
         ])
-        expect(patchedBody).toEqual({ key_column: 'distinct_id', is_enabled: false })
+        expect(patchedBody).toEqual({
+            key_column: 'distinct_id',
+            missing_row_behavior: 'remove',
+            is_enabled: false,
+        })
     })
 
     it('deletes the source when saving after switching away from data warehouse mode', async () => {

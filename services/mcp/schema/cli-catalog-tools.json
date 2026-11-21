@@ -13294,6 +13294,10 @@
                     "key": "column_descriptions"
                 },
                 {
+                    "param": "missing_row_behavior",
+                    "key": "missing_row_behavior"
+                },
+                {
                     "param": "key_column",
                     "key": "key_column"
                 },
@@ -13427,6 +13431,10 @@
                 {
                     "param": "column_descriptions",
                     "key": "column_descriptions"
+                },
+                {
+                    "param": "missing_row_behavior",
+                    "key": "missing_row_behavior"
                 },
                 {
                     "param": "is_enabled",

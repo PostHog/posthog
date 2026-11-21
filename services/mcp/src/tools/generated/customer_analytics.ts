@@ -1114,6 +1114,9 @@ const customPropertySourcesCreate = (): ToolBase<
         if (params.column_descriptions !== undefined) {
             body['column_descriptions'] = params.column_descriptions
         }
+        if (params.missing_row_behavior !== undefined) {
+            body['missing_row_behavior'] = params.missing_row_behavior
+        }
         if (params.key_column !== undefined) {
             body['key_column'] = params.key_column
         }
@@ -1200,6 +1203,9 @@ const customPropertySourcesPartialUpdate = (): ToolBase<
         }
         if (params.column_descriptions !== undefined) {
             body['column_descriptions'] = params.column_descriptions
+        }
+        if (params.missing_row_behavior !== undefined) {
+            body['missing_row_behavior'] = params.missing_row_behavior
         }
         if (params.is_enabled !== undefined) {
             body['is_enabled'] = params.is_enabled

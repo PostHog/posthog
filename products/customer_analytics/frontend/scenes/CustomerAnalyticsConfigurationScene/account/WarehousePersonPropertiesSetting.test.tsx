@@ -74,6 +74,7 @@ describe('WarehousePersonPropertiesSetting', () => {
             changed: 0,
             existing: 0,
             produced: 0,
+            removed: 0,
             skipped_missing_person: 0,
             error: null,
             created_at: '2026-01-01T00:00:00Z',

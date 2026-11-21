@@ -87,6 +87,7 @@ from products.customer_analytics.backend.facade.enums import (
     AccountViewVisibility,
     CustomPropertyOptionColor,
     TaskDigestCadence,
+    WarehousePersonPropertyMissingRowBehavior,
 )
 
 
@@ -1842,6 +1843,9 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     produced = serializers.IntegerField(
         read_only=True, help_text="Property updates written or produced to the ingestion pipeline."
     )
+    removed = serializers.IntegerField(
+        read_only=True, help_text="People whose mapped properties were removed after they left the source table."
+    )
     skipped_missing_person = serializers.IntegerField(
         read_only=True,
         help_text="Changed rows skipped because no existing account, person, or group matched the key column value.",
@@ -1871,6 +1875,7 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
             "changed",
             "existing",
             "produced",
+            "removed",
             "skipped_missing_person",
             "error",
             "created_at",
@@ -1925,6 +1930,15 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "Person and group sources only: {warehouse_column: description} giving each mapped column a "
             "human-facing description, seeded from the warehouse column's information_schema "
             "description. Optional per column."
+        ),
+    )
+    missing_row_behavior = serializers.ChoiceField(
+        choices=WarehousePersonPropertyMissingRowBehavior.choices,
+        required=False,
+        default="keep",
+        help_text=(
+            "Person sources only: keep the last synced values, or remove mapped properties when a key "
+            "is absent from a complete table read. Existing sources default to 'keep'."
         ),
     )
     key_column = serializers.CharField(
@@ -2014,6 +2028,7 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "source_column",
             "column_property_map",
             "column_descriptions",
+            "missing_row_behavior",
             "key_column",
             "is_enabled",
             "consecutive_failures",
@@ -2200,6 +2215,14 @@ class CustomPropertySourceUpdateSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Person and group sources only: {warehouse_column: description} for mapped columns. Optional per column."
+        ),
+    )
+    missing_row_behavior = serializers.ChoiceField(
+        choices=WarehousePersonPropertyMissingRowBehavior.choices,
+        required=False,
+        help_text=(
+            "Person sources only: keep the last synced values, or remove mapped properties when a key "
+            "is absent from a complete table read."
         ),
     )
     is_enabled = serializers.BooleanField(
