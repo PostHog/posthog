@@ -27,8 +27,10 @@ from typing import Any
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client.connection import set_default_clickhouse_workload_type
 from posthog.clickhouse.workload import Workload
@@ -142,6 +144,10 @@ class Command(BaseCommand):
         region = _required(options, "region")
         if region != quote.region:
             raise CommandError(f"The quote priced region {quote.region}, not {region}")
+        # One workflow ID per quote. Temporal refuses a second start unless the earlier run failed.
+        workflow_id = f"export-recordings-{quote.team_id}-{quote.quote_id}"
+        if options["shards"]:
+            check_shard_rerun(asyncio.run(_last_run_status(workflow_id)))
         integration_id, bucket = _required(options, "integration_id"), _required(options, "bucket")
         prefix, kms_key_id = options["prefix"], options["kms_key_id"]
         only_shards = options["shards"]
@@ -188,8 +194,6 @@ class Command(BaseCommand):
                 raise CommandError("Not started. Check the quote and destination above, then rerun with --yes.")
             if input("Start the export? [y/N] ").strip().lower() != "y":
                 raise CommandError("Not started")
-        # One workflow ID per quote. Temporal refuses a second start unless the earlier run failed.
-        workflow_id = f"export-recordings-{quote.team_id}-{quote.quote_id}"
         try:
             asyncio.run(_start_workflow(workflow_input, workflow_id))
         except WorkflowAlreadyStartedError as e:
@@ -197,6 +201,12 @@ class Command(BaseCommand):
                 f"{workflow_id} is running or finished. A quote starts again only after a failed run."
             ) from e
         self.stdout.write(self.style.SUCCESS(f"Started {workflow_id}"))
+
+
+def check_shard_rerun(last_run_status: WorkflowExecutionStatus | None) -> None:
+    # A subset that succeeds completes the quote's workflow ID, which strands the shards it left out.
+    if last_run_status != WorkflowExecutionStatus.FAILED:
+        raise CommandError("--shards reruns the failed shards of an earlier run. Start the whole quote first.")
 
 
 def _positive_int(value: str) -> int:
@@ -270,6 +280,16 @@ async def _start_workflow(workflow_input: ExportRecordingsInput, workflow_id: st
         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
     )
+
+
+async def _last_run_status(workflow_id: str) -> WorkflowExecutionStatus | None:
+    client = await async_connect()
+    try:
+        return (await client.get_workflow_handle(workflow_id).describe()).status
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return None
+        raise
 
 
 async def _describe(workflow_id: str) -> str:
