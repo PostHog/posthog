@@ -139,19 +139,28 @@ class TestFanout:
 
     @parameterized.expand(
         [
-            ("integrations", "/api/v1/app", "/app/{}/integration", "app_id", {}),
-            # The sink config can carry connection secrets, so it never reaches the table.
+            ("integrations", "/api/v1/app", "/app/{}/integration", "app_id", {"name": "Acme"}, {"name": "Acme"}, {}),
+            # The sink config can carry connection secrets, so it never reaches the table or a sample.
             (
                 "stream_sinks",
                 "/api/v1/stream",
                 "/stream/{}/sink",
                 "stream_id",
                 {"type": "postgres", "config": {"url": "postgres://user:fake-password@db.example.com/events"}},
+                {"type": "postgres"},
+                {"capture": False},
             ),
         ]
     )
     def test_one_level_fan_out_walks_every_parent_and_carries_its_id(
-        self, schema: str, parent_path: str, child_path: str, id_column: str, extra: dict[str, Any]
+        self,
+        schema: str,
+        parent_path: str,
+        child_path: str,
+        id_column: str,
+        extra: dict[str, Any],
+        kept: dict[str, Any],
+        capture_option: dict[str, Any],
     ) -> None:
         result = _driver().run(
             schema,
@@ -167,10 +176,14 @@ class TestFanout:
             ),
         )
 
-        assert [(row[id_column], row["id"]) for row in result.rows] == [("p_1", "c_1"), ("p_1", "c_2"), ("p_2", "c_3")]
-        assert all("config" not in row for row in result.rows)
-        assert all(row.get("type") == extra.get("type") for row in result.rows)
+        assert result.rows == [
+            {"id": "c_1", id_column: "p_1", **kept},
+            {"id": "c_2", id_column: "p_1", **kept},
+            {"id": "c_3", id_column: "p_2", **kept},
+        ]
         assert result.params("iterator") == [None, None, "c_1", None]
+        # One session for the parent walk and one for the child walk.
+        assert result.session_options == [{"redact_values": ("sk-key",), **capture_option}] * 2
 
 
 class TestIncremental:

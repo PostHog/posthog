@@ -21,7 +21,8 @@ class SvixEndpointConfig:
     partition_key: str | None = None
     # The endpoint answers one object per parent instead of a `{"data": [...]}` list.
     single_object: bool = False
-    # Response fields left out of the table.
+    # Response fields left out of the table. Only one-level fan-out children (parent `applications` or
+    # `streams`) apply it, and setting it also turns off HTTP sample capture for the table.
     excluded_fields: tuple[str, ...] = ()
 
 

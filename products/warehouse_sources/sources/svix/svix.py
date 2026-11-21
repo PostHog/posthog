@@ -233,6 +233,8 @@ def svix_source(
             "base_url": SVIX_BASE_URL,
             "headers": _headers(),
             "auth": {"type": "bearer", "token": api_key},
+            # Sample capture stores raw responses before `data_map` drops the excluded fields.
+            "capture": not config.excluded_fields,
         },
         # Per-resource settings are fully specified below, so no shared defaults are needed.
         "resource_defaults": {},

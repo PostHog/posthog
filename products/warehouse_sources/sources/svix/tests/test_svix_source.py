@@ -47,6 +47,8 @@ class TestSvixSource:
             ("messages", True),
             ("message_attempts", False),
             ("endpoint_stats", False),
+            ("integrations", True),
+            ("streams", True),
             ("stream_sinks", True),
         ]
     )
