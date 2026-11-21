@@ -743,6 +743,11 @@ pub struct Config {
     #[envconfig(from = "COOKIELESS_REDIS_PORT", default = "6379")]
     pub cookieless_redis_port: u64,
 
+    // When set, replaces the URL built from COOKIELESS_REDIS_HOST and COOKIELESS_REDIS_PORT.
+    // That URL always uses the redis:// scheme, so it cannot reach a Redis that requires TLS.
+    #[envconfig(from = "COOKIELESS_REDIS_URL", default = "")]
+    pub cookieless_redis_url: String,
+
     #[envconfig(from = "NEW_ANALYTICS_CAPTURE_ENDPOINT", default = "/i/v0/e/")]
     pub new_analytics_capture_endpoint: String,
 
@@ -1364,6 +1369,7 @@ impl Config {
             cookieless_salt_ttl_seconds: 345600,
             cookieless_redis_host: "localhost".to_string(),
             cookieless_redis_port: 6379,
+            cookieless_redis_url: "".to_string(),
             new_analytics_capture_endpoint: "/i/v0/e/".to_string(),
             new_analytics_capture_excluded_team_ids: TeamIdCollection::None,
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
@@ -1483,6 +1489,9 @@ impl Config {
     }
 
     pub fn get_redis_cookieless_url(&self) -> String {
+        if !self.cookieless_redis_url.is_empty() {
+            return self.cookieless_redis_url.clone();
+        }
         format!(
             "redis://{}:{}",
             self.cookieless_redis_host, self.cookieless_redis_port
@@ -1672,6 +1681,31 @@ mod tests {
         assert_eq!(config.persons_write_database_url, "postgres://db/persons");
         assert_eq!(config.persons_read_database_url, "postgres://db/persons");
         assert_eq!(config.redis_url, "redis://cache/2");
+    }
+
+    #[rstest::rstest]
+    #[case::host_and_port(
+        &[("COOKIELESS_REDIS_HOST", "cookieless-redis"), ("COOKIELESS_REDIS_PORT", "6380")],
+        "redis://cookieless-redis:6380"
+    )]
+    #[case::full_url(
+        &[
+            ("COOKIELESS_REDIS_HOST", "cookieless-redis"),
+            ("COOKIELESS_REDIS_URL", "rediss://:secret@cookieless-redis:6379"),
+        ],
+        "rediss://:secret@cookieless-redis:6379"
+    )]
+    #[case::empty_full_url(
+        &[("COOKIELESS_REDIS_HOST", "cookieless-redis"), ("COOKIELESS_REDIS_URL", "")],
+        "redis://cookieless-redis:6379"
+    )]
+    fn test_redis_cookieless_url(#[case] env: &[(&str, &str)], #[case] expected: &str) {
+        let env = env
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_string()))
+            .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.get_redis_cookieless_url(), expected);
     }
 
     #[test]
