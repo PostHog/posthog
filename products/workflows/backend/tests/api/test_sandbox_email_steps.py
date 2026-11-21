@@ -1,10 +1,11 @@
 import json
+import threading
 from contextlib import nullcontext
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
@@ -629,6 +630,14 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             ("mcp_without_the_adoption_flag", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, False, False, "function_email"),
             ("web_editor", {}, True, False, "function_email"),
             ("mcp_with_an_empty_sender", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, True, False, "email_sandbox", ""),
+            (
+                "mcp_with_a_list_for_the_address",
+                {"HTTP_X_POSTHOG_CLIENT": "mcp"},
+                True,
+                False,
+                "email_sandbox",
+                {"integrationId": None, "email": []},
+            ),
         ]
     )
     def test_a_new_email_step_from_the_api_starts_on_the_sandbox_sender_without_a_verified_sender(
@@ -932,27 +941,17 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("setup_fails", False, False),
-            ("already_set_up", True, False),
-            ("setup_fails_once_and_runs_again_after_commit", False, True),
+            ("setup_fails", False),
+            ("already_set_up", True),
         ]
     )
-    def test_a_save_never_waits_on_test_sender_setup(self, _name: str, already_set_up: bool, fails_once: bool) -> None:
+    def test_a_save_never_waits_on_test_sender_setup(self, _name: str, already_set_up: bool) -> None:
         if already_set_up:
             provision_sandbox_sender(self.team, self.user)
         rows_before = list(
             Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True)
         )
-        create = IntegrationManager.email_sandbox.credentials.create
-        attempts: list[str] = []
-
-        def create_or_fail(*args: Any, **kwargs: Any) -> Any:
-            attempts.append("create")
-            if fails_once and len(attempts) > 1:
-                return create(*args, **kwargs)
-            self._failing_sql()
-
-        fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=create_or_fail)
+        fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=self._failing_sql)
 
         with (
             _flag(True),
@@ -970,14 +969,11 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert stored["type"] == "email_sandbox"
         assert [
             (log["workflow_id"], log["action_ids"]) for log in logs if log["event"] == "sandbox_sender_setup_failed"
-        ] == ([] if already_set_up or fails_once else [(response.json()["id"], [stored["id"]])])
-        if fails_once:
-            assert self._sandbox_sender_is_set_up()
-        else:
-            assert (
-                list(Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True))
-                == rows_before
-            )
+        ] == ([] if already_set_up else [(response.json()["id"], [stored["id"]])])
+        assert (
+            list(Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True))
+            == rows_before
+        )
 
     @parameterized.expand(
         [
@@ -1212,3 +1208,62 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
         assert response.status_code == 409, response.json()
         assert HogFlow.objects.get(id=flow.id).status == "draft"
+
+
+def _committed_workflow_names(team_id: int) -> list[str]:
+    names: list[list[str]] = []
+
+    def read() -> None:
+        try:
+            names.append(
+                sorted(name or "" for name in HogFlow.objects.filter(team_id=team_id).values_list("name", flat=True))
+            )
+        finally:
+            connection.close()
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    reader.join()
+    return names[0]
+
+
+class TestSandboxSenderSetupAfterCommit(NonAtomicAPIBaseTest):
+    @classmethod
+    def setUpClass(cls) -> None:
+        pass
+
+    def setUp(self) -> None:
+        self.setUpTestData()
+        super().setUp()
+        sync_template_to_db(_email_function_template())
+
+    @parameterized.expand([("create", False), ("update", True)])
+    def test_a_failed_setup_inside_the_save_runs_again_after_the_save_commits(self, _name: str, stored: bool) -> None:
+        flow = _flow(_sandbox_step(), name="Saved")
+        if stored:
+            stored_flow = HogFlow.objects.create(team=self.team, name="Stored", status="draft", actions=[_trigger()])
+        create = IntegrationManager.email_sandbox.credentials.create
+        committed_names_at_each_setup: list[list[str]] = []
+
+        def fail_first_then_create(*args: Any, **kwargs: Any) -> Any:
+            committed_names_at_each_setup.append(_committed_workflow_names(self.team.id))
+            if len(committed_names_at_each_setup) == 1:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1 / 0")
+            return create(*args, **kwargs)
+
+        fault = patch.object(IntegrationManager.email_sandbox.credentials, "create", side_effect=fail_first_then_create)
+
+        with _flag(True), _runtime(True), fault:
+            if stored:
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/hog_flows/{stored_flow.id}", flow, format="json"
+                )
+            else:
+                response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow, format="json")
+
+        assert response.status_code == (200 if stored else 201), response.json()
+        assert committed_names_at_each_setup == [["Stored"] if stored else [], ["Saved"]]
+        assert Integration.objects.filter(
+            team=self.team, kind="email_sandbox", integration_id="posthog-managed-sandbox"
+        ).exists()

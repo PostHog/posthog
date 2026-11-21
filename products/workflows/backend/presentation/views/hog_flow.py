@@ -285,7 +285,7 @@ from products.workflows.backend.facade.sandbox_email import (
     SandboxSenderUnavailable,
     can_default_to_sandbox,
     check_sandbox_sender_available,
-    deliverable_own_sender_domains,
+    deliverable_own_sender_ids,
     has_sandbox_sender,
     has_verified_own_sender,
     own_only_settings,
@@ -1101,34 +1101,37 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
         return data
     stored_ids = (
         {
-            action["id"].strip()
+            action["id"]
             for action in [*(instance.actions or []), *((instance.draft or {}).get("actions") or [])]
             if isinstance(action, dict) and isinstance(action.get("id"), str)
         }
         if instance
         else set()
     )
+    trimmed_stored_ids = {action_id.strip() for action_id in stored_ids}
+    senderless_steps = [
+        index
+        for index, action in enumerate(actions)
+        if isinstance(action, dict) and _has_no_sender(action) and action["id"].strip() not in trimmed_stored_ids
+    ]
     new_steps = [
         index
         for index, action in enumerate(actions)
-        if isinstance(action, dict) and _has_no_sender(action) and action["id"].strip() not in stored_ids
+        if isinstance(action, dict) and can_default_to_sandbox(action) and action["id"] not in stored_ids
     ]
-    if not new_steps:
+    if not senderless_steps and not new_steps:
         return data
     team = get_team()
     if not sandbox_adoption_enabled(team, user):
         return data
-    deliverable = deliverable_own_sender_domains(team.id)
+    deliverable = deliverable_own_sender_ids(team.id)
     if deliverable:
-        sender_id = pick_default_email_sender(team.id, frozenset(deliverable))
+        sender_id = pick_default_email_sender(team.id, deliverable)
         if sender_id is None:
             return data
-        without_address = [index for index in new_steps if not _has_custom_address(actions[index])]
+        without_address = [index for index in senderless_steps if not _has_custom_address(actions[index])]
         return _with_own_sender(data, actions, without_address, sender_id)
-    if has_verified_own_sender(team.id):
-        return data
-    new_steps = [index for index in new_steps if can_default_to_sandbox(actions[index])]
-    if not new_steps or not _can_set_up_sandbox_sender(team, user):
+    if not new_steps or has_verified_own_sender(team.id) or not _can_set_up_sandbox_sender(team, user):
         return data
     try:
         check_sandbox_sender_available(team, user)

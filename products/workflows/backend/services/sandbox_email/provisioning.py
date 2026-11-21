@@ -2,7 +2,6 @@ from django.conf import settings
 
 import structlog
 
-from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationConflict, IntegrationManager
 from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.integration.email import SES_SENDING_FAILED, SES_SENDING_STATUS_KEY
@@ -106,12 +105,12 @@ def verified_own_sender_ids(team_id: int) -> frozenset[int]:
     )
 
 
-def deliverable_own_sender_domains(team_id: int) -> dict[int, str]:
-    return {
-        sender.id: (sender.config.get("domain") or email_domain(sender.config.get("email") or "") or "").lower()
+def deliverable_own_sender_ids(team_id: int) -> frozenset[int]:
+    return frozenset(
+        sender.id
         for sender in IntegrationManager.email.credentials.list(team_id)
         if sender.config.get("verified") and sender.config.get(SES_SENDING_STATUS_KEY) != SES_SENDING_FAILED
-    }
+    )
 
 
 def own_sender_verification(team_id: int) -> dict[str, bool]:
