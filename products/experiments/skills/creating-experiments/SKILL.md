@@ -148,6 +148,9 @@ Key details:
 
 2. **Always show the experiment URL.** The `experiment-create` response includes `_posthogUrl` — always display this link so the user can view and configure the experiment in the UI.
 
+   Link every other place in PostHog you send the user to as well, such as the feature flag, the experiment's Recordings or Settings tab, or its health checks.
+   [references/links.md](references/links.md) says which link goes with which step.
+
 3. **Remind the user to implement the feature flag in code.** Link to the experiment page and say "implement the flag as shown here" — the experiment detail page shows implementation snippets for the user's SDK.
 
 4. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
