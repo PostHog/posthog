@@ -20,6 +20,7 @@ import requests
 import responses
 from parameterized import parameterized
 from rest_framework import status
+from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience
@@ -580,6 +581,8 @@ class FakeCdpScheduledRuns:
             )
         except jwt.InvalidTokenError:
             return set()
+        if not all(isinstance(team_id, int) for team_id in claims["team_ids"]):
+            return set()
         return set(claims["team_ids"])
 
     @property
@@ -593,8 +596,15 @@ class FakeCdpScheduledRuns:
             self.on_request()
         if self.status_code != 200:
             return self.status_code, {}, json.dumps({"error": ["Internal error"]})
+        if request.headers.get("Content-Type") != "application/json":
+            return 415, {}, json.dumps({"error": "Unsupported media type"})
         runs = json.loads(request.body)["runs"]
-        if len(runs) > 100 or not all(isinstance(run["variables"], dict) for run in runs):
+        if len(runs) > 100 or not all(
+            isinstance(run["team_id"], int)
+            and isinstance(run["hog_flow_id"], str)
+            and isinstance(run["variables"], dict)
+            for run in runs
+        ):
             return 400, {}, json.dumps({"error": "Invalid scheduled runs"})
         if not {run["team_id"] for run in runs} <= self._token_team_ids(request.headers.get("Authorization", "")):
             return 401, {}, json.dumps({"error": "Unauthorized: Invalid scheduled runs token"})
@@ -688,9 +698,11 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             status="active",
             next_run_at=FakeCdpScheduledRuns.UNCLAIMED,
         )
+        self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
         response = self._post()
 
-        assert len(response.json()["processed"]) == 2
+        assert len(response.json()["processed"]) == 3
+        assert [len(request) for request in self.cdp.requests] == [2]
         assert self.cdp.claimed_runs_unsent_at_batch_handoff == [0]
         assert self.cdp.broadcasts_claimed_without_a_job_at_request == [0]
 
@@ -785,6 +797,14 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             ("run_over_the_body_limit", 413, False),
             ("last_occurrence_of_the_schedule", 404, True, True),
             ("connection_never_established", requests.ConnectTimeout(), True),
+            (
+                "connection_refused",
+                requests.ConnectionError(
+                    MaxRetryError(None, FakeCdpScheduledRuns.URL, NewConnectionError(None, "Connection refused"))
+                ),
+                True,
+            ),
+            ("connection_dropped_after_sending", requests.ConnectionError(ProtocolError("Connection aborted.")), False),
             ("response_never_arrived", requests.ReadTimeout(), False),
         ]
     )

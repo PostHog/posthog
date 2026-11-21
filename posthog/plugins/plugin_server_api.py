@@ -156,7 +156,7 @@ def create_hog_flow_scheduled_invocations(runs: list[dict[str, Any]]) -> request
         CDP_API_URL + "/api/hog_flows/scheduled_invocations",
         json={"runs": runs},
         headers={"Authorization": f"Bearer {token}"},
-        timeout=30,
+        timeout=10,
     )
 
 

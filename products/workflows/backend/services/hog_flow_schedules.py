@@ -10,6 +10,7 @@ from django.utils import timezone
 
 import requests
 import structlog
+from urllib3.exceptions import MaxRetryError, NewConnectionError
 
 from posthog.dataclasses import frozen
 from posthog.plugins.plugin_server_api import (
@@ -175,8 +176,9 @@ class _ScheduledRunDispatch:
         try:
             try:
                 response = create_hog_flow_scheduled_invocations(runs)
-            except requests.ConnectTimeout:
-                _return_to_due(chunk)
+            except requests.ConnectionError as error:
+                if _never_reached_the_cdp_api(error):
+                    _return_to_due(chunk)
                 raise
             if response.status_code in REFUSED_BEFORE_QUEUEING:
                 _return_to_due(chunk)
@@ -200,6 +202,13 @@ class _ScheduledRunDispatch:
             else:
                 logger.warning("CDP refused a scheduled run", schedule_id=run.schedule_id, outcome=outcome)
                 self.failed.append(run.schedule_id)
+
+
+def _never_reached_the_cdp_api(error: requests.ConnectionError) -> bool:
+    if isinstance(error, requests.ConnectTimeout):
+        return True
+    cause = error.args[0] if error.args else None
+    return isinstance(cause, MaxRetryError) and isinstance(cause.reason, NewConnectionError)
 
 
 def _return_to_due(chunk: list[ScheduledRun]) -> None:
@@ -248,9 +257,9 @@ def process_due_schedules() -> ProcessedSchedules:
         ).values_list("id", "hog_flow__trigger__type")
     )
 
-    for schedule_id, trigger_type_at_scan in due_schedules:
-        if trigger_type_at_scan == "batch":
-            dispatch.flush()
+    due_schedules.sort(key=lambda due: due[1] != "batch")
+
+    for schedule_id, _ in due_schedules:
         try:
             batch_job_params: dict | None = None
             scheduled_run: ScheduledRun | None = None
