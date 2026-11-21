@@ -59,7 +59,7 @@ export function ExplanationContent({ explanation, onApplyFilter }: ExplanationCo
             {/* Technical Explanation */}
             {technical_explanation && (
                 <div className="bg-bg-light rounded p-3 text-sm">
-                    <LemonMarkdown>{technical_explanation}</LemonMarkdown>
+                    <LemonMarkdown disableImages>{technical_explanation}</LemonMarkdown>
                 </div>
             )}
 
