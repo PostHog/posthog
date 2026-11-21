@@ -679,6 +679,9 @@ jobs:
                         # debug_assert! checks that intentionally panic on data invariant
                         # violations, which would crash the service mid-test-run.
                         RUSTFLAGS: '-C debug-assertions=no'
+                        # Integration tests do not need debugger support. Debuginfo is also
+                        # most of a dev-profile compile, and this leg sets the block's length.
+                        CARGO_PROFILE_DEV_DEBUG: '0'
                     run: cargo build -p feature-flags
 
                   # Postgres and ClickHouse are separate stores and `migrate_clickhouse`
