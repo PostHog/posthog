@@ -36,8 +36,6 @@ pub(super) fn person_from_row(row: &PgRow) -> Result<Person, sqlx::Error> {
         uuid: row.try_get("uuid")?,
         team_id: row.try_get("team_id")?,
         properties: None,
-        properties_last_updated_at: None,
-        properties_last_operation: None,
         created_at: row.try_get("created_at")?,
         version: row.try_get("version")?,
         is_identified: row.try_get("is_identified")?,

@@ -1150,3 +1150,18 @@ class RecalculationStart:
     outcome: RecalculationStartOutcome
     recalculation_id: str | None = None
     detail: str = ""
+
+
+@frozen
+class Proportion:
+    trials: int
+    successes: int
+
+
+@frozen
+class ProportionTestResult:
+    # Treatment minus control in proportion units, absolute because a control at 0% has no relative change.
+    difference: float
+    confidence_interval: tuple[float, float]
+    p_value: float
+    is_significant: bool

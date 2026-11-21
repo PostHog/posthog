@@ -1,5 +1,5 @@
-import re
 import json
+import hashlib
 import datetime as dt
 import dataclasses
 from collections.abc import Iterator
@@ -26,7 +26,9 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    camel_to_snake,
     capture_exception,
+    flatten_nested,
     make_tracked_session,
 )
 
@@ -53,8 +55,6 @@ THROTTLING_ERROR_CODES = frozenset(
     }
 )
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-
 
 class AwsCostExplorerError(Exception):
     def __init__(self, message: str, code: str | None = None) -> None:
@@ -80,11 +80,6 @@ class AwsCostExplorerResumeConfig:
 class TimeWindow:
     start: dt.date
     end: dt.date
-
-
-def _snake(name: str) -> str:
-    """`UtilizationPercentage` -> `utilization_percentage`, `LINKED_ACCOUNT` -> `linked_account`."""
-    return _CAMEL_BOUNDARY.sub("_", name).lower()
 
 
 def _to_number(value: Any) -> Any:
@@ -164,9 +159,9 @@ def build_payload(
     slice_key: Optional[str] = None,
     window_services: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "TimePeriod": {"Start": window.start.isoformat(), "End": window.end.isoformat()},
-    }
+    payload: dict[str, Any] = dict(endpoint_config.static_payload)
+    if endpoint_config.time_scope != "snapshot":
+        payload["TimePeriod"] = {"Start": window.start.isoformat(), "End": window.end.isoformat()}
     if endpoint_config.granularity:
         payload["Granularity"] = endpoint_config.granularity
     if endpoint_config.dimensions and slice_key:
@@ -174,6 +169,8 @@ def build_payload(
         payload["Context"] = "COST_AND_USAGE"
     if endpoint_config.services and slice_key:
         payload["Filter"] = {"Dimensions": {"Key": "SERVICE", "Values": [slice_key]}}
+    if endpoint_config.slice_member and slice_key:
+        payload[endpoint_config.slice_member] = slice_key
     if window_services is not None:
         payload["Filter"] = {"Dimensions": {"Key": "SERVICE", "Values": window_services}}
     if endpoint_config.metrics:
@@ -188,15 +185,8 @@ def build_payload(
     return payload
 
 
-def _flatten(prefix: str, obj: dict[str, Any]) -> dict[str, Any]:
-    flattened: dict[str, Any] = {}
-    for key, value in obj.items():
-        column = f"{prefix}_{_snake(key)}" if prefix else _snake(key)
-        if isinstance(value, dict):
-            flattened.update(_flatten(column, value))
-        else:
-            flattened[column] = _to_number(value)
-    return flattened
+def _flatten_numbers(prefix: str, obj: dict[str, Any]) -> dict[str, Any]:
+    return {column: _to_number(value) for column, value in flatten_nested(obj, prefix=prefix).items()}
 
 
 def _metric_columns(endpoint_config: CostExplorerEndpointConfig, metrics: dict[str, Any]) -> dict[str, Any]:
@@ -205,15 +195,15 @@ def _metric_columns(endpoint_config: CostExplorerEndpointConfig, metrics: dict[s
     columns: dict[str, Any] = {}
     for metric in endpoint_config.metrics:
         value = metrics.get(metric) or {}
-        columns[f"{_snake(metric)}_amount"] = _to_number(value.get("Amount"))
-        columns[f"{_snake(metric)}_unit"] = value.get("Unit")
+        columns[f"{camel_to_snake(metric)}_amount"] = _to_number(value.get("Amount"))
+        columns[f"{camel_to_snake(metric)}_unit"] = value.get("Unit")
     return columns
 
 
 def _cost_rows(
     endpoint_config: CostExplorerEndpointConfig, base: dict[str, Any], result: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    group_columns = [_snake(key) for key in endpoint_config.group_by]
+    group_columns = [camel_to_snake(key) for key in endpoint_config.group_by]
     groups = result.get("Groups") or []
 
     if not groups:
@@ -239,8 +229,84 @@ def _dimension_rows(dimension: str, body: dict[str, Any]) -> list[dict[str, Any]
         # LINKED_ACCOUNT values carry the account name as a `description` attribute. Attributes are
         # labels, so they skip the numeric coercion a name like `0010` would not survive.
         row: dict[str, Any] = {"dimension": dimension, "value": item.get("Value")}
-        row.update({_snake(key): value for key, value in (item.get("Attributes") or {}).items()})
+        row.update({camel_to_snake(key): value for key, value in (item.get("Attributes") or {}).items()})
         rows.append(row)
+    return rows
+
+
+def _slice_column(endpoint_config: CostExplorerEndpointConfig, slice_key: Optional[str]) -> dict[str, Any]:
+    return {camel_to_snake(endpoint_config.slice_member): slice_key} if endpoint_config.slice_member else {}
+
+
+def _item_rows(
+    endpoint_config: CostExplorerEndpointConfig, body: dict[str, Any], slice_key: Optional[str]
+) -> list[dict[str, Any]]:
+    nested = {member for member, _ in endpoint_config.nested_keys}
+    labels = dict(endpoint_config.label_members)
+    rows: list[dict[str, Any]] = []
+    for item in body.get(endpoint_config.result_key) or []:
+        # GetSavingsPlansUtilizationDetails reports one TimePeriod for the whole response.
+        period = item.get("TimePeriod") or body.get("TimePeriod") or {}
+        row: dict[str, Any] = {
+            "period_start": _parse_period(period.get("Start")),
+            "period_end": _parse_period(period.get("End")),
+        }
+        if endpoint_config.granularity:
+            row["granularity"] = endpoint_config.granularity
+        row.update(_slice_column(endpoint_config, slice_key))
+        for key, value in item.items():
+            if key == "TimePeriod" or key in nested:
+                continue
+            if key in labels:
+                row.update(flatten_nested(value or {}, prefix=labels[key]))
+            elif not isinstance(value, dict):
+                row[camel_to_snake(key)] = _to_number(value)
+        for member, prefix in endpoint_config.nested_keys:
+            row.update(_flatten_numbers(prefix, item.get(member) or {}))
+        rows.append(row)
+    return rows
+
+
+def _recommendation_key(row: dict[str, Any]) -> str:
+    # The key covers every identifying column, so it ignores the estimates and usage figures.
+    identity = {
+        column: value
+        for column, value in row.items()
+        if column
+        in ("service", "account_scope", "lookback_period_in_days", "term_in_years", "payment_option", "account_id")
+        or column.startswith(("service_specification_", "instance_details_", "reserved_capacity_details_"))
+    }
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _record_rows(
+    endpoint_config: CostExplorerEndpointConfig, body: dict[str, Any], slice_key: Optional[str]
+) -> list[dict[str, Any]]:
+    base = _slice_column(endpoint_config, slice_key)
+    base.update(flatten_nested(body.get("Metadata") or {}, prefix="metadata"))
+    rows: list[dict[str, Any]] = []
+    for record in body.get(endpoint_config.result_key) or []:
+        if endpoint_config.detail_member is None:
+            rows.append({**base, **flatten_nested(record)})
+            continue
+
+        parent = {
+            **base,
+            **flatten_nested(
+                {
+                    key: value
+                    for key, value in record.items()
+                    # The summary totals the details, which are already rows of their own.
+                    if key not in (endpoint_config.detail_member, "RecommendationSummary")
+                },
+            ),
+        }
+        for detail in record.get(endpoint_config.detail_member) or []:
+            rows.append({**parent, **flatten_nested(detail)})
+
+    if endpoint_config.synthetic_key:
+        for row in rows:
+            row["recommendation_key"] = _recommendation_key(row)
     return rows
 
 
@@ -249,6 +315,10 @@ def normalize_results(
 ) -> list[dict[str, Any]]:
     if endpoint_config.dimensions and slice_key is not None:
         return _dimension_rows(slice_key, body)
+    if endpoint_config.row_shape == "items":
+        return _item_rows(endpoint_config, body, slice_key)
+    if endpoint_config.row_shape == "records":
+        return _record_rows(endpoint_config, body, slice_key)
 
     rows: list[dict[str, Any]] = []
 
@@ -271,7 +341,7 @@ def normalize_results(
         if endpoint_config.services:
             row["service"] = slice_key
         for member, prefix in endpoint_config.nested_keys:
-            row.update(_flatten(prefix, result.get(member) or {}))
+            row.update(_flatten_numbers(prefix, result.get(member) or {}))
         rows.append(row)
 
     return rows
@@ -362,7 +432,7 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
     "IncompleteSignatureException": "AWS rejected the request signature. The access key ID or secret access key may have extra whitespace, such as a copied trailing space or newline. Please re-enter the credentials.",
     "ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
-    "AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetCostAndUsage, ce:GetCostAndUsageWithResources, ce:GetDimensionValues, ce:GetReservationUtilization, ce:GetReservationCoverage, ce:GetSavingsPlansUtilization and ce:GetSavingsPlansCoverage to the IAM user or role.",
+    "AccessDeniedException": "These AWS credentials are missing Cost Explorer permissions. Grant ce:GetCostAndUsage, ce:GetCostAndUsageWithResources, ce:GetDimensionValues, ce:GetReservationUtilization, ce:GetReservationCoverage, ce:GetSavingsPlansUtilization, ce:GetSavingsPlansUtilizationDetails, ce:GetSavingsPlansCoverage, ce:GetCostForecast, ce:GetRightsizingRecommendation and ce:GetReservationPurchaseRecommendation to the IAM user or role. Rightsizing recommendations also need to be turned on in Cost Explorer preferences.",
     "DataUnavailableException": "AWS has no Cost Explorer data for the requested dates. Cost Explorer has to be enabled on the account, and it can take up to 24 hours to prepare data.",
     "BillExpirationException": "The requested dates are older than the data AWS keeps. Move the start date forward and try again.",
 }
@@ -465,16 +535,24 @@ def get_rows(
     # estimated), so their window reaches into tomorrow; the utilization operations have no
     # data for the current, still-in-progress day and reject a window that includes it.
     today = dt.datetime.now(dt.UTC).date()
-    end = today + dt.timedelta(days=1) if endpoint_config.includes_current_day else today
-    start = resolve_start_date(
-        start_date, endpoint_config, should_use_incremental_field, db_incremental_field_last_value, end
-    )
-    windows = build_windows(start, end, endpoint_config.window_days)
+    if endpoint_config.time_scope == "forecast":
+        windows = [TimeWindow(start=today, end=today + dt.timedelta(days=endpoint_config.forecast_days))]
+    elif endpoint_config.time_scope == "snapshot":
+        # The request carries no TimePeriod; the window only labels the resume state.
+        windows = [TimeWindow(start=today, end=today)]
+    else:
+        end = today + dt.timedelta(days=1) if endpoint_config.includes_current_day else today
+        start = resolve_start_date(
+            start_date, endpoint_config, should_use_incremental_field, db_incremental_field_last_value, end
+        )
+        windows = build_windows(start, end, endpoint_config.window_days)
     if not windows:
         resumable_source_manager.clear_state()
         return
 
-    slice_keys: tuple[Optional[str], ...] = endpoint_config.dimensions or endpoint_config.services or (None,)
+    slice_keys: tuple[Optional[str], ...] = (
+        endpoint_config.dimensions or endpoint_config.services or endpoint_config.slice_values or (None,)
+    )
     slices = [(window, slice_key) for window in windows for slice_key in slice_keys]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -532,6 +610,7 @@ def aws_cost_explorer_source(
     logger: FilteringBoundLogger,
 ) -> SourceResponse:
     endpoint_config = AWS_COST_EXPLORER_ENDPOINTS[endpoint]
+    has_period = not endpoint_config.dimensions and endpoint_config.time_scope != "snapshot"
 
     return SourceResponse(
         name=endpoint,
@@ -547,8 +626,8 @@ def aws_cost_explorer_source(
             logger=logger,
         ),
         primary_keys=endpoint_config.primary_key,
-        partition_keys=None if endpoint_config.dimensions else ["period_start"],
-        partition_mode=None if endpoint_config.dimensions else "datetime",
-        partition_format=None if endpoint_config.dimensions else "month",
+        partition_keys=["period_start"] if has_period else None,
+        partition_mode="datetime" if has_period else None,
+        partition_format="month" if has_period else None,
         sort_mode="asc",
     )

@@ -12,12 +12,12 @@ from products.warehouse_sources.sources.jumpcloud.jumpcloud import (
     EVENTS_PAGE_SIZE,
     REST_PAGE_SIZE,
     JumpcloudResumeConfig,
-    JumpcloudRetryableError,
     _parse_search_after,
     validate_credentials,
 )
 from products.warehouse_sources.sources.jumpcloud.settings import ENDPOINTS, JUMPCLOUD_ENDPOINTS
 from products.warehouse_sources.sources.jumpcloud.source import JumpcloudSource
+from products.warehouse_sources.sources.sdk import RetryableHTTPError
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
@@ -71,7 +71,7 @@ class TestRequest:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_exhaust_retries(self, _name: str, status: int) -> None:
         result = _driver().run("users", always(ScriptedResponse(status=status)))
-        assert isinstance(result.raised, JumpcloudRetryableError)
+        assert isinstance(result.raised, RetryableHTTPError)
         assert len(result.requests) >= 5
         assert set(result.paths) == {"/api/systemusers"}
 
@@ -83,7 +83,7 @@ class TestRequest:
 
     def test_429_carries_server_retry_after(self) -> None:
         result = _driver().run("users", always(ScriptedResponse(status=429, headers={"Retry-After": "7"})))
-        assert isinstance(result.raised, JumpcloudRetryableError)
+        assert isinstance(result.raised, RetryableHTTPError)
         assert result.raised.retry_after == 7.0
 
     @parameterized.expand([("moved_permanently", 301), ("temporary_redirect", 307)])

@@ -965,8 +965,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                     uuid: PERSON_UUID,
                     team_id: team.id,
                     properties: {},
-                    properties_last_updated_at: {},
-                    properties_last_operation: null,
                     created_at: DateTime.utc(),
                     version: 1,
                     is_identified: true,
@@ -1720,8 +1718,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                     uuid: 'uuid',
                     team_id: team.id,
                     properties: { email: 'test@posthog.com' },
-                    properties_last_updated_at: {},
-                    properties_last_operation: null,
                     created_at: DateTime.utc(),
                     version: 1,
                     is_identified: true,
@@ -1892,8 +1888,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                     uuid: 'uuid',
                     team_id: team.id,
                     properties: { shop_id: '42' },
-                    properties_last_updated_at: {},
-                    properties_last_operation: null,
                     created_at: DateTime.utc(),
                     version: 1,
                     is_identified: true,
@@ -1937,8 +1931,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             uuid: 'old-uuid',
             team_id: team.id,
             properties: { email: 'test@posthog.com' },
-            properties_last_updated_at: {},
-            properties_last_operation: null,
             created_at: DateTime.utc(),
             version: 1,
             is_identified: true,
@@ -1965,8 +1957,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             uuid: 'new-uuid',
             team_id: team.id,
             properties: { email: 'test@posthog.com', plan: 'enterprise' },
-            properties_last_updated_at: {},
-            properties_last_operation: null,
             created_at: DateTime.utc(),
             version: 2,
             is_identified: true,
@@ -2183,6 +2173,47 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
         })
+
+        it('counts a conversion whose goal expired while its event was held, but not one that arrived after', async () => {
+            await createWorkflowFlow(
+                {
+                    actions: {
+                        trigger: trigger(),
+                        delay: { type: 'delay', config: { delay_duration: '5m' } },
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'exit', type: 'continue' },
+                    ],
+                },
+                {
+                    exitCondition: 'exit_only_at_end',
+                    conversion: { filters: [], bytecode: [], events: [eventNameFilter('conversion_event')] } as any,
+                }
+            )
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+            const expiredAt = new Date(Date.now() - 60_000)
+            await cyclotronPool.query('UPDATE conversion_watchers SET expires_at = $1', [expiredAt])
+            const conversionCount = (): number =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow' && m.value.metric_name === 'conversion')
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            expect(conversionCount()).toBe(0)
+
+            await matcher.processBatch(
+                [createGlobals({ event: 'conversion_event' })],
+                'events',
+                () => new Date(expiredAt.getTime() - 1000)
+            )
+            await waitForExpect(() => {
+                expect(conversionCount()).toBe(1)
+            }, 5000)
+        })
     })
 
     describe('wait_until_time_window: window in the future', () => {
@@ -2320,8 +2351,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
                 team_id: team.id,
                 properties: { email: 'test@example.com', name: 'Test User', plan: 'enterprise' },
-                properties_last_updated_at: {},
-                properties_last_operation: null,
                 created_at: DateTime.utc(),
                 version: 1,
                 is_identified: true,
@@ -2403,8 +2432,6 @@ describe('Workflows E2E (postgres-v2)', () => {
                 uuid: personUuid,
                 team_id: team.id,
                 properties: { email: 'batch@example.com', plan: 'enterprise' },
-                properties_last_updated_at: {},
-                properties_last_operation: null,
                 created_at: DateTime.utc(),
                 version: 1,
                 is_identified: true,
@@ -3308,8 +3335,6 @@ describe('Workflows E2E (email queue)', () => {
             uuid: '5b0c4a6e-2f0c-4a43-9c1e-7f6a1d0b9e21',
             team_id: team.id,
             properties: { email: 'recipient@example.com' },
-            properties_last_updated_at: {},
-            properties_last_operation: null,
             created_at: DateTime.utc(),
             version: 1,
             is_identified: true,

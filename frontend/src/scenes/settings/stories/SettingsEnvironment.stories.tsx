@@ -17,6 +17,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SettingSectionId } from '../types'
+import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
     sectionId: SettingSectionId
@@ -96,11 +97,19 @@ export default meta
 // -- Environment --
 export const SettingsEnvironmentDetails: Story = { args: { sectionId: 'environment-details' } }
 
+export const SettingsEnvironmentDetailsQuill: Story = withTodayRailNav(SettingsEnvironmentDetails)
+
 export const SettingsEnvironmentCustomization: Story = { args: { sectionId: 'environment-customization' } }
+
+export const SettingsEnvironmentCustomizationQuill: Story = withTodayRailNav(SettingsEnvironmentCustomization)
 
 export const SettingsEnvironmentAutocapture: Story = { args: { sectionId: 'environment-autocapture' } }
 
+export const SettingsEnvironmentAutocaptureQuill: Story = withTodayRailNav(SettingsEnvironmentAutocapture)
+
 export const SettingsEnvironmentHeatmaps: Story = { args: { sectionId: 'environment-heatmaps' } }
+
+export const SettingsEnvironmentHeatmapsQuill: Story = withTodayRailNav(SettingsEnvironmentHeatmaps)
 
 export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
     args: { sectionId: 'environment-heatmaps' },
@@ -129,7 +138,11 @@ export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
 
 export const SettingsEnvironmentProductAnalytics: Story = { args: { sectionId: 'environment-product-analytics' } }
 
+export const SettingsEnvironmentProductAnalyticsQuill: Story = withTodayRailNav(SettingsEnvironmentProductAnalytics)
+
 export const SettingsEnvironmentRevenueAnalytics: Story = { args: { sectionId: 'environment-revenue-analytics' } }
+
+export const SettingsEnvironmentRevenueAnalyticsQuill: Story = withTodayRailNav(SettingsEnvironmentRevenueAnalytics)
 
 export const SettingsEnvironmentMarketingAnalytics: Story = {
     args: { sectionId: 'environment-marketing-analytics' },
@@ -141,7 +154,11 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
     },
 }
 
+export const SettingsEnvironmentMarketingAnalyticsQuill: Story = withTodayRailNav(SettingsEnvironmentMarketingAnalytics)
+
 export const SettingsEnvironmentWebAnalytics: Story = { args: { sectionId: 'environment-web-analytics' } }
+
+export const SettingsEnvironmentWebAnalyticsQuill: Story = withTodayRailNav(SettingsEnvironmentWebAnalytics)
 
 const EXPERIMENTS_CONFIG_MOCK = {
     experiment_recalculation_times: ['02:00:00'],
@@ -171,6 +188,8 @@ export const SettingsEnvironmentExperiments: Story = {
     ],
 }
 
+export const SettingsEnvironmentExperimentsQuill: Story = withTodayRailNav(SettingsEnvironmentExperiments)
+
 export const SettingsEnvironmentExperimentsMultipleRecalculationTimes: Story = {
     args: { sectionId: 'environment-experiments' },
     decorators: [
@@ -187,9 +206,15 @@ export const SettingsEnvironmentExperimentsMultipleRecalculationTimes: Story = {
 
 export const SettingsEnvironmentReplay: Story = { args: { sectionId: 'environment-replay' } }
 
+export const SettingsEnvironmentReplayQuill: Story = withTodayRailNav(SettingsEnvironmentReplay)
+
 export const SettingsEnvironmentSurveys: Story = { args: { sectionId: 'environment-surveys' } }
 
+export const SettingsEnvironmentSurveysQuill: Story = withTodayRailNav(SettingsEnvironmentSurveys)
+
 export const SettingsEnvironmentFeatureFlags: Story = { args: { sectionId: 'environment-feature-flags' } }
+
+export const SettingsEnvironmentFeatureFlagsQuill: Story = withTodayRailNav(SettingsEnvironmentFeatureFlags)
 
 export const SettingsEnvironmentErrorTracking: Story = {
     args: { sectionId: 'environment-error-tracking' },
@@ -208,6 +233,8 @@ export const SettingsEnvironmentErrorTracking: Story = {
     ],
 }
 
+export const SettingsEnvironmentErrorTrackingQuill: Story = withTodayRailNav(SettingsEnvironmentErrorTracking)
+
 export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
     args: { sectionId: 'environment-error-tracking-configuration' },
     decorators: [
@@ -225,17 +252,33 @@ export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
     ],
 }
 
+export const SettingsEnvironmentErrorTrackingConfigurationQuill: Story = withTodayRailNav(
+    SettingsEnvironmentErrorTrackingConfiguration
+)
+
 export const SettingsEnvironmentCSPReporting: Story = { args: { sectionId: 'environment-csp-reporting' } }
+
+export const SettingsEnvironmentCSPReportingQuill: Story = withTodayRailNav(SettingsEnvironmentCSPReporting)
 
 export const SettingsEnvironmentDataQuality: Story = { args: { sectionId: 'environment-data-quality' } }
 
+export const SettingsEnvironmentDataQualityQuill: Story = withTodayRailNav(SettingsEnvironmentDataQuality)
+
 export const SettingsEnvironmentPrivacy: Story = { args: { sectionId: 'environment-privacy' } }
+
+export const SettingsEnvironmentPrivacyQuill: Story = withTodayRailNav(SettingsEnvironmentPrivacy)
 
 export const SettingsEnvironmentMax: Story = { args: { sectionId: 'environment-max' } }
 
+export const SettingsEnvironmentMaxQuill: Story = withTodayRailNav(SettingsEnvironmentMax)
+
 export const SettingsEnvironmentIntegrations: Story = { args: { sectionId: 'environment-integrations' } }
 
+export const SettingsEnvironmentIntegrationsQuill: Story = withTodayRailNav(SettingsEnvironmentIntegrations)
+
 export const SettingsEnvironmentAccessControl: Story = { args: { sectionId: 'environment-access-control' } }
+
+export const SettingsEnvironmentAccessControlQuill: Story = withTodayRailNav(SettingsEnvironmentAccessControl)
 
 export const SettingsEnvironmentActivityLogs: Story = {
     args: { sectionId: 'environment-activity-logs' },
@@ -244,7 +287,11 @@ export const SettingsEnvironmentActivityLogs: Story = {
     decorators: [mswDecorator({ get: { '/api/billing/': billingJson } })],
 }
 
+export const SettingsEnvironmentActivityLogsQuill: Story = withTodayRailNav(SettingsEnvironmentActivityLogs)
+
 export const SettingsEnvironmentDangerZone: Story = { args: { sectionId: 'environment-danger-zone' } }
+
+export const SettingsEnvironmentDangerZoneQuill: Story = withTodayRailNav(SettingsEnvironmentDangerZone)
 
 export const SettingsEnvironmentBusinessKnowledge: Story = {
     args: { sectionId: 'environment-business-knowledge' },
@@ -265,6 +312,8 @@ export const SettingsEnvironmentBusinessKnowledge: Story = {
         }),
     ],
 }
+
+export const SettingsEnvironmentBusinessKnowledgeQuill: Story = withTodayRailNav(SettingsEnvironmentBusinessKnowledge)
 
 export const SettingsEnvironmentBusinessKnowledgeSupportOff: Story = {
     args: { sectionId: 'environment-business-knowledge' },
@@ -363,6 +412,10 @@ export const SettingsEnvironmentAiSubscriptionsCodexConnected: Story = {
     },
 }
 
+export const SettingsEnvironmentAiSubscriptionsCodexConnectedQuill: Story = withTodayRailNav(
+    SettingsEnvironmentAiSubscriptionsCodexConnected
+)
+
 export const SettingsEnvironmentAiSubscriptionsCodexReauthRequired: Story = {
     args: { sectionId: 'environment-ai-subscriptions' },
     parameters: {
@@ -414,6 +467,8 @@ export const SettingsEnvironmentAgentInstructions: Story = {
     ],
 }
 
+export const SettingsEnvironmentAgentInstructionsQuill: Story = withTodayRailNav(SettingsEnvironmentAgentInstructions)
+
 export const SettingsMcpAnalyticsCustomHarnesses: Story = {
     args: { sectionId: 'mcp-analytics' },
     decorators: [
@@ -441,3 +496,5 @@ export const SettingsMcpAnalyticsCustomHarnesses: Story = {
         }),
     ],
 }
+
+export const SettingsMcpAnalyticsCustomHarnessesQuill: Story = withTodayRailNav(SettingsMcpAnalyticsCustomHarnesses)

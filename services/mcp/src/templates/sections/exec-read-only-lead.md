@@ -1,0 +1,1 @@
+This tool only reads. It runs every discovery command and `call`s to read-only tools. It refuses a `call` to a tool that changes data, such as one that creates, updates or deletes something; run that `call` with the `exec-write` tool instead.

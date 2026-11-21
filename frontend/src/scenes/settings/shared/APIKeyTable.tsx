@@ -1,33 +1,12 @@
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-export interface APIKeyTableRow {
-    id: string
-    label: string
-    mask_value?: string | null
-    scopes: string[]
-    created_at: string
-    created_by?: {
-        email: string
-        first_name?: string
-        last_name?: string
-    } | null
-    last_used_at: string | null
-    last_rolled_at: string | null
-}
-
-// "Jane D.": the last initial separates people who share a first name.
-export function formatCreatedBy(user: NonNullable<APIKeyTableRow['created_by']>): string {
-    const firstName = user.first_name?.trim()
-    if (!firstName) {
-        return user.email
-    }
-    const lastInitial = user.last_name?.trim().charAt(0)
-    return lastInitial ? `${firstName} ${lastInitial.toUpperCase()}.` : firstName
-}
+import { type APIKeyTableRow, formatCreatedBy, openDeleteKeyDialog } from './apiKeyTableUtils'
+import { QuillAPIKeyTable } from './QuillAPIKeyTable'
 
 /** Either confirm a roll with the default dialog and call `onRoll`, or replace that dialog entirely. */
 type APIKeyTableRollProps<T> =
@@ -92,6 +71,48 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
     deleteDescription = 'This action cannot be undone.',
     openRollDialog,
 }: APIKeyTableProps<T>): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const confirmRoll = (key: T): void => {
+        if (openRollDialog) {
+            openRollDialog(key)
+            return
+        }
+        LemonDialog.open({
+            title: `Roll key "${key.label}"?`,
+            description: 'This will generate a new key. The old key will immediately stop working.',
+            primaryButton: {
+                status: 'danger',
+                children: 'Roll',
+                onClick: () => onRoll?.(key.id),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
+    const confirmDelete = (key: T): void => openDeleteKeyDialog(key, onDelete, deleteDescription)
+
+    if (todayRailNav) {
+        return (
+            <QuillAPIKeyTable<T>
+                keys={keys}
+                loading={loading}
+                noun={noun}
+                showCreatedBy={showCreatedBy}
+                showActions={showActions}
+                rowClassName={rowClassName}
+                renderLabel={renderLabel}
+                renderMaskValue={renderMaskValue}
+                renderScopes={renderScopes}
+                onEdit={onEdit}
+                onRoll={confirmRoll}
+                onDelete={confirmDelete}
+            />
+        )
+    }
+
     const labelColumn: LemonTableColumn<T, any> = {
         title: 'Label',
         dataIndex: 'label',
@@ -211,39 +232,12 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
                     },
                     {
                         label: 'Roll',
-                        onClick: () => {
-                            if (openRollDialog) {
-                                openRollDialog(key)
-                                return
-                            }
-                            LemonDialog.open({
-                                title: `Roll key "${key.label}"?`,
-                                description: 'This will generate a new key. The old key will immediately stop working.',
-                                primaryButton: {
-                                    status: 'danger',
-                                    children: 'Roll',
-                                    onClick: () => onRoll?.(key.id),
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                },
-                            })
-                        },
+                        onClick: () => confirmRoll(key),
                     },
                     {
                         label: 'Delete',
                         status: 'danger',
-                        onClick: () => {
-                            LemonDialog.open({
-                                title: `Permanently delete key "${key.label}"?`,
-                                description: deleteDescription,
-                                primaryButton: {
-                                    status: 'danger',
-                                    children: 'Permanently delete',
-                                    onClick: () => onDelete(key.id),
-                                },
-                            })
-                        },
+                        onClick: () => confirmDelete(key),
                     },
                 ]}
             >

@@ -91,6 +91,7 @@ class NodeRole(StrEnum):
     AI_EVENTS = "ai_events"
     AUX = "aux"
     BATCH_EXPORTS = "batch_exports"
+    FLAGS = "flags"
     INGESTION_METRICS = "ingestion_metrics"
     METRICS = "metrics"
     OPS = "ops"
@@ -106,6 +107,7 @@ DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
         NodeRole.AI_EVENTS,
         NodeRole.AUX,
         NodeRole.BATCH_EXPORTS,
+        NodeRole.FLAGS,
         NodeRole.LOGS,
         NodeRole.METRICS,
         NodeRole.OPS,
@@ -114,7 +116,15 @@ DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.METRICS, NodeRole.OPS, NodeRole.SESSIONS}
+    {
+        NodeRole.AI_EVENTS,
+        NodeRole.AUX,
+        NodeRole.BATCH_EXPORTS,
+        NodeRole.FLAGS,
+        NodeRole.METRICS,
+        NodeRole.OPS,
+        NodeRole.SESSIONS,
+    }
 )
 
 
@@ -156,8 +166,6 @@ class ClickHouseUser(StrEnum):
     BILLING = "billing"
     BUSINESS_KNOWLEDGE = "business_knowledge"
     REPLAY_VISION = "replay_vision"
-    # Session replay surfacing scoring sweep
-    SURFACING_SCORING = "surfacing_scoring"
     DELETION_EXECUTOR = "deletion_executor"
     # The alerts platform's parallel evaluation has one user per source. A source's checks then
     # never take from the concurrency budget of the user that its production alerting queries as.

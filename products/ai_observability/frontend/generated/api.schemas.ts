@@ -384,6 +384,16 @@ export const OfflineExperimentStatusEnumApi = {
 } as const
 
 export interface OfflineExperimentReadApi {
+    /**
+     * Most recent item, result, or payload change.
+     * @nullable
+     */
+    updated_at?: string | null
+    /**
+     * Number of items when the experiment closed.
+     * @nullable
+     */
+    closed_item_count?: number | null
     /** User who submitted the experiment, or null for service credentials. */
     readonly created_by: UserBasicApi | null
     /** Project tag names assigned to this experiment. */
@@ -679,6 +689,7 @@ export interface PatchedOfflineExperimentMetadataApi {
  * * `not_provided` - Not provided
  * * `available` - Available
  * * `expired` - Expired
+ * * `deleted` - Deleted
  */
 export type PayloadStateEnumApi = (typeof PayloadStateEnumApi)[keyof typeof PayloadStateEnumApi]
 
@@ -686,6 +697,7 @@ export const PayloadStateEnumApi = {
     NotProvided: 'not_provided',
     Available: 'available',
     Expired: 'expired',
+    Deleted: 'deleted',
 } as const
 
 /**
@@ -705,6 +717,15 @@ export const OfflineEvaluationResultStatusEnumApi = {
 } as const
 
 export interface OfflineResultCellApi {
+    /** Whether the item's input, output, or expected output changed after this score. */
+    is_stale: boolean
+    /** Current revision for updates and deletes. */
+    revision?: number
+    /**
+     * Time of the latest score update. For composites, the oldest input score time.
+     * @nullable
+     */
+    score_updated_at?: string | null
     /**
      * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
      * @nullable
@@ -744,7 +765,8 @@ export interface OfflineResultCellApi {
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -756,6 +778,13 @@ export interface OfflineResultCellApi {
 }
 
 export interface OfflineItemReadApi {
+    /** Current revision for updates and deletes. */
+    revision?: number
+    /**
+     * Last change to the input, output, or expected output.
+     * @nullable
+     */
+    content_updated_at?: string | null
     /**
      * Model used for the item, falling back to the experiment's model.
      * @nullable
@@ -801,7 +830,8 @@ export interface OfflineItemReadApi {
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -1032,6 +1062,46 @@ export interface OfflineItemPageApi {
     scorer_versions: OfflineScorerVersionReadApi[]
 }
 
+export interface PatchedOfflineItemUpdateApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+    /**
+     * Case identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    case_key?: string | null
+    /**
+     * Trial identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    trial?: string | null
+    /**
+     * Model used for this item.
+     * @maxLength 255
+     * @nullable
+     */
+    model_version?: string | null
+    /**
+     * Trace for this item's application execution.
+     * @maxLength 255
+     * @nullable
+     */
+    application_trace_id?: string | null
+}
+
+export interface OfflineRevisionApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+}
+
 export type OfflineExperimentItemPayloadInputApiInput =
     | { [key: string]: unknown }
     | unknown[]
@@ -1070,13 +1140,21 @@ export interface OfflineExperimentItemPayloadInputApi {
 }
 
 export interface OfflineItemPayloadReadApi {
+    /** Current revision of the payload owner. */
+    revision?: number
+    /**
+     * Time of explicit payload deletion.
+     * @nullable
+     */
+    deleted_at?: string | null
     /** Owning item UUID. */
     id: string
     /** Durable payload storage state.
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload retention deadline.
@@ -1089,7 +1167,26 @@ export interface OfflineItemPayloadReadApi {
     data: OfflineExperimentItemPayloadInputApi | null
 }
 
+export interface PatchedOfflineItemPayloadUpdateApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+    /** Top-level fields to update. Omitted fields keep their current values. */
+    payload: OfflineExperimentItemPayloadInputApi
+}
+
 export interface OfflineResultReadApi {
+    /** Whether the item's input, output, or expected output changed after this score. */
+    is_stale: boolean
+    /** Current revision for updates and deletes. */
+    revision?: number
+    /**
+     * Time of the latest score update. For composites, the oldest input score time.
+     * @nullable
+     */
+    score_updated_at?: string | null
     /**
      * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
      * @nullable
@@ -1129,7 +1226,8 @@ export interface OfflineResultReadApi {
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -1172,6 +1270,29 @@ export interface OfflineResultCellsApi {
     results: OfflineResultCellApi[]
 }
 
+export interface PatchedOfflineResultUpdateApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+    /** Execution status for this reported result.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status?: OfflineEvaluationResultStatusEnumApi
+    /** Score for a successful result, validated against the pinned version. */
+    value?: number | boolean | string[] | null
+    /**
+     * Error code for a failed execution.
+     * @maxLength 128
+     * @nullable
+     */
+    error_code?: string | null
+}
+
 /**
  * @nullable
  */
@@ -1187,13 +1308,21 @@ export interface OfflineEvaluationResultPayloadInputApi {
 }
 
 export interface OfflineResultPayloadReadApi {
+    /** Current revision of the payload owner. */
+    revision?: number
+    /**
+     * Time of explicit payload deletion.
+     * @nullable
+     */
+    deleted_at?: string | null
     /** Owning result UUID. */
     id: string
     /** Durable payload storage state.
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload retention deadline.
@@ -1204,6 +1333,16 @@ export interface OfflineResultPayloadReadApi {
     available: boolean
     /** Stored reasoning/error payload; null if unavailable. */
     data: OfflineEvaluationResultPayloadInputApi | null
+}
+
+export interface PatchedOfflineResultPayloadUpdateApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+    /** Top-level fields to update. Omitted fields keep their current values. */
+    payload: OfflineEvaluationResultPayloadInputApi
 }
 
 export interface OfflineStatusCountsApi {
@@ -1495,6 +1634,91 @@ export interface OfflineHistoryPageApi {
     results: OfflineHistoryPointApi[]
 }
 
+export interface TraceNodeStatsApi {
+    costUsd: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    latencyMs: number | null
+}
+
+export interface TraceHumanReviewScoreApi {
+    /** The scorer's name. */
+    name: string
+    /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+    value: string
+    /** The scorer's name and the score together, such as `Tone: 4.5`. */
+    label: string
+}
+
+export interface TraceHumanReviewApi {
+    /** The display name of whoever last saved the review, or null when that user was removed. */
+    reviewedBy: string | null
+    /** When the review was last saved. */
+    reviewedAt: string
+    /** The reviewer's reasoning, if any. */
+    comment: string | null
+    /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+    scores: TraceHumanReviewScoreApi[]
+}
+
+export interface TraceReviewQueueAssignmentApi {
+    /** The review queue's id. */
+    id: string
+    /** The review queue's name. */
+    name: string
+    /** The queue item that holds the trace, for moving or removing it. */
+    itemId: string
+}
+
+export interface TraceReviewStatusApi {
+    /** The trace's human review, or null when it has none or the user may not see it. */
+    review: TraceHumanReviewApi | null
+    /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+    queue: TraceReviewQueueAssignmentApi | null
+}
+
+export interface TraceListItemApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+    totalsPartial: boolean
+    /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
+    defaultNodeId: string | null
+    /** The error text of the trace's earliest failed step that carries one, cut at 200 characters. Null when no failed step carries error text. */
+    firstError: string | null
+    /** The tools the trace's steps called, each once, in the order first called. */
+    toolsCalled: string[]
+    /** Whether a support agent ran the trace while impersonating the user. */
+    isSupportTrace: boolean
+    /** The trace's review and review queue, or null when it has neither that the user may see. */
+    review: TraceReviewStatusApi | null
+}
+
+export interface TraceListCountsApi {
+    /** How many traces the selection holds, ignoring its quick filter. */
+    total: number
+    /** How many of them have an error. */
+    errors: number
+    /** How many of them have user feedback. */
+    feedback: number
+}
+
+export interface TraceListApi {
+    /** A page of traces, newest first. */
+    items: TraceListItemApi[]
+    /** The selection's counts, on the first page only. */
+    counts: TraceListCountsApi | null
+    /** The cursor of the next page, or null on the last one. */
+    nextCursor: string | null
+}
+
 export interface TraceClusterApi {
     /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
     runId: string
@@ -1610,15 +1834,6 @@ export interface TracePersonApi {
     label: string
 }
 
-export interface TraceNodeStatsApi {
-    costUsd: number | null
-    inputTokens: number | null
-    outputTokens: number | null
-    cacheReadTokens: number | null
-    cacheWriteTokens: number | null
-    latencyMs: number | null
-}
-
 export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
 
 export const TraceNodeKindEnumApi = {
@@ -1664,10 +1879,12 @@ export interface TraceApi {
     name: string | null
     createdAt: string
     sessionId: string | null
-    person: TracePersonApi | null
     totals: TraceNodeStatsApi
     hasError: boolean
     errorCount: number
+    /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+    totalsPartial: boolean
+    person: TracePersonApi | null
     tree: TraceNodeApi[]
     timeline: TraceTimelineRowApi[]
     totalMs: number
@@ -1886,9 +2103,9 @@ export interface TraceToolCallPartApi {
     kind: 'toolCall'
     /** The name of the called tool, or an empty string when the event has none. */
     name: string
-    /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+    /** The call's arguments, parsed from JSON text when they parse, with JSON text inside them parsed too. Otherwise the text as captured. */
     args: unknown
-    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser, with JSON text inside it parsed the same way. Null when no tool message answers the call. */
     result: unknown
 }
 
@@ -1933,7 +2150,7 @@ export interface TraceMessagesSideApi {
 
 export interface TraceJsonSideApi {
     kind: 'json'
-    /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+    /** The side's value for a side that is not a conversation, with JSON text in it parsed when no number loses precision in a browser. The value as captured when the side could not be normalized. */
     value: unknown
 }
 
@@ -2051,42 +2268,6 @@ export interface TracePullRequestLookupApi {
     pullRequest: TracePullRequestApi | null
 }
 
-export interface TraceHumanReviewScoreApi {
-    /** The scorer's name. */
-    name: string
-    /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
-    value: string
-    /** The scorer's name and the score together, such as `Tone: 4.5`. */
-    label: string
-}
-
-export interface TraceHumanReviewApi {
-    /** The display name of whoever last saved the review, or null when that user was removed. */
-    reviewedBy: string | null
-    /** When the review was last saved. */
-    reviewedAt: string
-    /** The reviewer's reasoning, if any. */
-    comment: string | null
-    /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
-    scores: TraceHumanReviewScoreApi[]
-}
-
-export interface TraceReviewQueueAssignmentApi {
-    /** The review queue's id. */
-    id: string
-    /** The review queue's name. */
-    name: string
-    /** The queue item that holds the trace, for moving or removing it. */
-    itemId: string
-}
-
-export interface TraceReviewStatusApi {
-    /** The trace's human review, or null when it has none or the user may not see it. */
-    review: TraceHumanReviewApi | null
-    /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
-    queue: TraceReviewQueueAssignmentApi | null
-}
-
 export interface TraceSearchMatchApi {
     /** A step whose stored data contains the query. The root's id is the trace id. */
     nodeId: string
@@ -2175,6 +2356,93 @@ export interface TraceAvailabilityRequestApi {
 export interface TraceAvailabilityApi {
     /** Requested trace IDs readable from AI events or the shared events table. */
     available_trace_ids: string[]
+}
+
+export interface TracePageWithBoundsRequestApi {
+    /**
+     * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+     * @minItems 1
+     * @maxItems 100
+     */
+    trace_ids: string[]
+    /** The earliest createdAt of the rows on the page. With latest_created_at, it bounds the read of traces older than the AI events retention. */
+    earliest_created_at: string
+    /** The latest createdAt of the rows on the page. It can't be before earliest_created_at. */
+    latest_created_at: string
+}
+
+export interface TracePersonItemApi {
+    /** The trace the person belongs to. */
+    traceId: string
+    /** The person the trace ran for, labeled by the project's display name properties or else by their distinct id. Null when the trace is not found or carries no distinct id. */
+    person: TracePersonApi | null
+}
+
+export interface TracePeopleListApi {
+    /** One item per requested trace, in the order requested. */
+    items: TracePersonItemApi[]
+}
+
+export interface TracePageRequestApi {
+    /**
+     * The IDs of the traces on a page of the list, from 1 to 100. Items come back in this order, once per ID.
+     * @minItems 1
+     * @maxItems 100
+     */
+    trace_ids: string[]
+}
+
+export type TracePreviewMissingReasonApi =
+    (typeof TracePreviewMissingReasonApi)[keyof typeof TracePreviewMissingReasonApi]
+
+export const TracePreviewMissingReasonApi = {
+    TooLarge: 'too_large',
+    TimedOut: 'timed_out',
+} as const
+
+export interface TracePreviewApi {
+    /** The trace the preview belongs to. */
+    traceId: string
+    /** The user's message the trace answered, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `inputMissingReason` says why. */
+    input: string | null
+    /** The trace's answer, cut at 200 characters. Null when there is nothing to show, or when it could not be read and `outputMissingReason` says why. */
+    output: string | null
+    /** Why `input` is null: `too_large` when the message is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `input` is null. Null with a null `input` means there is nothing to show. */
+    inputMissingReason: TracePreviewMissingReasonApi | null
+    /** Why `output` is null: `too_large` when the answer is too large to preview, `timed_out` when the page ran out of time before reading it. Set only when `output` is null. Null with a null `output` means there is nothing to show. */
+    outputMissingReason: TracePreviewMissingReasonApi | null
+}
+
+export interface TracePreviewListApi {
+    /** One preview per requested trace, in the order requested. A trace that is not found previews as nulls. */
+    items: TracePreviewApi[]
+}
+
+export type TraceSentimentLabelEnumApi = (typeof TraceSentimentLabelEnumApi)[keyof typeof TraceSentimentLabelEnumApi]
+
+export const TraceSentimentLabelEnumApi = {
+    Positive: 'positive',
+    Neutral: 'neutral',
+    Negative: 'negative',
+} as const
+
+export interface TraceSentimentApi {
+    /** The trace's sentiment, from the average of its latest sentiment result per generation. Neutral when neither positive nor negative beats neutral by a clear margin. */
+    label: TraceSentimentLabelEnumApi
+    /** The average score of the label, from 0 to 1. */
+    score: number
+}
+
+export interface TraceSentimentItemApi {
+    /** The trace the sentiment belongs to. */
+    traceId: string
+    /** Null when the trace is not found or has no sentiment result. */
+    sentiment: TraceSentimentApi | null
+}
+
+export interface TraceSentimentListApi {
+    /** One item per requested trace, in the order requested. */
+    items: TraceSentimentItemApi[]
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -2303,9 +2571,10 @@ export const CodeEnumApi = {
 } as const
 
 /**
- * * `datasets` - datasets
- * * `dataset_items` - dataset_items
- * * `dataset_item_versions` - dataset_item_versions
+ * * `datasets` - Datasets
+ * * `dataset_items` - Dataset Items
+ * * `dataset_item_versions` - Dataset Item Versions
+ * * `project_dataset_item_versions` - Project Dataset Item Versions
  */
 export type DatasetConflictResponseResourceEnumApi =
     (typeof DatasetConflictResponseResourceEnumApi)[keyof typeof DatasetConflictResponseResourceEnumApi]
@@ -2314,6 +2583,7 @@ export const DatasetConflictResponseResourceEnumApi = {
     Datasets: 'datasets',
     DatasetItems: 'dataset_items',
     DatasetItemVersions: 'dataset_item_versions',
+    ProjectDatasetItemVersions: 'project_dataset_item_versions',
 } as const
 
 export interface DatasetConflictResponseApi {
@@ -2341,9 +2611,10 @@ export interface DatasetConflictResponseApi {
     current_item_id?: string | null
     /** Resource whose configured limit was reached.
      *
-     * * `datasets` - datasets
-     * * `dataset_items` - dataset_items
-     * * `dataset_item_versions` - dataset_item_versions */
+     * * `datasets` - Datasets
+     * * `dataset_items` - Dataset Items
+     * * `dataset_item_versions` - Dataset Item Versions
+     * * `project_dataset_item_versions` - Project Dataset Item Versions */
     resource?: DatasetConflictResponseResourceEnumApi
     /** Number of resources that already exist. */
     current_count?: number
@@ -2681,6 +2952,7 @@ export interface EvalSuggestionRunApi {
  * * `new_hog` - New Hog eval
  * * `new_llm_judge` - New LLM judge
  * * `fix_eval` - Fix an evaluation
+ * * `fix_prompt` - Fix a prompt
  */
 export type EvalSuggestionKindEnumApi = (typeof EvalSuggestionKindEnumApi)[keyof typeof EvalSuggestionKindEnumApi]
 
@@ -2688,6 +2960,7 @@ export const EvalSuggestionKindEnumApi = {
     NewHog: 'new_hog',
     NewLlmJudge: 'new_llm_judge',
     FixEval: 'fix_eval',
+    FixPrompt: 'fix_prompt',
 } as const
 
 /**
@@ -2724,6 +2997,17 @@ export interface EvalSuggestionEvidenceApi {
 }
 
 /**
+ * * `no_runs` - No runs
+ * * `one_outcome` - One outcome
+ */
+export type EvalFixProblemEnumApi = (typeof EvalFixProblemEnumApi)[keyof typeof EvalFixProblemEnumApi]
+
+export const EvalFixProblemEnumApi = {
+    NoRuns: 'no_runs',
+    OneOutcome: 'one_outcome',
+} as const
+
+/**
  * * `not_relevant` - Not relevant
  * * `already_covered` - Already covered
  * * `too_noisy` - Too noisy
@@ -2740,18 +3024,19 @@ export const EvalSuggestionDismissReasonEnumApi = {
 } as const
 
 /**
- * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix.
+ * For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule.
  */
 export type EvalSuggestionApiDraft = { [key: string]: unknown }
 
 export interface EvalSuggestionApi {
     /** Suggestion identifier. */
     readonly id: string
-    /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results.
+    /** new_hog: a Hog check, measured on a sample. new_llm_judge: an LLM judge that possibly applies, with examples. fix_eval: an existing evaluation that matches nothing or gives inconsistent results. fix_prompt: a rule the prompt sets that most sampled calls break, which a prompt change fixes and an evaluation cannot; it has no evaluation to accept.
      *
      * * `new_hog` - New Hog eval
      * * `new_llm_judge` - New LLM judge
-     * * `fix_eval` - Fix an evaluation */
+     * * `fix_eval` - Fix an evaluation
+     * * `fix_prompt` - Fix a prompt */
     readonly kind: EvalSuggestionKindEnumApi
     /** proposed until someone accepts or dismisses it.
      *
@@ -2764,13 +3049,17 @@ export interface EvalSuggestionApi {
     readonly applies: boolean
     /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
     readonly template_key: string
-    /** The problem in the project's own terms, with the number that makes it concrete, such as '1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured. */
+    /** A short, stable name for the issue, such as 'Tool or model calls that never succeed'. For fix_eval, the condition observed on the evaluation. It carries no counts; `observation` does. */
     readonly headline: string
-    /** What adding the evaluation does and what it costs, in one or two plain sentences. */
+    /** One sentence on what the evaluation flags and where it applies, starting with 'Flags'. For fix_eval and fix_prompt, what was observed and the next step. */
     readonly outcome: string
-    /** How the problem was measured or found, for people who want the detail. */
+    /** Why the issue matters for the project's users, or empty when nothing supports it. */
     readonly reason: string
-    /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. */
+    /** What the sample showed, such as '9 of 27 sampled generations flagged', or empty when nothing was measured. */
+    readonly observation: string
+    /** Where the observation came from, such as 'Sampled from the last 7 days'. */
+    readonly observation_scope: string
+    /** For new_hog and new_llm_judge: the evaluation create input (name, description, evaluation_type, evaluation_config, output_type, output_config, target), without conditions, which accept builds from `filters` and `rollout_percentage`. For fix_eval: the update body apply_fix applies to the target evaluation, or {} when the evaluation needs a manual fix. For fix_prompt: the check's name and description, and prompt_name when one managed prompt holds the rule. */
     readonly draft: EvalSuggestionApiDraft
     /** Property filters the suggested evaluation runs on. Empty means all AI traffic. */
     readonly filters: readonly EvalSuggestionFilterApi[]
@@ -2815,6 +3104,11 @@ export interface EvalSuggestionApi {
      * @nullable
      */
     readonly target_evaluation_name: string | null
+    /** What a fix_eval suggestion found. no_runs: the evaluation ran nothing in the lookback. one_outcome: it returned the same result and reasoning almost every time. Null for other kinds.
+     *
+     * * `no_runs` - No runs
+     * * `one_outcome` - One outcome */
+    readonly fix_problem: EvalFixProblemEnumApi | null
     /**
      * Existing evaluation that may already cover this suggestion.
      * @nullable
@@ -4367,10 +4661,17 @@ export interface EvaluationTestOnSampleRequestApi {
 export type ClusteringConfigApiEventFiltersItem = { [key: string]: unknown }
 
 export interface ClusteringConfigApi {
+    /** Whether this project has opted in to automated clustering. */
+    enabled: boolean
     /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
     event_filters: ClusteringConfigApiEventFiltersItem[]
     readonly created_at: string
     readonly updated_at: string
+}
+
+export interface ClusteringConfigSetEnabledApi {
+    /** Enable or disable automated clustering for this project. */
+    enabled: boolean
 }
 
 export type ClusteringConfigSetEventFiltersApiEventFiltersItem = { [key: string]: unknown }
@@ -4385,9 +4686,10 @@ export interface ClusteringConfigSetEventFiltersApi {
  * * `generation` - generation
  * * `evaluation` - evaluation
  */
-export type AnalysisLevelEnumApi = (typeof AnalysisLevelEnumApi)[keyof typeof AnalysisLevelEnumApi]
+export type ClusteringAnalysisLevelEnumApi =
+    (typeof ClusteringAnalysisLevelEnumApi)[keyof typeof ClusteringAnalysisLevelEnumApi]
 
-export const AnalysisLevelEnumApi = {
+export const ClusteringAnalysisLevelEnumApi = {
     Trace: 'trace',
     Generation: 'generation',
     Evaluation: 'evaluation',
@@ -4399,7 +4701,7 @@ export interface ClusteringJobApi {
     readonly id: string
     /** @maxLength 100 */
     name: string
-    analysis_level: AnalysisLevelEnumApi
+    analysis_level: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: ClusteringJobApiEventFiltersItem[]
     enabled?: boolean
@@ -4422,7 +4724,7 @@ export interface PatchedClusteringJobApi {
     readonly id?: string
     /** @maxLength 100 */
     name?: string
-    analysis_level?: AnalysisLevelEnumApi
+    analysis_level?: ClusteringAnalysisLevelEnumApi
     /** PostHog property filters that scope this clustering job. Empty array means no filters. */
     event_filters?: PatchedClusteringJobApiEventFiltersItem[]
     enabled?: boolean
@@ -6407,6 +6709,11 @@ export interface TaggerApi {
     readonly updated_at: string
     readonly created_by: UserBasicApi
     deleted?: boolean
+    /**
+     * The evaluation that replaced this tagger when it was migrated. Null until then.
+     * @nullable
+     */
+    readonly migrated_to_evaluation_id: string | null
 }
 
 export interface PaginatedTaggerListApi {
@@ -6730,6 +7037,22 @@ export type AiObservabilityOfflineExperimentsItemsListParams = {
     scorer_version_ids?: string
 }
 
+export type AiObservabilityOfflineExperimentsItemsDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+}
+
+export type AiObservabilityOfflineExperimentsItemsPayloadDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+}
+
 export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
     /**
      * Continuation cursor returned by the previous page.
@@ -6768,6 +7091,22 @@ export type AiObservabilityOfflineExperimentsResultCellsRetrieveParams = {
      * @maxLength 739
      */
     scorer_version_ids: string
+}
+
+export type AiObservabilityOfflineExperimentsResultsDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+}
+
+export type AiObservabilityOfflineExperimentsResultsPayloadDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
 }
 
 export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
@@ -6933,6 +7272,75 @@ export type AiObservabilityOfflineScorersHistoryListTagMatch =
 export const AiObservabilityOfflineScorersHistoryListTagMatch = {
     Any: 'any',
     All: 'all',
+} as const
+
+export type AiObservabilityTracesListParams = {
+    /**
+     * The nextCursor of the previous page, to read the page after it. Leave it out for the first page.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
+    /**
+     * Lists only traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     */
+    group_key?: string
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number
+    /**
+     * How many traces a page holds, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Lists only traces whose events belong to the person with this UUID.
+     */
+    person_id?: string
+    /**
+     * Up to 50 property filters as a JSON-encoded list. A trace is listed when one of its events matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string
+    /**
+     * Text to look for in the inputs and outputs of the trace's generations and embeddings, ignoring case. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    search?: string
+    /**
+     * Lists only traces with an error, or only traces with user feedback. The counts ignore it.
+     *
+     * * `errors` - errors
+     * * `feedback` - feedback
+     * @minLength 1
+     */
+    view?: AiObservabilityTracesListView
+}
+
+export type AiObservabilityTracesListView =
+    (typeof AiObservabilityTracesListView)[keyof typeof AiObservabilityTracesListView]
+
+export const AiObservabilityTracesListView = {
+    Errors: 'errors',
+    Feedback: 'feedback',
 } as const
 
 export type AiObservabilityTracesClustersRetrieveParams = {
@@ -7775,6 +8183,10 @@ export type TaggersListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Only the tagger that was migrated to this evaluation
+     */
+    migrated_to_evaluation_id?: string
     /**
      * The initial index from which to return the results.
      */

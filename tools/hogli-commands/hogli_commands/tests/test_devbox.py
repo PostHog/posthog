@@ -6,6 +6,7 @@ import os
 import csv
 import sys
 import json
+import time
 import errno
 import shlex
 import signal
@@ -22,13 +23,18 @@ from click.testing import CliRunner
 from hogli.cli import cli
 from hogli_commands import worktrees
 from hogli_commands.devbox import (
+    box_checks,
     cli as devbox_cli,
     coder,
     config as devbox_config,
+    dotfiles as devbox_dotfiles,
+    gh_login,
     herdr as devbox_herdr,
     hogland as devbox_hogland,
     mutagen as devbox_mutagen,
+    secrets_lend,
     sync as devbox_sync,
+    trunk_login,
     worktree as devbox_worktree,
 )
 
@@ -2905,7 +2911,7 @@ class TestDevboxCommands:
         )
         monkeypatch.setattr(
             devbox_cli,
-            "maybe_configure_claude_secret",
+            "maybe_configure_claude",
             lambda configure_claude, **kw: calls.append(f"claude:{configure_claude}"),
         )
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: calls.append("summary"))
@@ -2951,7 +2957,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(
             devbox_cli,
@@ -2981,7 +2987,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda configure_region: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(devbox_cli, "get_default_git_identity", lambda: ("Coder User", "coder@example.com"))
 
@@ -3016,7 +3022,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda configure_git_signing, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda configure_region: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
-        monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_claude", lambda configure_claude, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
 
         result = runner.invoke(cli, ["devbox:setup", "--skip-configure-ssh"])
@@ -3271,7 +3277,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "_start_existing_workspace",
-            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
+            lambda name, ws, start_app=None, verbose=False, check_setup=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -3310,7 +3316,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "_start_existing_workspace",
-            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
+            lambda name, ws, start_app=None, verbose=False, check_setup=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -3787,7 +3793,7 @@ def stub_setup_environment(monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: 
     monkeypatch.setattr(devbox_cli, "maybe_configure_git_signing", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
-    monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_claude", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
     monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
     monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
@@ -4120,6 +4126,72 @@ class TestStartExistingWorkspace:
 
         assert calls == expected
 
+    @pytest.mark.parametrize(
+        "box_answer, workspace_arg, expected, unexpected",
+        [
+            (
+                "HOGLI_CHECK 0 0\nHOGLI_CHECK 1 0\nHOGLI_CHECK 2 0\nHOGLI_CHECK 3 0\n",
+                [],
+                ["Box setup: Claude Code login, GitHub CLI login, Trunk CLI login, Dotfiles are ready."],
+                ["Missing"],
+            ),
+            (
+                "Welcome to the box!\nHOGLI_CHECK 1 1\nHOGLI_CHECK 0 0\nHOGLI_CHECK 2 3\nHOGLI_CHECK 3 1\n",
+                [],
+                [
+                    "Missing GitHub CLI login. Run `hogli devbox:gh:login`.",
+                    "Run `hogli devbox:exec --flox -- true, then hogli devbox:trunk:login`.",
+                    "Missing Dotfiles. Run `hogli devbox:dotfiles`.",
+                ],
+                ["Claude Code login"],
+            ),
+            (
+                "HOGLI_CHECK 0 1\nHOGLI_CHECK 1 124\n",
+                [],
+                [
+                    "Missing Claude Code login. Run `hogli devbox:claude:login`.",
+                    "Couldn't check GitHub CLI login.",
+                    "Couldn't check Trunk CLI login.",
+                ],
+                [],
+            ),
+            (subprocess.TimeoutExpired("ssh", 30), [], ["Couldn't check box setup."], ["Missing"]),
+            ("motd only\n", [], ["Couldn't check box setup."], ["Missing"]),
+            ("HOGLI_CHECK 0 1\n", ["@bob"], [], ["Box setup", "Missing", "Couldn't check"]),
+        ],
+        ids=["all_ready", "missing_after_profile_junk", "missing_and_unknown", "timeout", "no_markers", "other_box"],
+    )
+    def test_start_reports_missing_box_setup(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        box_answer: str | Exception,
+        workspace_arg: list[str],
+        expected: list[str],
+        unexpected: list[str],
+    ) -> None:
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if isinstance(box_answer, Exception):
+                raise box_answer
+            return subprocess.CompletedProcess([], 0, box_answer, "")
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli, "get_workspace", lambda name, workspaces=None: {"latest_build": {"status": "running"}}
+        )
+        monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
+        monkeypatch.setattr(box_checks, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(box_checks, "run_in_workspace", fake_run_in_workspace)
+
+        result = runner.invoke(cli, ["devbox:start", *workspace_arg])
+
+        assert result.exit_code == 0, result.output
+        for text in expected:
+            assert text in result.output
+        for text in unexpected:
+            assert text not in result.output
+
 
 class TestDevboxStop:
     @pytest.fixture(autouse=True)
@@ -4264,8 +4336,100 @@ class TestWorkspaceTargetParsing:
 class TestDevboxShare:
     """Test the devbox:share command."""
 
-    def test_share_grants_access(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "box_status, auth_method, interactive, logout_answer, expected_calls, expected_output",
+        [
+            ("running", "claude.ai", True, "y\n", ["logout", "share"], "Logged out of Claude Code"),
+            ("running", "claude.ai", True, "n\n", ["share"], "logged in to Claude Code as jane@example.com"),
+            ("running", "claude.ai", False, "", [], "Run `hogli devbox:claude:logout` first"),
+            ("running", "none", True, "", ["share"], "can use your Claude Code login"),
+            ("stopped", None, True, "", [], "--keep-claude-login"),
+        ],
+        ids=["logs_out_first", "keeps_login", "no_terminal_refuses", "not_logged_in", "stopped_box_refuses"],
+    )
+    def test_share_grants_access(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        box_status: str,
+        auth_method: str | None,
+        interactive: bool,
+        logout_answer: str,
+        expected_calls: list[str],
+        expected_output: str,
+    ) -> None:
         captured: dict[str, object] = {}
+        calls: list[str] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "gh" in command:
+                return subprocess.CompletedProcess([], 0, '{"hosts":{}}\n', "")
+            if "trunk" in command[-1]:
+                return subprocess.CompletedProcess([], 1, "", "Not logged in.")
+            if "devbox-secrets" in command[-1]:
+                return subprocess.CompletedProcess([], 0, "checked\n", "")
+            if "logout" in command[-1]:
+                calls.append("logout")
+                return subprocess.CompletedProcess([], 0, "", "")
+            status = {"loggedIn": auth_method != "none", "authMethod": auth_method, "email": "jane@example.com"}
+            return subprocess.CompletedProcess([], 0, json.dumps(status), "")
+
+        def fake_share(name: str, users: list[str], role: str = "use") -> None:
+            calls.append("share")
+            captured.update({"name": name, "users": users, "role": role})
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": box_status}},
+        )
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
+        monkeypatch.setattr(devbox_cli, "share_workspace", fake_share)
+        monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: interactive)
+        monkeypatch.setattr(devbox_cli, "_claude_token_secret_is_set", lambda: False)
+
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input=logout_answer)
+
+        shared = "share" in expected_calls
+        assert (result.exit_code == 0) == shared, result.output
+        assert calls == expected_calls
+        assert expected_output in result.output
+        if shared:
+            assert captured == {"name": "devbox-test-user", "users": ["alice"], "role": "use"}
+
+    @pytest.mark.parametrize(
+        "token_secret_set, logout_exit, expected_calls, expected_exit",
+        [
+            (True, 0, ["logout", "share"], 0),
+            (False, 1, ["logout"], 1),
+        ],
+        ids=["token_secret_does_not_hide_stored_login", "failed_logout_blocks_share"],
+    )
+    def test_share_logs_out_the_stored_login(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        token_secret_set: bool,
+        logout_exit: int,
+        expected_calls: list[str],
+        expected_exit: int,
+    ) -> None:
+        calls: list[str] = []
+        status_commands: list[str] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "gh" in command:
+                return subprocess.CompletedProcess([], 0, '{"hosts":{}}\n', "")
+            if "trunk" in command[-1]:
+                return subprocess.CompletedProcess([], 1, "", "Not logged in.")
+            if "devbox-secrets" in command[-1]:
+                return subprocess.CompletedProcess([], 0, "checked\n", "")
+            if "logout" in command[-1]:
+                calls.append("logout")
+                return subprocess.CompletedProcess([], logout_exit, "", "")
+            status_commands.append(command[-1])
+            status = {"loggedIn": True, "authMethod": "claude.ai", "email": "jane@example.com"}
+            return subprocess.CompletedProcess([], 0, json.dumps(status), "")
 
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
@@ -4274,18 +4438,209 @@ class TestDevboxShare:
             "get_workspace",
             lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
         )
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
+        monkeypatch.setattr(devbox_cli, "share_workspace", lambda name, users, role="use": calls.append("share"))
+        monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: True)
+        monkeypatch.setattr(devbox_cli, "_claude_token_secret_is_set", lambda: token_secret_set)
+
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input="y\n")
+
+        assert result.exit_code == expected_exit, result.output
+        assert calls == expected_calls
+        assert status_commands == ["env -u CLAUDE_CODE_OAUTH_TOKEN claude auth status --json"]
+
+    @pytest.mark.parametrize(
+        "accounts, interactive, logout_exit, expected_calls, expected_output",
+        [
+            (
+                ["jane", "jane-bot"],
+                True,
+                0,
+                ["gh-logout:jane", "gh-logout:jane-bot", "share"],
+                "Logged out of the GitHub",
+            ),
+            (["jane"], False, 0, [], "Run `hogli devbox:gh:logout` first"),
+            (["jane"], True, 1, ["gh-logout:jane"], "wasn't shared"),
+            (None, True, 0, [], "--keep-gh-login"),
+        ],
+        ids=["logs_out_every_account", "no_terminal_refuses", "failed_logout_blocks_share", "unknown_login_refuses"],
+    )
+    def test_share_handles_a_gh_login(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        accounts: list[str] | None,
+        interactive: bool,
+        logout_exit: int,
+        expected_calls: list[str],
+        expected_output: str,
+    ) -> None:
+        calls: list[str] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            assert command[:5] == ["env", "-u", "GH_TOKEN", "-u", "GITHUB_TOKEN"]
+            if "logout" in command:
+                calls.append(f"gh-logout:{command[command.index('--user') + 1]}")
+                return subprocess.CompletedProcess([], logout_exit, "", "")
+            if accounts is None:
+                return subprocess.CompletedProcess([], 1, "", "error connecting to api.github.com")
+            hosts = {"github.com": [{"login": login, "state": "success"} for login in accounts]}
+            return subprocess.CompletedProcess([], 0, json.dumps({"hosts": hosts}), "")
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(
             devbox_cli,
-            "share_workspace",
-            lambda name, users, role="use": captured.update({"name": name, "users": users, "role": role}),
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
         )
+        monkeypatch.setattr(devbox_cli, "_warn_about_claude_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "_refuse_to_share_lent_secrets", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "_warn_about_trunk_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
+        monkeypatch.setattr(devbox_cli, "share_workspace", lambda name, users, role="use": calls.append("share"))
+        monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: interactive)
 
-        result = runner.invoke(cli, ["devbox:share", "--user", "alice"])
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input="y\n")
 
-        assert result.exit_code == 0
-        assert captured == {"name": "devbox-test-user", "users": ["alice"], "role": "use"}
-        assert "Shared" in result.output
-        assert "alice" in result.output
+        assert (result.exit_code == 0) == ("share" in expected_calls), result.output
+        assert calls == expected_calls
+        assert expected_output in result.output
+
+    @pytest.mark.parametrize(
+        "whoami_exit, whoami_err, interactive, logout_exit, expected_calls, expected_output",
+        [
+            (
+                0,
+                "\x1b[32m✔\x1b[0m Logged in as Jane (jane@example.com)",
+                True,
+                0,
+                ["trunk-logout", "share"],
+                "Logged out of the Trunk",
+            ),
+            (0, "✔ Logged in as Jane (jane@example.com)", False, 0, [], "Run `hogli devbox:trunk:logout` first"),
+            (0, "✔ Logged in as Jane (jane@example.com)", True, 1, ["trunk-logout"], "wasn't shared"),
+            (1, "error connecting to api.trunk.io", True, 0, [], "--keep-trunk-login"),
+            (devbox_cli.TRUNK_MISSING_EXIT, "", True, 0, ["share"], "Shared"),
+            (devbox_cli.TRUNK_LOGIN_WITHOUT_CLI_EXIT, "", True, 0, [], "--keep-trunk-login"),
+        ],
+        ids=[
+            "logs_out",
+            "no_terminal_refuses",
+            "failed_logout_blocks_share",
+            "unknown_login_refuses",
+            "no_trunk_binary_shares",
+            "login_file_without_binary_refuses",
+        ],
+    )
+    def test_share_handles_a_trunk_login(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        whoami_exit: int,
+        whoami_err: str,
+        interactive: bool,
+        logout_exit: int,
+        expected_calls: list[str],
+        expected_output: str,
+    ) -> None:
+        calls: list[str] = []
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            assert command[:2] == ["bash", "-c"]
+            if "logout" in command[-1]:
+                calls.append("trunk-logout")
+                return subprocess.CompletedProcess([], logout_exit, "", "")
+            return subprocess.CompletedProcess([], whoami_exit, "", whoami_err)
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli, "_warn_about_claude_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "_warn_about_gh_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "_refuse_to_share_lent_secrets", lambda name: None)
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
+        monkeypatch.setattr(devbox_cli, "share_workspace", lambda name, users, role="use": calls.append("share"))
+        monkeypatch.setattr(devbox_cli, "_can_prompt", lambda: interactive)
+
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"], input="y\n")
+
+        assert (result.exit_code == 0) == ("share" in expected_calls), result.output
+        assert calls == expected_calls
+        assert expected_output in result.output
+
+    @pytest.mark.parametrize(
+        "login_module, command",
+        [(gh_login, "devbox:gh:login"), (trunk_login, "devbox:trunk:login")],
+        ids=["gh", "trunk"],
+    )
+    @pytest.mark.parametrize(
+        "status_exit, status_out, expected_output",
+        [
+            (0, "USER  GROUP  ROLE\n-  eng  use\n", "group eng"),
+            (1, "", "Couldn't check who"),
+        ],
+        ids=["shared_with_a_group", "status_lookup_fails"],
+    )
+    def test_login_refuses_a_shared_box(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        login_module: Any,
+        command: str,
+        status_exit: int,
+        status_out: str,
+        expected_output: str,
+    ) -> None:
+        monkeypatch.setattr(login_module, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(login_module, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(login_module, "_ensure_ssh_alias", lambda name: None)
+        monkeypatch.setattr(
+            coder, "get_sharing_status", lambda name: subprocess.CompletedProcess([], status_exit, status_out, "")
+        )
+        monkeypatch.setattr(login_module, "exec_replace", lambda *a, **kw: pytest.fail("logged in on a shared box"))
+
+        result = runner.invoke(cli, [command])
+
+        assert result.exit_code != 0
+        assert expected_output in result.output
+
+    @pytest.mark.parametrize(
+        "box_uri, expected_commands, expected_output",
+        [
+            (
+                "https://github.com/example/dotfiles.git",
+                [["coder", "dotfiles", "-y", "https://github.com/example/dotfiles.git"]],
+                "Applying https://github.com/example/dotfiles.git",
+            ),
+            (None, [], "was built without a dotfiles repo"),
+        ],
+        ids=["box_repo", "no_box_repo"],
+    )
+    def test_dotfiles_applies_the_box_repo(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        box_uri: str | None,
+        expected_commands: list[list[str]],
+        expected_output: str,
+    ) -> None:
+        commands: list[list[str]] = []
+        # The laptop's saved repo differs from the box's: the box's own repo must win.
+        monkeypatch.setattr(
+            devbox_config, "load_config", lambda: {"dotfiles_uri": "https://github.com/example/other.git"}
+        )
+        monkeypatch.setattr(devbox_dotfiles, "workspace_dotfiles_uri", lambda name: box_uri)
+        monkeypatch.setattr(devbox_dotfiles, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_dotfiles, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
+        monkeypatch.setattr(devbox_dotfiles, "_ensure_ssh_alias", lambda name: None)
+        monkeypatch.setattr(devbox_dotfiles, "exec_replace", lambda name, command: commands.append(command))
+
+        result = runner.invoke(cli, ["devbox:dotfiles"])
+
+        assert (result.exit_code == 0) == bool(expected_commands), result.output
+        assert commands == expected_commands
+        assert expected_output in result.output
 
     def test_unshare_revokes_and_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
@@ -4524,17 +4879,43 @@ class TestSetupRegion:
         assert devbox_config.load_config()["region"] == "eu-central-1"
 
 
-class TestSetupClaudeSecret:
-    """Test the Claude user-secret step in devbox:setup."""
+class TestSetupClaude:
+    """Test the Claude Code step in devbox:setup."""
 
-    def test_skips_when_server_does_not_support_user_secrets(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: False)
+    @staticmethod
+    def _answer_prompts(monkeypatch: pytest.MonkeyPatch, *, choice: str | None, token: str = "") -> None:
+        """Answer the choice prompt with `choice` (None takes the default) and the token prompt with `token`."""
 
+        def fake_prompt(text: str, **kw: Any) -> str:
+            if "token" in text.lower():
+                return token
+            return kw["default"] if choice is None else choice
+
+        monkeypatch.setattr(devbox_cli.click, "prompt", fake_prompt)
+        monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: kw.get("default", False))
+        monkeypatch.setattr(devbox_cli.click, "pause", lambda *a, **kw: None)
+
+    @pytest.mark.parametrize(
+        "secrets_supported, legacy_token",
+        [(True, None), (True, "legacy-token"), (False, None)],
+        ids=["fresh", "legacy_keychain_token", "old_server"],
+    )
+    def test_defaults_store_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, secrets_supported: bool, legacy_token: str | None
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: secrets_supported)
+        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
+        monkeypatch.setattr(devbox_cli, "_read_legacy_keychain_token", lambda: legacy_token)
+        self._answer_prompts(monkeypatch, choice=None)
+        upserts: list[str] = []
+        monkeypatch.setattr(devbox_cli, "upsert_user_secret", lambda name, value, **kw: upserts.append(value))
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
-        devbox_cli.maybe_configure_claude_secret(None)
-        assert any("older than 2.33" in line for line in echoed)
+        devbox_cli.maybe_configure_claude(None)
+
+        assert upserts == []
+        assert any("hogli devbox:claude:login" in line for line in echoed)
 
     def test_skips_silently_when_secret_already_exists(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # The compact status block at the top of devbox_setup now owns the
@@ -4548,7 +4929,7 @@ class TestSetupClaudeSecret:
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
-        devbox_cli.maybe_configure_claude_secret(None)
+        devbox_cli.maybe_configure_claude(None)
         assert upserts == []
         assert echoed == []
 
@@ -4561,7 +4942,7 @@ class TestSetupClaudeSecret:
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
-        devbox_cli.maybe_configure_claude_secret(False)
+        devbox_cli.maybe_configure_claude(False)
         assert any("Skipping" in line for line in echoed)
         assert called == []
 
@@ -4584,18 +4965,20 @@ class TestSetupClaudeSecret:
         echoed: list[str] = []
         monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
 
-        devbox_cli.maybe_configure_claude_secret(None)
+        devbox_cli.maybe_configure_claude(None)
 
         assert upserts == [("CLAUDE_CODE_OAUTH_TOKEN", "legacy-token")]
         assert deleted == [True]
 
-    def test_fresh_setup_creates_secret_from_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize("token, expected", [("fresh-token", ["fresh-token"]), ("", [])])
+    def test_token_choice_stores_the_pasted_token(
+        self, monkeypatch: pytest.MonkeyPatch, token: str, expected: list[str]
+    ) -> None:
         monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
         monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
         monkeypatch.setattr(devbox_cli, "_read_legacy_keychain_token", lambda: None)
-        monkeypatch.setattr(devbox_cli.click, "pause", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli.click, "echo", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli.click, "prompt", lambda *a, **kw: "fresh-token")
+        self._answer_prompts(monkeypatch, choice="token", token=token)
 
         upserts: list[str] = []
         monkeypatch.setattr(
@@ -4604,26 +4987,8 @@ class TestSetupClaudeSecret:
             lambda name, value, **kw: upserts.append(value),
         )
 
-        devbox_cli.maybe_configure_claude_secret(None)
-        assert upserts == ["fresh-token"]
-
-    def test_empty_prompt_skips_create(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
-        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: False)
-        monkeypatch.setattr(devbox_cli, "_read_legacy_keychain_token", lambda: None)
-        monkeypatch.setattr(devbox_cli.click, "pause", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli.click, "echo", lambda *a, **kw: None)
-        monkeypatch.setattr(devbox_cli.click, "prompt", lambda *a, **kw: "")
-
-        called: list[str] = []
-        monkeypatch.setattr(
-            devbox_cli,
-            "upsert_user_secret",
-            lambda *a, **kw: called.append("upsert"),
-        )
-
-        devbox_cli.maybe_configure_claude_secret(None)
-        assert called == []
+        devbox_cli.maybe_configure_claude(None)
+        assert upserts == expected
 
 
 class TestDevboxSecretCommands:
@@ -5029,6 +5394,85 @@ class TestDevboxExec:
         assert captured == [["ssh", "coder.devbox-foo", remote_command]]
 
 
+class TestDevboxClaudeCommands:
+    @pytest.fixture(autouse=True)
+    def _stub_runtime(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+
+    @pytest.mark.parametrize("delete_secret", [True, False])
+    def test_login_offers_to_delete_token_secret_then_opens_interactive_login(
+        self, monkeypatch: pytest.MonkeyPatch, delete_secret: bool
+    ) -> None:
+        exec_args: list[list[str]] = []
+        deleted: list[str] = []
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
+        monkeypatch.setattr(devbox_cli, "has_claude_oauth_secret", lambda: True)
+        monkeypatch.setattr(
+            devbox_cli,
+            "delete_user_secret",
+            lambda name: deleted.append(name) or subprocess.CompletedProcess([], 0, "", ""),
+        )
+        monkeypatch.setattr(coder.os, "execvp", lambda file, args: exec_args.append(args))
+
+        result = runner.invoke(cli, ["devbox:claude:login"], input="y\n" if delete_secret else "n\n")
+
+        assert result.exit_code == 0, result.output
+        assert deleted == (["CLAUDE_CODE_OAUTH_TOKEN"] if delete_secret else [])
+        assert exec_args == [["ssh", "-t", "coder.devbox-foo", "bash -lc 'claude auth login'"]]
+
+    def test_login_refuses_another_users_box(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "is_own_default_target", lambda target: False)
+
+        result = runner.invoke(cli, ["devbox:claude:login", "@alice"])
+
+        assert result.exit_code != 0
+        assert "your own devbox" in result.output
+
+    def test_status_prints_only_login_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        status = {
+            "loggedIn": True,
+            "authMethod": "claude.ai",
+            "email": "jane@example.com",
+            "orgName": "Example Org",
+            "subscriptionType": "max",
+            "configDirectory": "/home/coder/.claude",
+            "loginExpiresAt": "2027-01-01T00:00:00Z",
+        }
+        commands: list[list[str]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "run_in_workspace",
+            lambda name, command, timeout: (
+                commands.append(command)
+                or subprocess.CompletedProcess([], 0, "banner from a login profile\n" + json.dumps(status), "")
+            ),
+        )
+
+        result = runner.invoke(cli, ["devbox:claude:status"])
+
+        assert result.exit_code == 0, result.output
+        assert commands == [["bash", "-lc", "claude auth status --json"]]
+        assert "jane@example.com" in result.output
+        assert "Example Org" in result.output
+        assert "max" in result.output
+        assert "/home/coder/.claude" not in result.output
+        assert "2027" not in result.output
+
+    def test_status_fails_when_the_box_does_not_answer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli,
+            "run_in_workspace",
+            lambda name, command, timeout: subprocess.CompletedProcess([], 255, "", "Connection refused"),
+        )
+
+        result = runner.invoke(cli, ["devbox:claude:status"])
+
+        assert result.exit_code != 0
+        assert "Couldn't read the Claude Code login" in result.output
+
+
 class TestSetupGitSigning:
     """Test the Git commit signing step in devbox:setup.
 
@@ -5046,6 +5490,7 @@ class TestSetupGitSigning:
         monkeypatch.setattr(devbox_cli, "signs_with_secure_enclave_key", lambda: secure_enclave)
         monkeypatch.setattr(devbox_cli, "_resolve_local_signing_key", lambda: key)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: agent)
+        monkeypatch.setattr(devbox_cli, "_forwarded_agent_socket", lambda: None)
         monkeypatch.setattr(
             devbox_cli,
             "_diagnose_signing_agent",
@@ -5113,6 +5558,55 @@ class TestSetupGitSigning:
         devbox_cli.maybe_configure_git_signing(None)
 
         assert upserts == []
+
+    @pytest.mark.parametrize(
+        "github_keys, expected_upserts",
+        [
+            (
+                [{"id": 1, "title": "Laptop agent key", "key": "ssh-ed25519 AAAAAGENT"}],
+                [(coder.GIT_SIGNING_KEY_SECRET, "ssh-ed25519 AAAAAGENT", coder.GIT_SIGNING_KEY_SECRET)],
+            ),
+            ([{"id": 2, "title": "Other key", "key": "ssh-ed25519 AAAAOTHER"}], []),
+        ],
+        ids=["agent_key_registered_for_signing", "no_matching_signing_key"],
+    )
+    def test_secure_enclave_falls_back_to_an_agent_key_registered_on_github(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        github_keys: list[dict[str, object]],
+        expected_upserts: list[tuple[str, str, str | None]],
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
+        self._patch_local_config(monkeypatch, key=None, agent=self.AGENT_SOCKET, secure_enclave=True)
+        monkeypatch.setattr(devbox_cli, "_forwarded_agent_socket", lambda: self.AGENT_SOCKET)
+
+        monkeypatch.setenv("GH_TOKEN", "app-token-for-another-account")
+        gh_calls: list[list[str]] = []
+
+        def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if args[:2] == ["ssh-add", "-L"]:
+                return subprocess.CompletedProcess(args, 0, "ssh-ed25519 AAAAAGENT laptop\nssh-rsa AAAARSA old\n", "")
+            if args[0] == "gh":
+                assert "GH_TOKEN" not in kwargs["env"]
+                gh_calls.append(args)
+                if args[:3] == ["gh", "api", "user"]:
+                    return subprocess.CompletedProcess(args, 0, "jane\n", "")
+                return subprocess.CompletedProcess(args, 0, json.dumps(github_keys), "")
+            raise AssertionError(f"unexpected command: {args}")
+
+        monkeypatch.setattr(devbox_cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: True)
+        upserts: list[tuple[str, str, str | None]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, env_name=None, description=None: upserts.append((name, value, env_name)),
+        )
+
+        devbox_cli.maybe_configure_git_signing(None)
+
+        assert gh_calls[-1] == ["gh", "api", "users/jane/ssh_signing_keys"]
+        assert upserts == expected_upserts
 
     def test_rejects_rsa_keys_per_handbook(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
@@ -6059,6 +6553,14 @@ class TestDevboxLifecycleSyncIntegration:
             lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
         )
         monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: True)
+
+        def fake_run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+            if "logout" in command[-1]:
+                calls.append("claude-logout")
+                return subprocess.CompletedProcess([], 0, "", "")
+            return subprocess.CompletedProcess([], 0, json.dumps({"loggedIn": True, "authMethod": "claude.ai"}), "")
+
+        monkeypatch.setattr(devbox_cli, "run_in_workspace", fake_run_in_workspace)
         monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [{"name": "ph-x"}])
         monkeypatch.setattr(devbox_cli.mutagen, "sync_terminate", lambda sel: calls.append("terminate"))
         monkeypatch.setattr(devbox_cli, "delete_workspace", lambda name, verbose=False: calls.append("delete"))
@@ -6069,7 +6571,7 @@ class TestDevboxLifecycleSyncIntegration:
         assert result.exit_code == 0, result.output
         # terminate MUST run before delete: the remote endpoint disappearing
         # mid-sync produces noisy daemon errors otherwise.
-        assert calls == ["terminate", "delete", "forget-herdr:devbox-test-user"]
+        assert calls == ["claude-logout", "terminate", "delete", "forget-herdr:devbox-test-user"]
 
     def test_destroy_proceeds_when_no_sync_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []
@@ -6082,6 +6584,11 @@ class TestDevboxLifecycleSyncIntegration:
             lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
         )
         monkeypatch.setattr(devbox_cli.click, "confirm", lambda *a, **kw: True)
+        monkeypatch.setattr(
+            devbox_cli,
+            "run_in_workspace",
+            lambda name, command, timeout: subprocess.CompletedProcess([], 255, "", "Connection refused"),
+        )
         monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [])
         monkeypatch.setattr(
             devbox_cli.mutagen,
@@ -6207,3 +6714,167 @@ class TestHoglandEndpoint:
     def test_box_without_ssh_fails(self) -> None:
         with pytest.raises(SystemExit):
             devbox_hogland.parse_endpoint({"action": "running", "box": {"id": "box-1", "status": "placing"}})
+
+
+class TestDevboxSecretsLend:
+    """`devbox:secrets:push` and the `devbox-secrets` script it installs on the box."""
+
+    BOX_SCRIPT = Path(secrets_lend.__file__).with_name("devbox-secrets.sh")
+
+    def _box(self, tmp_path: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+        env = {**os.environ, "HOME": str(tmp_path / "home"), "DEVBOX_SECRETS_DIR": str(tmp_path / "shm")}
+        return subprocess.run(
+            ["bash", str(self.BOX_SCRIPT), *args], input=stdin, capture_output=True, text=True, env=env
+        )
+
+    def test_push_sends_values_on_stdin_only(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        references = tmp_path / "devbox-secrets.env"
+        references.write_text("# eval keys\nOPENAI_API_KEY=op://Vault/OpenAI/credential\n")
+        ssh_calls: list[tuple[list[str], str]] = []
+
+        def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if args[:2] == ["op", "inject"]:
+                assert kwargs["input"] == "OPENAI_API_KEY={{ op://Vault/OpenAI/credential }}\n"
+                return subprocess.CompletedProcess(args, 0, "OPENAI_API_KEY=sk-secret\n", "")
+            ssh_calls.append((args, kwargs["input"]))
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(secrets_lend, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(secrets_lend, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(secrets_lend, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(coder, "get_sharing_status", lambda name: subprocess.CompletedProcess([], 0, "", ""))
+        monkeypatch.setattr(secrets_lend.subprocess, "run", fake_run)
+        monkeypatch.setattr(secrets_lend.time, "time", lambda: 1000)
+
+        result = runner.invoke(cli, ["devbox:secrets:push", "--hours", "2", "--file", str(references)])
+
+        assert result.exit_code == 0, result.output
+        store_args, store_stdin = ssh_calls[-1]
+        assert store_args[-1] == "~/.local/bin/devbox-secrets store 8200"
+        assert store_stdin == "OPENAI_API_KEY=sk-secret\n"
+        assert all("sk-secret" not in " ".join(args) for args, _ in ssh_calls)
+        assert "sk-secret" not in result.output
+
+    def test_push_rejects_a_pasted_value_without_echoing_it(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        references = tmp_path / "devbox-secrets.env"
+        references.write_text("OPENAI_API_KEY=sk-pasted-by-mistake\n")
+
+        with pytest.raises(SystemExit):
+            secrets_lend._read_references(references)
+
+        assert "sk-pasted" not in capsys.readouterr().out
+
+    @pytest.mark.parametrize(
+        "status_exit, status_out, expected_output",
+        [
+            (0, "USER  GROUP  ROLE\nalice  -  use\n", "alice"),
+            (0, "USER  GROUP  ROLE\n-  eng  use\n", "group eng"),
+            (1, "", "Couldn't check who"),
+        ],
+        ids=["user_share", "group_share", "status_lookup_fails"],
+    )
+    def test_push_refuses_a_shared_box(
+        self, monkeypatch: pytest.MonkeyPatch, status_exit: int, status_out: str, expected_output: str
+    ) -> None:
+        monkeypatch.setattr(secrets_lend, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(secrets_lend, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(secrets_lend, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(
+            coder, "get_sharing_status", lambda name: subprocess.CompletedProcess([], status_exit, status_out, "")
+        )
+        monkeypatch.setattr(secrets_lend, "_resolve", lambda refs: pytest.fail("resolved secrets for a shared box"))
+
+        result = runner.invoke(cli, ["devbox:secrets:push"])
+
+        assert result.exit_code != 0
+        assert expected_output in result.output
+
+    def test_push_refuses_a_multi_line_value_without_echoing_it(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        references = [
+            secrets_lend.SecretReference("NOTES", "op://Vault/Notes/notesPlain"),
+            secrets_lend.SecretReference("OPENAI_API_KEY", "op://Vault/OpenAI/credential"),
+        ]
+        injected = "NOTES=first line\nhunter2_SecretPart9\nOPENAI_API_KEY=sk\n"
+        monkeypatch.setattr(
+            secrets_lend.subprocess, "run", lambda args, **kw: subprocess.CompletedProcess(args, 0, injected, "")
+        )
+
+        with pytest.raises(SystemExit):
+            secrets_lend._resolve(references)
+
+        output = capsys.readouterr().out
+        assert "NOTES" in output
+        assert "hunter2" not in output
+
+    def test_box_script_hands_secrets_to_one_command_until_they_expire(self, tmp_path: Path) -> None:
+        in_an_hour = str(int(time.time()) + 3600)
+        stored = self._box(tmp_path, "store", in_an_hour, stdin="OPENAI_API_KEY=sk 'quoted' $value\n")
+        assert stored.returncode == 0, stored.stderr
+
+        stored_env = (tmp_path / "shm/env").read_text()
+        ran = self._box(tmp_path, "run", "--", "bash", "-c", 'printf %s "$OPENAI_API_KEY"')
+        assert ran.stdout == "sk 'quoted' $value"
+        marked = self._box(tmp_path, "run", "--", "bash", "-c", 'printf %s "$DEVBOX_SECRETS_LENT"')
+        assert marked.stdout == "1"
+        assert "OPENAI_API_KEY" in self._box(tmp_path, "status").stdout
+        assert "devbox-secrets run --" in (tmp_path / "home/.claude/CLAUDE.md").read_text()
+
+        failed = self._box(tmp_path, "store", in_an_hour, stdin="ANTHROPIC_API_KEY=new\nnot a name\n")
+        assert failed.returncode != 0
+        assert (tmp_path / "shm/env").read_text() == stored_env
+        assert not list(tmp_path.glob(".devbox-secrets-staging.*"))
+
+        (tmp_path / "shm/expires").write_text("1\n")
+        expired = self._box(tmp_path, "run", "--", "true")
+        assert expired.returncode != 0
+        assert not (tmp_path / "shm").exists()
+
+    def test_box_script_expiry_deletes_only_its_own_lend(self, tmp_path: Path) -> None:
+        self._box(tmp_path, "store", str(int(time.time()) + 3600), stdin="OPENAI_API_KEY=sk\n")
+        (tmp_path / "shm/expires").write_text("1000\n")
+
+        self._box(tmp_path, "expire-at", "999")
+        assert (tmp_path / "shm/env").exists()
+
+        self._box(tmp_path, "expire-at", "1000")
+        assert not (tmp_path / "shm").exists()
+
+    @pytest.mark.parametrize(
+        "probe_answer, expected_output",
+        [
+            ("stored\nchecked\n", "devbox:secrets:clear"),
+            ("running\nchecked\n", "devbox-secrets run"),
+            ("", "Couldn't check the devbox"),
+        ],
+        ids=["store_present", "command_still_holds_secrets", "probe_did_not_finish"],
+    )
+    def test_share_refuses_while_secrets_are_lent(
+        self, monkeypatch: pytest.MonkeyPatch, probe_answer: str, expected_output: str
+    ) -> None:
+        shared: list[str] = []
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(
+            devbox_cli,
+            "get_workspace",
+            lambda name, workspaces=None: {"name": name, "latest_build": {"status": "running"}},
+        )
+        monkeypatch.setattr(devbox_cli, "_warn_about_claude_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "_warn_about_gh_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "_warn_about_trunk_login_before_sharing", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            devbox_cli,
+            "run_in_workspace",
+            lambda name, command, timeout: subprocess.CompletedProcess([], 0, probe_answer, ""),
+        )
+        monkeypatch.setattr(devbox_cli, "share_workspace", lambda name, users, role="use": shared.append(name))
+
+        result = runner.invoke(cli, ["devbox:share", "--user", "alice"])
+
+        assert result.exit_code != 0
+        assert expected_output in result.output
+        assert shared == []

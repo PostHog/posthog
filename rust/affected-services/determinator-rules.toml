@@ -18,9 +18,10 @@ use-default-rules = true
 # When the old graph is missing there is nothing to diff, and compute_affected()
 # forces rebuild-all in code instead.
 
-# Dockerfiles and CI image config — cross-cutting build changes.
+# Dockerfiles and CI image config — cross-cutting build changes. Every image runs
+# bin/write-deploy-requirements in its Dockerfile, so a change to it is one too.
 [[path-rule]]
-globs = ["Dockerfile", "Dockerfile.sqlx-migrate", "../.github/rust-images.yml"]
+globs = ["Dockerfile", "Dockerfile.sqlx-migrate", "../.github/rust-images.yml", "bin/write-deploy-requirements"]
 mark-changed = "all"
 
 # sqlx offline query metadata — affects all sqlx-using crates.
@@ -111,6 +112,10 @@ mark-changed = ["capture"]
 [[path-rule]]
 globs = ["../posthog/models/flag_evaluations/crosslang/**"]
 mark-changed = ["cohort-seeder"]
+
+[[path-rule]]
+globs = ["../products/error_tracking/backend/tests/fixtures/issue_change_data.json"]
+mark-changed = ["cymbal"]
 
 # Catch-all for files outside the rust workspace (Python, frontend, CI, docs,
 # etc.) — these are not crate source and should not trigger rust rebuilds.

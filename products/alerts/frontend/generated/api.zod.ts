@@ -22,7 +22,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned `id` identifies the destination.
  */
 export const alertsDestinationsCreateBodyTypeDefault = `slack`
 
@@ -76,11 +76,13 @@ export const AlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.uuid())
         .max(alertsDestinationsDeleteCreateBodyDestinationIdsMax)
         .optional()
-        .describe('Destination IDs from the destinations list, to delete with their HogFunctions.'),
+        .describe(
+            'Destination IDs from the destinations list or from creating the destination, to delete with their HogFunctions.'
+        ),
 })
 
 /**
- * Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. Only an alert whose pagerduty_available is true can take one. The returned IDs identify the destination.
+ * Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. Only an alert whose pagerduty_available is true can take one. The returned `id` identifies the destination.
  */
 export const alertsDestinationsPagerdutyCreateBodyPagerdutySeverityDefault = `critical`
 export const alertsDestinationsPagerdutyCreateBodyPagerdutyRegionDefault = `us`
@@ -117,7 +119,7 @@ export const AlertsDestinationsResetCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. The returned IDs identify the destination.
+ * Send this alert's firings to a Discord or Microsoft Teams channel, or to any webhook. The returned `id` identifies the destination.
  */
 export const AlertsDestinationsWebhookCreateBody = /* @__PURE__ */ zod.object({
     type: zod
@@ -129,6 +131,16 @@ export const AlertsDestinationsWebhookCreateBody = /* @__PURE__ */ zod.object({
     webhook_url: zod
         .string()
         .describe('The https URL to send to. Its path and query are a credential, so reads show only the host.'),
+})
+
+/**
+ * Take ownership of this alert and enable it. Only organization admins can assign another member. The new owner needs access to its content. Checks run with the owner's access, so this is how an alert continues after its owner left.
+ */
+export const AlertsTakeOwnershipCreateBody = /* @__PURE__ */ zod.object({
+    user_uuid: zod
+        .uuid()
+        .optional()
+        .describe("New owner's user UUID. Must be an active organization member. Defaults to yourself."),
 })
 
 /**

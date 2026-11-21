@@ -17,8 +17,9 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_catalog.backend.facade.enums import CertificationStatus, MetricStatus, RelationshipStatus
-from products.data_catalog.backend.logic.metrics import metrics_for_team
+from products.data_catalog.backend.logic.metrics import metrics_for_team, metrics_visible_to_user
 from products.data_catalog.backend.logic.pending_review import (
     PendingKind,
     build_org_pending_reviews,
@@ -165,14 +166,83 @@ class TestPendingReviewAPI(APIBaseTest):
         _certification(self.team, "proposed_view")
         _certification(self.team, "certified_view", status=CertificationStatus.CERTIFIED)
 
+        responses = [self.client.get(f"/api/projects/{self.team.id}/data_catalog/pending_review/") for _ in range(2)]
+
+        assert [response.json() for response in responses] == [
+            {"metrics": 1, "relationships": 1, "certifications": 1}
+        ] * 2
+        create_database.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("a_new_proposal_gets_a_fresh_table_check", "add", 1),
+            ("a_reviewed_proposal_keeps_the_cached_table_check", "review", 2),
+        ]
+    )
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_count_after_table_access_is_revoked(
+        self, _name: str, change: str, expected_count: int, create_database: MagicMock
+    ) -> None:
+        create_database.return_value = MagicMock(_denied_tables=set())
+        _metric(self.team, "reads_no_table")
+        _metric(self.team, "on_source", referenced_table_names=["restricted_source"])
+        reviewed_later = _metric(self.team, "also_on_source", referenced_table_names=["restricted_source"])
+        url = f"/api/projects/{self.team.id}/data_catalog/pending_review/"
+        count_before = self.client.get(url).json()["metrics"]
+
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        if change == "add":
+            _metric(self.team, "new_on_source", referenced_table_names=["restricted_source"])
+        else:
+            Metric.objects.unscoped().filter(id=reviewed_later.id).update(status=MetricStatus.APPROVED)
+
+        assert (count_before, self.client.get(url).json()["metrics"]) == (3, expected_count)
+
+    @patch("posthog.utils.cache")
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_counts_metrics_when_the_cache_is_unavailable(self, create_database: MagicMock, cache: MagicMock) -> None:
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        cache.get.side_effect = ConnectionError
+        cache.set.side_effect = ConnectionError
+        _metric(self.team, "proposed_one")
+        _metric(self.team, "on_denied_table", referenced_table_names=["restricted_source"])
+
         response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/pending_review/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"metrics": 1, "relationships": 1, "certifications": 1}
+        assert response.json()["metrics"] == 1
+
+    @patch("products.data_catalog.backend.logic.metrics.system_table_denials", return_value=frozenset())
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_count_follows_a_change_of_membership_level(
+        self, create_database: MagicMock, _system_table_denials: MagicMock
+    ) -> None:
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        _metric(self.team, "on_denied_table", referenced_table_names=["restricted_source"])
+        url = f"/api/projects/{self.team.id}/data_catalog/pending_review/"
+
+        counts = []
+        for level in (OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.MEMBER):
+            self.organization_membership.level = level
+            self.organization_membership.save()
+            counts.append(self.client.get(url).json()["metrics"])
+
+        assert counts == [1, 0]
+
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_metric_added_after_the_table_check_stays_hidden(self, create_database: MagicMock) -> None:
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        _metric(self.team, "reads_no_table")
+        visible = metrics_visible_to_user(self.team, self.user, UserAccessControl(user=self.user, team=self.team))
+
+        _metric(self.team, "on_denied_table", referenced_table_names=["restricted_source"])
+
+        assert [metric.name for metric in visible] == ["reads_no_table"]
 
     @parameterized.expand(
         [
             ("member_with_nothing_proposed", OrganizationMembership.Level.MEMBER, [], 0),
+            ("member_with_proposals_that_read_no_table", OrganizationMembership.Level.MEMBER, [[], []], 2),
             ("admin", OrganizationMembership.Level.ADMIN, [["safe_source"], ["system.restricted"]], 1),
         ]
     )

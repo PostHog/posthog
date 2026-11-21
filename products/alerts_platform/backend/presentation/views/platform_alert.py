@@ -385,7 +385,7 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
         min_value=1,
         max_value=MAX_SOURCE_EVALUATION_PERIODS,
         help_text="Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; "
-        "metrics alerts allow up to 60.",
+        "metrics alerts allow up to 1441.",
     )
     datapoints_to_alarm = serializers.IntegerField(
         min_value=1,
@@ -558,13 +558,15 @@ class PlatformAlertEventKind(models.TextChoices):
     UNSNOOZE = "unsnooze", "Unsnooze"
     RESET = "reset", "Reset"
     CONFIG_CHANGE = "config_change", "Config change"
+    HANDBACK = "handback", "Handback"
 
 
 class PlatformAlertEventSerializer(serializers.Serializer):
     occurred_at = serializers.DateTimeField(help_text="When it happened.")
     kind = serializers.ChoiceField(
         choices=PlatformAlertEventKind.choices,
-        help_text="check for a check that moved the alert's state or failed, else the change a person made.",
+        help_text="check for a check that moved the alert's state or failed, handback for a logs alert an operator "
+        "handed back to the logs stack, else the change a person made.",
     )
     previous_state = serializers.ChoiceField(
         choices=PlatformAlertState.choices, help_text="The alert's state before it."

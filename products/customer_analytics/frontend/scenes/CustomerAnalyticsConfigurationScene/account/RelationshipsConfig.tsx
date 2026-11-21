@@ -2,9 +2,26 @@ import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import {
+    Button,
+    Empty,
+    EmptyHeader,
+    EmptyTitle,
+    Heading,
+    Skeleton,
+    Table,
+    TableBody,
+    TableCell,
+    TableEmpty,
+    TableHead,
+    TableHeader,
+    TableRow,
+    Text,
+} from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import type { AccountRelationshipDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -19,6 +36,7 @@ export function RelationshipsConfig(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const confirmDelete = (definition: AccountRelationshipDefinitionApi): void => {
         LemonDialog.open({
@@ -31,6 +49,94 @@ export function RelationshipsConfig(): JSX.Element {
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-col gap-1">
+                        <Heading size="sm" render={<h3 className="m-0" />}>
+                            Relationships
+                        </Heading>
+                        <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                            Define the roles your team holds on accounts, like CSM or Onboarding manager.
+                        </Text>
+                    </div>
+                    <Button variant="primary" onClick={openCreateModal} disabledReason={restrictionReason}>
+                        New relationship
+                    </Button>
+                </div>
+                {definitionsLoading && definitions.length === 0 ? (
+                    <div className="flex flex-col gap-2">
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                    </div>
+                ) : (
+                    <Table fullWidth className="rounded-md border border-border">
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Name</TableHead>
+                                <TableHead expand>Description</TableHead>
+                                <TableHead />
+                            </TableRow>
+                        </TableHeader>
+                        {definitions.length === 0 ? (
+                            <TableEmpty>
+                                <Empty>
+                                    <EmptyHeader>
+                                        <EmptyTitle>No relationships yet. Create one to get started.</EmptyTitle>
+                                    </EmptyHeader>
+                                </Empty>
+                            </TableEmpty>
+                        ) : (
+                            <TableBody>
+                                {definitions.map((definition) => (
+                                    <TableRow key={definition.id}>
+                                        <TableCell>
+                                            <span className="font-semibold">{definition.name}</span>
+                                        </TableCell>
+                                        <TableCell>
+                                            {definition.description ? (
+                                                definition.description
+                                            ) : (
+                                                <Text size="xs" variant="muted" render={<span className="m-0" />}>
+                                                    —
+                                                </Text>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex justify-end gap-1">
+                                                <Button
+                                                    size="icon"
+                                                    aria-label="Edit"
+                                                    tooltip="Edit"
+                                                    onClick={() => openEditModal(definition)}
+                                                    disabledReason={restrictionReason}
+                                                >
+                                                    <IconPencil />
+                                                </Button>
+                                                <Button
+                                                    variant="destructive-outline"
+                                                    size="icon"
+                                                    aria-label="Delete"
+                                                    tooltip="Delete"
+                                                    onClick={() => confirmDelete(definition)}
+                                                    disabledReason={restrictionReason}
+                                                >
+                                                    <IconTrash />
+                                                </Button>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        )}
+                    </Table>
+                )}
+                <RelationshipDefinitionModal />
+            </div>
+        )
     }
 
     const columns: LemonTableColumns<AccountRelationshipDefinitionApi> = [

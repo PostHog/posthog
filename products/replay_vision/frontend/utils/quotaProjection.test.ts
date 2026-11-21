@@ -14,6 +14,8 @@ describe('hasBillableSpend', () => {
         ],
         ['limit exceeds the free allocation', makeQuota({ credit_limit: 7_500, free_monthly_credits: 2_500 }), true],
         ['zero limit cannot bill', makeQuota({ credit_limit: 0, free_monthly_credits: 2_500 }), false],
+        ['every credit free', makeQuota({ credit_limit: 7_500, free_monthly_credits: null }), false],
+        ['uncapped with every credit free', makeQuota({ credit_limit: null, free_monthly_credits: null }), false],
     ])('%s', (_name, quota, expected) => {
         expect(hasBillableSpend(quota)).toBe(expected)
     })
@@ -150,31 +152,25 @@ describe('daysUntilCapReached', () => {
 
 describe('quotaUx', () => {
     it('returns nothing when no limit is configured', () => {
-        expect(quotaUx(null)).toEqual({})
+        expect(quotaUx(null, false)).toEqual({})
         // A zero limit with the backend reporting exhaustion must block, not read as uncapped.
-        expect(quotaUx(makeQuota({ credit_limit: 0, remaining: 0, exhausted: true })).disabledReason).toMatch(
+        expect(quotaUx(makeQuota({ credit_limit: 0, remaining: 0, exhausted: true }), false).disabledReason).toMatch(
             /spend limit reached/i
         )
         // Uncapped orgs never block or warn.
-        expect(quotaUx(makeQuota({ credit_limit: null, credits_used: 999_999, remaining: null }))).toEqual({})
+        expect(quotaUx(makeQuota({ credit_limit: null, credits_used: 999_999, remaining: null }), false)).toEqual({})
     })
 
     it('blocks with a disabledReason when exhausted', () => {
-        const ux = quotaUx(makeQuota({ credits_used: 10_000, remaining: 0, exhausted: true }))
+        const ux = quotaUx(makeQuota({ credits_used: 10_000, remaining: 0, exhausted: true }), false)
         expect(ux.disabledReason).toMatch(/spend limit reached/i)
         expect(ux.tooltip).toBeUndefined()
     })
 
     it('shows a remaining-credits tooltip near the warn threshold but does not block', () => {
-        const ux = quotaUx(makeQuota({ credits_used: 8_500, remaining: 1_500 }))
+        const ux = quotaUx(makeQuota({ credits_used: 8_500, remaining: 1_500 }), false)
         expect(ux.disabledReason).toBeUndefined()
         expect(ux.tooltip).toContain('1,500 credits left')
-    })
-
-    // A deliberate $0 cap is not a free plan, so it keeps the spend-limit wording.
-    it('keeps spend-limit wording for a zero limit', () => {
-        const ux = quotaUx(makeQuota({ credit_limit: 0, remaining: 0, exhausted: true }))
-        expect(ux.disabledReason).toMatch(/spend limit reached/i)
     })
 
     it('tells a free-tier org its credits ran out, not that it hit a spend limit', () => {
@@ -185,13 +181,14 @@ describe('quotaUx', () => {
                 credits_used: 2_500,
                 remaining: 0,
                 exhausted: true,
-            })
+            }),
+            true
         )
         expect(ux.disabledReason).toMatch(/free Replay vision credits/i)
         expect(ux.disabledReason).not.toMatch(/spend limit/i)
     })
 
     it('returns nothing while usage is well under the threshold', () => {
-        expect(quotaUx(makeQuota({ credits_used: 1_000, remaining: 9_000 }))).toEqual({})
+        expect(quotaUx(makeQuota({ credits_used: 1_000, remaining: 9_000 }), false)).toEqual({})
     })
 })

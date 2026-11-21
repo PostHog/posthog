@@ -36,7 +36,7 @@ import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
-from loginas.utils import is_impersonated_session, restore_original_login
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -44,7 +44,7 @@ from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
-from posthog.api.current_alias_usage import record_current_alias_use
+from posthog.api.current_alias_usage import record_scope_usage
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
@@ -52,7 +52,11 @@ from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.impersonation import get_original_user_from_session, get_original_user_id_from_session
+from posthog.helpers.impersonation import (
+    end_impersonation,
+    get_original_user_from_session,
+    get_original_user_id_from_session,
+)
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
@@ -715,12 +719,13 @@ class CHQueries:
             return response
         finally:
             if is_api_request and (route := request.resolver_match) is not None:
+                api_route = request_route(request)
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
                     # middle fallback would be unreachable.) Bounded by URLconf — safe cardinality.
                     view=route.view_name or route.func.__name__,
-                    route=request_route(request),
+                    route=api_route,
                     method=request.method or "",
                     # Read after get_response so view code that calls tag_queries(source=...)
                     # wins — matches access_method semantics, where DRF auth tags during dispatch.
@@ -728,7 +733,7 @@ class CHQueries:
                     access_method=get_query_tag_value("access_method") or "",
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
-                record_current_alias_use(request, route=request_route(request), status_class=status_class)
+                record_scope_usage(request, route=api_route, status_class=status_class)
             reset_query_tags()
 
     def process_view(
@@ -1404,7 +1409,7 @@ class AutoLogoutImpersonateMiddleware:
                     status=401,
                 )
             else:
-                restore_original_login(request)
+                end_impersonation(request)
                 if request.path.startswith("/admin/"):
                     # Redirect to the intended admin page
                     return redirect(request.get_full_path())
@@ -1700,6 +1705,7 @@ class SocialAuthExceptionMiddleware:
                 "google_sso_enforced",
                 "github_sso_enforced",
                 "gitlab_sso_enforced",
+                "chatgpt_sso_enforced",
                 "sso_enforced",
                 "reauth_user_mismatch",
                 "access_blocked",
@@ -2142,5 +2148,5 @@ def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
         return redirect(safe_next or "/admin/")
 
     impersonated_user_pk = request.user.pk
-    restore_original_login(request)
+    end_impersonation(request)
     return redirect(safe_next or f"/admin/posthog/user/{impersonated_user_pk}/change/")

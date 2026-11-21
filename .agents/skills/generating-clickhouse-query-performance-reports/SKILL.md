@@ -42,7 +42,8 @@ multi-day question. Use the Distributed archive table instead:
 FROM posthog.query_log_archive
 ```
 
-It retains roughly three weeks and exposes `log_comment` as typed columns, so you skip `JSONExtract`.
+It exposes `log_comment` as typed columns, so you skip `JSONExtract`.
+A key with no typed column is in the `log_comment` column, which expires after one month.
 Query it directly (it already fans out across the cluster). Always filter `is_initial_query` so
 distributed sub-queries are not double-counted. Confirm current retention with a per-day
 `count()` before trusting a window (see `references/query-patterns.md`).

@@ -9,13 +9,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import fields
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+from products.alerts_platform.backend.delivery.thread_store import LEGACY_EVENTS_PROVIDER
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     DeliveryPath,
@@ -25,7 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceCorrespondence,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import (
@@ -187,10 +188,30 @@ def start_firing(
         )
 
 
+def record_legacy_emission(configuration_id: UUID, *, team_id: int, at: datetime) -> None:
+    """Record that a delivery emitted the configuration's legacy events at `at`, as live delivery does."""
+    thread = PlatformAlertThread.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        provider=LEGACY_EVENTS_PROVIDER,
+        channel_target="0",
+        episode_started_at=datetime(1970, 1, 1, tzinfo=UTC),
+    )
+    # `updated_at` is `auto_now`, so a past time needs an update that skips it.
+    PlatformAlertThread.objects.for_team(team_id).filter(id=thread.id).update(updated_at=at)
+
+
 def set_check_status(configuration_id: UUID, check_status: str) -> None:
     """Mark a configuration's checks as failing or not, as checks outside the test can leave it."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_status=check_status)
+
+
+def set_owner(configuration_id: UUID, owner: PlatformAlertOwner) -> None:
+    """Hand a configuration to an owner without touching its source's row, as a handback that lands
+    after a request read the row leaves it. The caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(owner=owner)
 
 
 def set_check_interval_minutes(configuration_id: UUID, minutes: int) -> None:
@@ -219,6 +240,16 @@ def set_snooze_until(configuration_id: UUID, snooze_until: datetime | None) -> N
     caller holds the team scope."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(snooze_until=snooze_until)
+
+
+def mute_group(configuration_id: UUID, *, team_id: int, grouping_key: str, until: datetime) -> None:
+    """Mute one group of a configuration on its own, leaving the configuration and its other groups unmuted."""
+    PlatformAlert.objects.update_or_create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        grouping_key=grouping_key,
+        defaults={"snooze_until": until},
+    )
 
 
 def forget_source_row(configuration_id: UUID) -> None:
