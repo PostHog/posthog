@@ -38,21 +38,21 @@ const isSetupEvidence = (record: EmailDomainStatusRecordApi): boolean =>
     isRecordFound(record) && !RECORD_KINDS_THAT_PREDATE_SETUP.includes(record.kind)
 const waitsForSender = (status: EmailDomainStatusApi | null, sender: IntegrationConfigApi | null): boolean =>
     !!status?.verified && !sender
-// A poll only reports the provider's answer, and email/verify records it. The attempt cap keeps a provider that
-// answers verified but never records out of a loop. Past the cap, as for a member who may not verify, each poll reads
-// the sender's stop marker again, so a repair by someone else still shows. The server caches a status for 10 seconds, so a stopped
-// sender is repaired only on a live check.
+// The attempt cap keeps a provider that answers verified but never records out of a loop. Past it, a member who may
+// not verify still sees a teammate's repair of a stopped sender. The server caches a status for 10 seconds, so a
+// stopped sender is repaired only on a live check.
 const recordStepOf = (
     status: EmailDomainStatusApi | null,
     domainVerified: boolean,
     recordAttempts: number,
-    refreshed: boolean
+    refreshed: boolean,
+    sendingStopped: boolean
 ): 'live-check' | 'record' | 'recheck-sender' | null => {
     if (status?.status !== 'verified' || domainVerified) {
         return null
     }
     if (recordAttempts >= MAX_VERIFICATION_RECORD_ATTEMPTS) {
-        return 'recheck-sender'
+        return sendingStopped ? 'recheck-sender' : null
     }
     return status.verified && !refreshed ? 'live-check' : 'record'
 }
@@ -90,6 +90,9 @@ export interface emailDomainStatusLogicActions {
     ) => {
         payload?: any
         sender: IntegrationConfigApi | null
+    } // emailDomainSenderLogic
+    senderSaved: (sender: IntegrationConfigApi) => {
+        sender: IntegrationConfigApi
     } // emailDomainSenderLogic
     loadIntegrations: (_?: any) => any // integrationsLogic
     checkAgain: () => {
@@ -194,7 +197,12 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
     key(({ id }) => id),
     connect((props: EmailDomainLogicProps) => ({
         values: [teamLogic, ['currentTeamId'], emailDomainSenderLogic(props), ['domain', 'sender']],
-        actions: [integrationsLogic, ['loadIntegrations'], emailDomainSenderLogic(props), ['loadSenderSuccess']],
+        actions: [
+            integrationsLogic,
+            ['loadIntegrations'],
+            emailDomainSenderLogic(props),
+            ['loadSenderSuccess', 'senderSaved'],
+        ],
     })),
     actions({
         loadStatus: (refresh: boolean = false) => ({ refresh }),
@@ -293,6 +301,8 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             false,
             {
                 verificationRecorded: () => true,
+                // The saved row is newer than the verification, so its stop marker wins.
+                senderSaved: () => false,
             },
         ],
         rechecking: [
@@ -371,7 +381,7 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             }
             const recordAttempts: number = cache.verificationRecordAttempts ?? 0
             const verified = values.domainVerified
-            const recordStep = recordStepOf(status, verified, recordAttempts, !!payload?.refresh)
+            const recordStep = recordStepOf(status, verified, recordAttempts, !!payload?.refresh, values.sendingStopped)
             if (recordStep) {
                 const runStep = {
                     'live-check': () => actions.loadStatus(true),
@@ -390,7 +400,8 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                 runStep()
                 return
             }
-            if (verified || status?.status === 'failed') {
+            // A stopped sender keeps polling through a failed status, so a teammate's repair still shows.
+            if (verified || (status?.status === 'failed' && !values.sendingStopped)) {
                 cache.disposables.dispose('poll')
                 if (verified) {
                     actions.loadIntegrations()
