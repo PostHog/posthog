@@ -107,7 +107,7 @@ find_flox() {
     local found
     found="$(command -v flox || true)"
     if [[ -z "$found" ]]; then
-        for candidate in /usr/local/bin/flox /opt/homebrew/bin/flox "$HOME/.local/bin/flox"; do
+        for candidate in /opt/homebrew/bin/flox /usr/local/bin/flox "$HOME/.local/bin/flox"; do
             if [[ -x "$candidate" ]]; then
                 found="$candidate"
                 break
@@ -180,7 +180,7 @@ if is_dependency_change "$@"; then
         HOME="$HOME" \
         LANG="${LANG:-C.UTF-8}" \
         LOGNAME="${LOGNAME:-}" \
-        PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+        PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
         POSTHOG_SKIP_DOTENV=1 \
         SHELL="${SHELL:-/bin/bash}" \
         TMPDIR="${TMPDIR:-/tmp}" \
@@ -266,7 +266,8 @@ if [[ "$prepare" -eq 0 ]]; then
         POSTHOG_OFFLINE_EVAL_API_KEY \
         POSTHOG_OFFLINE_EVAL_HOST \
         POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG \
-        SANDBOX_JWT_PRIVATE_KEY; do
+        SANDBOX_JWT_PRIVATE_KEY \
+        SSH_AUTH_SOCK; do
         if [[ "${!name+x}" ]]; then
             runtime_env+=("$name=${!name}")
         fi
@@ -310,7 +311,7 @@ exec env -i \
     HOME="$HOME" \
     LANG="${LANG:-C.UTF-8}" \
     LOGNAME="${LOGNAME:-}" \
-    PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin" \
+    PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin" \
     POSTHOG_SKIP_DOTENV=1 \
     SHELL="${SHELL:-/bin/bash}" \
     TMPDIR="${TMPDIR:-/tmp}" \
