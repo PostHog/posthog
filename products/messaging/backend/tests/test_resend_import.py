@@ -324,6 +324,14 @@ class TestResendImport(BaseTest):
         assert "/contacts/c0000000-0000-4000-8000-000000000001/topics" in self.resend.calls
         assert run.status == "completed"
 
+    def test_topic_choices_are_not_read_when_every_topic_is_private(self) -> None:
+        self.resend.data["topics"] = [topic for topic in FIXTURES["topics"] if topic.get("visibility") == "private"]
+
+        run = self._run(["topic_opt_outs"])
+
+        assert "/contacts" not in self.resend.calls
+        assert run.status == "completed"
+
     @parameterized.expand([("same_key", API_KEY, 2), ("another_key", "re_another_account_key", 3)])
     def test_a_new_import_continues_the_step_that_failed(self, _name: str, next_key: str, list_reads: int) -> None:
         self.resend.page_size = 2
@@ -1018,6 +1026,43 @@ class TestResendTemplateConversion(SimpleTestCase):
         assert "FIRST_NAME" in joined
         assert "ORDER" in joined
         assert "isn't published" in joined
+
+
+class TestResendClientPace(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_limit_headers", {}, [0.5, 0.5, 0.5]),
+            (
+                "limit_headers",
+                {"ratelimit-limit": "10", "ratelimit-policy": "10;w=1", "ratelimit-remaining": "6"},
+                [0.5, 0.125, 0.125],
+            ),
+            (
+                "window_used_up",
+                {"ratelimit-limit": "10", "ratelimit-remaining": "0", "ratelimit-reset": "1"},
+                [1.0, 1.0, 1.0],
+            ),
+        ]
+    )
+    def test_requests_follow_the_rate_limit_resend_reports(
+        self, _name: str, headers: dict[str, str], gaps: list[float]
+    ) -> None:
+        clock = [0.0]
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.monotonic", side_effect=lambda: clock[0]),
+            patch(f"{client_module}.time.sleep", side_effect=sleep) as slept,
+            patch(f"{client_module}.requests.get", return_value=FakeResend._response(200, {}, headers)),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+            for _ in range(4):
+                client.get("/domains")
+
+        assert [call.args[0] for call in slept.call_args_list] == gaps
 
 
 class TestResendImportBudget(SimpleTestCase):

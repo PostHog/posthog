@@ -1,13 +1,16 @@
 """Read-only client for Resend's API, used by the provider import. See https://resend.com/docs/api-reference.
 
 The customer owns the key, so per /routing-outbound-api-calls this honors `retry-after` here rather than going
-through `posthog/egress/`. Resend shares one rate limit across all of a team's keys, so the import stays well under
-it to leave room for the customer's live sending.
+through `posthog/egress/`. Resend shares one rate limit across all of a team's keys, so the import paces itself from
+the rate limit headers on each response and leaves part of the limit for the customer's live sending.
 """
 
+import re
 import time
-from collections.abc import Iterator
-from typing import Any
+import threading
+from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, TypeVar
 
 from django.conf import settings
 
@@ -16,8 +19,12 @@ import requests
 from posthog.dataclasses import frozen
 
 PAGE_SIZE = 100
-# Resend's default limit is 10 requests a second per team, shared with the customer's live sends.
+# The pace until a response says what the account's limit is.
 REQUESTS_PER_SECOND = 2
+# Resend's limit is shared with the customer's live sends, so the import uses only this much of it.
+SHARE_OF_LIMIT = 0.8
+# A request takes longer than the limit allows between requests, so the one-per-contact reads overlap.
+MAX_PARALLEL_REQUESTS = 4
 MAX_RATE_LIMIT_WAITS = 5
 MAX_RETRY_AFTER_SECONDS = 60
 # A long contact scan sees the odd timeout or 5xx. Retrying here keeps them from using up the whole step's retries.
@@ -46,6 +53,10 @@ class ResendRateLimited(ResendAPIError):
     """Resend kept answering 429 after the client waited as long as it told it to."""
 
 
+T = TypeVar("T")
+R = TypeVar("R")
+
+
 @frozen
 class ResendPage:
     data: list[dict[str, Any]]
@@ -66,6 +77,8 @@ class ResendClient:
         self._max_rate_limit_waits = max_rate_limit_waits
         self._max_transient_retries = max_transient_retries
         self._next_request_at = 0.0
+        self._interval = 1 / REQUESTS_PER_SECOND
+        self._lock = threading.Lock()
 
     def __repr__(self) -> str:
         return "ResendClient()"
@@ -98,6 +111,11 @@ class ResendClient:
     def get(self, path: str) -> dict[str, Any]:
         return self._get(path, None)
 
+    def each(self, read: Callable[[T], R], items: Iterable[T]) -> list[R]:
+        """`read` for every item, a few at a time, in the order of `items`. The first error is raised."""
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_REQUESTS) as pool:
+            return list(pool.map(read, items))
+
     def _get(self, path: str, params: dict[str, Any] | None) -> dict[str, Any]:
         waits = 0
         retries = 0
@@ -118,11 +136,12 @@ class ResendClient:
                     continue
                 # The exception text can hold the request's details, so only its type leaves this function.
                 raise ResendAPIError(f"Couldn't reach Resend ({type(e).__name__}).") from None
+            self._follow_limit(response)
             if response.status_code == 429:
                 if waits >= self._max_rate_limit_waits:
                     raise ResendRateLimited("Resend asked PostHog to slow down.", status_code=429)
                 waits += 1
-                time.sleep(_retry_after_seconds(response))
+                self._pause(_retry_after_seconds(response))
                 continue
             if response.status_code >= 500 and retries < self._max_transient_retries:
                 retries += 1
@@ -131,10 +150,44 @@ class ResendClient:
             return _parse(response)
 
     def _pace(self) -> None:
-        now = time.monotonic()
-        if now < self._next_request_at:
-            time.sleep(self._next_request_at - now)
-        self._next_request_at = max(now, self._next_request_at) + 1 / REQUESTS_PER_SECOND
+        with self._lock:
+            now = time.monotonic()
+            start_at = max(now, self._next_request_at)
+            self._next_request_at = start_at + self._interval
+        if start_at > now:
+            time.sleep(start_at - now)
+
+    def _pause(self, seconds: float) -> None:
+        """Holds every request, including those other threads have queued, for `seconds`."""
+        with self._lock:
+            self._next_request_at = max(self._next_request_at, time.monotonic() + seconds)
+        time.sleep(seconds)
+
+    def _follow_limit(self, response: requests.Response) -> None:
+        limit = _int_header(response, "ratelimit-limit")
+        if not limit:
+            return
+        window = _policy_window_seconds(response)
+        with self._lock:
+            self._interval = window / (limit * SHARE_OF_LIMIT)
+            remaining = _int_header(response, "ratelimit-remaining")
+            # Live sending used up the rest of this window, so the import waits for the next one instead of a 429.
+            if remaining == 0:
+                reset = min(float(_int_header(response, "ratelimit-reset") or window), MAX_RETRY_AFTER_SECONDS)
+                self._next_request_at = max(self._next_request_at, time.monotonic() + reset)
+
+
+def _int_header(response: requests.Response, name: str) -> int | None:
+    try:
+        return int(str(response.headers.get(name, "")).strip())
+    except ValueError:
+        return None
+
+
+def _policy_window_seconds(response: requests.Response) -> float:
+    # For example `10;w=1`, 10 requests in a window of 1 second.
+    match = re.search(r"w=(\d+)", str(response.headers.get("ratelimit-policy", "")))
+    return float(match.group(1)) if match and int(match.group(1)) > 0 else 1.0
 
 
 def _retry_after_seconds(response: requests.Response) -> float:
