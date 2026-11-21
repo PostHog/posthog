@@ -387,11 +387,11 @@ impl HandoffHandler for LeaderHandoffHandler {
         // returns, rather than holding a partition this pod lost.
         let fence_guard = FenceGuard::new(Arc::clone(&self.fenced), partition, "warm");
         let mut sources = warm_sources(&config, partition);
-        let live_start = warm_from_sources(
+        let live_range = warm_from_sources(
             &self.warming,
             &self.pools,
             &self.cache,
-            &self.dirty_index,
+            Some(&self.dirty_index),
             partition,
             &sources,
             self.fill.is_some(),
@@ -406,7 +406,7 @@ impl HandoffHandler for LeaderHandoffHandler {
         self.freshly_fenced.insert(partition);
         info!(partition, "partition warmed");
         if let Some(live) = sources.pop() {
-            self.start_fill(partition, live, live_start);
+            self.start_fill(partition, live, live_range.start);
         }
         Ok(())
     }
