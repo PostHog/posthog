@@ -3210,6 +3210,29 @@ def test_lowers_unaliased_left_any_join(people_column: str, expected: str, unrea
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
 
 
+def test_column_restricted_table_reads_only_its_allowed_columns() -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="people",
+            table=DirectTrinoTable(
+                name="people",
+                fields={"user_id": StringDatabaseField(name="user_id", nullable=False)},
+                external_data_source_id="source-id",
+                trino_catalog="lake",
+                trino_schema="analytics",
+                trino_table_name="people",
+                column_restricted=True,
+            ),
+        )
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select("SELECT user_id FROM people"), context, "trino")
+
+    assert '(SELECT "user_id" FROM "lake"."analytics"."people")' in sql
+
+
 @pytest.mark.parametrize(
     "structure, query, expected",
     [

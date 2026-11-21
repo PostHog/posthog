@@ -2416,9 +2416,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert database._direct_connection_metadata.get("engine") == "postgres"
         assert database._direct_connection_metadata.get("pgcrypto_schema") == "crypto"
 
-    def test_direct_source_keeps_introspected_function_passthrough(self):
+    @parameterized.expand([("no_hidden_columns", None, True), ("a_table_hides_columns", ["id"], False)])
+    def test_direct_source_introspected_function_passthrough(
+        self, _name: str, enabled_columns: list[str] | None, keeps_functions: bool
+    ):
         # A DIRECT source is the user's own connected DB (full access by design), so introspected
-        # passthrough is not a privilege escalation and stays available.
+        # passthrough stays available, unless the column picker hides columns that query_to_xml would read.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="direct_pg_fn_source",
@@ -2433,11 +2436,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             },
         )
 
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="public.users", enabled_columns=enabled_columns, deleted=None
+        )
+
         database = Database.create_for(team=self.team, connection_id=str(source.id))
 
         assert database._direct_connection_metadata is not None
-        assert database._direct_connection_metadata.get("available_functions") == ["query_to_xml"]
-        assert database._direct_connection_metadata.get("available_table_functions") == ["some_set_returning_fn"]
+        assert ("available_functions" in database._direct_connection_metadata) is keeps_functions
+        assert ("available_table_functions" in database._direct_connection_metadata) is keeps_functions
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
