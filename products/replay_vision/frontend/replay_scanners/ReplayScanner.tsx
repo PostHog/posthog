@@ -57,6 +57,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const { scanner, scannerLoading } = useValues(scannerLogic)
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    // Still the type, not `watchesAnExperiment`: the readout endpoint refuses every other type
+    // until the scope-aware gate lands, so offering the tab to a legacy-targeted or scope-carried
+    // scanner would land it on an error. It moves across with that gate.
     const isExperimentScanner = experimentScanners && scanner?.scanner_type === 'experiment'
     const loadedScannerId = scanner?.id ?? null
 

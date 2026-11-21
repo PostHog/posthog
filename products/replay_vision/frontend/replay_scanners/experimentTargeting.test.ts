@@ -6,6 +6,8 @@ import {
     parseExperimentScannerParams,
     prefillScannerForExperiment,
     reconcileVariantKey,
+    scannerExperimentScope,
+    watchesAnExperiment,
 } from './experimentTargeting'
 import type { ReplayScanner } from './types'
 
@@ -107,5 +109,74 @@ describe('experimentTargeting', () => {
         ['Base', 'x'.repeat(300), `Base: ${'x'.repeat(249)}`],
     ])('experimentScannerName(%j, …) fits the 255-char model limit', (base, experimentName, expected) => {
         expect(experimentScannerName(base, experimentName)).toEqual(expected)
+    })
+
+    // The three stores a scanner can hold its experiment in. A row carries more than one while the
+    // save mirror keeps them in step; the order decides what the editor shows mid-edit, when only
+    // the older store has what the person just typed.
+    it.each([
+        [
+            'the scope column',
+            { scope: { kind: 'experiment', experiment_id: 7, variants: ['control'] } },
+            { experimentId: 7, variants: ['control'] },
+        ],
+        [
+            'a scope that names no variant',
+            { scope: { kind: 'experiment', experiment_id: 7 } },
+            { experimentId: 7, variants: null },
+        ],
+        [
+            'the experiment type config',
+            { scanner_type: 'experiment', scanner_config: { prompt: 'p', experiment_id: 7, variants: ['test'] } },
+            { experimentId: 7, variants: ['test'] },
+        ],
+        [
+            'the legacy targeting column',
+            { experiment_targeting: { experiment_id: 7, variant: 'control' } },
+            { experimentId: 7, variants: ['control'] },
+        ],
+        [
+            // The form carries an in-progress edit in the older store while the column still holds
+            // what was saved, so the older store wins and the estimate previews what was typed.
+            'a legacy store ahead of the scope column when they disagree',
+            {
+                scope: { kind: 'experiment', experiment_id: 7, variants: ['control'] },
+                experiment_targeting: { experiment_id: 9, variant: 'test' },
+            },
+            { experimentId: 9, variants: ['test'] },
+        ],
+    ])('scannerExperimentScope reads %s', (_label, fields, expected) => {
+        const scanner = { scanner_type: 'monitor', scanner_config: { prompt: 'p' }, ...fields } as ReplayScanner
+
+        expect(scannerExperimentScope(scanner)).toEqual(expected)
+    })
+
+    it('watchesAnExperiment follows the scope, not the type', () => {
+        const scoped = {
+            scanner_type: 'summarizer',
+            scanner_config: { prompt: 'p' },
+            scope: { kind: 'experiment', experiment_id: 7, variants: ['control'] },
+        } as ReplayScanner
+        const legacyType = {
+            scanner_type: 'experiment',
+            scanner_config: { prompt: 'p', experiment_id: 7 },
+        } as ReplayScanner
+        const plain = { scanner_type: 'monitor', scanner_config: { prompt: 'p' } } as ReplayScanner
+
+        expect(watchesAnExperiment(scoped)).toBe(true)
+        expect(watchesAnExperiment(legacyType)).toBe(true)
+        expect(watchesAnExperiment(plain)).toBe(false)
+        expect(watchesAnExperiment(null)).toBe(false)
+    })
+
+    it.each([
+        ['no scanner', null],
+        ['a scanner watching nothing', {}],
+        ['a scope of an unknown kind', { scope: { kind: 'funnel', experiment_id: 7 } }],
+    ])('scannerExperimentScope answers null for %s', (_label, fields) => {
+        const scanner =
+            fields && ({ scanner_type: 'monitor', scanner_config: { prompt: 'p' }, ...fields } as ReplayScanner)
+
+        expect(scannerExperimentScope(scanner as ReplayScanner | null)).toBeNull()
     })
 })

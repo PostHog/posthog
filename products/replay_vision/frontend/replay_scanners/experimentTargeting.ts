@@ -58,22 +58,47 @@ export interface ScannerExperimentScope {
 }
 
 /**
- * The experiment a scanner watches, wherever it is stored. The experiment type keeps it in
- * `scanner_config`; older types use `experiment_targeting`. Mirrors the backend's `experiment_scope()`.
+ * The experiment a scanner watches, from whichever store holds it: the experiment type's
+ * `scanner_config`, then the legacy `experiment_targeting` column, then `scope`.
  */
 export function scannerExperimentScope(scanner: ReplayScanner | null | undefined): ScannerExperimentScope | null {
     if (!scanner) {
         return null
     }
+    // The older stores come first here, the reverse of the backend's order, because this reads a
+    // form as often as a saved row. While both stores hold the experiment the mirror keeps them in
+    // step, so the answer is the same either way — except mid-edit, where only the older store
+    // carries what the person has just typed and the column still holds what was saved.
     if (scanner.scanner_type === 'experiment') {
         const { experiment_id, variants } = scanner.scanner_config
         return experiment_id ? { experimentId: experiment_id, variants: variants ?? null } : null
     }
     const targeting = scanner.experiment_targeting
-    if (!targeting?.experiment_id) {
-        return null
+    if (targeting?.experiment_id) {
+        return { experimentId: targeting.experiment_id, variants: targeting.variant ? [targeting.variant] : null }
     }
-    return { experimentId: targeting.experiment_id, variants: targeting.variant ? [targeting.variant] : null }
+    // Last, so a row that has only the column answers: nothing the editor writes today produces
+    // this shape, and nothing else holds its experiment.
+    const scope = scanner.scope
+    if (scope?.kind === 'experiment' && scope.experiment_id) {
+        return { experimentId: scope.experiment_id, variants: scope.variants ?? null }
+    }
+    return null
+}
+
+/**
+ * Whether this scanner watches an experiment, from whichever store holds it.
+ *
+ * The question most callers mean when they check for the legacy `experiment` type: show the
+ * variants tab, offer the variant filter, label the recordings. A scanner carrying its experiment
+ * in `scope` keeps an answer format of its own, so the type answers no for it and the surface
+ * disappears. Ask this instead.
+ *
+ * A caller that reads `scanner_config`'s experiment keys still checks the type, because only that
+ * type has them.
+ */
+export function watchesAnExperiment(scanner: ReplayScanner | null | undefined): boolean {
+    return scannerExperimentScope(scanner) !== null
 }
 
 /** The variants a scope watches, as a short phrase: "test variant", "a, b variants", or the fallback. */

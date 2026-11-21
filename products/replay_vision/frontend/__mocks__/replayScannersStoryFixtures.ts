@@ -595,6 +595,23 @@ export const experimentScanner: ReplayScannerApi = scanner({
     observations_this_month: 71,
 })
 
+/**
+ * The shape the scope column stores: an answer format of its own, with the experiment in `scope`
+ * rather than in the experiment type's `scanner_config`. Every surface that reads the experiment
+ * has to find it here too, which is what the scope-aware readers are for.
+ */
+export const scopedSummarizerScanner: ReplayScannerApi = scanner({
+    id: '00000000-0000-0000-0000-0000000000e2',
+    name: 'Post-exposure friction: New checkout flow',
+    scanner_type: 'summarizer',
+    scanner_config: {
+        prompt: 'Summarize what this participant did after they reached the checkout.',
+        length: 'medium',
+    },
+    scope: { kind: 'experiment', experiment_id: 11, variants: ['control', 'test'] },
+    observations_this_month: 71,
+})
+
 const experimentObservation = (
     id: string,
     variant: string,
@@ -743,10 +760,14 @@ export const variantsReadout = (
     ...overrides,
 })
 
-export const variantsDecorator = (readout: ExperimentVariantsReadoutApi): ReturnType<typeof mswDecorator> =>
+export const variantsDecorator = (
+    readout: ExperimentVariantsReadoutApi,
+    /** The scanner the page loads. Defaults to the experiment type; pass a scoped one to show that shape. */
+    served: ReplayScannerApi = experimentScanner
+): ReturnType<typeof mswDecorator> =>
     mswDecorator({
         get: {
-            '/api/projects/:team_id/vision/scanners/:id/': experimentScanner,
+            '/api/projects/:team_id/vision/scanners/:id/': served,
             '/api/projects/:team_id/vision/scanners/:id/variants/': readout,
             '/api/projects/:team_id/vision/scanners/:id/observations/stats/': summarizerStats,
             '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
