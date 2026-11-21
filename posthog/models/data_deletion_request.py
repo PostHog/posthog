@@ -164,25 +164,6 @@ def _property_group_columns_read(events_sql: str) -> list[str]:
     return sorted(column for column in columns if re.search(rf"\b{re.escape(column)}\b", events_sql))
 
 
-# A team's READY dynamic slot makes events read a property from dmat_string_<n>. The slot columns carry no
-# column_materializer comment, so the registry lookup below does not list them.
-_DYNAMIC_MATERIALIZED_COLUMN = re.compile(r"(?<![\w$])dmat_string_\d+(?![\w$])")
-
-
-def _materialized_columns_read(events_sql: str) -> list[str]:
-    """The events materialized columns that an events-compiled fragment reads.
-
-    The registry holds the ``mat_`` columns and the built-in ``$session_id``, ``$window_id`` and
-    ``$group_0`` to ``$group_4`` columns. The dynamic ``dmat_string_`` slots are matched by name. A persons
-    subquery reads ``pmat_`` columns the same way on both tables, so those are left out.
-    """
-    from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns_by_table
-
-    names = {column.name for column in get_enabled_materialized_columns_by_table().get("events", {}).values()}
-    registered = {name for name in names if re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", events_sql)}
-    return sorted(registered | set(_DYNAMIC_MATERIALIZED_COLUMN.findall(events_sql)))
-
-
 _ELEMENTS_COLUMN = re.compile(r"(?<![\w$])elements_chain\w*")
 
 
@@ -378,13 +359,14 @@ class UncopiedRowsPredicate:
 def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredicate:
     """``obj``'s HogQL predicate compiled for the rows of ``target`` that have no copy in ``target.copied_from``.
 
-    The predicate cannot run there when events reads any part of it from a property-group map or a
-    materialized column, which only the events tables have. The map decodes JSON escapes, so a stored
-    ``"a\\"b"`` reads as ``a"b`` from the map and as ``a\\"b`` from raw JSON. With
-    ``propertyGroupsMode`` set to ``optimized``, events also compares a map value as a string for
-    ``=``, ``!=`` and ``IN``, where a raw JSON read casts a typed property to its defined type. A
-    materialized column reads an empty string and the string ``"null"`` as NULL, and a nullable one
-    decodes JSON escapes. So the two tables could match different rows.
+    The predicate cannot run there when events reads any part of it from a property-group map, which only the
+    events tables have. The map decodes JSON escapes, so a stored ``"a\\"b"`` reads as ``a"b`` from the map and
+    as ``a\\"b`` from raw JSON. With ``propertyGroupsMode`` set to ``optimized``, events also compares a map value
+    as a string for ``=``, ``!=`` and ``IN``, where a raw JSON read casts a typed property to its defined type.
+
+    A property that events reads from a materialized column compiles to the raw JSON read here. The two reads can
+    disagree on edge values, such as a stored ``""``, ``"null"``, a JSON escape, or a non-string value. That is
+    accepted: the rows here have no events copy, so the raw JSON read is the only evaluation they get.
     """
     if target.uncopied_rows_hogql_table is None:
         return UncopiedRowsPredicate(compiled=None, error="This table has no HogQL table to compile it against.")
@@ -394,21 +376,14 @@ def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredic
             return UncopiedRowsPredicate(
                 compiled=None,
                 error=f"Events reads it from {', '.join(element_columns)}. {target.uncopied_rows_hogql_table} stores "
-                "no elements and reads them as empty, so the two can match different rows.",
+                "no elements and reads them as empty, so the predicate can evaluate differently on the same row.",
             )
         if map_columns := _property_group_columns_read(events_sql):
             return UncopiedRowsPredicate(
                 compiled=None,
                 error=f"Events reads it from the property-group map {', '.join(map_columns)}, which decodes JSON "
                 f"escapes and compares typed values as strings. {target.uncopied_rows_hogql_table} reads the raw "
-                "JSON, so the two can match different rows.",
-            )
-        if materialized_columns := _materialized_columns_read(events_sql):
-            return UncopiedRowsPredicate(
-                compiled=None,
-                error=f"Events reads it from the materialized column {', '.join(materialized_columns)}, which "
-                f"reads an empty string and the string 'null' as NULL. {target.uncopied_rows_hogql_table} reads "
-                "the raw JSON, so the two can match different rows.",
+                "JSON, so the predicate can evaluate differently on the same row.",
             )
         return UncopiedRowsPredicate(
             compiled=compile_hogql_predicate(obj, hogql_table=target.uncopied_rows_hogql_table)

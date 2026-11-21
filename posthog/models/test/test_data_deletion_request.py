@@ -375,22 +375,9 @@ def materialized_browser():
 
 
 @pytest.fixture
-def dmat_slot_for_plan(team):
-    from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
-
-    from products.event_definitions.backend.models import PropertyDefinition
-    from products.event_definitions.backend.models.property_definition import PropertyType
-
-    prop_def = PropertyDefinition.objects.create(
-        team=team,
-        project_id=team.project_id,
-        name="plan",
-        property_type=PropertyType.String,
-        type=PropertyDefinition.Type.EVENT,
-    )
-    MaterializedColumnSlot.objects.create(
-        team=team, property_definition=prop_def, slot_index=0, state=MaterializedColumnSlotState.READY
-    )
+def materialized_plan():
+    with materialized("events", "$plan"):
+        yield
 
 
 def _flag_call_request(team: Team, hogql_predicate: str) -> DataDeletionRequest:
@@ -431,13 +418,6 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         ("properties.`$feature/beta` = 'true'", "property-group map"),
         # Events reads a non-$ person property from person_properties_map_custom.
         ("person.properties.email = 'a@example.com'", "person_properties_map_custom"),
-        # mat_$browser reads a stored "" as NULL, and the raw JSON read on flag_evaluations reads it as "".
-        ("properties.$browser = ''", "materialized column mat_$browser"),
-        ("properties.$browser IS NULL", "materialized column mat_$browser"),
-        # The built-in $group_0 column scrubs the same way, with no mat_ prefix.
-        ("properties.$group_0 IS NULL", "materialized column $group_0"),
-        # A team's READY dynamic slot makes events read dmat_string_0, which the column registry does not list.
-        ("properties.plan IS NULL", "materialized column dmat_string_0"),
     ],
     ids=[
         "person_id",
@@ -446,19 +426,9 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         "custom_property",
         "feature_flag_property",
         "custom_person_property",
-        "materialized_property_equals_empty_string",
-        "materialized_property_is_null",
-        "builtin_group_column_is_null",
-        "dynamic_slot_is_null",
     ],
 )
-def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(
-    team, request, predicate, error_match
-):
-    if "$browser" in predicate:
-        request.getfixturevalue("materialized_browser")
-    if predicate == "properties.plan IS NULL":
-        request.getfixturevalue("dmat_slot_for_plan")
+def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(team, predicate, error_match):
     uncopied = uncopied_rows_predicate(_flag_call_request(team, predicate), FLAG_EVALUATIONS)
 
     assert uncopied.compiled is None
@@ -471,6 +441,7 @@ _PARITY_ROW_PROPERTIES = [
     '{"$plan": "pro"}',
     '{"$plan": "free"}',
     '{"$plan": ""}',
+    '{"$plan": "null"}',
     '{"$plan": null}',
     "{}",
     '{"$plan": "a\\"b"}',
@@ -488,30 +459,50 @@ def _matches_by_row(read_table: str, team_id: int, fragment: str, values: dict) 
 
 
 @pytest.mark.parametrize(
-    "property_type, predicate",
+    "property_type, predicate, differs_on",
     [
-        pytest.param(None, "properties.$plan = 'pro'", id="equals"),
-        pytest.param(None, "properties.$plan = ''", id="equals_empty_string"),
-        pytest.param(None, "properties.$plan = 'a\"b'", id="equals_escaped_quote"),
-        pytest.param(None, "properties.$plan != 'pro'", id="not_equals"),
-        pytest.param(None, "properties.$plan IN ('pro', 'team')", id="in"),
-        pytest.param(None, "properties.$plan > 'free'", id="greater"),
-        pytest.param(None, "properties.$plan IS NULL", id="is_null"),
-        pytest.param(None, "properties.$plan LIKE 'pr%'", id="like"),
-        pytest.param("Numeric", "properties.$plan > 1", id="numeric_greater"),
-        pytest.param("Boolean", "properties.$plan = true", id="boolean_equals"),
-        pytest.param(None, "person.properties.$plan = 'pro'", id="person_property_equals"),
+        pytest.param("materialized", "properties.$plan IN ('pro', 'team')", set(), id="materialized_in"),
+        pytest.param("materialized", "properties.$plan IN ('pro')", set(), id="materialized_in_one_value"),
+        pytest.param(
+            "materialized", "properties.$plan = 'pro' OR distinct_id = 'd'", set(), id="materialized_equals_or"
+        ),
+        # The accepted difference: mat_$plan reads a stored "" and "null" as NULL, and the raw JSON read does not.
+        pytest.param("materialized", "properties.$plan = ''", {'{"$plan": ""}'}, id="materialized_equals_empty_string"),
+        pytest.param(
+            "materialized",
+            "properties.$plan IS NULL",
+            {'{"$plan": ""}', '{"$plan": "null"}'},
+            id="materialized_is_null",
+        ),
+        pytest.param(None, "properties.$plan = 'pro'", set(), id="equals"),
+        pytest.param(None, "properties.$plan = ''", set(), id="equals_empty_string"),
+        pytest.param(None, "properties.$plan = 'a\"b'", set(), id="equals_escaped_quote"),
+        pytest.param(None, "properties.$plan != 'pro'", set(), id="not_equals"),
+        pytest.param(None, "properties.$plan IN ('pro', 'team')", set(), id="in"),
+        pytest.param(None, "properties.$plan > 'free'", set(), id="greater"),
+        pytest.param(None, "properties.$plan IS NULL", set(), id="is_null"),
+        pytest.param(None, "properties.$plan LIKE 'pr%'", set(), id="like"),
+        pytest.param("Numeric", "properties.$plan > 1", set(), id="numeric_greater"),
+        pytest.param("Boolean", "properties.$plan = true", set(), id="boolean_equals"),
+        pytest.param(None, "person.properties.$plan = 'pro'", set(), id="person_property_equals"),
     ],
 )
-def test_flag_evaluations_predicate_matches_the_rows_the_events_predicate_matches(team, property_type, predicate):
-    if property_type is not None:
+def test_flag_evaluations_predicate_matches_the_rows_the_events_predicate_matches(
+    team, request, property_type, predicate, differs_on
+):
+    if property_type == "materialized":
+        request.getfixturevalue("materialized_plan")
+    elif property_type is not None:
         PropertyDefinition.objects.create(
             team=team, name="$plan", type=PropertyDefinition.Type.EVENT, property_type=property_type
         )
-    request = _flag_call_request(team, predicate)
-    events_sql, events_values = compile_hogql_predicate(request)
+    deletion_request = _flag_call_request(team, predicate)
+    events_sql, events_values = compile_hogql_predicate(deletion_request)
     assert "properties_group_" not in events_sql
-    flag_sql, flag_values = compile_hogql_predicate(request, hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE)
+    assert ("mat_$plan" in events_sql) == (property_type == "materialized")
+    uncopied = uncopied_rows_predicate(deletion_request, FLAG_EVALUATIONS)
+    assert uncopied.compiled is not None, uncopied.error
+    flag_sql, flag_values = uncopied.compiled
 
     now = timezone.now()
     rows = [(team.id, FLAG_EVALUATIONS_SOURCE_EVENT, uuid_lib.uuid4(), now, p, p) for p in _PARITY_ROW_PROPERTIES]
@@ -521,7 +512,8 @@ def test_flag_evaluations_predicate_matches_the_rows_the_events_predicate_matche
 
     events_matches = _matches_by_row("events", team.id, events_sql, events_values)
     assert events_matches.keys() == set(_PARITY_ROW_PROPERTIES)
-    assert _matches_by_row("flag_evaluations", team.id, flag_sql, flag_values) == events_matches
+    flag_matches = _matches_by_row("flag_evaluations", team.id, flag_sql, flag_values)
+    assert {row for row, matched in flag_matches.items() if matched != events_matches[row]} == differs_on
 
 
 def test_rendered_count_query_substitutes_parameters():

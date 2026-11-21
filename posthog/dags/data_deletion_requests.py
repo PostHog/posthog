@@ -77,6 +77,7 @@ from posthog.models.deletion_targets import (
     placement_for,
     resolve_placements,
     surviving_rows_sql,
+    unsweepable_rows_message,
 )
 from posthog.models.event.sql import json_property_presence_expr
 from posthog.models.person.bulk_delete import (
@@ -588,9 +589,14 @@ def _refuse_unsweepable(
     predicate_for: Callable[[DeletionTarget], tuple[str, dict] | NotCounted],
     *,
     reason: str,
+    counted: str | None,
     log: logging.Logger | None = None,
 ) -> None:
-    """Raise a dagster.Failure when the request would strand rows on any of ``targets``."""
+    """Raise a dagster.Failure when the request would strand rows on any of ``targets``.
+
+    ``counted`` names what ``predicate_for`` counts when it leaves out the request's HogQL predicate,
+    and is None when it applies that predicate.
+    """
     try:
         assert_no_unsweepable_rows(
             cluster,
@@ -598,10 +604,30 @@ def _refuse_unsweepable(
             predicate_for,
             events=[] if deletion_request.delete_all_events else deletion_request.events,
             reason=reason,
+            counted_without_predicate=counted if deletion_request.hogql_predicate else None,
             log=log,
         )
     except UnsweepableRowsError as exc:
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
+
+
+def _request_criteria_text(deletion_request: DeletionRequestContext) -> str:
+    """The team, time range and event criteria of ``deletion_request``, as a refusal names them."""
+    if deletion_request.delete_all_events:
+        return "this request's team and time range"
+    return "this request's team, time range and events"
+
+
+def _counted_unless_compiled(
+    deletion_request: DeletionRequestContext, uncopied_predicate: UncopiedRowsPredicate, narrowing: str = ""
+) -> str | None:
+    """What a refusal counts when the predicate cannot run on the target, None when the count applies it.
+
+    ``narrowing`` names any criterion the count adds to the request's own.
+    """
+    if uncopied_predicate.compiled is not None:
+        return None
+    return _request_criteria_text(deletion_request) + narrowing
 
 
 def _same_criteria(criteria: tuple[str, dict]) -> Callable[[DeletionTarget], tuple[str, dict]]:
@@ -642,6 +668,7 @@ def _refuse_property_removal_unsweepable(
         deletion_request,
         predicate_for,
         reason=_PROPERTY_REWRITE_UNSWEEPABLE_REASON,
+        counted=f"{_request_criteria_text(deletion_request)}, and carry a property it removes",
         log=log,
     )
     _refuse_unsweepable(
@@ -650,6 +677,7 @@ def _refuse_property_removal_unsweepable(
         deletion_request,
         predicate_for,
         reason=_HOGQL_UNSWEEPABLE_REASON,
+        counted=f"{_request_criteria_text(deletion_request)}, and carry a property it removes",
         log=log,
     )
 
@@ -743,6 +771,7 @@ def _event_removal_placements(
         deletion_request,
         _same_criteria(criteria),
         reason=_HOGQL_UNSWEEPABLE_REASON,
+        counted=_request_criteria_text(deletion_request),
     )
 
     uncopied: list[tuple[TargetPlacement, UncopiedRowsPredicate]] = []
@@ -752,10 +781,13 @@ def _event_removal_placements(
         copy_cluster = next((p.cluster for p in placements if p.target.data_table == target.copied_from), None)
         if copy_cluster is not placement.cluster:
             if _holds_rows(cluster, placement, *uncopied_predicate.narrow(criteria)):
-                raise dagster.Failure(
-                    description=f"Deletion request {deletion_request.request_id}: rows in {target.read_table} match "
-                    f"this request but cannot be deleted: {_HOGQL_EVENTS_COPY_ON_ANOTHER_CLUSTER_REASON}"
+                message = unsweepable_rows_message(
+                    "Rows",
+                    target,
+                    _HOGQL_EVENTS_COPY_ON_ANOTHER_CLUSTER_REASON,
+                    counted_without_predicate=_counted_unless_compiled(deletion_request, uncopied_predicate),
                 )
+                raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {message}")
             continue
         # The copy check reads the uuid of every matching event, so it runs only when the target holds
         # matching rows in the request's window. This count also runs the compiled fragment before
@@ -775,7 +807,16 @@ def _event_removal_placements(
         if not deferred:
             reason += _IMMEDIATE_HOGQL_RETRY_HINT
         for window in uncopied_predicate.windows(deletion_request, target):
-            _refuse_unsweepable(cluster, [target], deletion_request, _same_criteria(window), reason=reason)
+            _refuse_unsweepable(
+                cluster,
+                [target],
+                deletion_request,
+                _same_criteria(window),
+                reason=reason,
+                counted=_counted_unless_compiled(
+                    deletion_request, uncopied_predicate, f", and have no copy in {target.copied_from}"
+                ),
+            )
     return EventRemovalPlacements(swept=[p for p in placements if p.target.accepts_hogql_predicate], uncopied=uncopied)
 
 

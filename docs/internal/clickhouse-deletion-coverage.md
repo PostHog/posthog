@@ -366,14 +366,19 @@ On cloud, `propertyGroupsMode` is `optimized`, and events reads a custom propert
 The map is built with `JSONExtractKeysAndValues(properties, 'String')`, which decodes JSON escapes, so a stored `"a\"b"` reads as `a"b`.
 For `=`, `!=` and `IN`, the `optimized` rewrite also compares a typed property as a string.
 `flag_evaluations` has no property-group map, so it reads the raw JSON with the surrounding quotes stripped, which reads `a\"b`, and it casts a typed property to its defined type.
-On cloud, events reads some `$` properties from `mat_` or `dmat_string_` columns instead, and those differ on edge values: the column reads an empty string and the string `"null"` as NULL, and a nullable column decodes escapes.
+The compile therefore refuses a predicate whenever the events compile of it reads a property-group map.
+On cloud, events also reads some `$` properties from `mat_` or `dmat_string_` columns, and `flag_evaluations` reads the raw JSON for those.
+The two reads can differ on edge values.
+The column reads an empty string and the string `"null"` as NULL, the ingestion view fills it from decoded JSON, and a non-string value can read differently.
 So with `$browser` materialized, `properties.$browser = ''` excludes a row that stores `""` on events and matches it on `flag_evaluations`.
-The compile therefore refuses a predicate whenever the events compile of it reads a property-group map or a materialized column.
-Every property the compile accepts reads raw JSON on both tables.
-It also refuses one that needs a join, such as `person_id`, because the fragment is spliced into a bare WHERE that has no join.
+The compile accepts those predicates anyway.
+The two tables need not hold the same rows, because ingestion can store a flag call in only one of them, and a row with no events copy has no other evaluation to agree with.
+The raw JSON read evaluates the predicate on that row's own stored properties, so a predicate such as `properties.$host IN ('a.example.com', 'b.example.com')` runs on those rows.
+The compile also refuses a predicate that needs a join, such as `person_id`, because the fragment is spliced into a bare WHERE that has no join.
 `person.properties` and `elements_chain` do not resolve on the table, so those predicates fail to compile.
 
 When the predicate cannot run on the table, the gate counts the rows with no copy in `sharded_events` that match the request's other criteria, shard-locally, and refuses the request when it finds any.
+That count leaves out the predicate, so the refusal says the rows match the request's team, time range and events, and that some of them may not match the predicate.
 Requests without a predicate, immediate or deferred, are swept normally.
 A deferred one reads the table's own uuids into the queue.
 
@@ -392,7 +397,7 @@ The verify sweep therefore keeps checking a deferred request with a predicate fo
 The rows with no copy also keep a request the gate refused, which queued nothing, from passing verification as a FAILED request.
 Counting every row that matches the request's other criteria would hold the request in QUEUED until the TTL, whenever the team has flag calls the predicate does not name.
 The second count uses the same compiled predicate as the queue fill, so it cannot see the two compiles disagreeing.
-The compile's refusals are the guard against that.
+The compile's refusals are the guard against that, except for materialized-column reads, where the difference is accepted.
 
 ## Producer prerequisite: person_id parity
 
