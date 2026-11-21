@@ -141,9 +141,9 @@
                         "description": "Where the generated module goes, relative to posthog.json."
                     },
                     "sdk": {
-                        "description": "TypeScript only: the SDK the module wraps. `none` generates only the event types. Without it, `posthog-js`.",
+                        "description": "The SDK the module wraps. TypeScript: `none` generates only the event types; without it, `posthog-js`. Go: `posthog-go-v2` imports posthog-go 2.x; without it, posthog-go 1.x.",
                         "type": "string",
-                        "enum": ["posthog-js", "none"]
+                        "enum": ["posthog-js", "none", "posthog-go", "posthog-go-v2"]
                     },
                     "schema_hash": {
                         "description": "The hash of the event definitions the module was generated from.",

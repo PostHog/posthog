@@ -59,16 +59,20 @@ const ErrorTracking = z
 
 export const TYPESCRIPT_SDKS = ['posthog-js', 'none'] as const
 export type TypeScriptSdk = (typeof TYPESCRIPT_SDKS)[number]
+export const GO_SDKS = ['posthog-go', 'posthog-go-v2'] as const
+export type GoSdk = (typeof GO_SDKS)[number]
+export const SCHEMA_SDKS = [...TYPESCRIPT_SDKS, ...GO_SDKS] as const
+export type SchemaSdk = (typeof SCHEMA_SDKS)[number]
 
 // Snake case, because posthog-cli writes and reads the same entries in `exp schema pull`.
 const SchemaLanguage = z
     .strictObject({
         output_path: z.string().min(1).describe('Where the generated module goes, relative to posthog.json.'),
         sdk: z
-            .enum(TYPESCRIPT_SDKS)
+            .enum(SCHEMA_SDKS)
             .optional()
             .describe(
-                'TypeScript only: the SDK the module wraps. `none` generates only the event types. Without it, `posthog-js`.'
+                'The SDK the module wraps. TypeScript: `none` generates only the event types; without it, `posthog-js`. Go: `posthog-go-v2` imports posthog-go 2.x; without it, posthog-go 1.x.'
             ),
         schema_hash: z.string().optional().describe('The hash of the event definitions the module was generated from.'),
         updated_at: z.string().optional().describe('When the module was last generated.'),

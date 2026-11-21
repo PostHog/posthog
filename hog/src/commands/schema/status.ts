@@ -1,5 +1,5 @@
 import { defineCommand } from '@/core/command'
-import type { TypeScriptSdk } from '@/core/config'
+import type { SchemaSdk } from '@/core/config'
 import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { absolutePath } from '@/core/paths'
 import { plural } from '@/core/text'
@@ -8,7 +8,7 @@ import { configRoot, fetchDefinitions, isLanguage, moduleInfo } from './shared'
 
 interface LanguageStatus {
     language: string
-    sdk: TypeScriptSdk | undefined
+    sdk: SchemaSdk | undefined
     file: string
     // `outdated` means the event definitions changed since the module was generated.
     status: 'up_to_date' | 'outdated' | 'missing' | 'unknown_language'
