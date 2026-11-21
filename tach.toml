@@ -535,6 +535,8 @@ layer = "modules"
 [[modules]]
 path = "products.error_tracking"
 depends_on = [
+    # Facade-only: error tracking alerts register their config and wording with the alerts platform.
+    "products.alerts_platform",
     "products.cohorts",
     "ee",
     "posthog",
