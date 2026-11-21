@@ -338,6 +338,8 @@ export interface QueryBatchTargetApi {
      * @maxLength 200000
      */
     query: string
+    /** HogQL only. The query returns its time bucket as the first column, filters time with `{filters}` and aggregates only within a bucket, so finished buckets are kept and only missing and recent ones run. */
+    bucketed?: boolean
 }
 
 export interface QueryBatchTimeApi {

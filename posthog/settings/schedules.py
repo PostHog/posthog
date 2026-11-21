@@ -48,6 +48,9 @@ CACHED_RESULTS_PROGRAMMATIC_TTL = get_from_env("CACHED_RESULTS_PROGRAMMATIC_TTL"
 # Share of metrics tile tail refreshes that also run the whole range and report the difference on `query executed`.
 METRICS_TAIL_REFRESH_VERIFY_RATE = get_from_env("METRICS_TAIL_REFRESH_VERIFY_RATE", 0.01, type_cast=float)
 
+# Share of dashboard-v2 bucketed HogQL answers that are also run over the whole range in the background and compared.
+DASHBOARD_V2_BUCKET_SHADOW_RATE = get_from_env("DASHBOARD_V2_BUCKET_SHADOW_RATE", 0.0, type_cast=float)
+
 # Per-team cache size limit (default 1GB, can be overridden per-team via Team.extra_settings)
 TEAM_CACHE_SIZE_LIMIT_BYTES = get_from_env("TEAM_CACHE_SIZE_LIMIT_BYTES", 1_000_000_000, type_cast=int)
 
