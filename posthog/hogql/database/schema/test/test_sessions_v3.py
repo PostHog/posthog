@@ -850,6 +850,11 @@ class TestSessionFilterGlobalJoin(ClickhouseTestMixin, APIBaseTest):
             ("non_nullable_default", "events.session.$session_duration = 0", False),
             ("numeric_column_string_default", "events.session.$session_duration = '0'", False),
             ("or_with_event_filter", "events.session.$entry_referring_domain = 'a.example.com' or event = 'x'", False),
+            (
+                "or_of_session_filters",
+                "events.session.$entry_referring_domain = 'a.example.com' or events.session.$entry_referring_domain = 'b.example.com'",
+                False,
+            ),
             ("numeric_session_key_string_default", "events.session.session_id_v7 = '0'", False),
         ]
     )
