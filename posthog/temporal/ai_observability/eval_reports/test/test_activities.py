@@ -552,6 +552,39 @@ async def test_prepare_activity_reads_current_reportability_and_polarity(
         )
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_prepare_activity_rejects_report_without_ai_data_processing_approval(team, user) -> None:
+    def _create_report() -> EvaluationReport:
+        evaluation = Evaluation.objects.create(
+            team=team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test prompt"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+        team.organization.is_ai_data_processing_approved = False
+        team.organization.save()
+        return EvaluationReport.objects.create(
+            team=team,
+            evaluation=evaluation,
+            frequency=EvaluationReport.Frequency.SCHEDULED,
+            rrule="FREQ=HOURLY",
+            starts_at=timezone.now() - dt.timedelta(hours=5),
+        )
+
+    report = await sync_to_async(_create_report)()
+
+    with pytest.raises(ApplicationError) as error:
+        await prepare_report_context_activity(PrepareReportContextInput(report_id=str(report.id), manual=True))
+    assert error.value.non_retryable
+    assert error.value.type == "AIDataProcessingNotApproved"
+
+
 class TestCountTriggeredReportChecks(BaseTest):
     def _create_report(self, team: Team | None = None, **kwargs) -> EvaluationReport:
         team = team or self.team

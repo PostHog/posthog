@@ -1505,10 +1505,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
 
                     try {
+                        // Without AI data processing approval the switch shows off, so saving must not turn reports on.
+                        const { configDraft, dataProcessingAccepted } = reportLogic.values
                         await persistReportDraft(
                             teamId,
                             response.id,
-                            reportLogic.values.configDraft,
+                            { ...configDraft, enabled: configDraft.enabled && dataProcessingAccepted },
                             reportLogic.values.activeReport
                         )
                     } catch (reportError) {

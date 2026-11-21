@@ -722,10 +722,20 @@ async def prepare_report_context_activity(
     def prepare() -> PrepareReportContextOutput:
         from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
-        report = EvaluationReport.objects.select_related("evaluation").filter(id=inputs.report_id).first()
+        report = (
+            EvaluationReport.objects.select_related("evaluation", "team__organization")
+            .filter(id=inputs.report_id)
+            .first()
+        )
         if report is None:
             raise ApplicationError(
                 "This evaluation report no longer exists.", type="ReportNotFound", non_retryable=True
+            )
+        if not report.team.organization.is_ai_data_processing_approved:
+            raise ApplicationError(
+                "Evaluation reports need AI data processing to be approved in organization settings.",
+                type="AIDataProcessingNotApproved",
+                non_retryable=True,
             )
         evaluation = report.evaluation
         now = dt.datetime.now(tz=dt.UTC)
