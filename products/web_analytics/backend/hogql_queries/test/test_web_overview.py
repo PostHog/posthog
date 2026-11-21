@@ -22,6 +22,7 @@ from posthog.schema import (
     BounceRatePageViewMode,
     CompareFilter,
     CustomEventConversionGoal,
+    DashboardFilter,
     DateRange,
     EventPropertyFilter,
     HogQLQueryModifiers,
@@ -1473,6 +1474,52 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
                 properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing")]
             )
             assert runner.should_use_session_id_set == expected
+
+    @parameterized.expand(
+        [
+            ("flag_on_with_session_filter", True, "session", None, True),
+            ("flag_off", False, "session", None, False),
+            ("flag_on_without_session_filter", True, "event", None, False),
+            ("query_modifier_wins_over_flag", True, "session", False, False),
+        ]
+    )
+    def test_session_filter_global_join_feature_flag_gating(
+        self, _name: str, flag_on: bool, filter_type: str, requested: bool | None, expected: bool
+    ):
+        property_filter = (
+            SessionPropertyFilter(key="$entry_referring_domain", operator=PropertyOperator.EXACT, value="a.example.com")
+            if filter_type == "session"
+            else EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing")
+        )
+        with patch(
+            "products.web_analytics.backend.hogql_queries.first_pageview_flag.posthoganalytics.feature_enabled",
+            return_value=flag_on,
+        ):
+            runner = self._make_runner(
+                properties=[property_filter],
+                modifiers=HogQLQueryModifiers(sessionFilterGlobalJoin=requested),
+            )
+        assert bool(runner.modifiers.sessionFilterGlobalJoin) == expected
+
+    def test_session_filter_global_join_follows_dashboard_session_filter(self):
+        with patch(
+            "products.web_analytics.backend.hogql_queries.first_pageview_flag.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            runner = self._make_runner(
+                properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing")]
+            )
+            assert not runner.modifiers.sessionFilterGlobalJoin
+            runner.apply_dashboard_filters(
+                DashboardFilter(
+                    properties=[
+                        SessionPropertyFilter(
+                            key="$entry_referring_domain", operator=PropertyOperator.EXACT, value="a.example.com"
+                        )
+                    ]
+                )
+            )
+        assert runner.modifiers.sessionFilterGlobalJoin
 
     @parameterized.expand(
         [
