@@ -110,6 +110,22 @@ describe('settleRequest', () => {
         expect(result?.results.groups?.items.map((item) => item.id)).toEqual(['group-0-acme'])
     })
 
+    it('finds endpoints by name in the free-text search', async () => {
+        jest.useRealTimers()
+        const searchList = jest.spyOn(api.search, 'list').mockResolvedValue({
+            results: [{ type: 'endpoint', result_id: 'e1', extra_fields: { name: 'orders_api' }, rank: null }],
+        } as any)
+        const unifiedRequest = REMOTE_REQUESTS.find((request) => request.id === 'unified')!
+
+        const result = await settleRequest(unifiedRequest, 'orders_api', new AbortController().signal, context)
+
+        expect(searchList).toHaveBeenCalledWith(
+            expect.objectContaining({ q: 'orders_api', entities: expect.arrayContaining(['endpoint']) }),
+            expect.anything()
+        )
+        expect(result?.results.endpoints?.items.map((item) => item.href)).toEqual(['/endpoints/orders_api'])
+    })
+
     describe('an is: type the file system does not hold', () => {
         const objects = REMOTE_REQUESTS.find((request) => request.id === 'objects')!
         const unified = (type: SearchableEntity, id: string, name: string): SearchResponse['results'][number] => ({
