@@ -186,15 +186,15 @@ class TestMailgunImport(BaseTest):
             row.name: str(row.id)
             for row in MessageCategory.objects.filter(team_id=self.team.id, key__startswith="mailgun_tag_")
         }
-        assert set(categories) == {"newsletter", "promo 🎁", "digest"}
+        assert set(categories) == {"Newsletter", "Promo 🎁", "Digest"}
         assert self._preferences() == {
             "Everything@Example.com": {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"},
             "no-tags@example.com": {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"},
             "eu-unsub@example.com": {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"},
             "tagged@example.com": {
-                categories["newsletter"]: "OPTED_OUT",
-                categories["promo 🎁"]: "OPTED_OUT",
-                categories["digest"]: "OPTED_OUT",
+                categories["Newsletter"]: "OPTED_OUT",
+                categories["Promo 🎁"]: "OPTED_OUT",
+                categories["Digest"]: "OPTED_OUT",
             },
         }
         assert run.progress["unsubscribes"]["counts"]["tag_categories"] == 3
@@ -215,12 +215,36 @@ class TestMailgunImport(BaseTest):
         category = MessageCategory.objects.get(team_id=self.team.id, name="Developers")
         assert self._preferences()["Left@example.com"] == {str(category.id): "OPTED_OUT"}
         assert category.public_description == ""
+        assert "devs@mg.example.com" not in category.description
         assert "stays@example.com" not in self._preferences()
-        assert MessageCategory.objects.filter(team_id=self.team.id, name="empty@mg.example.com").exists()
+        assert not MessageCategory.objects.filter(team_id=self.team.id, name__startswith="empty").exists()
+        assert run.progress["mailing_lists"]["counts"]["empty_lists"] == 1
+        assert run.progress["mailing_lists"]["processed"] == 3
         member_calls = [call for call in self.mailgun.calls if call["path"].endswith("/members/pages")]
         assert member_calls and all(call["query"]["subscribed"] == "false" for call in member_calls)
         assert next(call for call in member_calls if "acme" in call["path"])["on_behalf_of"] == "sub-acme"
         assert run.progress["mailing_lists"]["counts"]["members"] == 4
+
+    def test_every_mailing_list_imports_when_asked_and_an_unnamed_one_takes_its_local_part(self) -> None:
+        run = self._run(["mailing_lists"], mailing_lists=mailgun.ALL_LISTS)
+
+        assert MessageCategory.objects.filter(team_id=self.team.id, name="empty").exists()
+        assert "empty_lists" not in run.progress["mailing_lists"]["counts"]
+
+    def test_lists_and_tags_reuse_a_category_with_the_same_name_on_every_run(self) -> None:
+        own = MessageCategory.objects.create(team_id=self.team.id, key="own_developers", name="developers ")
+        MessageCategory.objects.create(team_id=self.team.id, key="own_digest", name="Digest")
+
+        first = self._run(["unsubscribes", "mailing_lists"])
+        categories = set(MessageCategory.objects.filter(team_id=self.team.id).values_list("name", flat=True))
+        second = self._run(["unsubscribes", "mailing_lists"])
+
+        assert self._preferences()["Left@example.com"] == {str(own.id): "OPTED_OUT"}
+        assert categories == {"developers ", "Digest", "Acme ñews", "Newsletter", "Promo 🎁"}
+        assert MessageCategory.objects.filter(team_id=self.team.id).count() == len(categories)
+        for run in (first, second):
+            assert run.progress["mailing_lists"]["counts"]["matched"] == 1
+        assert first.progress["unsubscribes"]["counts"]["tag_categories"] == 2
 
     def test_a_key_a_code_email_sends_under_is_left_to_it(self) -> None:
         TransactionalEmailKey.objects.for_team(self.team.id).create(team=self.team, key="welcome", hog_flow_id=uuid4())

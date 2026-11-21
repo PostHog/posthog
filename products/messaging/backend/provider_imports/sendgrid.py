@@ -141,7 +141,11 @@ class SendGridImportProvider(ImportProvider):
             key="suppression_groups",
             label="Unsubscribe groups",
             description="Creates a marketing message category for each unsubscribe group. Needs asm.groups.read.",
-            count_labels=(("created", "New categories"), ("already_present", "Already in PostHog, left as they are")),
+            count_labels=(
+                ("created", "New categories"),
+                ("matched", "Matched an existing category"),
+                ("already_present", "Already in PostHog, left as they are"),
+            ),
         ),
         ImportStepSpec(
             key="suppressions",
@@ -375,7 +379,7 @@ def _save_groups(context: ImportContext, groups: list[dict[str, Any]]) -> SavedP
     result = import_categories(context.team_id, categories, context.created_by_id)
     return SavedPage(
         imported=result.created,
-        counts={"created": result.created, "already_present": result.already_present},
+        counts={"created": result.created, "matched": result.matched, "already_present": result.already_present},
         warnings=tuple(
             f"{group.get('name') or group.get('id')}: this is your default group in SendGrid, which applies to sends "
             "that name no group. PostHog has no default category, so choose one when you send."

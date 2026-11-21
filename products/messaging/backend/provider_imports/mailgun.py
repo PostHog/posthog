@@ -94,6 +94,9 @@ IMPORT_TAG = "imported-from-mailgun"
 COMPLAINT_REASON_PREFIX = "Imported from Mailgun (spam complaint on "
 REGION_SETTING = "region"
 VERSIONS_SETTING = "template_versions"
+LISTS_SETTING = "mailing_lists"
+LISTS_WITH_MEMBERS = "with_members"
+ALL_LISTS = "all"
 ALL_REGIONS = "both"
 ALL_VERSIONS = "all"
 ACTIVE_VERSION = "active"
@@ -194,6 +197,16 @@ class MailgunImportProvider(ImportProvider):
             ),
             default=ACTIVE_VERSION,
         ),
+        ImportSettingSpec(
+            key=LISTS_SETTING,
+            label="Mailing lists",
+            help="Each list you import becomes a category your recipients see on their preferences page.",
+            choices=(
+                ImportSettingChoice(value=LISTS_WITH_MEMBERS, label="Only lists with members"),
+                ImportSettingChoice(value=ALL_LISTS, label="Every list, including empty ones"),
+            ),
+            default=LISTS_WITH_MEMBERS,
+        ),
     )
     steps = (
         ImportStepSpec(
@@ -213,9 +226,12 @@ class MailgunImportProvider(ImportProvider):
         ImportStepSpec(
             key="complaints",
             label="Spam complaints",
-            description="Adds every address that complained, from every domain, to your PostHog suppression list.",
+            description=(
+                "Adds every address that complained, from every domain, to your PostHog suppression list. These "
+                "block marketing email only, while Mailgun blocks all email to them."
+            ),
             count_labels=(
-                ("complained", "Spam complaints, which block marketing email only. Mailgun blocks all email to them."),
+                ("complained", "Spam complaints, which block marketing email only"),
                 ("already_present", "Already in PostHog, left as they are"),
                 ("invalid", "Skipped because the address isn't valid"),
                 ("missing_domains", "Domains Mailgun couldn't find, skipped"),
@@ -226,7 +242,7 @@ class MailgunImportProvider(ImportProvider):
             label="Unsubscribes",
             description=(
                 "Opts people who unsubscribed from a domain out of all marketing email. People who unsubscribed from "
-                "a tag are opted out of a new message category named after it."
+                "a tag are opted out of a message category named after it."
             ),
             count_labels=(
                 ("opted_out", "People with a new opt-out"),
@@ -259,7 +275,9 @@ class MailgunImportProvider(ImportProvider):
             ),
             count_labels=(
                 ("created", "New categories"),
+                ("matched", "Matched an existing category"),
                 ("already_present", "Already in PostHog, left as they are"),
+                ("empty_lists", "Empty lists, not imported"),
                 ("opted_out", "People with a new list opt-out"),
                 ("already_opted_out", "People already opted out in PostHog, left as they are"),
                 ("members", "List members, who stay in Mailgun"),
@@ -404,7 +422,9 @@ def _read_targets(
     read_items: Callable[[MailgunClient, _Target, list[dict[str, Any]]], list[dict[str, Any]]] | None,
     save: Callable[[_Target, list[dict[str, Any]], bool], SavedPage],
     on_missing: Callable[[_Target], SavedPage],
+    count_targets: bool = False,
 ) -> Iterator[ImportPage]:
+    """Read each target page by page. `count_targets` counts each target as one record read, not each item on it."""
     remaining, first_after = _remaining_targets(targets, checkpoint)
     if not remaining:
         yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
@@ -423,7 +443,7 @@ def _read_targets(
                 break
             items = read_items(client, target, page.items) if read_items else page.items
             yield ImportPage(
-                processed=len(page.items),
+                processed=int(is_first_page) if count_targets else len(page.items),
                 save=partial(save, target, items, is_first_page),
                 checkpoint=_position(target, page.next_after) if page.next_after else after_target,
             )
@@ -551,10 +571,15 @@ def _save_complaints(context: ImportContext, target: _Target, items: list[dict[s
     )
 
 
+def _readable_name(slug: str) -> str:
+    words = " ".join(slug.replace("-", " ").replace("_", " ").split())
+    return words[:1].upper() + words[1:]
+
+
 def _tag_category(tag: str) -> ImportedCategory:
     return ImportedCategory(
         key=_category_key("mailgun_tag_", tag),
-        name=tag[:128] or ALL_TAGS,
+        name=_readable_name(tag)[:128] or tag[:128] or ALL_TAGS,
         description=f"Imported from Mailgun. People unsubscribed from email tagged {tag}.",
         public_description="",
     )
@@ -667,7 +692,22 @@ def _fetch_mailing_lists(
                 if page.next_after is None:
                     break
                 after = page.next_after
-    yield from _read_targets(clients, targets, checkpoint, None, partial(_save_list_members, context), _missing_list)
+    empty: list[_Target] = []
+    if context.settings.get(LISTS_SETTING, LISTS_WITH_MEMBERS) == LISTS_WITH_MEMBERS:
+        empty = [target for target in targets if not int(target.details.get("members_count") or 0)]
+        targets = [target for target in targets if target not in empty]
+    if empty and not checkpoint:
+        first = min(targets, key=lambda target: target.position, default=None)
+        yield ImportPage(
+            processed=len(empty),
+            save=lambda: SavedPage(imported=0, counts={"empty_lists": len(empty)}),
+            checkpoint=_position(first) if first else None,
+        )
+        if first is None:
+            return
+    yield from _read_targets(
+        clients, targets, checkpoint, None, partial(_save_list_members, context), _missing_list, count_targets=True
+    )
 
 
 def _missing_list(target: _Target) -> SavedPage:
@@ -682,8 +722,8 @@ def _list_category(mailing_list: Mapping[str, Any], address: str) -> ImportedCat
     description = _clean(mailing_list.get("description"))
     return ImportedCategory(
         key=_category_key("mailgun_list_", address),
-        name=(_clean(mailing_list.get("name")) or address)[:128],
-        description=f"Imported from the Mailgun list {address}. {description}".strip(),
+        name=(_clean(mailing_list.get("name")) or address.split("@", 1)[0] or address)[:128],
+        description=f"Imported from a Mailgun mailing list. {description}".strip(),
         # A list's description is the sender's own note, so recipients don't see it.
         public_description="",
     )
@@ -705,7 +745,12 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
     }
     items_out: tuple[ImportItem, ...] = ()
     if first:
-        counts |= {"created": result.created, "already_present": result.already_present, "members": members}
+        counts |= {
+            "created": result.created,
+            "matched": result.matched,
+            "already_present": result.already_present,
+            "members": members,
+        }
         items_out = (
             ImportItem(
                 label=target.name,
@@ -716,6 +761,7 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
                     "their custom variables stay in Mailgun too. To send to this audience, build a cohort from your "
                     "own data or send people's details to PostHog first.",
                     "Sending to the list address, who can post to it, and where replies go don't carry over.",
+                    *(("Uses your existing category with the same name.",) if result.matched else ()),
                 ),
             ),
         )

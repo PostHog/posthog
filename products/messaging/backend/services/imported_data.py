@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models.functions import Lower
 from django.utils import timezone
 
@@ -58,6 +58,8 @@ class CategoryImportResult:
     # The category id for every key, new or not. A category someone deleted is left out, so nothing opts out of it.
     ids_by_key: Mapping[str, str]
     created: int
+    # Mapped to a live category of another key with the same name, instead of being created.
+    matched: int
     already_present: int
 
 
@@ -238,36 +240,71 @@ def carry_opt_outs(team_id: int, addresses: Iterable[str], created_by_id: int | 
     )
 
 
+def _name_match_key(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
+def _live_marketing_categories_by_name(team_id: int) -> dict[str, str]:
+    """The id of each live marketing category by its name, ignoring case and spacing. The oldest wins a tie."""
+    ids: dict[str, str] = {}
+    rows = MessageCategory.objects.filter(
+        team_id=team_id, deleted=False, category_type=MessageCategoryType.MARKETING
+    ).order_by("created_at", "id")
+    for name, category_id in rows.values_list("name", "id"):
+        ids.setdefault(_name_match_key(name), str(category_id))
+    return ids
+
+
 def import_categories(
     team_id: int, categories: Iterable[ImportedCategory], created_by_id: int | None
 ) -> CategoryImportResult:
-    """Create the marketing categories that don't exist yet. An existing one keeps any edit made to it."""
+    """Create the marketing categories that don't exist yet. An existing one keeps any edit made to it.
+
+    A category whose name matches a live marketing category is mapped to that one instead of being created, so
+    importing from several tools doesn't show recipients the same choice twice. Nothing stores the match, so it is made
+    again on every run: a reused category someone renamed or deleted since then is created again on the next run.
+    """
     by_key = {category.key: category for category in categories}
     existing = {row.key: row for row in MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key))}
-    MessageCategory.objects.bulk_create(
-        [
-            MessageCategory(
-                team_id=team_id,
-                key=category.key,
-                name=category.name,
-                description=category.description,
-                public_description=category.description
-                if category.public_description is None
-                else category.public_description,
-                category_type=MessageCategoryType.MARKETING,
-                created_by_id=created_by_id,
-            )
-            for key, category in sorted(by_key.items())
-            if key not in existing
-        ],
-        ignore_conflicts=True,
-    )
+    missing = {key: category for key, category in by_key.items() if key not in existing}
+    matched: dict[str, str] = {}
+    created = 0
+    if missing:
+        with transaction.atomic():
+            # Two tools importing at once would each create a category the other is about to create.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"message-category-import:{team_id}"]
+                )
+            by_name = _live_marketing_categories_by_name(team_id)
+            new_rows: list[MessageCategory] = []
+            for key, category in sorted(missing.items()):
+                name_key = _name_match_key(category.name)
+                if name_key in by_name:
+                    matched[key] = by_name[name_key]
+                    continue
+                row = MessageCategory(
+                    team_id=team_id,
+                    key=key,
+                    name=category.name,
+                    description=category.description,
+                    public_description=category.description
+                    if category.public_description is None
+                    else category.public_description,
+                    category_type=MessageCategoryType.MARKETING,
+                    created_by_id=created_by_id,
+                )
+                new_rows.append(row)
+                # A second category with this name in the same batch maps to this one.
+                by_name[name_key] = str(row.id)
+            MessageCategory.objects.bulk_create(new_rows, ignore_conflicts=True)
+            created = len(new_rows)
     live = MessageCategory.objects.filter(team_id=team_id, key__in=list(by_key), deleted=False)
-    created = sum(1 for key in by_key if key not in existing)
     return CategoryImportResult(
-        ids_by_key={key: str(category_id) for key, category_id in live.values_list("key", "id")},
+        ids_by_key={**matched, **{key: str(category_id) for key, category_id in live.values_list("key", "id")}},
         created=created,
-        already_present=len(by_key) - created,
+        matched=len(matched),
+        already_present=len(by_key) - created - len(matched),
     )
 
 
