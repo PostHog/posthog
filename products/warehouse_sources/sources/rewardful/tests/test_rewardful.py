@@ -35,9 +35,10 @@ def _page(rows: list[dict[str, Any]], current_page: int, total_pages: int) -> Sc
 
 
 class TestPagination:
-    def test_walks_pages_until_total_pages_and_saves_the_next_page_before_each_yield(self) -> None:
+    @pytest.mark.parametrize("endpoint", ["affiliates", "sales"])
+    def test_walks_pages_until_total_pages_and_saves_the_next_page_before_each_yield(self, endpoint: str) -> None:
         result = _driver().run(
-            "affiliates",
+            endpoint,
             [
                 _page([{"id": "a1"}], 1, 3),
                 _page([{"id": "a2"}], 2, 3),
@@ -46,6 +47,7 @@ class TestPagination:
         )
 
         assert result.raised is None
+        assert result.paths == [f"/v1/{endpoint}"] * 3
         assert result.params("page") == ["1", "2", "3"]
         assert result.params("limit") == ["100", "100", "100"]
         assert result.requests[0].headers["authorization"] == "Basic cndfc2VjcmV0Og=="
