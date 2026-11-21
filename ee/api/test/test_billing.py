@@ -916,15 +916,7 @@ class TestBillingAPI(APILicensedTest):
         assert res.status_code == 200
         self.organization.refresh_from_db()
 
-        assert self.organization.customer_trust_scores == {
-            "events": 15,
-            "exceptions": 0,
-            "recordings": 0,
-            "rows_synced": 0,
-            "feature_flags": 0,
-            "api_queries_read_bytes": 17,
-            "surveys": 0,
-        }
+        assert self.organization.customer_trust_scores == {"events": 15}
 
     @parameterized.expand(
         [

@@ -783,9 +783,10 @@ class TestBillingManager(BaseTest):
         organization.refresh_from_db()
         assert organization.never_drop_data is True
 
+    @parameterized.expand([("empty", {"customer_trust_scores": {}}), ("missing", {})])
     @patch("ee.billing.billing_manager.BillingManager.get_default_products")
     def test_update_org_details_skips_default_products_without_customer_trust_scores(
-        self, get_default_products_mock: MagicMock
+        self, _name: str, trust_scores_payload: dict[str, Any], get_default_products_mock: MagicMock
     ):
         organization = self.organization
         organization.never_drop_data = False
@@ -801,7 +802,7 @@ class TestBillingManager(BaseTest):
         billing_status = {
             "customer": {
                 "never_drop_data": False,
-                "customer_trust_scores": {},
+                **trust_scores_payload,
             }
         }
 
@@ -811,6 +812,50 @@ class TestBillingManager(BaseTest):
 
         organization.refresh_from_db()
         assert organization.customer_trust_scores == {"events": 7}
+
+    @parameterized.expand(
+        [
+            (
+                "keys_billing_left_out_lose_their_grace",
+                {"product_analytics": 7, "platform_and_support": 15, "retired_product": 10},
+                {"events": 7},
+            ),
+            (
+                "nothing_maps_to_a_usage_key",
+                {"platform_and_support": 15, "retired_product": 10},
+                {"events": 0, "exceptions": 10, "rows_exported": 0},
+            ),
+        ]
+    )
+    def test_update_org_details_replaces_trust_scores_with_billings(
+        self, _name: str, sent_scores: dict[str, int], expected_scores: dict[str, int]
+    ):
+        organization = self.organization
+        organization.never_drop_data = False
+        organization.customer_trust_scores = {"events": 0, "exceptions": 10, "rows_exported": 0}
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        billing_status = {
+            "customer": {
+                "never_drop_data": False,
+                "products": [
+                    {"type": "product_analytics", "usage_key": "events"},
+                    {"type": "error_tracking", "usage_key": "exceptions"},
+                    {"type": "platform_and_support", "usage_key": None},
+                ],
+                "customer_trust_scores": sent_scores,
+            }
+        }
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+
+        organization.refresh_from_db()
+        assert organization.customer_trust_scores == expected_scores
 
     @patch(
         "ee.billing.billing_manager.http_session.post",
