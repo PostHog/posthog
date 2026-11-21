@@ -1140,7 +1140,6 @@ def _with_default_senders_on_new_email_steps(data: Any, instance: Any, context: 
             moved = True
     if not moved:
         return data
-    context[SETS_UP_SANDBOX_SENDER] = True
     return {**data, "actions": converted}
 
 

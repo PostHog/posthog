@@ -634,7 +634,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         if verified:
             self._verified_sender()
 
-        with _flag(enabled):
+        with _flag(enabled), self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows", _flow(_own_email_step(None)), format="json", **headers
             )
@@ -716,7 +716,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         step = _own_email_step(None)
         step["config"]["inputs"]["email"]["value"]["from"] = sender
 
-        with _flag(enabled):
+        with _flag(enabled), self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows",
                 _flow(step),
@@ -831,16 +831,25 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             [] if path == "web_save" else [(tested_step, path == "mocked_test")]
         )
 
-    @parameterized.expand([("setup_fails", False), ("already_set_up", True)])
-    def test_a_save_never_waits_on_test_sender_setup(self, _name: str, already_set_up: bool) -> None:
+    @parameterized.expand(
+        [
+            ("setup_fails", False, False),
+            ("already_set_up", True, False),
+            ("setup_fails_for_an_api_step_moved_to_the_test_sender", False, True),
+        ]
+    )
+    def test_a_save_never_waits_on_test_sender_setup(self, _name: str, already_set_up: bool, from_api: bool) -> None:
         if already_set_up:
             provision_sandbox_sender(self.team, self.user)
+        if from_api:
+            self._sender("mail0.example.com", stopped=True)
         rows_before = list(
             Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True)
         )
         fault = patch.object(
             IntegrationManager.email_sandbox.credentials, "create", side_effect=RuntimeError("setup failed")
         )
+        headers: dict[str, Any] = {"HTTP_X_POSTHOG_CLIENT": "mcp"} if from_api else {}
 
         with (
             _flag(True),
@@ -850,14 +859,18 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows", _flow(_sandbox_step()), format="json"
+                f"/api/projects/{self.team.id}/hog_flows",
+                _flow(_own_email_step(None) if from_api else _sandbox_step()),
+                format="json",
+                **headers,
             )
 
         assert response.status_code == 201, response.json()
-        assert HogFlow.objects.filter(id=response.json()["id"]).exists()
+        stored = HogFlow.objects.get(id=response.json()["id"]).actions[1]
+        assert stored["type"] == "email_sandbox"
         assert [
             (log["workflow_id"], log["action_ids"]) for log in logs if log["event"] == "sandbox_sender_setup_failed"
-        ] == ([] if already_set_up else [(response.json()["id"], [SANDBOX_STEP_ID])])
+        ] == ([] if already_set_up else [(response.json()["id"], [stored["id"]])])
         assert (
             list(Integration.objects.filter(team=self.team, kind="email_sandbox").values_list("id", flat=True))
             == rows_before
