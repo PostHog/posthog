@@ -33,6 +33,8 @@ from posthog.models.event.sql import (
 )
 from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
+    FLAG_EVALUATIONS_JSON_DATA_TABLE,
+    FLAG_EVALUATIONS_JSON_TABLE,
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TTL_DAYS,
@@ -107,6 +109,9 @@ class DeletionTarget:
     # a named property that the table keeps survives the rewrite. A property removal refuses while a
     # target without it holds rows the request names.
     accepts_property_rewrite: bool = False
+    # True where the table stores properties in native JSON columns although no HogQL predicate can
+    # target it (hogql_schema is None), which makes property removal read and rewrite them as JSON.
+    stores_native_json_properties: bool = False
     # True where the table has native JSON properties and also keeps typed columns derived from them,
     # such as flag_key on the flag evaluations JSON table. Property removal resets those columns in the
     # copy, because a JSON drop leaves the derived value in place. A table with the legacy schema always
@@ -152,7 +157,7 @@ class DeletionTarget:
 
     @property
     def uses_new_events_schema(self) -> bool:
-        return self.hogql_schema is HogQLSchema.NATIVE_JSON
+        return self.hogql_schema is HogQLSchema.NATIVE_JSON or self.stores_native_json_properties
 
     @property
     def discovers_typed_property_columns(self) -> bool:
@@ -252,8 +257,34 @@ FLAG_EVALUATIONS = DeletionTarget(
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
 
+# The same flag calls on the native-JSON events schema, written alongside FLAG_EVALUATIONS while both
+# exist. It carries the same relationship to events, so every sweep treats it like that table, with two
+# differences. Its properties are native JSON, so property removal rewrites them as JSON and resets
+# flag_key, response and request_id. And uncopied_rows_hogql_table stays unset: the HogQL table that
+# compiles a predicate for FLAG_EVALUATIONS reads String properties, which this table does not have,
+# so an event removal with a predicate refuses while rows here have no events copy.
+FLAG_EVALUATIONS_JSON = DeletionTarget(
+    data_table=FLAG_EVALUATIONS_JSON_DATA_TABLE,
+    read_table=FLAG_EVALUATIONS_JSON_TABLE,
+    optional=True,
+    cluster_setting="CLICKHOUSE_FLAGS_CLUSTER",
+    node_role=NodeRole.FLAGS,
+    accepts_property_rewrite=True,
+    accepts_person_id_rewrite=True,
+    stores_native_json_properties=True,
+    has_typed_property_columns=True,
+    # Same sharding key as sharded_flag_evaluations, so a flag call and its event share a shard while both
+    # tables are on one cluster. A request with a HogQL predicate refuses when they are on different clusters.
+    copied_from=EVENTS_DATA_TABLE(),
+    stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
+    ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
+    # The table has the serialization settings that patch parts need, and sweeps the same JSON columns
+    # as sharded_events_json.
+    uses_patch_parts=True,
+)
+
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
-PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
+PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS, FLAG_EVALUATIONS_JSON)
 
 # The targets deletes_job sweeps and deletion requests verify by default. Leaving a target out
 # keeps it registered while its rows stay in place; see COVERAGE_DOC.

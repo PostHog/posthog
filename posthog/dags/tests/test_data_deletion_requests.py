@@ -85,6 +85,7 @@ from posthog.models.deletion_targets import (
     EVENTS,
     EVENTS_JSON,
     FLAG_EVALUATIONS,
+    FLAG_EVALUATIONS_JSON,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     HogQLSchema,
@@ -4341,6 +4342,12 @@ class _ColumnCommentClient:
             ["$feature_flag", "$feature_flag_response", "$feature_flag_request_id"],
             ["flag_key", "response", "request_id"],
             id="native JSON table with typed columns resets those derived from properties and temporary_properties",
+        ),
+        pytest.param(
+            FLAG_EVALUATIONS_JSON,
+            ["$feature_flag", "$feature_flag_request_id"],
+            ["flag_key", "request_id"],
+            id="the registered flag evaluations JSON table resets its typed columns",
         ),
         pytest.param(
             DeletionTarget(

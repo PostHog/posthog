@@ -28,9 +28,15 @@ from posthog.dags.person_overrides import (
 )
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionRunJob, DeletionRunLog, DeletionRunStatus, DeletionType
-from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
+from posthog.models.deletion_targets import (
+    EVENTS,
+    EVENTS_JSON,
+    FLAG_EVALUATIONS,
+    FLAG_EVALUATIONS_JSON,
+    TargetPlacement,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_JSON_DATA_TABLE
 
 
 @pytest.mark.django_db
@@ -318,16 +324,25 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
             [(uuid_module.uuid4(), 1, "$pageview", "a", datetime(2025, month, 15)) for month in (1, 2)],
         )
     ).result()
+    sibling.map_one_host_per_shard(Query(f"TRUNCATE TABLE {FLAG_EVALUATIONS_JSON_DATA_TABLE}")).result()
+    sibling.any_host(
+        Query(
+            f"INSERT INTO {FLAG_EVALUATIONS_JSON_DATA_TABLE} (uuid, team_id, event, distinct_id, timestamp) VALUES",
+            [(uuid_module.uuid4(), 1, "$feature_flag_called", "a", datetime(2025, 3, 15))],
+        )
+    ).result()
     placements = [
         TargetPlacement(target=EVENTS, cluster=cluster),
         TargetPlacement(target=EVENTS_JSON, cluster=sibling),
         TargetPlacement(target=FLAG_EVALUATIONS, cluster=sibling),
+        TargetPlacement(target=FLAG_EVALUATIONS_JSON, cluster=sibling),
     ]
     calls = Mock()
     enqueued = {
         EVENTS_DATA_TABLE(): {0: Mock()},
         EVENTS_JSON_DATA_TABLE: {},
         FLAG_EVALUATIONS_DATA_TABLE: {0: Mock()},
+        FLAG_EVALUATIONS_JSON_DATA_TABLE: {},
     }
 
     with (
@@ -346,7 +361,7 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
 
     # This assertion names the targets literally instead of reusing SQUASH_TARGETS. That constant
     # would still match after someone drops a target from it.
-    resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
+    resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, FLAG_EVALUATIONS_JSON))
     assert sorted(
         (
             enqueue.args[0].table,
@@ -363,6 +378,7 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
             # number open in every partition and stalls merges across the table until it finishes.
             (EVENTS_JSON_DATA_TABLE, True, True, "202501"),
             (EVENTS_JSON_DATA_TABLE, True, True, "202502"),
+            (FLAG_EVALUATIONS_JSON_DATA_TABLE, True, True, "202503"),
         ]
     )
     # Each wait has to receive the mutations its own enqueue returned. A wait handed an empty set
@@ -376,5 +392,5 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     )
     # Waiting on each mutation as it is enqueued would cost the sum of their completion times
     # rather than the longest, which is the whole reason the op enqueues in one pass.
-    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 4 + ["wait"] * 2
+    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 5 + ["wait"] * 2
     cluster.any_host(dictionary.source.drop).result()
