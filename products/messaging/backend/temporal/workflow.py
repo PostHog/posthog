@@ -153,13 +153,6 @@ class ProviderImportWorkflow(PostHogWorkflow):
 CONTACTS_IMPORT_WORKFLOW = "messaging-provider-contacts-import"
 
 
-def _acknowledged_people(error: ActivityError) -> tuple[int, int]:
-    cause = error.cause
-    if isinstance(cause, ApplicationError) and cause.type == "ContactsCaptureFailed" and len(cause.details) == 2:
-        return int(cause.details[0]), int(cause.details[1])
-    return 0, 0
-
-
 @workflow.defn(name=CONTACTS_IMPORT_WORKFLOW)
 class ProviderContactsImportWorkflow(PostHogWorkflow):
     """Sends a step's stored contact lists part by part, then sets each list's cohort to exactly its people."""
@@ -214,9 +207,12 @@ class ProviderContactsImportWorkflow(PostHogWorkflow):
                 # The lists fill separate cohorts, so one that fails does not stop the others.
                 workflow.logger.warning("Contact list import failed", extra={"cohort_id": plan.cohort_id})
                 failed_lists += 1
-                acknowledged, new_acknowledged = _acknowledged_people(error) if plan.send_events else (0, 0)
-                sent_people += acknowledged
-                new_people += new_acknowledged
+                cause = error.cause
+                acknowledged = 0
+                if plan.send_events and isinstance(cause, ApplicationError) and cause.type == "ContactsCaptureFailed":
+                    acknowledged = int(cause.details[0])
+                    sent_people += acknowledged
+                    new_people += int(cause.details[1])
                 # Lists below still wait for people from a part capture took some of.
                 people_not_sent = people_not_sent or (sending and plan.send_events and not acknowledged)
                 await workflow.execute_activity(
