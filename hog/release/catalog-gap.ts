@@ -1,10 +1,13 @@
-// Whether a pull request changes code compiled into hog that the downloadable tool catalog can't deliver.
-// The compiled files come from the build metafiles. Run with --base <commit>; prints the result as JSON.
+// Whether the commits since <base> change code compiled into hog that the downloadable tool catalog can't
+// deliver. The compiled files come from the build metafiles. Run with --base <commit>, usually the last release
+// tag; prints the result as JSON.
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { posix, relative, resolve } from 'node:path'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, posix, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import ts from 'typescript'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
@@ -12,10 +15,70 @@ import { parseJsonOrUndefined } from '../src/core/json'
 
 export const CATALOG_TOOLS_JSON = 'services/mcp/schema/cli-catalog-tools.json'
 export const CATALOG_SCHEMA = 'services/mcp/src/cli/catalog/schema.ts'
-const WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
+const RELEASE_WORKFLOW = '.github/workflows/release-hog.yml'
+const CHANGESET_WORKFLOW = '.github/workflows/ci-hog-changeset.yml'
+const RELEASE_BUILD_JOB = 'build'
 const GENERATED_TOOLS_DIR = 'services/mcp/src/tools/generated/'
+const GENERATED_REGISTRY = `${GENERATED_TOOLS_DIR}index.ts`
 // Generated, but code rather than catalog data: the barrel, the hook registry and the query wrappers.
 const GENERATED_CODE = new Set(['index.ts', 'hooks.ts', 'query-wrappers.ts'])
+// The zod schemas orval generates from the API. A downloaded catalog entry carries its tool's input schema,
+// so a generated tool module only reads them when hog falls back to the tools it was built with.
+const GENERATED_SCHEMAS_DIR = 'services/mcp/src/generated/'
+const ZOD_MODULES = new Set(['zod', 'zod/v4'])
+// zod's schema builders, which run none of the callbacks they take. Anything else, like `parse`, can run code.
+const ZOD_BUILDERS = new Set([
+    'any',
+    'array',
+    'bigint',
+    'boolean',
+    'catchall',
+    'coerce',
+    'date',
+    'datetime',
+    'default',
+    'describe',
+    'discriminatedUnion',
+    'email',
+    'enum',
+    'gt',
+    'gte',
+    'int',
+    'intersection',
+    'length',
+    'literal',
+    'looseObject',
+    'lt',
+    'lte',
+    'max',
+    'min',
+    'multipleOf',
+    'nativeEnum',
+    'negative',
+    'never',
+    'nonempty',
+    'nonnegative',
+    'nonpositive',
+    'null',
+    'nullable',
+    'nullish',
+    'number',
+    'object',
+    'optional',
+    'passthrough',
+    'positive',
+    'record',
+    'regex',
+    'strict',
+    'strictObject',
+    'string',
+    'tuple',
+    'undefined',
+    'union',
+    'unknown',
+    'url',
+    'uuid',
+])
 const DEFINITION_FILES = new Set([
     'services/mcp/schema/tool-definitions.json',
     'services/mcp/schema/generated-tool-definitions.json',
@@ -32,29 +95,139 @@ export interface GapResult {
     reasons: Reason[]
 }
 
+export interface CompiledGraph {
+    files: Set<string>
+    importers: Map<string, Set<string>>
+    // For each compiled file, the specifiers its importers wrote for it, as the build resolved them. A specifier
+    // the build can't name, like a dynamic import's, is UNNAMED_IMPORT.
+    specifiers?: Map<string, Map<string, string[]>>
+}
+
+export const UNNAMED_IMPORT = ''
+
 export interface GapInput {
     changed: string[]
-    compiled: Set<string>
+    compiled: CompiledGraph
     readBase: (path: string) => string | undefined
     readHead: (path: string) => string | undefined
+    // The tools the built catalog ships. Without it, every tool the catalog tool list names counts as carried.
+    carried?: Set<string>
 }
 
 const JsonObject = z.record(z.string(), z.unknown())
-const Metafile = z.object({ inputs: z.record(z.string(), z.unknown()) })
-const Workflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
+const Metafile = z.object({
+    inputs: z.record(
+        z.string(),
+        z.object({
+            imports: z
+                .array(
+                    z.object({
+                        path: z.string(),
+                        kind: z.string().optional(),
+                        original: z.string().optional(),
+                        external: z.boolean().optional(),
+                    })
+                )
+                .optional(),
+        })
+    ),
+})
+const TriggerWorkflow = z.object({ on: z.object({ pull_request: z.object({ paths: z.array(z.string()) }) }) })
+const Workflow = z.object({
+    jobs: z.record(
+        z.string(),
+        z.object({
+            steps: z.array(
+                z.object({ uses: z.string().optional(), with: z.record(z.string(), z.unknown()).optional() })
+            ),
+        })
+    ),
+})
 
 function jsonObject(text: string | undefined): Record<string, unknown> {
     return (text && parseJsonOrUndefined(text, JsonObject)) || {}
 }
 
-function generatedToolNames(source: string | undefined): string[] {
-    const map = source?.split('export const GENERATED_TOOLS')[1] ?? ''
-    return [...map.matchAll(/^\s+'([a-z0-9-]+)':/gm)].map((match) => match[1]!)
+function parseModule(source: string | undefined): ts.SourceFile {
+    return ts.createSourceFile('module.ts', source ?? '', ts.ScriptTarget.Latest, true)
+}
+
+function unwrap(node: ts.Expression): ts.Expression {
+    return ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
+        ? unwrap(node.expression)
+        : node
+}
+
+// The initializer of a top-level const, by name.
+function topLevelConst(file: ts.SourceFile, name: string): ts.Expression | undefined {
+    for (const statement of file.statements) {
+        const declaration = ts.isVariableStatement(statement) ? statement.declarationList.declarations : []
+        for (const { name: binding, initializer } of declaration) {
+            if (ts.isIdentifier(binding) && binding.text === name) {
+                return initializer
+            }
+        }
+    }
+    return undefined
+}
+
+// The tools `GENERATED_TOOLS` registers, each with the const it names, or undefined when its value is anything
+// else. Undefined when the map is missing or has an entry that isn't a plain key and value.
+function generatedTools(file: ts.SourceFile): Map<string, string | undefined> | undefined {
+    const map = topLevelConst(file, 'GENERATED_TOOLS')
+    if (!map || !ts.isObjectLiteralExpression(unwrap(map))) {
+        return undefined
+    }
+    const tools = new Map<string, string | undefined>()
+    for (const property of (unwrap(map) as ts.ObjectLiteralExpression).properties) {
+        if (ts.isShorthandPropertyAssignment(property)) {
+            tools.set(property.name.text, property.name.text)
+        } else if (
+            ts.isPropertyAssignment(property) &&
+            (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
+        ) {
+            const value = unwrap(property.initializer)
+            tools.set(property.name.text, ts.isIdentifier(value) ? value.text : undefined)
+        } else {
+            return undefined
+        }
+    }
+    return tools
+}
+
+// No tools for a module that doesn't exist. Undefined when the module exists but its tools can't be read.
+function generatedToolNames(source: string | undefined): string[] | undefined {
+    if (source === undefined) {
+        return []
+    }
+    const tools = generatedTools(parseModule(source))
+    return tools && [...tools.keys()]
 }
 
 function catalogTools(input: GapInput): Set<string> {
-    const text = input.readHead(CATALOG_TOOLS_JSON)
-    return new Set(Object.keys(jsonObject(text)))
+    return input.carried ?? new Set(Object.keys(jsonObject(input.readHead(CATALOG_TOOLS_JSON))))
+}
+
+const BuiltCatalog = z.object({ tools: z.array(z.object({ name: z.string() })) })
+
+// The catalog build drops some tools its tool list names, like staff-only ones, which stay compiled into hog.
+// So the build itself says what ships, rather than a copy of its rules.
+function builtCatalogTools(repoRoot: string): Set<string> {
+    const folder = mkdtempSync(join(tmpdir(), 'hog-catalog-'))
+    try {
+        const out = join(folder, 'cli-catalog.json')
+        execFileSync('pnpm', ['--filter', '@posthog/mcp', 'run', 'build:cli:catalog', out], {
+            cwd: repoRoot,
+            stdio: ['ignore', 'ignore', 'inherit'],
+        })
+        const catalog = parseJsonOrUndefined(readFileSync(out, 'utf8'), BuiltCatalog)
+        if (!catalog) {
+            throw new Error(`The catalog build wrote no catalog to ${out}.`)
+        }
+        return new Set(catalog.tools.map((tool) => tool.name))
+    } finally {
+        rmSync(folder, { recursive: true, force: true })
+    }
 }
 
 function changedKeys(base: string | undefined, head: string | undefined): string[] {
@@ -65,8 +238,557 @@ function changedKeys(base: string | undefined, head: string | undefined): string
     )
 }
 
+// A file whose version isn't a number literal stands for itself, so any change to it counts.
 function schemaVersion(source: string | undefined): string | undefined {
-    return source?.match(/export const CATALOG_SCHEMA_VERSION = (\d+)/)?.[1]
+    if (source === undefined) {
+        return undefined
+    }
+    const version = topLevelConst(parseModule(source), 'CATALOG_SCHEMA_VERSION')
+    return version && ts.isNumericLiteral(version) ? version.text : `unparsed ${source}`
+}
+
+function generatedModuleName(file: string): string | undefined {
+    const name = file.startsWith(GENERATED_TOOLS_DIR) ? file.slice(GENERATED_TOOLS_DIR.length) : undefined
+    return name && !name.includes('/') && !GENERATED_CODE.has(name) ? name : undefined
+}
+
+// Undefined when the module defines no tools, which proves nothing.
+function uncarriedTools(input: GapInput, carried: Set<string>, file: string): string[] | undefined {
+    const base = generatedToolNames(input.readBase(file))
+    const head = generatedToolNames(input.readHead(file))
+    const tools = new Set([...(base ?? []), ...(head ?? [])])
+    return base && head && tools.size > 0 ? [...tools].filter((tool) => !carried.has(tool)) : undefined
+}
+
+const printer = ts.createPrinter({ removeComments: true })
+
+interface Block {
+    initializer: ts.Expression
+    // As compiled, without comments, for comparing.
+    code: string
+    // Every identifier in the statement, which over-counts what it reads.
+    identifiers: Set<string>
+}
+
+function identifiers(node: ts.Node): Set<string> {
+    const found = new Set<string>()
+    const visit = (child: ts.Node): void => {
+        if (ts.isIdentifier(child)) {
+            found.add(child.text)
+        }
+        ts.forEachChild(child, visit)
+    }
+    visit(node)
+    return found
+}
+
+interface GeneratedModule {
+    // Whether the module's statements other than imports have only the shape the generator writes.
+    declarative: boolean
+    // Whether it imports only types, zod and generated schema files.
+    allowedImports: boolean
+    // The generated schema files it imports values from, which must be declarative too.
+    schemaImports: string[]
+    // The names it imports generated schema files under as namespaces, and whether it imports them any
+    // other way.
+    schemaNamespaces: { name: string; specifier: string; file: string }[]
+    otherSchemaImports: boolean
+    // The import statements, as compiled.
+    imports: string
+    blocks: Map<string, Block>
+}
+
+// The generated schema file a specifier names, as `@/generated/<name>/api` or a relative path. Undefined for
+// any other module.
+function generatedSchemaFile(importer: string, specifier: string): string | undefined {
+    const path = specifier.startsWith('@/')
+        ? posix.normalize(`services/mcp/src/${specifier.slice(2)}`)
+        : specifier.startsWith('.')
+          ? posix.normalize(posix.join(posix.dirname(importer), specifier))
+          : undefined
+    const file = path && `${path}.ts`
+    return file?.startsWith(GENERATED_SCHEMAS_DIR) && !file.includes('..') ? file : undefined
+}
+
+// The generator writes imports from zod and from generated schema files, and consts. Each const is a literal,
+// an arrow function, `new RegExp` of a string, a chain of zod builders, or an object or array of those and of
+// the module's other consts. Evaluating that calls no code but zod's, so hog runs nothing of the module's own
+// when it imports it. Any other statement, import or expression, such as a side-effect import, a call, an
+// assignment or a global, makes the module not declarative, so no exemption applies to it.
+function generatedModule(source: string | undefined, path: string): GeneratedModule {
+    const file = ts.createSourceFile('module.ts', source ?? '', ts.ScriptTarget.Latest, true)
+    const zod = new Set<string>()
+    const imported = new Set<string>()
+    const consts = new Map<string, ts.Expression>()
+    const blocks = new Map<string, Block>()
+    const imports: string[] = []
+    const schemaImports: string[] = []
+    const schemaNamespaces: GeneratedModule['schemaNamespaces'] = []
+    let otherSchemaImports = false
+    let declarative = true
+    let allowedImports = true
+
+    for (const statement of file.statements) {
+        if (ts.isImportDeclaration(statement)) {
+            const clause = statement.importClause
+            const bindings = clause?.namedBindings
+            const specifier = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : ''
+            const fromZod = ZOD_MODULES.has(specifier)
+            const schemaFile = generatedSchemaFile(path, specifier)
+            if (!clause?.isTypeOnly) {
+                allowedImports &&= !!clause && !clause.name && !!bindings && (fromZod || schemaFile !== undefined)
+                if (schemaFile) {
+                    schemaImports.push(schemaFile)
+                    if (!clause?.name && bindings && ts.isNamespaceImport(bindings)) {
+                        schemaNamespaces.push({ name: bindings.name.text, specifier, file: schemaFile })
+                    } else {
+                        otherSchemaImports = true
+                    }
+                }
+            }
+            if (clause?.name) {
+                imported.add(clause.name.text)
+            }
+            if (bindings && ts.isNamespaceImport(bindings)) {
+                imported.add(bindings.name.text)
+                if (fromZod) {
+                    zod.add(bindings.name.text)
+                }
+            }
+            for (const element of bindings && ts.isNamedImports(bindings) ? bindings.elements : []) {
+                imported.add(element.name.text)
+                if (fromZod && (element.propertyName ?? element.name).text === 'z') {
+                    zod.add(element.name.text)
+                }
+            }
+            imports.push(printer.printNode(ts.EmitHint.Unspecified, statement, file))
+            continue
+        }
+        const declaration =
+            ts.isVariableStatement(statement) &&
+            statement.declarationList.flags & ts.NodeFlags.Const &&
+            statement.declarationList.declarations.length === 1
+                ? statement.declarationList.declarations[0]
+                : undefined
+        if (
+            !declaration ||
+            !ts.isIdentifier(declaration.name) ||
+            !declaration.initializer ||
+            consts.has(declaration.name.text)
+        ) {
+            declarative = false
+            continue
+        }
+        consts.set(declaration.name.text, declaration.initializer)
+        blocks.set(declaration.name.text, {
+            initializer: declaration.initializer,
+            code: printer.printNode(ts.EmitHint.Unspecified, statement, file),
+            identifiers: identifiers(statement),
+        })
+    }
+
+    const regExp = !consts.has('RegExp') && !imported.has('RegExp')
+    const zodChain = (node: ts.Expression): boolean => {
+        if (ts.isIdentifier(node)) {
+            return zod.has(node.text)
+        }
+        if (ts.isPropertyAccessExpression(node)) {
+            return !node.questionDotToken && ZOD_BUILDERS.has(node.name.text) && zodChain(node.expression)
+        }
+        return (
+            ts.isCallExpression(node) &&
+            !node.questionDotToken &&
+            zodChain(node.expression) &&
+            node.arguments.every((argument) => eager(argument))
+        )
+    }
+    const eager = (node: ts.Expression): boolean => {
+        if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) {
+            return eager(node.expression)
+        }
+        if (ts.isArrowFunction(node) || ts.isLiteralExpression(node)) {
+            return true
+        }
+        if (
+            node.kind === ts.SyntaxKind.TrueKeyword ||
+            node.kind === ts.SyntaxKind.FalseKeyword ||
+            node.kind === ts.SyntaxKind.NullKeyword
+        ) {
+            return true
+        }
+        if (ts.isPrefixUnaryExpression(node)) {
+            return node.operator === ts.SyntaxKind.MinusToken && ts.isNumericLiteral(node.operand)
+        }
+        if (ts.isIdentifier(node)) {
+            return consts.has(node.text)
+        }
+        if (ts.isArrayLiteralExpression(node)) {
+            return node.elements.every((element) => !ts.isSpreadElement(element) && eager(element))
+        }
+        if (ts.isObjectLiteralExpression(node)) {
+            return node.properties.every(
+                (property) =>
+                    (ts.isPropertyAssignment(property) &&
+                        !ts.isComputedPropertyName(property.name) &&
+                        eager(property.initializer)) ||
+                    (ts.isShorthandPropertyAssignment(property) &&
+                        !property.objectAssignmentInitializer &&
+                        consts.has(property.name.text))
+            )
+        }
+        if (ts.isNewExpression(node)) {
+            return (
+                regExp &&
+                ts.isIdentifier(node.expression) &&
+                node.expression.text === 'RegExp' &&
+                (node.arguments ?? []).every((argument) => ts.isStringLiteralLike(argument))
+            )
+        }
+        return zodChain(node)
+    }
+
+    declarative &&= [...consts.values()].every((initializer) => eager(initializer))
+    return {
+        declarative,
+        allowedImports,
+        schemaImports,
+        schemaNamespaces,
+        otherSchemaImports,
+        imports: imports.join('\n'),
+        blocks,
+    }
+}
+
+// Whether the generated module at a path is declarative and imports only what's allowed, along with every
+// generated schema file it imports, so hog runs no code of its own when it imports the module.
+function qualifies(path: string, read: (path: string) => string | undefined, seen = new Set<string>()): boolean {
+    if (seen.has(path)) {
+        return true
+    }
+    seen.add(path)
+    const module = generatedModule(read(path), path)
+    return (
+        module.declarative &&
+        module.allowedImports &&
+        module.schemaImports.every((file) => read(file) !== undefined && qualifies(file, read, seen))
+    )
+}
+
+// Undefined when the file isn't declarative on either side, which leaves every importer suspect. A change to
+// its imports alters every schema.
+function alteredSchemas(input: GapInput, file: string): Set<string> | undefined {
+    if (!qualifies(file, input.readBase) || !qualifies(file, input.readHead)) {
+        return undefined
+    }
+    const base = generatedModule(input.readBase(file), file)
+    const head = generatedModule(input.readHead(file), file)
+
+    const altered = new Set(
+        [...new Set([...base.blocks.keys(), ...head.blocks.keys()])].filter(
+            (name) => base.imports !== head.imports || base.blocks.get(name)?.code !== head.blocks.get(name)?.code
+        )
+    )
+    let grew = true
+    while (grew) {
+        grew = false
+        for (const [name, block] of head.blocks) {
+            if (!altered.has(name) && [...altered].some((other) => block.identifiers.has(other))) {
+                altered.add(name)
+                grew = true
+            }
+        }
+    }
+    return altered
+}
+
+// The schemas of a schema file that each tool of a generated module reads. Undefined when a tool the module
+// registers can't be traced, so every tool counts. Tracing follows the module's consts and
+// `<namespace>.<Schema>` reads of the schema files it imports as namespaces. It needs the build's import
+// records of the schema file, `specifiers`, to name exactly the namespace imports the parser found, so a
+// module that also reaches the file another way, like `import()` or `require` inside a function, can't be
+// traced. Nor can one that isn't declarative, imports a schema file other than as a namespace, or uses a
+// namespace other than to read a schema by name.
+function schemasByTool(
+    source: string | undefined,
+    path: string,
+    schemaFile: string,
+    specifiers: string[] | undefined
+): Map<string, Set<string>> | undefined {
+    if (!source || !specifiers?.length) {
+        return undefined
+    }
+    const { declarative, otherSchemaImports, schemaNamespaces, blocks } = generatedModule(source, path)
+    const parsed = new Set(
+        schemaNamespaces.filter((namespace) => namespace.file === schemaFile).map(({ specifier }) => specifier)
+    )
+    const recorded = new Set(specifiers)
+    if (
+        !declarative ||
+        otherSchemaImports ||
+        parsed.size !== recorded.size ||
+        [...recorded].some((specifier) => !parsed.has(specifier))
+    ) {
+        return undefined
+    }
+
+    // What each const reads from the schema file. A namespace used other than as `<namespace>.<Schema>` can't
+    // be traced.
+    const namespaces = new Set(schemaNamespaces.map(({ name }) => name))
+    const ofFile = new Set(
+        schemaNamespaces.filter((namespace) => namespace.file === schemaFile).map(({ name }) => name)
+    )
+    const reads = new Map<string, Set<string>>()
+    let untraceable = false
+    for (const [name, block] of blocks) {
+        const schemas = new Set<string>()
+        const visit = (node: ts.Node): void => {
+            if (ts.isIdentifier(node) && namespaces.has(node.text)) {
+                const parent = node.parent
+                if (
+                    ts.isPropertyAccessExpression(parent) &&
+                    parent.expression === node &&
+                    ts.isIdentifier(parent.name)
+                ) {
+                    if (ofFile.has(node.text)) {
+                        schemas.add(parent.name.text)
+                    }
+                } else {
+                    untraceable = true
+                }
+            }
+            ts.forEachChild(node, visit)
+        }
+        visit(block.initializer)
+        reads.set(name, schemas)
+    }
+    if (untraceable) {
+        return undefined
+    }
+    const schemasOf = (name: string, seen: Set<string>): Set<string> => {
+        const schemas = new Set(reads.get(name))
+        for (const other of blocks.keys()) {
+            if (other !== name && !seen.has(other) && blocks.get(name)?.identifiers.has(other)) {
+                seen.add(other)
+                schemasOf(other, seen).forEach((schema) => schemas.add(schema))
+            }
+        }
+        return schemas
+    }
+
+    // Each tool GENERATED_TOOLS registers has to name a const whose object names the same tool.
+    const tools = generatedTools(parseModule(source))
+    if (!tools || tools.size === 0) {
+        return undefined
+    }
+    const byTool = new Map<string, Set<string>>()
+    for (const [tool, name] of tools) {
+        const block = name === undefined ? undefined : blocks.get(name)
+        if (!name || !block || !namesTool(block.initializer, tool)) {
+            return undefined
+        }
+        byTool.set(tool, schemasOf(name, new Set([name, 'GENERATED_TOOLS'])))
+    }
+    return byTool
+}
+
+// Whether a tool const's object has `name: '<tool>'`, in any quote style.
+function namesTool(initializer: ts.Expression, tool: string): boolean {
+    let found = false
+    const visit = (node: ts.Node): void => {
+        found ||=
+            ts.isPropertyAssignment(node) &&
+            (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
+            node.name.text === 'name' &&
+            ts.isStringLiteralLike(node.initializer) &&
+            node.initializer.text === tool
+        ts.forEachChild(node, visit)
+    }
+    visit(initializer)
+    return found
+}
+
+// The values a module imports from a schema file by name, as the TypeScript parser reads them, so escapes and
+// comments read as they compile. The build resolved which specifiers name the file. Undefined, so every schema
+// counts as read, when the module reads the file any other way, such as a namespace or default import, a
+// re-export, `import()` or `require`, or through a specifier no import declaration accounts for.
+function namedImports(source: string | undefined, specifiers: string[] | undefined): Set<string> | undefined {
+    if (!specifiers?.length || specifiers.includes(UNNAMED_IMPORT)) {
+        return undefined
+    }
+    const wanted = new Set(specifiers)
+    const file = ts.createSourceFile('importer.ts', source ?? '', ts.ScriptTarget.Latest, true)
+    const names = new Set<string>()
+    const declared = new Set<ts.Node>()
+
+    for (const statement of file.statements) {
+        if (
+            !ts.isImportDeclaration(statement) ||
+            !ts.isStringLiteral(statement.moduleSpecifier) ||
+            !wanted.has(statement.moduleSpecifier.text)
+        ) {
+            continue
+        }
+        declared.add(statement.moduleSpecifier)
+        const clause = statement.importClause
+        if (clause?.isTypeOnly) {
+            continue
+        }
+        if (!clause || clause.name || !clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) {
+            return undefined
+        }
+        for (const element of clause.namedBindings.elements) {
+            if (!element.isTypeOnly) {
+                names.add((element.propertyName ?? element.name).text)
+            }
+        }
+    }
+
+    const accounted = new Set([...declared].map((node) => (node as ts.StringLiteral).text))
+    let undeclared = [...wanted].some((specifier) => !accounted.has(specifier))
+    const visit = (node: ts.Node): void => {
+        if (ts.isStringLiteralLike(node) && wanted.has(node.text) && !declared.has(node)) {
+            undeclared = true
+        }
+        ts.forEachChild(node, visit)
+    }
+    visit(file)
+    return undeclared ? undefined : names
+}
+
+// Code other than the registry that imports a generated module, like an alias that wraps its tools. hog runs that
+// code whatever the catalog carries.
+function handWrittenImporters(input: GapInput, module: string): string[] {
+    return [...(input.compiled.importers.get(module) ?? [])].filter((importer) => importer !== GENERATED_REGISTRY)
+}
+
+// The importers of a changed schema file that hog runs differently with a downloaded catalog. A generated
+// tool module counts only through tools that read an altered schema and that the catalog doesn't carry,
+// because hog builds every tool the catalog carries from the catalog entry. A change outside the schemas runs
+// whenever hog imports the file, so every importer counts.
+function schemaChangeBlockers(input: GapInput, carried: Set<string>, file: string): string[] {
+    const importers = [...(input.compiled.importers.get(file) ?? [])]
+    if (importers.length === 0) {
+        return ['no importer found']
+    }
+    const altered = alteredSchemas(input, file)
+    if (!altered) {
+        return importers
+    }
+
+    return importers.filter((importer) => {
+        if (generatedModuleName(importer)) {
+            const byTool = schemasByTool(
+                input.readHead(importer),
+                importer,
+                file,
+                input.compiled.specifiers?.get(file)?.get(importer)
+            )
+            const affected = byTool
+                ? [...byTool]
+                      .filter(([, schemas]) => [...schemas].some((schema) => altered.has(schema)))
+                      .map(([tool]) => tool)
+                : generatedToolNames(input.readHead(importer))
+            if (!affected || (!byTool && affected.length === 0)) {
+                return true
+            }
+            return (
+                affected.some((tool) => !carried.has(tool)) ||
+                (affected.length > 0 && handWrittenImporters(input, importer).length > 0)
+            )
+        }
+        const named = namedImports(input.readHead(importer), input.compiled.specifiers?.get(file)?.get(importer))
+        return !named || [...named].some((name) => altered.has(name))
+    })
+}
+
+interface Registrations {
+    modules: Map<string, string>
+    spread: Set<string>
+    rest: string
+}
+
+// The registry's `import { GENERATED_TOOLS as <alias> } from './<module>'` statements, the aliases it spreads,
+// and everything else as compiled, without those spreads.
+function registrations(source: string | undefined): Registrations {
+    const file = parseModule(source)
+    const modules = new Map<string, string>()
+    const spread = new Set<string>()
+    const rest: string[] = []
+    const dropSpreads =
+        (context: ts.TransformationContext) =>
+        (root: ts.Node): ts.Node => {
+            const visit = (node: ts.Node): ts.Node | undefined => {
+                if (ts.isSpreadAssignment(node) && ts.isIdentifier(node.expression)) {
+                    spread.add(node.expression.text)
+                    return undefined
+                }
+                return ts.visitEachChild(node, visit, context)
+            }
+            return ts.visitNode(root, visit)!
+        }
+
+    for (const statement of file.statements) {
+        const clause = ts.isImportDeclaration(statement) ? statement.importClause : undefined
+        const bindings = clause?.namedBindings
+        const specifier =
+            ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)
+                ? statement.moduleSpecifier.text
+                : ''
+        const module = specifier.startsWith('./') ? specifier.slice(2) : ''
+        const element =
+            bindings && ts.isNamedImports(bindings) && bindings.elements.length === 1 ? bindings.elements[0] : undefined
+        if (
+            clause &&
+            !clause.isTypeOnly &&
+            !clause.name &&
+            element &&
+            !element.isTypeOnly &&
+            element.propertyName?.text === 'GENERATED_TOOLS' &&
+            module !== '' &&
+            !module.includes('/') &&
+            !module.includes('.')
+        ) {
+            modules.set(element.name.text, `${GENERATED_TOOLS_DIR}${module}.ts`)
+            continue
+        }
+        const transformed = ts.transform(statement, [dropSpreads])
+        rest.push(printer.printNode(ts.EmitHint.Unspecified, transformed.transformed[0]!, file))
+        transformed.dispose()
+    }
+    return { modules, spread, rest: rest.join('\n') }
+}
+
+// The registry lists the generated modules hog falls back to when the catalog lacks a tool. A change that only
+// imports, spreads or drops modules whose tools the catalog carries changes nothing hog runs with a downloaded
+// catalog. Any other line that changes counts.
+function registryChangeDelivered(input: GapInput, carried: Set<string>): boolean {
+    const base = registrations(input.readBase(GENERATED_REGISTRY))
+    const head = registrations(input.readHead(GENERATED_REGISTRY))
+    if (base.rest !== head.rest) {
+        return false
+    }
+
+    const carriedAt = (read: (path: string) => string | undefined, path: string | undefined): boolean => {
+        const tools = generatedToolNames(path ? read(path) : undefined)
+        return (
+            path === undefined ||
+            (generatedModuleName(path) !== undefined &&
+                qualifies(path, read) &&
+                !!tools?.length &&
+                tools.every((tool) => carried.has(tool)))
+        )
+    }
+    const entry = (side: Registrations, alias: string): string =>
+        `${side.modules.get(alias) ?? ''} ${side.spread.has(alias)}`
+    const aliases = new Set([...base.modules.keys(), ...base.spread, ...head.modules.keys(), ...head.spread])
+    return [...aliases]
+        .filter((alias) => entry(base, alias) !== entry(head, alias))
+        .every(
+            (alias) =>
+                (base.modules.has(alias) || head.modules.has(alias)) &&
+                carriedAt(input.readBase, base.modules.get(alias)) &&
+                carriedAt(input.readHead, head.modules.get(alias))
+        )
 }
 
 // Anything compiled into hog counts unless the catalog provably carries it.
@@ -75,21 +797,53 @@ export function findCatalogGaps(input: GapInput): GapResult {
     const reasons: Reason[] = []
 
     for (const file of input.changed) {
-        if (!input.compiled.has(file) || file === CATALOG_TOOLS_JSON) {
+        if (!input.compiled.files.has(file) || file === CATALOG_TOOLS_JSON) {
             continue
         }
 
-        const name = file.startsWith(GENERATED_TOOLS_DIR) ? file.slice(GENERATED_TOOLS_DIR.length) : undefined
-        if (name && !name.includes('/') && !GENERATED_CODE.has(name)) {
-            const tools = [...generatedToolNames(input.readBase(file)), ...generatedToolNames(input.readHead(file))]
-            const missing = tools.filter((tool) => !carried.has(tool))
-            if (tools.length > 0 && missing.length === 0) {
+        if (generatedModuleName(file)) {
+            // Imports that stay the same ran before this change too, so a module edited in place only needs
+            // declarative statements. One whose imports change has to qualify on both sides.
+            const base = generatedModule(input.readBase(file), file)
+            const head = generatedModule(input.readHead(file), file)
+            const sameImports = base.declarative && head.declarative && base.imports === head.imports
+            if (!sameImports && (!qualifies(file, input.readBase) || !qualifies(file, input.readHead))) {
+                reasons.push({ file, why: 'code other than the declarations the generator writes' })
+                continue
+            }
+            const missing = uncarriedTools(input, carried, file)
+            const wrappers = handWrittenImporters(input, file)
+            if (missing?.length === 0 && wrappers.length === 0) {
+                continue
+            }
+            if (missing?.length === 0) {
+                reasons.push({ file, why: `generated tools that hand-written code wraps: ${wrappers.join(', ')}` })
                 continue
             }
             reasons.push({
                 file,
-                why: `generated tools the catalog doesn't carry: ${missing.join(', ') || 'none found'}`,
+                why: `generated tools the catalog doesn't carry: ${missing?.join(', ') || 'none found'}`,
             })
+            continue
+        }
+
+        if (file.startsWith(GENERATED_SCHEMAS_DIR)) {
+            const blockers = schemaChangeBlockers(input, carried, file)
+            if (blockers.length === 0) {
+                continue
+            }
+            reasons.push({
+                file,
+                why: `generated schemas read by code the catalog can't deliver: ${blockers.join(', ')}`,
+            })
+            continue
+        }
+
+        if (file === GENERATED_REGISTRY) {
+            if (registryChangeDelivered(input, carried)) {
+                continue
+            }
+            reasons.push({ file, why: 'the generated tool registry changed beyond modules the catalog carries' })
             continue
         }
 
@@ -115,23 +869,52 @@ export function findCatalogGaps(input: GapInput): GapResult {
     return { needsRelease: reasons.length > 0, bump: formatChanged ? 'minor' : 'patch', reasons }
 }
 
-export function compiledFiles(metafiles: { path: string; root: string }[], repoRoot: string): Set<string> {
+export function compiledFiles(metafiles: { path: string; root: string }[], repoRoot: string): CompiledGraph {
     const files = new Set<string>()
+    const importers = new Map<string, Set<string>>()
+    const specifiers = new Map<string, Map<string, string[]>>()
+    // A module a build plugin makes up, like `cf-stub:cloudflare:workers`, is no file in the repository.
+    const repoFile = (root: string, path: string): string | undefined => {
+        if (path.includes(':') && !existsSync(resolve(root, path))) {
+            return undefined
+        }
+        const file = relative(repoRoot, resolve(root, path)).split('\\').join(posix.sep)
+        return file.startsWith('..') || file.includes('node_modules/') || file.startsWith('services/mcp/dist/')
+            ? undefined
+            : file
+    }
+
     for (const { path, root } of metafiles) {
-        const inputs = parseJsonOrUndefined(readFileSync(path, 'utf8'), Metafile)?.inputs ?? {}
-        for (const input of Object.keys(inputs)) {
-            const file = relative(repoRoot, resolve(root, input)).split('\\').join(posix.sep)
-            if (!file.startsWith('..') && !file.includes('node_modules/') && !file.startsWith('services/mcp/dist/')) {
-                files.add(file)
+        const inputs = existsSync(path) ? parseJsonOrUndefined(readFileSync(path, 'utf8'), Metafile)?.inputs : undefined
+        if (!inputs || Object.keys(inputs).length === 0) {
+            throw new Error(
+                `${path} is not a build metafile that lists its inputs. Build hog and the CLI library first.`
+            )
+        }
+        for (const [input, { imports }] of Object.entries(inputs)) {
+            const file = repoFile(root, input)
+            if (!file) {
+                continue
+            }
+            files.add(file)
+            for (const imported of imports ?? []) {
+                const target = imported.external ? undefined : repoFile(root, imported.path)
+                if (target) {
+                    importers.set(target, (importers.get(target) ?? new Set()).add(file))
+                    const byImporter = specifiers.get(target) ?? new Map<string, string[]>()
+                    const named = imported.kind === 'import-statement' ? imported.original : undefined
+                    byImporter.set(file, [...(byImporter.get(file) ?? []), named ?? UNNAMED_IMPORT])
+                    specifiers.set(target, byImporter)
+                }
             }
         }
     }
-    return files
+    return { files, importers, specifiers }
 }
 
 // Patterns apply in order, and a later `!pattern` excludes again, as GitHub applies them.
 export function untriggeredFiles(compiled: Set<string>, workflow: string): string[] {
-    const patterns = Workflow.parse(parseYaml(workflow)).on.pull_request.paths
+    const patterns = TriggerWorkflow.parse(parseYaml(workflow)).on.pull_request.paths
     return [...compiled].filter(
         (file) =>
             !patterns.reduce((matched, pattern) => {
@@ -139,6 +922,43 @@ export function untriggeredFiles(compiled: Set<string>, workflow: string): strin
                 return new Bun.Glob(negated ? pattern.slice(1) : pattern).match(file) ? !negated : matched
             }, false)
     )
+}
+
+export function releaseCheckoutPatterns(workflow: string): string[] {
+    const steps = Workflow.parse(parseYaml(workflow)).jobs[RELEASE_BUILD_JOB]?.steps ?? []
+    const sparse = steps.find((step) => step.uses?.startsWith('actions/checkout@'))?.with?.['sparse-checkout']
+    if (typeof sparse !== 'string') {
+        throw new Error(`The ${RELEASE_BUILD_JOB} job of ${RELEASE_WORKFLOW} has no sparse checkout to check.`)
+    }
+    return sparse
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+}
+
+// The patterns are git's non-cone sparse-checkout patterns, and the release build's are all anchored. A
+// pattern matches a path or any folder above it, `name/` matches only folders, and the last matching pattern
+// decides, so `!/*/` can drop every top-level folder that an earlier `/*` took in.
+export function outsideCheckout(compiled: Set<string>, patterns: string[]): string[] {
+    const rules = patterns.map((pattern) => {
+        const negated = pattern.startsWith('!')
+        const body = negated ? pattern.slice(1) : pattern
+        if (!body.startsWith('/')) {
+            throw new Error(`Only anchored sparse-checkout patterns are supported, not ${pattern}.`)
+        }
+        const folderOnly = body.endsWith('/')
+        return { negated, folderOnly, glob: new Bun.Glob(body.slice(1, folderOnly ? -1 : undefined)) }
+    })
+
+    return [...compiled].filter((file) => {
+        const parts = file.split('/')
+        const folders = parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join('/'))
+        const included = rules.reduce((current, rule) => {
+            const candidates = rule.folderOnly ? folders : [...folders, file]
+            return candidates.some((candidate) => rule.glob.match(candidate)) ? !rule.negated : current
+        }, false)
+        return !included
+    })
 }
 
 // Generated schema files are larger than execFileSync's default 1 MiB output buffer.
@@ -176,7 +996,7 @@ if (import.meta.main) {
         },
     })
     if (!values.base) {
-        console.error('Pass the commit the pull request branches from with --base.')
+        console.error('Pass the commit to compare with, usually the last release tag, with --base.')
         process.exit(1)
     }
 
@@ -184,21 +1004,25 @@ if (import.meta.main) {
         { path: values['hog-metafile'], root: resolve(repoRoot, 'hog') },
         ...values['mcp-metafile'].map((path) => ({ path, root: resolve(repoRoot, 'services/mcp') })),
     ]
-    for (const { path } of metafiles) {
-        if (!existsSync(path)) {
-            console.error(`Missing ${path}. Build hog and the CLI library first.`)
-            process.exit(1)
-        }
+    let compiled: CompiledGraph
+    try {
+        compiled = compiledFiles(metafiles, repoRoot)
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error))
+        process.exit(1)
     }
 
     const read = readAt(repoRoot)
-    const compiled = compiledFiles(metafiles, repoRoot)
     const result = findCatalogGaps({
         changed: git(repoRoot, 'diff', '--name-only', `${values.base}...HEAD`).split('\n').filter(Boolean),
         compiled,
         readBase: read(values.base),
         readHead: read('HEAD'),
+        carried: builtCatalogTools(repoRoot),
     })
-    const untriggered = untriggeredFiles(compiled, readFileSync(resolve(repoRoot, WORKFLOW), 'utf8'))
-    process.stdout.write(`${JSON.stringify({ ...result, untriggered })}\n`)
+    const patterns = releaseCheckoutPatterns(readFileSync(resolve(repoRoot, RELEASE_WORKFLOW), 'utf8'))
+    const untriggered = untriggeredFiles(compiled.files, readFileSync(resolve(repoRoot, CHANGESET_WORKFLOW), 'utf8'))
+    process.stdout.write(
+        `${JSON.stringify({ ...result, untriggered, outsideReleaseCheckout: outsideCheckout(compiled.files, patterns) })}\n`
+    )
 }
