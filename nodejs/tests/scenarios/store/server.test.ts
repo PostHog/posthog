@@ -133,11 +133,14 @@ describe('run store', () => {
         expect((await read(`${RUNS_PATH}/${runId}`)).body).toMatchObject({ scorecard })
     })
 
-    it('stores a run posted twice once, with the second report', async () => {
+    it.each([
+        ['from one evidence location', {}],
+        ['with no evidence location', { evidence_dir: null }],
+    ])('stores a run posted twice %s once, with the second report', async (_, location) => {
         const runId = randomUUID()
-        const failed = scorecardFixture(runId, { status: 'failed', status_reason: 'an invariant failed' })
+        const failed = scorecardFixture(runId, { status: 'failed', status_reason: 'an invariant failed', ...location })
 
-        expect((await ingest({ scorecard: scorecardFixture(runId) })).status).toBe(201)
+        expect((await ingest({ scorecard: scorecardFixture(runId, location) })).status).toBe(201)
         expect((await ingest({ scorecard: failed })).status).toBe(200)
 
         const { body } = await read(`${RUNS_PATH}?card_id=example-card`)
@@ -145,6 +148,21 @@ describe('run store', () => {
             expect.objectContaining({ status: 'failed' }),
         ])
         expect((await read(`${RUNS_PATH}/${runId}`)).body).toMatchObject({ scorecard: failed })
+    })
+
+    it.each([
+        ['another evidence location', '/tmp/example/evidence', '/tmp/elsewhere/evidence'],
+        ['no evidence location', '/tmp/example/evidence', null],
+        ['an evidence location the first run lacked', null, '/tmp/example/evidence'],
+    ])('refuses a re-report from %s, and keeps the first run as it was', async (_, stored, reported) => {
+        const runId = randomUUID()
+        await ingest({ scorecard: scorecardFixture(runId, { evidence_dir: stored }), host: 'box-1' })
+        const first = (await read(`${RUNS_PATH}/${runId}`)).body
+
+        const elsewhere = scorecardFixture(runId, { status: 'failed', evidence_dir: reported })
+        expect((await ingest({ scorecard: elsewhere, host: 'box-2' })).status).toBe(409)
+
+        expect((await read(`${RUNS_PATH}/${runId}`)).body).toEqual(first)
     })
 
     it.each([
