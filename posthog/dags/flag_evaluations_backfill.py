@@ -111,14 +111,16 @@ FROM (
 # with a later create time.
 _KAFKA_DELIVERY_TIMEOUT = timedelta(minutes=5)
 
-_STORAGE_POLICY_DISKS_QUERY = f"""
+
+def storage_policy_disks_query(table: str) -> str:
+    return f"""
 SELECT policy.volume_priority, policy.move_factor, disk.free_space, disk.total_space
 FROM system.storage_policies AS policy
 ARRAY JOIN policy.disks AS disk_name
 INNER JOIN system.disks AS disk ON disk.name = disk_name
 WHERE policy.policy_name = (
     SELECT storage_policy FROM system.tables
-    WHERE database = currentDatabase() AND name = '{FLAG_EVALUATIONS_DATA_TABLE}'
+    WHERE database = currentDatabase() AND name = '{table}'
 )
 """
 
@@ -129,7 +131,54 @@ WHERE policy.policy_name = (
 _EARLIEST_START_DAYS_AGO = FLAG_EVALUATIONS_TTL_DAYS - 1
 
 
-class FlagEvaluationsBackfillConfig(dagster.Config):
+class BackfillGuardConfig(dagster.Config):
+    def insert_settings(self) -> dict[str, Any]:
+        return {
+            "max_execution_time": self.max_execution_time_seconds,
+            "max_memory_usage": self.max_memory_usage_bytes,
+            "max_insert_threads": self.max_insert_threads,
+        }
+
+    max_insert_threads: int = pydantic.Field(default=1, description="ClickHouse max_insert_threads for each insert.")
+    max_execution_time_seconds: int = pydantic.Field(
+        default=4 * 60 * 60, description="ClickHouse max_execution_time for each insert."
+    )
+    max_memory_usage_bytes: int = pydantic.Field(
+        default=32 * GIB, description="ClickHouse max_memory_usage for each insert."
+    )
+    min_free_bytes: int = pydantic.Field(
+        default=1 * TIB,
+        description=(
+            "Stop the shard when any of its replicas has less usable free space than this. Usable space leaves out "
+            "the share of each disk that ClickHouse keeps free by moving parts to the next volume."
+        ),
+    )
+    blocking_run_poll_seconds: int = pydantic.Field(
+        default=5 * 60,
+        description="How often to check again while a squash, deletes or data deletion request run is active.",
+    )
+    max_unmerged_parts: int = pydantic.Field(
+        default=100,
+        description="Wait before each day until the day's partition has fewer active parts than this. 0 disables the wait.",
+    )
+    parts_check_poll_frequency_seconds: int = 30
+    parts_check_max_wait_seconds: int = 60 * 60
+    disk_check_max_wait_seconds: int = pydantic.Field(
+        default=2 * 60 * 60,
+        description=(
+            "Wait before each day while a replica has less free space than its move_factor reserve, which ClickHouse "
+            "restores by moving parts to the next volume. Stop the shard when one such wait lasts this long. The "
+            "limit starts again after each wait for a squash, deletes or data deletion run."
+        ),
+    )
+    disk_check_poll_frequency_seconds: int = pydantic.Field(
+        default=60,
+        ge=1,
+        description="How often to read the disks again while a replica is below its move_factor reserve.",
+    )
+
+
+class FlagEvaluationsBackfillConfig(BackfillGuardConfig):
     start_date: str | None = pydantic.Field(
         default=None,
         description=(
@@ -156,46 +205,9 @@ class FlagEvaluationsBackfillConfig(dagster.Config):
         default=False,
         description="Count the rows each day would copy instead of inserting them. The checks before each day still run.",
     )
-    max_insert_threads: int = pydantic.Field(default=1, description="ClickHouse max_insert_threads for each insert.")
-    max_execution_time_seconds: int = pydantic.Field(
-        default=4 * 60 * 60, description="ClickHouse max_execution_time for each insert."
-    )
-    max_memory_usage_bytes: int = pydantic.Field(
-        default=32 * GIB, description="ClickHouse max_memory_usage for each insert."
-    )
-    min_free_bytes: int = pydantic.Field(
-        default=1 * TIB,
-        description=(
-            "Stop the shard when any of its replicas has less usable free space than this. Usable space leaves out "
-            "the share of each disk that ClickHouse keeps free by moving parts to the next volume."
-        ),
-    )
     max_consumer_lag_seconds: int = pydantic.Field(
         default=60 * 60,
         description="Stop the shard when the Kafka path to flag_evaluations is further behind than this.",
-    )
-    blocking_run_poll_seconds: int = pydantic.Field(
-        default=5 * 60,
-        description="How often to check again while a squash, deletes or data deletion request run is active.",
-    )
-    max_unmerged_parts: int = pydantic.Field(
-        default=100,
-        description="Wait before each day until the day's partition has fewer active parts than this. 0 disables the wait.",
-    )
-    parts_check_poll_frequency_seconds: int = 30
-    parts_check_max_wait_seconds: int = 60 * 60
-    disk_check_max_wait_seconds: int = pydantic.Field(
-        default=2 * 60 * 60,
-        description=(
-            "Wait before each day while a replica has less free space than its move_factor reserve, which ClickHouse "
-            "restores by moving parts to the next volume. Stop the shard when one such wait lasts this long. The "
-            "limit starts again after each wait for a squash, deletes or data deletion run."
-        ),
-    )
-    disk_check_poll_frequency_seconds: int = pydantic.Field(
-        default=60,
-        ge=1,
-        description="How often to read the disks again while a replica is below its move_factor reserve.",
     )
 
 
@@ -329,67 +341,27 @@ def get_backfill_shards(
 
 
 @frozen
-class ShardBackfill:
-    """Copy planned days of $feature_flag_called events on one shard into flag_evaluations.
+class BackfillGuards:
+    """The checks that a backfill runs before it copies a day: other runs, blocking runs, parts and disks.
 
-    sharded_events and sharded_flag_evaluations share a shard key, so the copy reads and writes
-    only this shard's local tables. The checks run before every day, not once at the start,
-    because a run spans days. The weekly squash can start partway through, and the TTL can
-    expire a planned day before the run reaches it. Days run newest first, so the run stops at
-    the first expired day.
-
-    Each day picks one replica and runs its parts wait, consumer cutoff and copy there. The
-    anti-join reads only that replica's local parts, so the cutoff must come from the same
-    parts. A cutoff read on another replica does not show a replication fetch that the copy
-    replica has not finished.
+    A subclass names the table it fills and the job that runs it. It also says how to undo a copy that a
+    blocking run overlapped.
     """
 
     cluster: ClickhouseCluster
     shard_num: int
-    config: FlagEvaluationsBackfillConfig
+    config: BackfillGuardConfig
     instance: dagster.DagsterInstance
     run_id: str
     log: dagster.DagsterLogManager
     query_tags: DagsterTags
     workload: Workload
     node_role: NodeRole
+    target_table: str
+    job_name: str
 
-    def run(self, days: Sequence[date]) -> ShardBackfillTotals:
-        if not self.config.dry_run:
-            self.check_no_other_backfill_run()
-        copy_query = build_copy_query(
-            dry_run=self.config.dry_run,
-            filter_team_ids=bool(self.config.team_ids),
-            chunked=self.config.team_id_chunks > 1,
-        )
-        settings: dict[str, Any] = {
-            "max_execution_time": self.config.max_execution_time_seconds,
-            "max_memory_usage": self.config.max_memory_usage_bytes,
-            "max_insert_threads": self.config.max_insert_threads,
-        }
-        total_rows = 0
-        copied_days = 0
-        for day in days:
-            uncopied_days = len(days) - copied_days
-            if self._reached_expired_day(day, uncopied_days=uncopied_days):
-                break
-            copy_host = self.cluster.any_host_in_shard_by_roles(self.shard_num, [self.node_role], self.workload)
-            self.wait_for_parts_to_merge(day, copy_host)
-            blocking_run_check = self._wait_for_disk_and_blocking_runs()
-            created_before = self.consumer_cutoff(copy_host)
-            # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
-            if self._reached_expired_day(day, uncopied_days=uncopied_days):
-                break
-            try:
-                rows = self.copy_day(day, copy_query, settings, created_before, copy_host)
-            finally:
-                if not self.config.dry_run:
-                    self.check_no_blocking_run_started(blocking_run_check, day=day)
-            total_rows += rows
-            copied_days += 1
-            action = "would copy" if self.config.dry_run else "copied"
-            self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s) on {copy_host.connection_info.host}")
-        return ShardBackfillTotals(days=copied_days, rows=total_rows)
+    def undo_instructions(self, day: date) -> str:
+        raise NotImplementedError
 
     def _wait_for_disk_and_blocking_runs(self) -> BlockingRunCheck:
         # The post-copy check counts every blocking run that starts after wait_for_blocking_runs returns.
@@ -400,19 +372,10 @@ class ShardBackfill:
             if not self._hosts_moving_parts():
                 return blocking_run_check
 
-    def _reached_expired_day(self, day: date, *, uncopied_days: int) -> bool:
-        if day >= earliest_backfill_day(datetime.now(UTC).date()):
-            return False
-        self.log.warning(
-            f"Shard {self.shard_num}: stopping at {day}, because the TTL has already expired it. "
-            f"{uncopied_days} planned day(s) are not copied."
-        )
-        return True
-
     def wait_for_parts_to_merge(self, day: date, copy_host: HostInfo) -> None:
         if self.config.max_unmerged_parts <= 0:
             return
-        query = GET_NUM_RAW_SESSIONS_ACTIVE_PARTS([f"{day:%Y%m}"], table=FLAG_EVALUATIONS_DATA_TABLE, use_cluster=False)
+        query = GET_NUM_RAW_SESSIONS_ACTIVE_PARTS([f"{day:%Y%m}"], table=self.target_table, use_cluster=False)
         deadline = time.monotonic() + self.config.parts_check_max_wait_seconds
         while True:
             active_parts = self._on_host(copy_host, partial(self._first_row, query))[0]
@@ -431,7 +394,7 @@ class ShardBackfill:
         # fails rather than waits, because two waiting runs would wait on each other.
         others = describe_runs(
             self.instance,
-            (flag_evaluations_backfill_job.name,),
+            (self.job_name,),
             statuses=EXECUTING_RUN_STATUSES,
             exclude_run_id=self.run_id,
         )
@@ -448,16 +411,9 @@ class ShardBackfill:
     def check_no_blocking_run_started(self, check: BlockingRunCheck, *, day: date) -> None:
         started = blocking_runs_started_since(self.instance, check, self.run_id)
         if started:
-            # A rerun for the same teams does not copy back the rows that earlier runs copied for other teams.
-            team_filter = (
-                f" AND team_id IN ({', '.join(map(str, self.config.team_ids))})" if self.config.team_ids else ""
-            )
             raise dagster.Failure(
                 description=f"Stopping shard {self.shard_num}: {'; '.join(started)} started while {day} copied. "
-                "The copy can hold rows or person_ids that the run removed from sharded_flag_evaluations. "
-                f"After that run finishes, delete the rows this job copied for {day} on shard {self.shard_num} "
-                f"(`DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '{day}' "
-                f"AND {COPIED_ROW_FILTER}{team_filter}`), then run the backfill again for the same teams."
+                f"{self.undo_instructions(day)}"
             )
 
     def wait_for_disk_headroom(self) -> None:
@@ -482,7 +438,9 @@ class ShardBackfill:
         """
         # Every replica of the shard, including offline ones, stores a copy of each inserted part.
         disks_by_host = self.cluster.map_hosts_in_shard_by_role(
-            self.shard_num, tagged(self.query_tags, _read_policy_disks), node_role=self.node_role
+            self.shard_num,
+            tagged(self.query_tags, partial(_read_policy_disks, self.target_table)),
+            node_role=self.node_role,
         ).result()
         if not disks_by_host:
             raise dagster.Failure(description=f"No replica of shard {self.shard_num} reported its disks.")
@@ -490,7 +448,7 @@ class ShardBackfill:
         hosts_moving_parts = []
         for host, disks in disks_by_host.items():
             if not disks:
-                problems.append(f"{host.connection_info.host} has no disks for {FLAG_EVALUATIONS_DATA_TABLE}")
+                problems.append(f"{host.connection_info.host} has no disks for {self.target_table}")
                 continue
             headroom = disk_headroom(disks)
             if headroom.usable_bytes < self.config.min_free_bytes:
@@ -503,6 +461,84 @@ class ShardBackfill:
         if problems:
             raise dagster.Failure(description=f"Stopping shard {self.shard_num}: " + "; ".join(problems))
         return hosts_moving_parts
+
+    def _first_row(self, query: str, client: Client) -> tuple:
+        return sync_execute(query, workload=self.workload, sync_client=client)[0]
+
+    def _on_host(self, host: HostInfo, fn: Callable[[Client], T]) -> T:
+        return self.cluster.on_host(host, tagged(self.query_tags, fn)).result()
+
+
+@frozen
+class ShardBackfill(BackfillGuards):
+    """Copy planned days of $feature_flag_called events on one shard into flag_evaluations.
+
+    sharded_events and sharded_flag_evaluations share a shard key, so the copy reads and writes
+    only this shard's local tables. The checks run before every day, not once at the start,
+    because a run spans days. The weekly squash can start partway through, and the TTL can
+    expire a planned day before the run reaches it. Days run newest first, so the run stops at
+    the first expired day.
+
+    Each day picks one replica and runs its parts wait, consumer cutoff and copy there. The
+    anti-join reads only that replica's local parts, so the cutoff must come from the same
+    parts. A cutoff read on another replica does not show a replication fetch that the copy
+    replica has not finished.
+    """
+
+    config: FlagEvaluationsBackfillConfig
+    target_table: str = FLAG_EVALUATIONS_DATA_TABLE
+
+    def undo_instructions(self, day: date) -> str:
+        # A rerun for the same teams does not copy back the rows that earlier runs copied for other teams.
+        team_filter = f" AND team_id IN ({', '.join(map(str, self.config.team_ids))})" if self.config.team_ids else ""
+        return (
+            "The copy can hold rows or person_ids that the run removed from sharded_flag_evaluations. "
+            f"After that run finishes, delete the rows this job copied for {day} on shard {self.shard_num} "
+            f"(`DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '{day}' "
+            f"AND {COPIED_ROW_FILTER}{team_filter}`), then run the backfill again for the same teams."
+        )
+
+    def run(self, days: Sequence[date]) -> ShardBackfillTotals:
+        if not self.config.dry_run:
+            self.check_no_other_backfill_run()
+        copy_query = build_copy_query(
+            dry_run=self.config.dry_run,
+            filter_team_ids=bool(self.config.team_ids),
+            chunked=self.config.team_id_chunks > 1,
+        )
+        settings = self.config.insert_settings()
+        total_rows = 0
+        copied_days = 0
+        for day in days:
+            uncopied_days = len(days) - copied_days
+            if self._reached_expired_day(day, uncopied_days=uncopied_days):
+                break
+            copy_host = self.cluster.any_host_in_shard_by_roles(self.shard_num, [self.node_role], self.workload)
+            self.wait_for_parts_to_merge(day, copy_host)
+            blocking_run_check = self._wait_for_disk_and_blocking_runs()
+            created_before = self.consumer_cutoff(copy_host)
+            # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
+            if self._reached_expired_day(day, uncopied_days=uncopied_days):
+                break
+            try:
+                rows = self.copy_day(day, copy_query, settings, created_before, copy_host)
+            finally:
+                if not self.config.dry_run:
+                    self.check_no_blocking_run_started(blocking_run_check, day=day)
+            total_rows += rows
+            copied_days += 1
+            action = "would copy" if self.config.dry_run else "copied"
+            self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s) on {copy_host.connection_info.host}")
+        return ShardBackfillTotals(days=copied_days, rows=total_rows)
+
+    def _reached_expired_day(self, day: date, *, uncopied_days: int) -> bool:
+        if day >= earliest_backfill_day(datetime.now(UTC).date()):
+            return False
+        self.log.warning(
+            f"Shard {self.shard_num}: stopping at {day}, because the TTL has already expired it. "
+            f"{uncopied_days} planned day(s) are not copied."
+        )
+        return True
 
     def consumer_cutoff(self, copy_host: HostInfo) -> datetime:
         """Stop the shard when the Kafka path to flag_evaluations is too far behind.
@@ -554,12 +590,6 @@ class ShardBackfill:
 
         return sum(self._on_host(copy_host, partial(run_chunk, chunk)) for chunk in range(self.config.team_id_chunks))
 
-    def _first_row(self, query: str, client: Client) -> tuple:
-        return sync_execute(query, workload=self.workload, sync_client=client)[0]
-
-    def _on_host(self, host: HostInfo, fn: Callable[[Client], T]) -> T:
-        return self.cluster.on_host(host, tagged(self.query_tags, fn)).result()
-
 
 def wait_for_blocking_runs(
     instance: dagster.DagsterInstance, run_id: str, log: dagster.DagsterLogManager, poll_seconds: int
@@ -610,10 +640,10 @@ def inserted_rows(result: Any) -> int:
     return result if isinstance(result, int) else 0
 
 
-def _read_policy_disks(client: Client) -> list[PolicyDisk]:
+def _read_policy_disks(table: str, client: Client) -> list[PolicyDisk]:
     return [
         PolicyDisk(volume_priority=row[0], move_factor=row[1], free_bytes=row[2], total_bytes=row[3])
-        for row in sync_execute(_STORAGE_POLICY_DISKS_QUERY, sync_client=client)
+        for row in sync_execute(storage_policy_disks_query(table), sync_client=client)
     ]
 
 
@@ -635,6 +665,7 @@ def backfill_flag_evaluations_shard(
         query_tags=dagster_tags(context),
         workload=workload,
         node_role=node_role,
+        job_name=flag_evaluations_backfill_job.name,
     ).run(plan.days)
     context.add_output_metadata(
         {

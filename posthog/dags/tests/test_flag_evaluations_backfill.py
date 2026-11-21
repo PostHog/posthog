@@ -343,6 +343,7 @@ def shard_backfill(
         query_tags=DagsterTags(),
         workload=Workload.DEFAULT,
         node_role=NodeRole.ALL,
+        job_name=flag_evaluations_backfill_job.name,
     )
 
 
