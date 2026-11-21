@@ -6597,10 +6597,9 @@ email@example.org,
         static_cohort.refresh_from_db()
         self.assertEqual(static_cohort.errors_calculating, expected_errors)
 
-    def test_add_persons_returns_503_with_retry_after_when_replace_holds_quorum_lock(self) -> None:
+    @parameterized.expand([(286,), (319,)])
+    def test_add_persons_returns_503_with_retry_after_when_replace_holds_quorum_lock(self, ch_error_code: int) -> None:
         from posthog.errors import InternalCHQueryError
-
-        from products.cohorts.backend.models.util import CLICKHOUSE_QUORUM_LOCKED_CODE
 
         static_cohort = Cohort.objects.create(
             team=self.team,
@@ -6611,7 +6610,7 @@ email@example.org,
         )
         person = create_person(team=self.team, distinct_ids=["locked-add"])
         flush_persons_and_events()
-        locked = InternalCHQueryError("quorum for previous write", code=CLICKHOUSE_QUORUM_LOCKED_CODE)
+        locked = InternalCHQueryError("quorum failure", code=ch_error_code)
 
         with (
             patch("products.cohorts.backend.models.util.sync_execute", side_effect=locked),
@@ -6625,7 +6624,7 @@ email@example.org,
             )
 
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE, response.json())
-        self.assertEqual(response["Retry-After"], "9")
+        self.assertEqual(response["Retry-After"], "7")
         self.assertIn("This cohort is being replaced. Try again shortly.", response.json()["detail"])
         self.assertEqual(count_cohort_members(self.team.pk, static_cohort.pk, consistency="strong"), 0)
 

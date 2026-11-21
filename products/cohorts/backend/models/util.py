@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import time
 import uuid
 import functools
@@ -889,9 +890,11 @@ STATIC_COHORT_ASYNC_INSERT_MAX_ROWS = 100
 # UNSATISFIED_QUORUM_FOR_PREVIOUS_WRITE. With insert_quorum_parallel=0, a quorum insert fails up front while another
 # quorum insert to the table still waits for its quorum, before it writes anything, so retrying it can't duplicate rows.
 CLICKHOUSE_QUORUM_LOCKED_CODE = 286
-# Adds wait up to ~9 s for an active replace's quorum insert to finish before failing retryably with 503,
-# keeping the workflow endpoint inside Node's 15 s per-attempt timeout (computed: 2 s lock wait + 9 s retries + work).
-QUORUM_LOCK_RETRY_WAITS_SECONDS = (0.5, 1.5, 3, 4)
+# Adds wait up to 7 s for an active replace's quorum insert to finish (and up to 2 s for the quorum itself)
+# before failing retryably with 503, keeping the workflow endpoint inside Node's 15 s per-attempt timeout
+# (computed: 2 s lock wait + 7 s retries + 2 s quorum + 2–3.5 s work).
+QUORUM_LOCK_RETRY_WAITS_SECONDS = (0.5, 1.5, 2, 3)
+QUORUM_LOCK_RETRY_AFTER_SECONDS = math.ceil(sum(QUORUM_LOCK_RETRY_WAITS_SECONDS))
 # Short in-process retries for a replace insert colliding with a quick quorum add; prolonged contention falls through
 # to the Celery task retry, which mints a fresh marker instead of burning the task's time limit re-running SELECT.
 REPLACE_INSERT_QUORUM_LOCK_RETRY_WAITS_SECONDS = (1, 3)
@@ -927,18 +930,22 @@ def insert_static_cohort(
     if quorum:
         try:
             _retry_on_clickhouse_code(
-                lambda: sync_execute(INSERT_PERSON_STATIC_COHORT, persons, settings=REPLACE_INSERT_QUORUM_SETTINGS),
+                lambda: sync_execute(INSERT_PERSON_STATIC_COHORT, persons, settings=ADD_INSERT_QUORUM_SETTINGS),
                 code=CLICKHOUSE_QUORUM_LOCKED_CODE,
                 waits=QUORUM_LOCK_RETRY_WAITS_SECONDS,
             )
             return
         except Exception as err:
-            if getattr(err, "code", None) == CLICKHOUSE_QUORUM_LOCKED_CODE:
+            if getattr(err, "code", None) in (
+                CLICKHOUSE_QUORUM_LOCKED_CODE,
+                CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,
+            ):
                 logger.warning(
                     "static_cohort_quorum_lock_exhausted",
                     cohort_id=cohort_id,
                     team_id=team_id,
                     person_count=len(persons),
+                    error_code=getattr(err, "code", None),
                 )
                 raise StaticCohortQuorumLocked(
                     f"ClickHouse quorum lock held across retries while adding to static cohort {cohort_id}"
@@ -1788,6 +1795,11 @@ REPLACE_INSERT_QUORUM_SETTINGS: dict[str, Any] = {
     "insert_quorum": 1 if settings.TEST or settings.DEBUG else "auto",
     "insert_quorum_parallel": 0,
     "insert_quorum_timeout": 60_000,
+}
+# Adds use a short quorum timeout so a slow replica returns a retryable 503 inside Node's 15 s abort window.
+ADD_INSERT_QUORUM_SETTINGS: dict[str, Any] = {
+    **REPLACE_INSERT_QUORUM_SETTINGS,
+    "insert_quorum_timeout": 2_000,
 }
 # Reads of a replace's rows must see the whole quorum insert. A replica that is behind fails the read
 # instead of returning a partial set, which the task retries rather than pruning on.

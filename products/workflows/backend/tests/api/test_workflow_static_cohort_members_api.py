@@ -16,7 +16,7 @@ from posthog.test.authentication_checks import covers_authentication
 from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode
-from products.cohorts.backend.models.util import CLICKHOUSE_QUORUM_LOCKED_CODE, count_cohort_members
+from products.cohorts.backend.models.util import count_cohort_members
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.presentation.views.workflow_static_cohort_members import (
     WorkflowStaticCohortMemberJWTAuthentication,
@@ -100,11 +100,12 @@ class TestWorkflowStaticCohortMembersAPI(ClickhouseTestMixin, APIBaseTest):
             count_cohort_members(team_id=self.team.id, cohort_id=cohort_id or self.cohort.id, consistency="strong") == 0
         )
 
-    def test_returns_503_with_retry_after_when_replace_holds_quorum_lock(self) -> None:
+    @parameterized.expand([(286,), (319,)])
+    def test_returns_503_with_retry_after_when_replace_holds_quorum_lock(self, ch_error_code: int) -> None:
         Cohort.objects.filter(id=self.cohort.id).update(
             is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
         )
-        locked = InternalCHQueryError("quorum for previous write", code=CLICKHOUSE_QUORUM_LOCKED_CODE)
+        locked = InternalCHQueryError("quorum failure", code=ch_error_code)
 
         with (
             patch("products.cohorts.backend.models.util.sync_execute", side_effect=locked),
@@ -113,6 +114,6 @@ class TestWorkflowStaticCohortMembersAPI(ClickhouseTestMixin, APIBaseTest):
             response = self._post()
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
-        assert response["Retry-After"] == "9"
+        assert response["Retry-After"] == "7"
         assert response.json()["detail"] == "This cohort is being replaced. Try again shortly."
         assert count_cohort_members(team_id=self.team.id, cohort_id=self.cohort.id, consistency="strong") == 0

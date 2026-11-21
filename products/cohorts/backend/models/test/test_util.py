@@ -41,6 +41,7 @@ from posthog.test.persons import create_person
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode
 from products.cohorts.backend.models.util import (
+    ADD_INSERT_QUORUM_SETTINGS,
     CLICKHOUSE_QUORUM_LOCKED_CODE,
     CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE,
     COHORT_QUERY_TIMEOUT_SECONDS,
@@ -1846,7 +1847,7 @@ class TestAddDuringReplace(BaseTest):
             if "INSERT INTO" in call.args[0] and "person_static_cohort" in call.args[0]
         )
         if expect_quorum:
-            self.assertEqual(insert_settings, REPLACE_INSERT_QUORUM_SETTINGS)
+            self.assertEqual(insert_settings, ADD_INSERT_QUORUM_SETTINGS)
         else:
             self.assertEqual(insert_settings, {"async_insert": 1, "wait_for_async_insert": 1})
 
@@ -1898,19 +1899,20 @@ class TestAddDuringReplace(BaseTest):
             insert_static_cohort([uuid4()], 1, team_id=self.team.pk, quorum=True)
 
         self.assertEqual(mock_sync_execute.call_count, attempts)
-        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [0.5, 1.5, 3, 4])
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [0.5, 1.5, 2, 3])
         mock_warning.assert_called_once_with(
             "static_cohort_quorum_lock_exhausted",
             cohort_id=1,
             team_id=self.team.pk,
             person_count=1,
+            error_code=CLICKHOUSE_QUORUM_LOCKED_CODE,
         )
 
         unknown = InternalCHQueryError("unknown insert status", code=CLICKHOUSE_UNKNOWN_STATUS_OF_INSERT_CODE)
         with (
             patch("products.cohorts.backend.models.util.sync_execute", side_effect=[unknown]) as mock_sync_execute,
             patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
-            self.assertRaises(InternalCHQueryError),
+            self.assertRaises(StaticCohortQuorumLocked),
         ):
             insert_static_cohort([uuid4()], 1, team_id=self.team.pk, quorum=True)
 

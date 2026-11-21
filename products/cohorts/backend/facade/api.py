@@ -21,6 +21,7 @@ from posthog.tasks.calculate_cohort import insert_cohort_from_query, schedule_st
 
 from products.cohorts.backend.models.cohort import Cohort, CohortPopulationMode, CohortType, ImportResolution
 from products.cohorts.backend.models.util import (
+    QUORUM_LOCK_RETRY_AFTER_SECONDS as QUORUM_LOCK_RETRY_AFTER_SECONDS,
     StaticCohortQuorumLocked as StaticCohortQuorumLocked,
     list_cohort_member_ids,
     remove_static_cohort_members,

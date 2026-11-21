@@ -142,6 +142,7 @@ from products.cohorts.backend.models.dependencies import (
 )
 from products.cohorts.backend.models.leaf_shape import FilterShapeHashes
 from products.cohorts.backend.models.util import (
+    QUORUM_LOCK_RETRY_AFTER_SECONDS,
     CohortErrorCode,
     StaticCohortQuorumLocked,
     close_open_population_attempts,
@@ -723,7 +724,7 @@ class StaticCohortReplacingUnavailable(APIException):
         "This cohort is being replaced. Try again shortly. "
         "Members from earlier batches in this request may already be added."
     )
-    wait = 9
+    wait = QUORUM_LOCK_RETRY_AFTER_SECONDS
 
 
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
