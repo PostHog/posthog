@@ -135,19 +135,19 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `[\"billing\",\"urgent\"]`.'
+            'Tag names; returns tickets with ANY of them (OR). Accepts a single tag, a comma-separated list (`billing,urgent`), or a JSON-encoded array (`[\"billing\",\"urgent\"]`) for names that contain commas.'
         ),
     tags_all: zod
         .string()
         .optional()
         .describe(
-            'JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `[\"billing\",\"urgent\"]`.'
+            'Tag names; returns tickets that have ALL of them (AND). Accepts a single tag, a comma-separated list (`billing,urgent`), or a JSON-encoded array (`[\"billing\",\"urgent\"]`).'
         ),
     tags_exclude: zod
         .string()
         .optional()
         .describe(
-            'JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `[\"escalated\"]`.'
+            'Tag names; returns tickets that have NONE of them (NOT). Accepts a single tag, a comma-separated list (`escalated,spam`), or a JSON-encoded array (`[\"escalated\"]`).'
         ),
     view: zod
         .string()
