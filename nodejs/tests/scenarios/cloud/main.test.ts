@@ -24,7 +24,7 @@ const COMMIT = 'c0ffee0000000000000000000000000000000000'
 const OWNER = 'arn:aws:sts::000000000000:assumed-role/scenario-run-controller/person'
 const OTHER_ACCOUNT = '111111111111'
 const FAILOVER_CARD = 'cyclotron-failover-under-load'
-const GIVEN_RUN_ID = '019a8b2c-3d4e-7f5a-8b6c-7d8e9f0a1b2c'
+const GIVEN_RUN_ID = '0a1b2c3d-4e5f-8a6b-8c7d-9e0f1a2b3c4d'
 const RUNNER_PROFILE = readFileSync(path.join(__dirname, '..', 'profiles', 'synthetic.yaml'), 'utf8')
 
 type Setup = {
@@ -300,20 +300,32 @@ describe('cloud controller', () => {
         [
             'a given run id that is not a UUID',
             FAILOVER_CARD,
-            'is not a lowercase UUID v7',
+            'is not a lowercase UUID v8',
             { env: { SCENARIO_RUN_ID: 'scn-1' } },
         ],
         [
             'a given run id in upper case',
             FAILOVER_CARD,
-            'is not a lowercase UUID v7',
+            'is not a lowercase UUID v8',
             { env: { SCENARIO_RUN_ID: GIVEN_RUN_ID.toUpperCase() } },
         ],
         [
             'a given run id of the v4 kind the harness mints for its own runs',
             FAILOVER_CARD,
-            'is not a lowercase UUID v7',
+            'is not a lowercase UUID v8',
             { env: { SCENARIO_RUN_ID: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' } },
+        ],
+        [
+            'a given run id of another UUID version',
+            FAILOVER_CARD,
+            'is not a lowercase UUID v8',
+            { env: { SCENARIO_RUN_ID: '019a8b2c-3d4e-7f5a-8b6c-7d8e9f0a1b2c' } },
+        ],
+        [
+            'a given v8 run id without the RFC variant',
+            FAILOVER_CARD,
+            'is not a lowercase UUID v8',
+            { env: { SCENARIO_RUN_ID: '0a1b2c3d-4e5f-8a6b-cc7d-9e0f1a2b3c4d' } },
         ],
         ['no card', undefined, 'Usage:', {}],
     ])('refuses %s before it leases anything', async (_story, card, problem, setup) => {
