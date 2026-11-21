@@ -545,6 +545,10 @@ class LazyTable(Table):
     ) -> Any:
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 
+    def held_join_conjuncts(self, join: "JoinExpr") -> list[Any]:
+        """The conjuncts of the join's constraint that this table holds an unresolved copy of."""
+        return []
+
     def take_join_filter(self, join: "JoinExpr") -> None:
         """Removes the resolved predicates that this table already carries from the join's constraint."""
         return None

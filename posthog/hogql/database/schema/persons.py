@@ -518,6 +518,14 @@ class PersonsTable(LazyTable):
         p.filter_source_length = len(conjuncts)
         return p
 
+    def held_join_conjuncts(self, join: JoinExpr) -> list[Expr]:
+        if self.filter is None or join.constraint is None or not isinstance(join.constraint.expr, And):
+            return []
+        exprs = join.constraint.expr.exprs
+        if len(exprs) != self.filter_source_length:
+            return []
+        return [exprs[i] for i in self.filter_positions]
+
     def take_join_filter(self, join: JoinExpr) -> None:
         """Removes the resolved copy of the predicates that `filter` holds from the join's constraint.
 
@@ -530,12 +538,11 @@ class PersonsTable(LazyTable):
         # The resolved copy is gone when an earlier call removed it.
         if len(exprs) == self.filter_source_length - len(self.filter_positions):
             return
-        if len(exprs) != self.filter_source_length or not all(
-            PersonsTable._is_resolved_promotable_expr(exprs[i], join.alias) for i in self.filter_positions
-        ):
+        held = self.held_join_conjuncts(join)
+        if not held or not all(PersonsTable._is_resolved_promotable_expr(expr, join.alias) for expr in held):
             raise ResolutionError("The persons join filter does not match the join constraint")
-        positions = set(self.filter_positions)
-        join.constraint.expr.exprs = [expr for i, expr in enumerate(exprs) if i not in positions]
+        held_ids = {id(expr) for expr in held}
+        join.constraint.expr.exprs = [expr for expr in exprs if id(expr) not in held_ids]
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
         if self.filter is not None:

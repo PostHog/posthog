@@ -59,13 +59,9 @@ def _held_join_conjuncts(join: ast.JoinExpr) -> set[int]:
     table_type = join.type
     while isinstance(table_type, ast.TableAliasType | ast.ColumnAliasedTableType):
         table_type = table_type.table_type
-    if not isinstance(table_type, ast.LazyTableType) or join.constraint is None:
+    if not isinstance(table_type, ast.LazyTableType):
         return set()
-    positions = getattr(table_type.table, "filter_positions", ())
-    conjuncts = join.constraint.expr.exprs if isinstance(join.constraint.expr, ast.And) else []
-    if not positions or len(conjuncts) != getattr(table_type.table, "filter_source_length", 0):
-        return set()
-    return {id(conjuncts[i]) for i in positions}
+    return {id(expr) for expr in table_type.table.held_join_conjuncts(join)}
 
 
 def has_rewritable_json_extract(node: ast.AST, context: HogQLContext) -> bool:
@@ -101,7 +97,7 @@ class _Finder(TraversingVisitor):
         self.held: set[int] = set()
 
     def visit(self, node: ast.AST | None):
-        if not self.found and (node is None or id(node) not in self.held):
+        if not self.found and id(node) not in self.held:
             super().visit(node)
 
     def visit_join_expr(self, node: ast.JoinExpr):
@@ -122,7 +118,7 @@ class _Transformer(CloningVisitor):
         self.held: set[int] = set()
 
     def visit(self, node: ast.AST | None):
-        if node is not None and id(node) in self.held:
+        if id(node) in self.held:
             return clone_expr(node, clear_types=True)
         return super().visit(node)
 
