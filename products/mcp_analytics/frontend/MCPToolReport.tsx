@@ -44,7 +44,6 @@ import {
     ToolSummary,
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
-import { UNIDENTIFIED_HARNESS_LABEL } from './missingCapabilities/mcpMissingCapabilitiesLogic'
 import { ExampleSessionDrawer } from './tool-quality/ExampleSessionDrawer'
 import { ToolExamples } from './tool-quality/ToolExamples'
 import { ToolJourneySankey } from './tool-quality/ToolJourneySankey'
@@ -528,14 +527,6 @@ export function MCPToolReport(): JSX.Element {
                         loading={byHarnessRowsLoading}
                         pageSize={TOP_PAGE_SIZE}
                         key={topTab}
-                        setupEmptyState={
-                            mostlyMissing(byHarnessRows, ['', UNIDENTIFIED_HARNESS_LABEL]) ? (
-                                <InstrumentationEmptyState
-                                    fix={INSTRUMENTATION_FIXES.harness}
-                                    dataAttr="mcp-tool-top-harnesses-setup"
-                                />
-                            ) : undefined
-                        }
                         columns={[
                             {
                                 header: 'Harness',

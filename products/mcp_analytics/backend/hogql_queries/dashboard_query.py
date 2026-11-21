@@ -64,6 +64,7 @@ from products.mcp_analytics.backend.hogql_queries.model_breakdown import MCPMode
 from products.mcp_analytics.backend.hogql_queries.protocol_version_breakdown import (
     MCPProtocolVersionBreakdownQueryRunner,
 )
+from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -247,7 +248,8 @@ MODEL_LABEL_SQL = label_of("toString(properties.$mcp_llm_model)")
 PROTOCOL_VERSION_LABEL_SQL = label_of("JSONExtractString(properties, '$mcp_protocol_version')")
 TOOL_LABEL_SQL = label_of(EFFECTIVE_TOOL_SQL)
 # The virtual field applies the team's custom harness rules, so the labels match the harness breakdown.
-HARNESS_LABEL_SQL = label_of("toString(properties.$virt_mcp_harness)")
+# Calls with no client identity read as Unknown here, apart from Other, so the dashboard can ask for client info.
+HARNESS_LABEL_SQL = label_of(f"if({HARNESS_TOKEN_SQL} = '', '', toString(properties.$virt_mcp_harness))")
 ERROR_TYPE_LABEL_SQL = label_of("toString(properties.$mcp_error_type)")
 # Email, else distinct ID. Without identify it's the session ID or "anonymous", so Unknown.
 USER_LABEL_SQL = label_of(

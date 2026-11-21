@@ -31,7 +31,6 @@ import {
     rankToolsByP95,
     slowestToolsEmptyMessage,
 } from '../mcpDashboardOverviewLogic'
-import { UNIDENTIFIED_HARNESS_LABEL } from '../missingCapabilities/mcpMissingCapabilitiesLogic'
 import { ToolReportDrawer } from '../tool-quality/ToolReportDrawer'
 import { isMostlyLabeled } from './leaderboardShares'
 import { type FacetKey, mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
@@ -93,7 +92,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const showProtocol = protocolVersionCount > 1 || (loadingFacet('protocolVersion') && protocolVersionCount === 0)
     const shareProps = { bucketKeys, theme, timezone, interval }
     const modelMissing = isMostlyLabeled(facets.model, ['Unknown'])
-    const harnessMissing = isMostlyLabeled(facets.harness, [UNIDENTIFIED_HARNESS_LABEL, 'Unknown'])
+    const harnessMissing = isMostlyLabeled(facets.harness, ['Unknown'])
     const usersAnonymous = isMostlyLabeled(facets.user, ['Unknown'])
     const openActivity = (change: Parameters<typeof activityUrlWithFilter>[1]): void =>
         router.actions.push(activityUrlWithFilter(searchParams, change))
@@ -178,6 +177,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         loading={loadingFacet('harness')}
                         failed={failedFacet('harness')}
                         iconOf={harnessIcon}
+                        unknownLabel="Unidentified client"
                         onSelect={(harness) => openActivity({ facets: { harnesses: [harness] } })}
                         dataAttr="mcp-dashboard-harness-share"
                         setupEmptyState={
