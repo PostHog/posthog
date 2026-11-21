@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useId } from 'react'
 
 import { LemonDialog, LemonSwitch } from '@posthog/lemon-ui'
+import { Field, FieldLabel, Switch, Text } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -27,16 +29,41 @@ export function LogsCaptureSettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const switchId = useId()
+
+    const handleChange = (checked: boolean): void => {
+        updateCurrentTeam({
+            logs_settings: { ...currentTeam?.logs_settings, capture_console_logs: checked },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <Field orientation="horizontal" className="w-fit">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Logs}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <Switch
+                        id={switchId}
+                        data-attr="opt-in-logs-capture-console-log-switch"
+                        onCheckedChange={handleChange}
+                        checked={!!currentTeam?.logs_settings?.capture_console_logs}
+                        disabled={currentTeamLoading}
+                        disabledReason={restrictedReason}
+                    />
+                </AccessControlAction>
+                <FieldLabel htmlFor={switchId}>Capture console logs to Logs product</FieldLabel>
+            </Field>
+        )
+    }
 
     return (
         <AccessControlAction resourceType={AccessControlResourceType.Logs} minAccessLevel={AccessControlLevel.Editor}>
             <LemonSwitch
                 data-attr="opt-in-logs-capture-console-log-switch"
-                onChange={(checked) => {
-                    updateCurrentTeam({
-                        logs_settings: { ...currentTeam?.logs_settings, capture_console_logs: checked },
-                    })
-                }}
+                onChange={handleChange}
                 label="Capture console logs to Logs product"
                 bordered
                 checked={!!currentTeam?.logs_settings?.capture_console_logs}
@@ -55,7 +82,37 @@ export function LogsJsonParseSettings(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const switchId = useId()
+
     const isJsonParseLogs = currentTeam?.logs_settings?.json_parse_logs ?? false
+
+    const handleChange = (checked: boolean): void => {
+        updateCurrentTeam({
+            logs_settings: { ...currentTeam?.logs_settings, json_parse_logs: checked },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <Field orientation="horizontal" className="w-fit">
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.Logs}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    <Switch
+                        id={switchId}
+                        data-attr="logs-json-parse-switch"
+                        onCheckedChange={handleChange}
+                        checked={isJsonParseLogs}
+                        disabled={currentTeamLoading}
+                        disabledReason={restrictedReason}
+                    />
+                </AccessControlAction>
+                <FieldLabel htmlFor={switchId}>JSON parse logs</FieldLabel>
+            </Field>
+        )
+    }
 
     return (
         <>
@@ -65,11 +122,7 @@ export function LogsJsonParseSettings(): JSX.Element {
             >
                 <LemonSwitch
                     data-attr="logs-json-parse-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({
-                            logs_settings: { ...currentTeam?.logs_settings, json_parse_logs: checked },
-                        })
-                    }}
+                    onChange={handleChange}
                     label="JSON parse logs"
                     bordered
                     checked={isJsonParseLogs}
@@ -88,6 +141,43 @@ export function LogsPiiScrubSettings(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const switchId = useId()
+
+    const handleChange = (checked: boolean): void => {
+        updateCurrentTeam({
+            logs_settings: { ...currentTeam?.logs_settings, pii_scrub_logs: checked },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col gap-2">
+                <Field orientation="horizontal" className="w-fit">
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Logs}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <Switch
+                            id={switchId}
+                            data-attr="logs-pii-scrub-switch"
+                            onCheckedChange={handleChange}
+                            checked={!!currentTeam?.logs_settings?.pii_scrub_logs}
+                            disabled={currentTeamLoading}
+                            disabledReason={restrictedReason}
+                        />
+                    </AccessControlAction>
+                    <FieldLabel htmlFor={switchId}>Scrub PII in logs at ingestion</FieldLabel>
+                </Field>
+                <Text size="xs" variant="muted" render={<p className="m-0 max-w-200" />}>
+                    When enabled, we scrub common sensitive patterns from the log message body before storage: email
+                    addresses, Bearer-style authorization tokens, and Stripe secret key shapes. This is best-effort:
+                    values that do not match these patterns, or bank card numbers, may still appear. Redaction is
+                    permanent and one-way. Redacted values are replaced with {'{{REDACTED}}'}.
+                </Text>
+            </div>
+        )
+    }
 
     return (
         <>
@@ -97,11 +187,7 @@ export function LogsPiiScrubSettings(): JSX.Element {
             >
                 <LemonSwitch
                     data-attr="logs-pii-scrub-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({
-                            logs_settings: { ...currentTeam?.logs_settings, pii_scrub_logs: checked },
-                        })
-                    }}
+                    onChange={handleChange}
                     label="Scrub PII in logs at ingestion"
                     bordered
                     checked={!!currentTeam?.logs_settings?.pii_scrub_logs}

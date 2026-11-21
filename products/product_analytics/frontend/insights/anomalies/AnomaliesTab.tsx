@@ -9,6 +9,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { AnomaliesEmptyState } from './AnomaliesEmptyState'
 import { AnomaliesFilters } from './AnomaliesFilters'
 import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
+import { AnomalyChartLegend } from './AnomalyChartLegend'
 import { AnomalyInsightGroup } from './AnomalyInsightGroup'
 
 export function AnomaliesTab(): JSX.Element {
@@ -77,16 +78,19 @@ export function AnomaliesTab(): JSX.Element {
                             </LemonBanner>
                         </div>
                     )}
-                    <div className="text-secondary text-sm" data-attr="anomalies-tab-coverage">
-                        <span>
-                            {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
-                        </span>
-                        {anomalies.scored_through && (
-                            <>
-                                <span> · Checked through </span>
-                                <TZLabel time={anomalies.scored_through} />
-                            </>
-                        )}
+                    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-secondary text-sm">
+                        <div data-attr="anomalies-tab-coverage">
+                            <span>
+                                {`${anomalies.insights_scored_in_range} of ${anomalies.watched_insights} watched insights checked in this range`}
+                            </span>
+                            {anomalies.scored_through && (
+                                <>
+                                    <span> · Checked through </span>
+                                    <TZLabel time={anomalies.scored_through} />
+                                </>
+                            )}
+                        </div>
+                        <AnomalyChartLegend />
                     </div>
                     <div className="flex flex-col gap-2">
                         {insightGroups.map((group, index) => (
