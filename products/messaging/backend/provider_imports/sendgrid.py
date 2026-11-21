@@ -97,10 +97,12 @@ STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
     "domains": (("whitelabel.read",),),
 }
 # SendGrid grants no marketing scope at all to a key on an account without Marketing Campaigns, even with full access.
+# A key that was given none on purpose looks the same, so these steps skip with a note instead of refusing the key.
 MARKETING_STEPS = ("single_sends", "lists")
 NO_MARKETING_CAMPAIGNS_NOTE = (
-    "This SendGrid account has no Marketing Campaigns, so there's nothing to import here. If it does have them, give "
-    "the key marketing.read and import again."
+    "Skipped, because this key can't read Marketing Campaigns. Accounts without a Marketing Campaigns plan have "
+    "nothing to import here. If your account has one, give the key marketing.read and design_library.read, then "
+    "import again."
 )
 SUPPRESSION_LISTS: tuple[tuple[str, str, SuppressionSource, str], ...] = (
     # Bounces go first because the first row for an address stays, and only a bounce blocks transactional email.
@@ -319,18 +321,24 @@ def missing_scopes_message(missing: Mapping[str, list[str]], specs: Sequence[Imp
         by_steps.setdefault(tuple(steps), []).append(scope)
     if len(by_steps) == 1:
         [(steps, scope_names)] = by_steps.items()
-        needs = "needs" if len(steps) == 1 else "need"
-        it = "it" if len(scope_names) == 1 else "them"
-        those = "that step" if len(steps) == 1 else "those steps"
+        step_names = _and_list([labels[s] for s in steps])
+        pronoun = "it" if len(scope_names) == 1 else "them"
+        if len(steps) == 1:
+            needed_by, turn_off = f"the {step_names} step needs", "that step"
+        else:
+            needed_by, turn_off = f"the {step_names} steps need", "those steps"
         return (
-            f"This SendGrid API key is missing {_and_list(scope_names)}, which {_and_list([labels[s] for s in steps])} "
-            f"{needs}. Add {it} in SendGrid, or turn off {those}."
+            f"This SendGrid API key is missing {_and_list(scope_names)}, which {needed_by}. Add {pronoun} in SendGrid, "
+            f"or turn off {turn_off}."
         )
     parts = [
         f"{_and_list(scope_names)} (for {_and_list([labels[s] for s in steps])})"
         for steps, scope_names in by_steps.items()
     ]
-    return f"This SendGrid API key is missing {_and_list(parts)}. Add them in SendGrid, or turn off the steps that need them."
+    return (
+        f"This SendGrid API key is missing {_and_list(parts)}. Add them in SendGrid, or turn off the steps that "
+        "need them."
+    )
 
 
 def _and_list(items: Sequence[str]) -> str:

@@ -354,7 +354,7 @@ class TestSendGridImport(BaseTest):
                 "too_few_scopes",
                 NARROW_KEY,
                 ["suppressions", "templates"],
-                "missing templates.read and templates.versions.read, which Dynamic and legacy templates needs",
+                "missing templates.read and templates.versions.read, which the Dynamic and legacy templates step needs",
             ),
             ("no_scopes", NO_SCOPE_KEY, ["domains"], "whitelabel.read"),
         ]
@@ -651,14 +651,14 @@ class TestSendGridKeys(SimpleTestCase):
             (
                 "one_scope_one_step",
                 {"whitelabel.read": ["domains"]},
-                "This SendGrid API key is missing whitelabel.read, which Authenticated domains needs. Add it in "
-                "SendGrid, or turn off that step.",
+                "This SendGrid API key is missing whitelabel.read, which the Authenticated domains step needs. Add it "
+                "in SendGrid, or turn off that step.",
             ),
             (
                 "one_scope_two_steps",
                 {"suppression.read": ["suppressions", "global_unsubscribes"]},
-                "This SendGrid API key is missing suppression.read, which Bounces, invalid addresses and spam reports "
-                "and Global unsubscribes need. Add it in SendGrid, or turn off those steps.",
+                "This SendGrid API key is missing suppression.read, which the Bounces, invalid addresses and spam "
+                "reports and Global unsubscribes steps need. Add it in SendGrid, or turn off those steps.",
             ),
             (
                 "scopes_for_different_steps",
