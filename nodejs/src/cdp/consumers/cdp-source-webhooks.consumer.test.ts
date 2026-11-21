@@ -697,7 +697,7 @@ describe('SourceWebhooksConsumer', () => {
                         id: new UUIDT().toString(),
                         billable_action_types: ['function'],
                     })
-                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations', true)
 
                     const res = await doPostRequest({
                         webhookId: billableHogFlow.id,
@@ -750,7 +750,7 @@ describe('SourceWebhooksConsumer', () => {
                     })
                     .build()
                 await insertHogFlow(hub.postgres, { ...pixelHogFlow, billable_action_types: ['function'] })
-                await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', overQuota)
+                await setTeamQuotaLimited(hub, team, 'workflow_destinations', overQuota)
 
                 const res = await doGetRequest({ webhookId: `${pixelHogFlow.id}.gif?ph_distinct_id=test-distinct-id` })
 
@@ -803,7 +803,7 @@ describe('SourceWebhooksConsumer', () => {
                         billable_action_types: ['function'],
                     })
                     const first = await postWithKey(billableHogFlow.id, 'escalation-quota')
-                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations', true)
                     const second = await postWithKey(billableHogFlow.id, 'escalation-quota')
 
                     expect(first.status).toEqual(201)
@@ -818,10 +818,10 @@ describe('SourceWebhooksConsumer', () => {
                         id: new UUIDT().toString(),
                         billable_action_types: ['function'],
                     })
-                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations', true)
 
                     const refused = await postWithKey(billableHogFlow.id, 'escalation-quota-retry')
-                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations', false)
                     const retried = await postWithKey(billableHogFlow.id, 'escalation-quota-retry')
 
                     expect(refused.status).toEqual(429)
@@ -1201,7 +1201,7 @@ describe('SourceWebhooksConsumer', () => {
                         id: new UUIDT().toString(),
                         billable_action_types: ['function'],
                     })
-                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations', true)
 
                     const res = await doManualRequest(team.id, billableHogFlow.id, {
                         user_id: 'user@example.com',

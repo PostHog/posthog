@@ -69,7 +69,7 @@ describe('HogFlow Quota Limiting', () => {
                 name: 'a push send alone is limited by the destination quota',
                 trigger: { type: 'event' },
                 actions: [{ type: 'function_push', config: {} }],
-                limitedResources: ['workflow_destinations_dispatched'],
+                limitedResources: ['workflow_destinations'],
                 expected: true,
             },
             {
@@ -97,7 +97,7 @@ describe('HogFlow Quota Limiting', () => {
                 name: 'a destination next to transactional emails is still limited by the destination quota',
                 trigger: { type: 'event' },
                 actions: [transactionalEmail, { type: 'function', config: {} }],
-                limitedResources: ['workflow_emails', 'workflow_destinations_dispatched'],
+                limitedResources: ['workflow_emails', 'workflow_destinations'],
                 expected: true,
             },
         ])('$name', async ({ trigger, actions, limitedResources, expected }) => {
@@ -119,7 +119,7 @@ describe('HogFlow Quota Limiting', () => {
 
         it('should limit workflow with push action when team has destination quota limit', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((team, resource) =>
-                Promise.resolve(team === teamId && resource === 'workflow_destinations_dispatched')
+                Promise.resolve(team === teamId && resource === 'workflow_destinations')
             )
 
             const hogFlow: HogFlow = {
@@ -135,7 +135,7 @@ describe('HogFlow Quota Limiting', () => {
 
         it('should limit workflow with destination action when team has destination quota limit', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((team, resource) =>
-                Promise.resolve(team === teamId && resource === 'workflow_destinations_dispatched')
+                Promise.resolve(team === teamId && resource === 'workflow_destinations')
             )
 
             const hogFlow: HogFlow = {
@@ -195,10 +195,7 @@ describe('HogFlow Quota Limiting', () => {
             expect(result.isLimited).toBe(false)
             expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledTimes(2)
             expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(teamId, 'workflow_emails')
-            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
-                teamId,
-                'workflow_destinations_dispatched'
-            )
+            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(teamId, 'workflow_destinations')
         })
     })
 
@@ -270,10 +267,10 @@ describe('HogFlow Quota Limiting', () => {
                     ],
                 ],
             ],
-            ['a webhook on the destination quota', 'workflow_destinations_dispatched', ['function'], []],
+            ['a webhook on the destination quota', 'workflow_destinations', ['function'], []],
             [
                 'an email send next to a webhook on the destination quota',
-                'workflow_destinations_dispatched',
+                'workflow_destinations',
                 ['function_email', 'function'],
                 [
                     [
