@@ -14,6 +14,7 @@ import {
     signalsScoutSuggestionsRefresh,
 } from 'products/signals/frontend/generated/api'
 import type { ScoutSuggestionItemApi, ScoutSuggestionSetApi } from 'products/signals/frontend/generated/api.schemas'
+import type { PatchedSignalScoutConfigUpdateApi } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import type { SignalScoutConfigApi } from '../../generated/api.schemas'
@@ -118,10 +119,10 @@ export interface scoutSuggestionsLogicActions {
     } // scoutFleetLogic
     updateScoutConfig: (
         configId: string,
-        updates: import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: PatchedSignalScoutConfigUpdateApi
     ) => {
         configId: string
-        updates: import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: PatchedSignalScoutConfigUpdateApi
     } // scoutFleetLogic
     askForSuggestions: () => {
         value: true

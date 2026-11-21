@@ -45,6 +45,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             stateManager: {},
         } as any,
         useSingleExec: true,
+        splitWrites: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
         oauthClientId: undefined,

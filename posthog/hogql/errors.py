@@ -71,6 +71,22 @@ class QueryError(ExposedHogQLError):
     code_name = "hogql_query_error"
 
 
+class AmbiguousFieldError(QueryError):
+    def __init__(self, name: str, sources: list[str], hint: str):
+        super().__init__(f"Ambiguous query. Found multiple sources for field: {name}")
+        self.name = name
+        self.sources = sources
+        self.hint = hint
+
+    def __str__(self) -> str:
+        # The printer catches this error to qualify valid fields. Only format suggestions for a displayed error.
+        from posthog.hogql.resolver_utils import qualified_field_suggestion  # noqa: PLC0415
+
+        choices = ", ".join(qualified_field_suggestion(source, self.name) for source in self.sources)
+        sources = f" ({choices})" if choices else ""
+        return f"{super().__str__()}{sources}. {self.hint}"
+
+
 class BoundedResolverError(QueryError):
     """Base class for saved view resolution failures: cycles, nesting depth and deadlines.
 

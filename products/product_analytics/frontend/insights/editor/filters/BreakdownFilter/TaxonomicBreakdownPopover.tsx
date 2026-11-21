@@ -2,10 +2,10 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { Popover as QuillPopover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover, isInsideOpenPopover } from 'lib/lemon-ui/Popover/Popover'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { hogql } from 'lib/utils/hogql'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

@@ -2,6 +2,7 @@ import { createContext } from 'react'
 
 export interface SandboxSenderChoice {
     selected: boolean
+    onlySender: boolean
     fromLine: string | null
     onSelect: () => void
 }

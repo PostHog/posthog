@@ -7,6 +7,7 @@ import { buildAnomalyMarkers } from 'products/product_analytics/frontend/insight
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { AnomalyBucketShading } from './AnomalyBucketShading'
+import { ANOMALY_FILL_COLOR_VAR } from './anomalyChartStyle'
 import { buildAnomalyScorePoints } from './anomalyScorePoints'
 import { insightAnomalyScoresLogic } from './insightAnomalyScoresLogic'
 
@@ -44,6 +45,6 @@ export function TrendsAnomalyScoreOverlay({
 
     // The same red as a flagged bucket in a row chart on the Anomalies tab.
     return dataIndices.length > 0 ? (
-        <AnomalyBucketShading dataIndices={dataIndices} color={getColorVar('danger')} />
+        <AnomalyBucketShading dataIndices={dataIndices} color={getColorVar(ANOMALY_FILL_COLOR_VAR)} />
     ) : null
 }

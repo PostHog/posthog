@@ -326,8 +326,8 @@ export interface runInteractionLogicActions {
         replayedFromHistory?: boolean
         status: RunStatus
     }) => {
-        errorMessage?: string | null | undefined
-        replayedFromHistory?: boolean | undefined
+        errorMessage?: string | null
+        replayedFromHistory?: boolean
         status: RunStatus
     } // runStreamLogic
     ingestPermissionRequest: (
@@ -368,8 +368,8 @@ export interface runInteractionLogicActions {
         optionId: string
         requestId: string
     }) => {
-        answers?: Record<string, string> | undefined
-        customInput?: string | undefined
+        answers?: Record<string, string>
+        customInput?: string
         optionId: string
         requestId: string
     } // runStreamLogic

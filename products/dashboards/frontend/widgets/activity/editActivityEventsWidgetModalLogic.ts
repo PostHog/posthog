@@ -38,133 +38,11 @@ export interface editActivityEventsWidgetModalLogicValues {
     tileName: string
     validation:
         | {
-              fieldErrors: Partial<Record<'dateRange' | 'filterTestAccounts' | 'limit', string>>
+              fieldErrors: ActivityEventsWidgetFieldErrors
               success: false
           }
         | {
-              config: {
-                  dateRange?:
-                      | {
-                            date_from?:
-                                | '-14d'
-                                | '-1h'
-                                | '-1M'
-                                | '-24h'
-                                | '-30d'
-                                | '-30M'
-                                | '-3h'
-                                | '-7d'
-                                | '-90d'
-                                | null
-                                | undefined
-                        }
-                      | null
-                      | undefined
-                  eventName?: string | null | undefined
-                  filterTestAccounts?: boolean | null | undefined
-                  limit: number
-                  properties?:
-                      | {
-                            key: string
-                            label?: string | null | undefined
-                            operator:
-                                | 'between'
-                                | 'ends_with'
-                                | 'exact'
-                                | 'flag_evaluates_to'
-                                | 'gt'
-                                | 'gte'
-                                | 'icontains'
-                                | 'icontains_multi'
-                                | 'in'
-                                | 'is_cleaned_path_exact'
-                                | 'is_cleaned_path_not_exact'
-                                | 'is_date_after'
-                                | 'is_date_before'
-                                | 'is_date_exact'
-                                | 'is_not'
-                                | 'is_not_set'
-                                | 'is_set'
-                                | 'lt'
-                                | 'lte'
-                                | 'max'
-                                | 'min'
-                                | 'not_between'
-                                | 'not_ends_with'
-                                | 'not_icontains'
-                                | 'not_icontains_multi'
-                                | 'not_in'
-                                | 'not_regex'
-                                | 'not_starts_with'
-                                | 'regex'
-                                | 'semver_caret'
-                                | 'semver_eq'
-                                | 'semver_gt'
-                                | 'semver_gte'
-                                | 'semver_lt'
-                                | 'semver_lte'
-                                | 'semver_neq'
-                                | 'semver_tilde'
-                                | 'semver_wildcard'
-                                | 'starts_with'
-                            type: 'event' | 'person'
-                            value?: boolean | number | string | (boolean | number | string)[] | null | undefined
-                        }[]
-                      | null
-                      | undefined
-                  widgetFilters?:
-                      | Record<
-                            string,
-                            {
-                                filterId: string
-                                operator:
-                                    | 'between'
-                                    | 'ends_with'
-                                    | 'exact'
-                                    | 'flag_evaluates_to'
-                                    | 'gt'
-                                    | 'gte'
-                                    | 'icontains'
-                                    | 'icontains_multi'
-                                    | 'in'
-                                    | 'is_cleaned_path_exact'
-                                    | 'is_cleaned_path_not_exact'
-                                    | 'is_date_after'
-                                    | 'is_date_before'
-                                    | 'is_date_exact'
-                                    | 'is_not'
-                                    | 'is_not_set'
-                                    | 'is_set'
-                                    | 'lt'
-                                    | 'lte'
-                                    | 'max'
-                                    | 'min'
-                                    | 'not_between'
-                                    | 'not_ends_with'
-                                    | 'not_icontains'
-                                    | 'not_icontains_multi'
-                                    | 'not_in'
-                                    | 'not_regex'
-                                    | 'not_starts_with'
-                                    | 'regex'
-                                    | 'semver_caret'
-                                    | 'semver_eq'
-                                    | 'semver_gt'
-                                    | 'semver_gte'
-                                    | 'semver_lt'
-                                    | 'semver_lte'
-                                    | 'semver_neq'
-                                    | 'semver_tilde'
-                                    | 'semver_wildcard'
-                                    | 'starts_with'
-                                optionId: string
-                                propertyName: string
-                                value?: string | string[] | null | undefined
-                            }
-                        >
-                      | null
-                      | undefined
-              }
+              config: ActivityEventsWidgetConfig
               success: true
           }
     widgetConfig: ActivityEventsWidgetConfig
@@ -207,6 +85,7 @@ export interface editActivityEventsWidgetModalLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface editActivityEventsWidgetModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        widgetConfig: (config: Record<string, unknown>) => ActivityEventsWidgetConfig
         validation: (
             limit: number,
             filterTestAccounts: boolean,
@@ -335,265 +214,21 @@ export interface editActivityEventsWidgetModalLogicMeta {
             }
         ) =>
             | {
-                  fieldErrors: Partial<Record<'dateRange' | 'filterTestAccounts' | 'limit', string>>
+                  fieldErrors: ActivityEventsWidgetFieldErrors
                   success: false
               }
             | {
-                  config: {
-                      dateRange?:
-                          | {
-                                date_from?:
-                                    | '-14d'
-                                    | '-1h'
-                                    | '-1M'
-                                    | '-24h'
-                                    | '-30d'
-                                    | '-30M'
-                                    | '-3h'
-                                    | '-7d'
-                                    | '-90d'
-                                    | null
-                                    | undefined
-                            }
-                          | null
-                          | undefined
-                      eventName?: string | null | undefined
-                      filterTestAccounts?: boolean | null | undefined
-                      limit: number
-                      properties?:
-                          | {
-                                key: string
-                                label?: string | null | undefined
-                                operator:
-                                    | 'between'
-                                    | 'ends_with'
-                                    | 'exact'
-                                    | 'flag_evaluates_to'
-                                    | 'gt'
-                                    | 'gte'
-                                    | 'icontains'
-                                    | 'icontains_multi'
-                                    | 'in'
-                                    | 'is_cleaned_path_exact'
-                                    | 'is_cleaned_path_not_exact'
-                                    | 'is_date_after'
-                                    | 'is_date_before'
-                                    | 'is_date_exact'
-                                    | 'is_not'
-                                    | 'is_not_set'
-                                    | 'is_set'
-                                    | 'lt'
-                                    | 'lte'
-                                    | 'max'
-                                    | 'min'
-                                    | 'not_between'
-                                    | 'not_ends_with'
-                                    | 'not_icontains'
-                                    | 'not_icontains_multi'
-                                    | 'not_in'
-                                    | 'not_regex'
-                                    | 'not_starts_with'
-                                    | 'regex'
-                                    | 'semver_caret'
-                                    | 'semver_eq'
-                                    | 'semver_gt'
-                                    | 'semver_gte'
-                                    | 'semver_lt'
-                                    | 'semver_lte'
-                                    | 'semver_neq'
-                                    | 'semver_tilde'
-                                    | 'semver_wildcard'
-                                    | 'starts_with'
-                                type: 'event' | 'person'
-                                value?: boolean | number | string | (boolean | number | string)[] | null | undefined
-                            }[]
-                          | null
-                          | undefined
-                      widgetFilters?:
-                          | Record<
-                                string,
-                                {
-                                    filterId: string
-                                    operator:
-                                        | 'between'
-                                        | 'ends_with'
-                                        | 'exact'
-                                        | 'flag_evaluates_to'
-                                        | 'gt'
-                                        | 'gte'
-                                        | 'icontains'
-                                        | 'icontains_multi'
-                                        | 'in'
-                                        | 'is_cleaned_path_exact'
-                                        | 'is_cleaned_path_not_exact'
-                                        | 'is_date_after'
-                                        | 'is_date_before'
-                                        | 'is_date_exact'
-                                        | 'is_not'
-                                        | 'is_not_set'
-                                        | 'is_set'
-                                        | 'lt'
-                                        | 'lte'
-                                        | 'max'
-                                        | 'min'
-                                        | 'not_between'
-                                        | 'not_ends_with'
-                                        | 'not_icontains'
-                                        | 'not_icontains_multi'
-                                        | 'not_in'
-                                        | 'not_regex'
-                                        | 'not_starts_with'
-                                        | 'regex'
-                                        | 'semver_caret'
-                                        | 'semver_eq'
-                                        | 'semver_gt'
-                                        | 'semver_gte'
-                                        | 'semver_lt'
-                                        | 'semver_lte'
-                                        | 'semver_neq'
-                                        | 'semver_tilde'
-                                        | 'semver_wildcard'
-                                        | 'starts_with'
-                                    optionId: string
-                                    propertyName: string
-                                    value?: string | string[] | null | undefined
-                                }
-                            >
-                          | null
-                          | undefined
-                  }
+                  config: ActivityEventsWidgetConfig
                   success: true
               }
         activeFieldErrors: (
             validation:
                 | {
-                      config: {
-                          dateRange?:
-                              | {
-                                    date_from?:
-                                        | '-14d'
-                                        | '-1h'
-                                        | '-1M'
-                                        | '-24h'
-                                        | '-30d'
-                                        | '-30M'
-                                        | '-3h'
-                                        | '-7d'
-                                        | '-90d'
-                                        | null
-                                        | undefined
-                                }
-                              | null
-                              | undefined
-                          eventName?: string | null | undefined
-                          filterTestAccounts?: boolean | null | undefined
-                          limit: number
-                          properties?:
-                              | {
-                                    key: string
-                                    label?: string | null | undefined
-                                    operator:
-                                        | 'between'
-                                        | 'ends_with'
-                                        | 'exact'
-                                        | 'flag_evaluates_to'
-                                        | 'gt'
-                                        | 'gte'
-                                        | 'icontains'
-                                        | 'icontains_multi'
-                                        | 'in'
-                                        | 'is_cleaned_path_exact'
-                                        | 'is_cleaned_path_not_exact'
-                                        | 'is_date_after'
-                                        | 'is_date_before'
-                                        | 'is_date_exact'
-                                        | 'is_not'
-                                        | 'is_not_set'
-                                        | 'is_set'
-                                        | 'lt'
-                                        | 'lte'
-                                        | 'max'
-                                        | 'min'
-                                        | 'not_between'
-                                        | 'not_ends_with'
-                                        | 'not_icontains'
-                                        | 'not_icontains_multi'
-                                        | 'not_in'
-                                        | 'not_regex'
-                                        | 'not_starts_with'
-                                        | 'regex'
-                                        | 'semver_caret'
-                                        | 'semver_eq'
-                                        | 'semver_gt'
-                                        | 'semver_gte'
-                                        | 'semver_lt'
-                                        | 'semver_lte'
-                                        | 'semver_neq'
-                                        | 'semver_tilde'
-                                        | 'semver_wildcard'
-                                        | 'starts_with'
-                                    type: 'event' | 'person'
-                                    value?: boolean | number | string | (boolean | number | string)[] | null | undefined
-                                }[]
-                              | null
-                              | undefined
-                          widgetFilters?:
-                              | Record<
-                                    string,
-                                    {
-                                        filterId: string
-                                        operator:
-                                            | 'between'
-                                            | 'ends_with'
-                                            | 'exact'
-                                            | 'flag_evaluates_to'
-                                            | 'gt'
-                                            | 'gte'
-                                            | 'icontains'
-                                            | 'icontains_multi'
-                                            | 'in'
-                                            | 'is_cleaned_path_exact'
-                                            | 'is_cleaned_path_not_exact'
-                                            | 'is_date_after'
-                                            | 'is_date_before'
-                                            | 'is_date_exact'
-                                            | 'is_not'
-                                            | 'is_not_set'
-                                            | 'is_set'
-                                            | 'lt'
-                                            | 'lte'
-                                            | 'max'
-                                            | 'min'
-                                            | 'not_between'
-                                            | 'not_ends_with'
-                                            | 'not_icontains'
-                                            | 'not_icontains_multi'
-                                            | 'not_in'
-                                            | 'not_regex'
-                                            | 'not_starts_with'
-                                            | 'regex'
-                                            | 'semver_caret'
-                                            | 'semver_eq'
-                                            | 'semver_gt'
-                                            | 'semver_gte'
-                                            | 'semver_lt'
-                                            | 'semver_lte'
-                                            | 'semver_neq'
-                                            | 'semver_tilde'
-                                            | 'semver_wildcard'
-                                            | 'starts_with'
-                                        optionId: string
-                                        propertyName: string
-                                        value?: string | string[] | null | undefined
-                                    }
-                                >
-                              | null
-                              | undefined
-                      }
+                      config: ActivityEventsWidgetConfig
                       success: true
                   }
                 | {
-                      fieldErrors: Partial<Record<'dateRange' | 'filterTestAccounts' | 'limit', string>>
+                      fieldErrors: ActivityEventsWidgetFieldErrors
                       success: false
                   },
             fieldErrors: Partial<Record<'dateRange' | 'filterTestAccounts' | 'limit', string>>
@@ -602,137 +237,14 @@ export interface editActivityEventsWidgetModalLogicMeta {
             saving: boolean,
             validation:
                 | {
-                      config: {
-                          dateRange?:
-                              | {
-                                    date_from?:
-                                        | '-14d'
-                                        | '-1h'
-                                        | '-1M'
-                                        | '-24h'
-                                        | '-30d'
-                                        | '-30M'
-                                        | '-3h'
-                                        | '-7d'
-                                        | '-90d'
-                                        | null
-                                        | undefined
-                                }
-                              | null
-                              | undefined
-                          eventName?: string | null | undefined
-                          filterTestAccounts?: boolean | null | undefined
-                          limit: number
-                          properties?:
-                              | {
-                                    key: string
-                                    label?: string | null | undefined
-                                    operator:
-                                        | 'between'
-                                        | 'ends_with'
-                                        | 'exact'
-                                        | 'flag_evaluates_to'
-                                        | 'gt'
-                                        | 'gte'
-                                        | 'icontains'
-                                        | 'icontains_multi'
-                                        | 'in'
-                                        | 'is_cleaned_path_exact'
-                                        | 'is_cleaned_path_not_exact'
-                                        | 'is_date_after'
-                                        | 'is_date_before'
-                                        | 'is_date_exact'
-                                        | 'is_not'
-                                        | 'is_not_set'
-                                        | 'is_set'
-                                        | 'lt'
-                                        | 'lte'
-                                        | 'max'
-                                        | 'min'
-                                        | 'not_between'
-                                        | 'not_ends_with'
-                                        | 'not_icontains'
-                                        | 'not_icontains_multi'
-                                        | 'not_in'
-                                        | 'not_regex'
-                                        | 'not_starts_with'
-                                        | 'regex'
-                                        | 'semver_caret'
-                                        | 'semver_eq'
-                                        | 'semver_gt'
-                                        | 'semver_gte'
-                                        | 'semver_lt'
-                                        | 'semver_lte'
-                                        | 'semver_neq'
-                                        | 'semver_tilde'
-                                        | 'semver_wildcard'
-                                        | 'starts_with'
-                                    type: 'event' | 'person'
-                                    value?: boolean | number | string | (boolean | number | string)[] | null | undefined
-                                }[]
-                              | null
-                              | undefined
-                          widgetFilters?:
-                              | Record<
-                                    string,
-                                    {
-                                        filterId: string
-                                        operator:
-                                            | 'between'
-                                            | 'ends_with'
-                                            | 'exact'
-                                            | 'flag_evaluates_to'
-                                            | 'gt'
-                                            | 'gte'
-                                            | 'icontains'
-                                            | 'icontains_multi'
-                                            | 'in'
-                                            | 'is_cleaned_path_exact'
-                                            | 'is_cleaned_path_not_exact'
-                                            | 'is_date_after'
-                                            | 'is_date_before'
-                                            | 'is_date_exact'
-                                            | 'is_not'
-                                            | 'is_not_set'
-                                            | 'is_set'
-                                            | 'lt'
-                                            | 'lte'
-                                            | 'max'
-                                            | 'min'
-                                            | 'not_between'
-                                            | 'not_ends_with'
-                                            | 'not_icontains'
-                                            | 'not_icontains_multi'
-                                            | 'not_in'
-                                            | 'not_regex'
-                                            | 'not_starts_with'
-                                            | 'regex'
-                                            | 'semver_caret'
-                                            | 'semver_eq'
-                                            | 'semver_gt'
-                                            | 'semver_gte'
-                                            | 'semver_lt'
-                                            | 'semver_lte'
-                                            | 'semver_neq'
-                                            | 'semver_tilde'
-                                            | 'semver_wildcard'
-                                            | 'starts_with'
-                                        optionId: string
-                                        propertyName: string
-                                        value?: string | string[] | null | undefined
-                                    }
-                                >
-                              | null
-                              | undefined
-                      }
+                      config: ActivityEventsWidgetConfig
                       success: true
                   }
                 | {
-                      fieldErrors: Partial<Record<'dateRange' | 'filterTestAccounts' | 'limit', string>>
+                      fieldErrors: ActivityEventsWidgetFieldErrors
                       success: false
                   }
         ) => string | undefined
-        widgetConfig: (config: Record<string, unknown>) => ActivityEventsWidgetConfig
     }
 }
 
