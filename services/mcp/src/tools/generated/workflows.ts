@@ -866,6 +866,7 @@ const workflowsReputationGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/reputation/`,
             query: {
+                days: params.days,
                 search: params.search,
             },
         })

@@ -2370,26 +2370,26 @@ export interface AwsTenantReputationApi {
 }
 
 /**
- * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
+ * Bounce/complaint rates over the requested window of workflow email, computed on the fly from app metrics.
  */
 export interface EmailSendingRatesApi {
-    /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
+    /** Hard (permanent) bounces / emails sent over the requested window (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
     readonly bounce_rate: number
-    /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
+    /** Spam complaints / emails sent over the requested window (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
     readonly complaint_rate: number
-    /** Emails sent in the last 30 days. */
+    /** Emails sent in the requested window. */
     readonly emails_sent: number
 }
 
 /**
- * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
+ * Bounce/complaint rates over the requested window of workflow email, computed on the fly from app metrics.
  */
 export interface WorkflowEmailSendingRatesApi {
-    /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
+    /** Hard (permanent) bounces / emails sent over the requested window (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
     readonly bounce_rate: number
-    /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
+    /** Spam complaints / emails sent over the requested window (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
     readonly complaint_rate: number
-    /** Emails sent in the last 30 days. */
+    /** Emails sent in the requested window. */
     readonly emails_sent: number
     /** The workflow these rates are for. */
     readonly hog_flow_id: string
@@ -2466,7 +2466,7 @@ export interface EmailSendingAllowanceApi {
 export interface TeamEmailReputationResponseApi {
     /** Sending health as judged and enforced by AWS SES for this project's tenant; null when the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is unreachable. */
     readonly aws: AwsTenantReputationApi | null
-    /** Project-wide rates across all workflow email in the last 30 days (including sends from since-deleted workflows); null when nothing was sent. */
+    /** Project-wide rates across all workflow email in the requested window (including sends from since-deleted workflows); null when nothing was sent. */
     readonly reputation: EmailSendingRatesApi | null
     /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */
     readonly workflows: readonly WorkflowEmailSendingRatesApi[]
@@ -3992,10 +3992,25 @@ export type HogFlowsMetricsGlobalRetrieveParams = {
 
 export type HogFlowsReputationRetrieveParams = {
     /**
+     * How many days the rates and the provider breakdown cover. 7 is the window the daily sending tier check uses to lower a tier.
+     *
+     * * `30` - 30
+     * * `7` - 7
+     */
+    days?: HogFlowsReputationRetrieveDays
+    /**
      * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
      */
     search?: string
 }
+
+export type HogFlowsReputationRetrieveDays =
+    (typeof HogFlowsReputationRetrieveDays)[keyof typeof HogFlowsReputationRetrieveDays]
+
+export const HogFlowsReputationRetrieveDays = {
+    Number30: 30,
+    Number7: 7,
+} as const
 
 export type HogFlowsSendCalendarRetrieveParams = {
     /**

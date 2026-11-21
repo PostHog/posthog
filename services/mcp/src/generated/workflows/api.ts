@@ -1440,8 +1440,8 @@ export const HogFlowsMetricsGlobalRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
- * the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+ * Bounce/complaint rates for this project's workflow email over the requested window (`days`),
+ * computed on the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
  * capped), together with the authoritative AWS SES tenant verdict — sending status and open
  * reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
  */
@@ -1453,7 +1453,15 @@ export const HogFlowsReputationRetrieveParams = () => zod.object({
         ),
 })
 
+export const hogFlowsReputationRetrieveQueryDaysDefault = 30
+
 export const HogFlowsReputationRetrieveQueryParams = () => zod.object({
+    days: zod
+        .union([zod.literal(30), zod.literal(7)])
+        .default(hogFlowsReputationRetrieveQueryDaysDefault)
+        .describe(
+            'How many days the rates and the provider breakdown cover. 7 is the window the daily sending tier check uses to lower a tier.\n\n\* `30` - 30\n\* `7` - 7'
+        ),
     search: zod
         .string()
         .optional()
