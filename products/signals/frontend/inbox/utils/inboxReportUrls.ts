@@ -63,7 +63,8 @@ export function inboxReportBackLabel(backUrl: string): string {
  */
 export function inboxTabRedirectPath(
     tab: string | undefined,
-    searchParams: Record<string, unknown> = {}
+    searchParams: Record<string, unknown> = {},
+    hashParams: Record<string, unknown> = {}
 ): string | null {
     // OAuth callbacks may still target the page where a source connection was started.
     if (searchParams.setup === 'signal-sources' && (tab === undefined || tab === 'config' || tab === 'settings')) {
@@ -77,7 +78,9 @@ export function inboxTabRedirectPath(
         case 'runs':
             return urls.inboxRuns()
         case 'config':
-            return urls.inbox('settings')
+        case 'settings':
+            // Scout template links (`/inbox/config#createScout=`) open the create modal, which lives with the scouts.
+            return hashParams.createScout ? urls.inbox('scouts') : urls.settings('environment-self-driving')
         default:
             return null
     }

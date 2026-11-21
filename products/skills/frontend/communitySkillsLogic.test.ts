@@ -91,7 +91,7 @@ describe('communitySkillsLogic', () => {
         await expectLogic(logic).toDispatchActions(['setUpScoutSuccess'])
 
         expect(mockInstall).not.toHaveBeenCalled()
-        expect(router.values.location.pathname).toContain('/inbox/config')
+        expect(router.values.location.pathname).toContain('/inbox/scouts')
         expect(decodeScoutCreateTemplate(router.values.hashParams.createScout)).toEqual({
             display_name: 'Feed scout',
             description: 'Watch a feed for problems.',
@@ -119,7 +119,7 @@ describe('communitySkillsLogic', () => {
         logic.actions.setUpScout('signals-scout-feed')
         await expectLogic(logic).toDispatchActions(['setUpScoutFailure'])
 
-        expect(router.values.location.pathname).not.toContain('/inbox/config')
+        expect(router.values.location.pathname).not.toContain('/inbox/scouts')
         expect(lemonToast.error).toHaveBeenCalledWith(
             'This entry is no longer a scout. Refresh the store and try again.'
         )

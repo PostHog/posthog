@@ -24,7 +24,7 @@ from products.signals.backend.models import SignalReport, SignalReportAssignment
 logger = structlog.get_logger(__name__)
 
 # What a team gets when it turns the label on without naming one. Reads the same way in a GitHub
-# search as it does in the inbox settings, so nobody has to translate between the two.
+# search as it does in the Self-driving settings, so nobody has to translate between the two.
 DEFAULT_PULL_REQUEST_LABEL = "self-driving"
 
 # Only a live pull request is worth a GitHub call. UNKNOWN is included because a row that never

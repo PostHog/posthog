@@ -26,7 +26,6 @@ import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
-import { SettingsTab } from './components/tabs/SettingsTab'
 import { SourcesTab } from './components/tabs/SourcesTab'
 import { InboxTriageView } from './components/triage/InboxTriageView'
 import { captureInboxPanelViewed } from './inboxAnalytics'
@@ -88,8 +87,6 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
             return <ScoutsRoster />
         case 'sources':
             return <SourcesTab />
-        case 'settings':
-            return <SettingsTab />
         // Old-layout tab segments are redirected before they can become active.
         default:
             return null
@@ -106,11 +103,10 @@ function InboxListView(): JSX.Element {
     // what caused the normal inbox to flash in and get replaced by the welcome page.
     const pending = onboardingMode === 'pending'
 
-    // These tabs render no report list, so `Inbox viewed` never fires for them.
-    // Keep Settings attributed to `config` so existing panel breakdowns remain continuous.
+    // This tab renders no report list, so `Inbox viewed` never fires for it.
     const panelViewFiredRef = useRef<InboxTabKey | null>(null)
     useEffect(() => {
-        if ((activeTab !== 'settings' && activeTab !== 'sources') || onboarding || pending) {
+        if (activeTab !== 'sources' || onboarding || pending) {
             panelViewFiredRef.current = null
             return
         }
@@ -118,7 +114,7 @@ function InboxListView(): JSX.Element {
             return
         }
         panelViewFiredRef.current = activeTab
-        captureInboxPanelViewed({ panel: activeTab === 'settings' ? 'config' : 'sources' })
+        captureInboxPanelViewed({ panel: 'sources' })
     }, [activeTab, onboarding, pending])
 
     return (

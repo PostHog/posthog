@@ -1418,7 +1418,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 }
             },
             [urls.inbox()]: (_, searchParams, hashParams) => {
-                const redirectPath = inboxTabRedirectPath(undefined, searchParams)
+                const redirectPath = inboxTabRedirectPath(undefined, searchParams, hashParams)
                 if (redirectPath) {
                     router.actions.replace(redirectPath, searchParams, hashParams)
                     return
@@ -1433,7 +1433,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 }
                 // Tab segments from the old inbox layout still arrive from Slack messages and
                 // bookmarks: send them to the surface that replaced them.
-                const redirectPath = inboxTabRedirectPath(tab, searchParams)
+                const redirectPath = inboxTabRedirectPath(tab, searchParams, hashParams)
                 if (redirectPath) {
                     router.actions.replace(redirectPath, searchParams, hashParams)
                     return

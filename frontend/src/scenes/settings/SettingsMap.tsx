@@ -89,6 +89,11 @@ import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampl
 import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
 import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { ProjectEventsTableSetting } from 'products/product_analytics/frontend/settings/ProjectEventsTableSetting'
+import { AgentSteeringSection } from 'products/signals/frontend/inbox/components/config/AgentSteeringSection'
+import { SelfDrivingSection } from 'products/signals/frontend/inbox/components/config/SelfDrivingSection'
+import { SlackNotificationsSection } from 'products/signals/frontend/inbox/components/config/SlackNotificationsSection'
+import { SelfDrivingCodeAccessSetting } from 'products/signals/frontend/inbox/components/settings/SelfDrivingCodeAccessSetting'
+import { SelfDrivingUsageSetting } from 'products/signals/frontend/inbox/components/settings/SelfDrivingUsageSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -1541,6 +1546,62 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Connect external data sources like Stripe for revenue tracking.',
                 component: <ExternalDataSourceConfiguration hideTitle />,
                 keywords: ['stripe', 'import', 'sync', 'data warehouse'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-self-driving',
+        title: 'Self-driving',
+        group: 'Products',
+        flag: 'PRODUCT_AUTONOMY',
+        keywords: ['self-driving', 'signals', 'inbox', 'reports'],
+        settings: [
+            {
+                id: 'self-driving-autonomy',
+                title: 'Autonomy',
+                description:
+                    'How much agents do on their own: opening pull requests, and how many reports arrive each day.',
+                component: <SelfDrivingSection />,
+                keywords: ['autonomy', 'pull requests', 'priority', 'daily limit', 'base branch', 'jira', 'linear'],
+            },
+            {
+                id: 'self-driving-steering',
+                title: 'Steering',
+                description: (
+                    <>
+                        Guide each agent's work in addition to your{' '}
+                        <Link
+                            to={urls.settings('environment-task-agent-instructions', 'task-agent-project-instructions')}
+                            data-attr="signals-steering-project-instructions"
+                        >
+                            project instructions
+                        </Link>
+                        .
+                    </>
+                ),
+                component: <AgentSteeringSection />,
+                keywords: ['steering', 'instructions', 'scouts', 'research', 'implementation', 'image'],
+            },
+            {
+                id: 'self-driving-code-access',
+                title: 'Code access',
+                description: 'Connect GitHub so agents can read repositories and open pull requests.',
+                component: <SelfDrivingCodeAccessSetting />,
+                keywords: ['github', 'repositories', 'repo routing', 'code access'],
+            },
+            {
+                id: 'self-driving-notifications',
+                title: 'Notifications',
+                description: "Post reports to a Slack channel, and get pinged when you're a suggested reviewer.",
+                component: <SlackNotificationsSection />,
+                keywords: ['slack', 'notifications', 'reviewer'],
+            },
+            {
+                id: 'self-driving-usage',
+                title: 'Usage',
+                component: <SelfDrivingUsageSetting />,
+                keywords: ['usage', 'spend', 'credits', 'billing'],
             },
         ],
     },

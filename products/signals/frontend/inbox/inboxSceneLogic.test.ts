@@ -171,7 +171,6 @@ describe('inboxSceneLogic routing', () => {
     it.each<[string, string, string]>([
         ['/inbox/pulls', urls.inbox('reports'), 'reports'],
         ['/inbox/archived', urls.inbox('reports'), 'reports'],
-        ['/inbox/config', urls.inbox('settings'), 'settings'],
         ['/inbox/runs', urls.inboxRuns(), 'scouts'],
         ['/inbox/pulls/report-1', urls.inboxReport('reports', 'report-1'), 'reports'],
     ])('old-layout link %s lands on %s', (path, expectedPath, expectedTab) => {
@@ -179,6 +178,16 @@ describe('inboxSceneLogic routing', () => {
         router.actions.push(path)
         expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
         expect(logic.values.activeTab).toBe(expectedTab)
+    })
+
+    it.each<[string, Record<string, string>, string]>([
+        ['/inbox/settings', {}, urls.settings('environment-self-driving')],
+        ['/inbox/config', {}, urls.settings('environment-self-driving')],
+        ['/inbox/config', { createScout: 'payload' }, urls.inbox('scouts')],
+    ])('old settings link %s with hash %j lands on %s', (path, hashParams, expectedPath) => {
+        mountLogic()
+        router.actions.push(path, {}, hashParams)
+        expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
     })
 
     it.each<[boolean, InboxTabKey]>([

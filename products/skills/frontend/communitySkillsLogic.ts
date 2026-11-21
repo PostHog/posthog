@@ -10,7 +10,6 @@ import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
-import { INBOX_CONFIG_TAB_KEY } from 'products/signals/frontend/inbox/types'
 import { storeCommunityScoutCreateTemplate } from 'products/signals/frontend/inbox/utils/scoutTemplateDeepLink'
 
 import {
@@ -387,7 +386,7 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                     config: rendered.scout_config,
                 })
                 actions.setUpScoutSuccess(slug)
-                router.actions.push(urls.inbox(INBOX_CONFIG_TAB_KEY), {}, { createScout: template })
+                router.actions.push(urls.inbox('scouts'), {}, { createScout: template })
             } catch (e) {
                 if (e instanceof Error && isBreakpoint(e)) {
                     // Superseded: clear this card so it stops spinning, and let the newer setup navigate.

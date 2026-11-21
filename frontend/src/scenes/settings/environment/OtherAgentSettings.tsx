@@ -46,8 +46,9 @@ export function OtherAgentSettings(): JSX.Element {
     return (
         <ul className="flex flex-col gap-2 max-w-200 list-disc pl-5 mb-0">
             <li>
-                Self-driving agents, scouts, and signal sources are in{' '}
-                <Link to={urls.inbox('settings')}>Inbox settings</Link>.
+                Self-driving autonomy, steering, and notifications have their own section:{' '}
+                <Link to={urls.settings('environment-self-driving')}>Self-driving</Link>. Scouts and signal sources are
+                in the <Link to={urls.inbox('scouts')}>Self-driving inbox</Link>.
             </li>
             <li>
                 Skills have their own page: <Link to={urls.skills()}>Skills</Link>.
