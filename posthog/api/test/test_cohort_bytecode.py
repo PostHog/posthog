@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -15,6 +16,7 @@ _PAGEVIEW_LAST_30_DAYS_NEGATED = {
     "event_type": "events",
     "explicit_datetime": "-30d",
 }
+_PAGEVIEW_LAST_30_DAYS = {**_PAGEVIEW_LAST_30_DAYS_NEGATED, "negation": False}
 _PAGEVIEW_EVER = {"key": "$pageview", "type": "behavioral", "value": "performed_event", "event_type": "events"}
 
 
@@ -497,6 +499,25 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         edited = self._create_and_fetch("Edited into a skipped shape", realtime_filters)
         self.assertEqual(edited.cohort_type, "realtime")
         self.assertIsNone(self._patch_and_fetch(edited.id, skipped_filters).cohort_type)
+
+    def test_criteria_restored_after_a_skipped_shape_do_not_keep_old_readiness(self):
+        from products.cohorts.backend.models.cohort import Cohort
+
+        supported = {"properties": {"type": "AND", "values": [_HAS_BROWSER, _PAGEVIEW_LAST_30_DAYS]}}
+        cohort = self._create_and_fetch("Round trip", supported)
+        stamped_at = datetime(2026, 1, 1, tzinfo=UTC)
+        Cohort.objects.filter(id=cohort.id).update(
+            last_backfill_events_at=stamped_at, last_backfill_person_properties_at=stamped_at
+        )
+
+        skipped = self._patch_and_fetch(
+            cohort.id, {"properties": {"type": "AND", "values": [_PAGEVIEW_LAST_30_DAYS_NEGATED]}}
+        )
+        self.assertIsNone(skipped.cohort_type)
+
+        restored = self._patch_and_fetch(cohort.id, supported)
+        self.assertEqual(restored.cohort_type, "realtime")
+        self.assertEqual((restored.last_backfill_events_at, restored.last_backfill_person_properties_at), (None, None))
 
     def test_cohort_exceeding_20m_person_threshold_not_realtime(self):
         # 7. Cohort with more than 20M persons should not be realtime

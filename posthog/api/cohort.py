@@ -8,6 +8,7 @@ import hashlib
 import collections
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Sequence
+from functools import partial
 from typing import Annotated, Any, ClassVar, Literal, NoReturn, Optional, Union, cast
 
 from django.conf import settings
@@ -123,6 +124,7 @@ from products.cohorts.backend.cohort_enablement import (
     turn_realtime_on,
     turn_realtime_on_for_included_cohorts,
 )
+from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import (
     COHORT_REALTIME_SWITCH_FIELDS,
@@ -136,6 +138,7 @@ from products.cohorts.backend.models.cohort import (
 from products.cohorts.backend.models.dependencies import (
     extract_cohort_dependencies,
     get_flag_excluded_behavioral_cohort_ids,
+    supersede_cohort_backfills,
 )
 from products.cohorts.backend.models.leaf_shape import FilterShapeHashes
 from products.cohorts.backend.models.util import (
@@ -312,19 +315,19 @@ def validate_filters_and_compute_realtime_support(
             else None
         )
 
+        # The processor skips a structurally excluded cohort whole, so as realtime it would never get members.
         if (
             apply_pipeline_limits
             and cohort_type == CohortType.REALTIME
-            and behavioral_history_over_limit(
-                clean_filters["properties"],
-                limit_days=settings.REALTIME_COHORT_MAX_HISTORY_DAYS,
-                today=day_of_instant(timezone.now(), resolve_zoneinfo(team.timezone)),
+            and (
+                behavioral_history_over_limit(
+                    clean_filters["properties"],
+                    limit_days=settings.REALTIME_COHORT_MAX_HISTORY_DAYS,
+                    today=day_of_instant(timezone.now(), resolve_zoneinfo(team.timezone)),
+                )
+                or structural_exclusion(clean_filters)
             )
         ):
-            cohort_type = None
-
-        # The realtime processor skips these cohorts whole, so as realtime they would never get members.
-        if apply_pipeline_limits and cohort_type == CohortType.REALTIME and structural_exclusion(clean_filters):
             cohort_type = None
 
         # Check if cohort exceeds the maximum person count for real-time evaluation
@@ -2354,6 +2357,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                 )
 
+        # Shape hashes are kept only while a cohort is realtime, so an edit back to the old criteria would keep the
+        # old stamps and read as ready from membership the processor stopped maintaining. Realtime stays switched on.
+        cleared_stamps = [field for field in COHORT_REALTIME_SWITCH_FIELDS if field != "realtime_enabled_at"]
+        if stops_realtime:
+            for field in cleared_stamps:
+                setattr(cohort, field, None)
+            for kind in CohortBackfillKind:
+                transaction.on_commit(partial(supersede_cohort_backfills, cohort, kind))
+
         deleted_state = cast(bool | None, validated_data.get("deleted"))
 
         # The plan's limits judge new criteria, and an edit that brings back a cohort that is on. Such a cohort keeps its
@@ -2503,6 +2515,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             for field in Cohort._meta.concrete_fields
             if not field.primary_key and field.name not in COHORT_REALTIME_SWITCH_FIELDS
         ]
+        if stops_realtime:
+            update_fields += cleared_stamps
         with transaction.atomic():
             # Judged in the save's transaction, under the lock turn-ons take, so no other turn-on or edit takes a slot
             # between the count and the save. A restore cancels its pending deletion in the same transaction, so a

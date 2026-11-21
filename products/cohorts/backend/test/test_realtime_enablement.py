@@ -28,6 +28,7 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortTeamAccess,
 )
 from products.cohorts.backend.realtime_enablement import (
+    CohortRefusal,
     NothingToBackfill,
     RunAlreadyCreated,
     RunCreated,
@@ -128,6 +129,9 @@ class TestEnableRealtimeCohorts(BaseTest):
         # The catalog drops a behavioral leaf with no time window, so the resave takes this cohort off realtime.
         windowless = self._cohort({key: value for key, value in PAGEVIEW_LEAF.items() if not key.startswith("time_")})
         deleted = self._cohort(PAGEVIEW_LEAF)
+        # An old save left this realtime with a field the validator now rejects, so the resave can't re-judge it.
+        unvalidatable = self._cohort({**PAGEVIEW_LEAF, "legacy_field": True})
+        Cohort.objects.filter(id=unvalidatable.id).update(cohort_type=CohortType.REALTIME)
         Cohort.objects.filter(id=mixed.id).update(last_backfill_person_properties_at=STAMPED_AT)
         Cohort.objects.filter(id=person_only.id).update(last_realtime_cohort_calculation_at=STAMPED_AT)
         Cohort.objects.filter(id=deleted.id).update(deleted=True, last_backfill_events_at=STAMPED_AT)
@@ -149,19 +153,26 @@ class TestEnableRealtimeCohorts(BaseTest):
         stamps = Cohort.objects.filter(team=self.team).values_list(
             "last_backfill_events_at", "last_backfill_person_properties_at", "last_realtime_cohort_calculation_at"
         )
-        assert list(stamps) == [(None, None, None)] * 4
+        assert list(stamps) == [(None, None, None)] * 5
         celery.send_task.assert_called_once_with(FLAGS_CACHE_TASK, args=(self.team.id,), queue="feature_flags")
         cohorts = list(Cohort.objects.filter(team=self.team, deleted=False).order_by("id"))
-        assert [cohort.condition_type and cohort.condition_type["behavioral"] for cohort in cohorts] == [
-            True,
-            False,
-            True,
-        ]
-        assert [cohort.cohort_type for cohort in cohorts] == [CohortType.REALTIME, CohortType.REALTIME, None]
+        by_id = {cohort.id: cohort for cohort in cohorts}
+        assert {cohort.id: cohort.condition_type and cohort.condition_type["behavioral"] for cohort in cohorts} == {
+            mixed.id: True,
+            person_only.id: False,
+            windowless.id: True,
+            unvalidatable.id: None,
+        }
+        assert {cohort.id: cohort.cohort_type for cohort in cohorts} == {
+            mixed.id: CohortType.REALTIME,
+            person_only.id: CohortType.REALTIME,
+            windowless.id: None,
+            unvalidatable.id: CohortType.REALTIME,
+        }
         assert all(
             None
             not in (cohort.filters_shape_hash, cohort.behavioral_filters_shape_hash, cohort.person_filters_shape_hash)
-            for cohort in cohorts[:2]
+            for cohort in (by_id[mixed.id], by_id[person_only.id])
         )
 
         assert isinstance(enablement.behavioral, RunCreated)
@@ -178,8 +189,11 @@ class TestEnableRealtimeCohorts(BaseTest):
             mixed.id,
             person_only.id,
         ]
-        assert windowless.id == cohorts[2].id
-        assert enablement.refused_cohorts == ()
+        assert enablement.refused_cohorts == (
+            CohortRefusal(
+                cohort_id=unvalidatable.id, kind=CohortBackfillKind.BEHAVIORAL, reason="has a null condition_type"
+            ),
+        )
 
     def test_cohorts_with_realtime_off_get_no_run(self) -> None:
         self._cohort(PERSON_LEAF, PAGEVIEW_LEAF, realtime_enabled_at=None)

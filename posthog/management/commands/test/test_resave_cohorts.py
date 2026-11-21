@@ -25,7 +25,7 @@ from posthog.management.commands.resave_cohorts import StaleFlagsCacheError
 from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
 
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.team_access import (
     RealtimeCohortAccessPurpose,
     RealtimeCohortLevel,
@@ -950,7 +950,10 @@ class TestResaveCohortsCommandConditionTypeVerification(BaseTest):
     def test_leafless_cohort_is_not_classified_realtime(self):
         # The realtime processor never composes an empty group, so the resave must not route one to it.
         cohort = Cohort.objects.create(
-            team=self.team, name="leafless", filters={"properties": {"type": "AND", "values": []}}
+            team=self.team,
+            name="leafless",
+            filters={"properties": {"type": "AND", "values": []}},
+            cohort_type=CohortType.REALTIME,
         )
 
         call_command("resave_cohorts", team_id=[self.team.id])
