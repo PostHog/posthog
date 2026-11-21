@@ -1,8 +1,16 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { InsightVisualizationSkeleton } from '~/lib/components/Cards/InsightCard/InsightVisualizationSkeleton'
 
+import { QuillInsightSkeleton } from './QuillInsightSkeleton'
+
 export function InsightSkeleton(): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillInsightSkeleton />
+    }
+
     return (
         <div className="scene-content flex flex-col gap-y-4 relative z-10" aria-busy="true">
             <div className="flex flex-wrap items-center justify-between gap-3">

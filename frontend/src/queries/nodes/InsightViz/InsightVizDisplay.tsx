@@ -283,6 +283,7 @@ export function InsightVizDisplay({
             insightProps={insightProps}
             renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
             suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+            reserveChartHeight={!embedded}
         />
     )
 
@@ -616,7 +617,7 @@ export function InsightVizDisplay({
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
-        return insightLoadingState
+        return <QuillSurfaceContext.Provider value={quillSurface}>{insightLoadingState}</QuillSurfaceContext.Provider>
     }
 
     return (

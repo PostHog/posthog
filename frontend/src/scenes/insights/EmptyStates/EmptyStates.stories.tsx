@@ -247,6 +247,18 @@ export const LongLoading: Story = {
     },
 }
 
+export const LongLoadingQuill: Story = {
+    ...LongLoading,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr=insight-loading-waiting-message]',
+            snapshotBrowsers: [],
+        },
+    },
+}
+
 export const FunnelSingleStep: Story = createInsightStory(funnelOneStep as any)
 
 export const FunnelSingleStepQuill: Story = createInsightStory(funnelOneStep as any)
