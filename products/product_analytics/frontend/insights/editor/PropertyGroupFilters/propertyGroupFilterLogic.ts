@@ -81,9 +81,15 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
     props({} as PropertyGroupFilterLogicProps),
     key((props) => props.pageKey),
 
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         if (props.query && !objectsEqual(props.query.properties, oldProps.query.properties)) {
-            actions.setFilters(convertPropertiesToPropertyGroup(props.query.properties))
+            const filters = convertPropertiesToPropertyGroup(props.query.properties)
+            // update() leaves empty groups out of the query, so the query that comes back can lack a
+            // group the user just added. Reset only when the filled groups differ, or that group
+            // disappears before the user fills it.
+            if (!objectsEqual(pruneEmptyPropertyGroups(filters), pruneEmptyPropertyGroups(values.filters))) {
+                actions.setFilters(filters)
+            }
         }
     }),
 
@@ -173,10 +179,9 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
             posthog.capture('property group filter duplicated')
         },
         update: () => {
-            // Don't persist empty PropertyGroupFilter structures — they cause ghost
-            // empty filter groups when merged with dashboard filters on the backend.
-            const properties = hasAnyPropertyFilters(values.filters) ? values.filters : undefined
-            props.setQuery({ ...props.query, properties })
+            // Don't persist empty filter groups, because they cause ghost empty filter groups
+            // when merged with dashboard filters on the backend.
+            props.setQuery({ ...props.query, properties: pruneEmptyPropertyGroups(values.filters) })
         },
     })),
 
@@ -185,8 +190,9 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
     }),
 ])
 
-function hasAnyPropertyFilters(filter: PropertyGroupFilter): boolean {
-    return filter.values.some((group: PropertyGroupFilterValue) => hasAnyFiltersInGroup(group))
+function pruneEmptyPropertyGroups(filter: PropertyGroupFilter): PropertyGroupFilter | undefined {
+    const values = filter.values.filter((group: PropertyGroupFilterValue) => hasAnyFiltersInGroup(group))
+    return values.length ? { ...filter, values } : undefined
 }
 
 function hasAnyFiltersInGroup(group: PropertyGroupFilterValue): boolean {
