@@ -4,6 +4,8 @@ import { Counter } from 'prom-client'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import type { ValueMatcher } from '~/types'
 
+import { AUTH_TYPE_HEADER } from './secret-key-teams'
+
 export const INTERNAL_LOGS_HEADER = 'posthog-internal'
 
 // The HTTP request header that capture-logs forwards as the `posthog-internal` Kafka header.
@@ -92,9 +94,14 @@ export function signInternalLogs(
     return computeSignature(newestKey, source, teamId, String(Math.floor(signedAt.getTime() / 1000)))
 }
 
-// Only a verified batch may set the `internal_source` column, so an incoming copy of the header is removed.
+// Only the consumer may set the `internal_source` and `auth_type` columns, so an incoming copy of each header is removed.
 export function withoutInternalLogsHeaders(headers: Record<string, string>): Record<string, string> {
-    const { [INTERNAL_LOGS_HEADER]: _signature, [INTERNAL_SOURCE_HEADER]: _source, ...rest } = headers
+    const {
+        [INTERNAL_LOGS_HEADER]: _signature,
+        [INTERNAL_SOURCE_HEADER]: _source,
+        [AUTH_TYPE_HEADER]: _authType,
+        ...rest
+    } = headers
     return rest
 }
 

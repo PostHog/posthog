@@ -25,6 +25,7 @@ pub struct Team {
 pub trait TeamManager: Send + Sync {
     async fn get_team(&self, team_id: i64) -> anyhow::Result<Option<Team>>;
     async fn get_team_by_token(&self, token: &str) -> anyhow::Result<Option<Team>>;
+    async fn get_team_by_secret_key(&self, secret_key: &str) -> anyhow::Result<Option<Team>>;
     async fn set_teams_ingested_data(&self, team_ids: &[i64]) -> anyhow::Result<()>;
 }
 

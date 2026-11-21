@@ -6,6 +6,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '~/common/outputs/types'
 import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
+import type { Team } from '~/types'
 
 import { LogsIngestionFrameworkConsumer } from '../framework/logs-ingestion-framework-consumer'
 import { TracesIngestionFrameworkConsumer } from '../framework/traces-ingestion-framework-consumer'
@@ -336,6 +337,10 @@ export function buildParityConsumer(
 
     const deps: TracesIngestionConsumerDeps = {
         teamManager: teamManager as unknown as LogsIngestionConsumerDeps['teamManager'],
+        secretKeyTeams: {
+            getTeam: (secretKey: string) =>
+                Promise.resolve((teamsById.get(scenario.secret_key_teams?.[secretKey] ?? NaN) ?? null) as Team | null),
+        },
         quotaLimiting: {
             isTeamTokenQuotaLimited: (token: string, resource: string) => {
                 if (!options.discard) {

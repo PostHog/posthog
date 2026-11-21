@@ -1844,6 +1844,33 @@
    "sha256": "feb5b5d5f9ef4359ee6012918bfc0616ff866ef7663c6ae1a2ee43cedce27dd2"
   }
  ],
+ "secret-key.json": [
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "20917a07f329fd1d927cde7a02ad1da6ff1e3792bdc396586d4bf742eef9b950"
+  },
+  {
+   "codec": "zstandard",
+   "count": 1,
+   "sha256": "e202341731104b133afb681539d02fc9336ae00c55c143273856d33ee0356fb2"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "3c157902fa75cb9c7e32d24d8bad1c1b9ca79444c3654601717c65f4a7c2b319"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "3ef521a2430e8be191a23dc04f4f1f5503f7ae4c5303ebd77012d9c71e6f0678"
+  },
+  {
+   "codec": "zstandard",
+   "count": 2,
+   "sha256": "1421f687893796138381df78862f587bd4ef4c3a05f29d0349cd5e7b030f570f"
+  }
+ ],
  "traces-no-config-cache.json": [
   {
    "codec": "zstandard",

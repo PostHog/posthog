@@ -71,12 +71,20 @@ import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService, SAMPLING_STAGE_NAME } from './sampling/logs-sampling.service'
 import { type SamplingRuleSource, SamplingRulesCache } from './sampling/sampling-rules-cache'
+import {
+    AUTH_TYPE_HEADER,
+    AUTH_TYPE_SECRET_KEY,
+    SECRET_KEY_PREFIX,
+    SecretKeyTeams,
+    isSecretKey,
+} from './secret-key-teams'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
 import { LogsIngestionMessage } from './types'
 
 export interface LogsIngestionConsumerDeps {
     teamManager: TeamManager
+    secretKeyTeams?: Pick<SecretKeyTeams, 'getTeam'>
     quotaLimiting: QuotaLimiting
     /** When set, enabled teams may run head sampling before ClickHouse Kafka produce. */
     samplingRulesCache?: SamplingRulesCache
@@ -1263,6 +1271,7 @@ export class LogsIngestionConsumer {
                                             ...(message.verifiedAsInternalLogs !== undefined
                                                 ? { [INTERNAL_SOURCE_HEADER]: message.verifiedAsInternalLogs.source }
                                                 : {}),
+                                            ...(message.authType ? { [AUTH_TYPE_HEADER]: message.authType } : {}),
                                             token: message.token,
                                             team_id: message.teamId.toString(),
                                             'json-parse': jsonParse.toString(),
@@ -1521,7 +1530,7 @@ export class LogsIngestionConsumer {
             messages.map(async (message) => {
                 try {
                     const headers = parseKafkaHeaders(message.headers)
-                    const token = headers.token
+                    let token = headers.token
 
                     if (!token) {
                         logger.warn('missing_token')
@@ -1529,6 +1538,7 @@ export class LogsIngestionConsumer {
                         recordLogMessageDropped('missing_token', 'unknown')
                         return
                     }
+                    const sentSecretKey = isSecretKey(token)
 
                     let team
                     try {
@@ -1537,7 +1547,9 @@ export class LogsIngestionConsumer {
                         team = await this.retryOnDependencyUnavailable(() =>
                             isDevEnv() && token === 'phc_local'
                                 ? this.deps.teamManager.getTeam(1)
-                                : this.deps.teamManager.getTeamByToken(token)
+                                : sentSecretKey
+                                  ? (this.deps.secretKeyTeams?.getTeam(token) ?? Promise.resolve(null))
+                                  : this.deps.teamManager.getTeamByToken(token)
                         )
                     } catch (e) {
                         logger.error('team_lookup_error', { error: e })
@@ -1551,11 +1563,20 @@ export class LogsIngestionConsumer {
                         // service fault. capture-logs accepts any well-formed token shape and defers team
                         // resolution to here because it has no Postgres access, so this fires on every
                         // dropped message for a bad token. Already tracked via the metrics below.
-                        logger.warn('team_not_found', { token_with_no_team: token })
-                        this.unknownTokens.record(token)
+                        // A secret key is never logged or recorded, because a real key without the scope also lands here.
+                        logger.warn('team_not_found', {
+                            token_with_no_team: sentSecretKey ? SECRET_KEY_PREFIX : token,
+                        })
+                        if (!sentSecretKey) {
+                            this.unknownTokens.record(token)
+                        }
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
                         recordLogMessageDropped('team_not_found', 'unknown')
                         return
+                    }
+                    // Everything after this point sees the public token, so the secret key stays out of the outputs.
+                    if (sentSecretKey) {
+                        token = team.api_token
                     }
 
                     const bytesUncompressed = parseSizeHeader(headers.bytes_uncompressed)
@@ -1589,6 +1610,7 @@ export class LogsIngestionConsumer {
 
                     events.push({
                         token,
+                        authType: sentSecretKey ? AUTH_TYPE_SECRET_KEY : undefined,
                         message,
                         teamId: team.id,
                         bytesUncompressed,

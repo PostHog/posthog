@@ -231,6 +231,7 @@ pub struct Recorded {
 struct ScenarioTeams {
     by_id: HashMap<i64, Team>,
     by_token: HashMap<String, Team>,
+    by_secret_key: HashMap<String, Team>,
     /// `None` fails every lookup; `Some(n)` fails the next `n`.
     lookup_faults: Mutex<HashMap<String, (Option<u64>, JsValue)>>,
     by_id_faults: Mutex<HashMap<i64, (u64, JsValue)>>,
@@ -265,6 +266,10 @@ impl TeamManager for ScenarioTeams {
             }
         }
         Ok(self.by_token.get(token).cloned())
+    }
+
+    async fn get_team_by_secret_key(&self, secret_key: &str) -> anyhow::Result<Option<Team>> {
+        Ok(self.by_secret_key.get(secret_key).cloned())
     }
 
     async fn set_teams_ingested_data(&self, team_ids: &[i64]) -> anyhow::Result<()> {
@@ -589,6 +594,13 @@ pub fn scenario_parts(
         by_token: teams
             .iter()
             .map(|t| (t.api_token.clone(), t.clone()))
+            .collect(),
+        by_secret_key: entries(get(scenario, "secret_key_teams"))
+            .into_iter()
+            .filter_map(|(key, id)| {
+                let id = n(Some(id))? as i64;
+                Some((key, teams.iter().find(|t| t.id == id)?.clone()))
+            })
             .collect(),
         lookup_faults: Mutex::new(
             entries(get(scenario, "team_lookup_faults"))
