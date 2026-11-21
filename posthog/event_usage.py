@@ -758,17 +758,6 @@ def report_organization_deletion_completed(user_id: int, organization_id: str) -
         )
 
 
-def report_user_deleted_account(user: User):
-    if not user.distinct_id:
-        return
-    posthoganalytics.capture(
-        distinct_id=user.distinct_id,
-        event="user account deleted",
-        properties=user.get_analytics_metadata(),
-    )
-    posthoganalytics.flush()
-
-
 def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
     result = {"instance": SITE_URL}
     if organization is not None:
