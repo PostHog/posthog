@@ -1,6 +1,7 @@
 import math
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 
@@ -10,7 +11,7 @@ import structlog
 import posthoganalytics
 from temporalio.exceptions import CancelledError
 
-from posthog.schema import HogQLAlertEvaluation, HogQLQuery, NodeKind, TrendsQuery
+from posthog.schema import AlertCondition, HogQLAlertEvaluation, HogQLQuery, InsightThreshold, NodeKind, TrendsQuery
 
 from posthog.caching.insight_result import InsightResult
 from posthog.dataclasses import frozen
@@ -21,6 +22,8 @@ from posthog.hogql_queries.apply_dashboard_filters import dashboard_filter_from_
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.alerts.backend.evaluation.comparator import evaluate_threshold
+from products.alerts.backend.evaluation.contract import ExtractionResult
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.contracts import (
     ClosedSeriesValues,
@@ -43,6 +46,7 @@ SQL_RELATIVE_TOLERANCE = 1e-9
 
 AlertKind = Literal["threshold", "detector"]
 ShadowOutcome = Literal["match", "mismatch", "partial", "unavailable", "error"]
+Replay = Callable[[list], ExtractionResult]
 _CANCELLATION = (CancelledError, CHQueryErrorQueryWasCancelled)
 
 
@@ -53,6 +57,9 @@ class ShadowComparison:
     buckets_compared: int = 0
     buckets_missing: int = 0
     max_abs_difference: float = 0.0
+    max_rel_difference: float = 0.0
+    live_with_stored_values: list | None = None
+    decision_matches: bool | None = None
     freshly_built: bool = False
     verification: SeriesValuesVerification | None = None
     verify_error: str | None = None
@@ -95,18 +102,55 @@ def effective_trends_runner(
     return runner
 
 
+def _finite(value: float) -> float | None:
+    return value if math.isfinite(value) else None
+
+
+def _relative_difference(live: float, stored: float) -> float:
+    largest = max(abs(live), abs(stored))
+    return 0.0 if largest == 0 else abs(live - stored) / largest
+
+
+def _threshold_fires(alert: AlertConfiguration, extraction: ExtractionResult) -> bool:
+    threshold = InsightThreshold.model_validate(alert.threshold.configuration) if alert.threshold else None
+    return bool(evaluate_threshold(extraction, AlertCondition.model_validate(alert.condition), threshold).breaches)
+
+
+def _with_decision(
+    alert: AlertConfiguration, comparison: ShadowComparison, replay: Replay | None, live: list
+) -> ShadowComparison:
+    if replay is None or comparison.outcome not in ("match", "mismatch"):
+        return comparison
+    if comparison.max_abs_difference == 0:
+        return replace(comparison, decision_matches=True)
+    if comparison.live_with_stored_values is None:
+        return comparison
+    try:
+        decision_matches = _threshold_fires(alert, replay(live)) == _threshold_fires(
+            alert, replay(comparison.live_with_stored_values)
+        )
+    except _CANCELLATION:
+        raise
+    except Exception:
+        logger.warning(
+            "alert_series_values_decision_replay_failed", team_id=alert.team_id, alert_id=str(alert.id), exc_info=True
+        )
+        return comparison
+    return replace(comparison, decision_matches=decision_matches)
+
+
 def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, live: list[Any]) -> ShadowComparison:
     if isinstance(closed, SeriesValuesUnavailable):
         return ShadowComparison(outcome="unavailable", reason=closed.reason)
     series = live[0]
-    live_by_bucket = {datetime.fromisoformat(day): value for day, value in zip(series["days"], series["data"])}
-    differences = [
-        abs(float(live_by_bucket[bucket]) - stored)
-        for bucket, stored in closed.values.items()
-        if bucket in live_by_bucket
+    buckets = [datetime.fromisoformat(day) for day in series["days"]]
+    pairs = [
+        (float(value), float(closed.values[bucket]))
+        for bucket, value in zip(buckets, series["data"])
+        if bucket in closed.values
     ]
-    missing = len(closed.values) - len(differences)
-    if not differences:
+    missing = len(closed.values) - len(pairs)
+    if not pairs:
         return ShadowComparison(
             outcome="unavailable",
             reason="no_overlapping_buckets",
@@ -115,7 +159,8 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
             verification=closed.verification,
             verify_error=closed.verify_error,
         )
-    largest = max(differences)
+    largest = max(abs(live_value - stored) for live_value, stored in pairs)
+    stored_data = [closed.values.get(bucket, value) for bucket, value in zip(buckets, series["data"])]
     outcome: ShadowOutcome
     if largest != 0:
         outcome = "mismatch"
@@ -125,9 +170,11 @@ def compare_closed_values(closed: ClosedSeriesValues | SeriesValuesUnavailable, 
         outcome = "match"
     return ShadowComparison(
         outcome=outcome,
-        buckets_compared=len(differences),
+        buckets_compared=len(pairs),
         buckets_missing=missing,
         max_abs_difference=largest,
+        max_rel_difference=max(_relative_difference(live_value, stored) for live_value, stored in pairs),
+        live_with_stored_values=None if largest == 0 else [{**series, "data": stored_data}, *live[1:]],
         freshly_built=closed.freshly_built,
         verification=closed.verification,
         verify_error=closed.verify_error,
@@ -141,6 +188,7 @@ def compare_series_values_shadow(
     calculation_result: InsightResult,
     *,
     alert_kind: AlertKind,
+    replay: Replay | None = None,
 ) -> None:
     started = time.monotonic()
     try:
@@ -154,7 +202,7 @@ def compare_series_values_shadow(
             closed = closed_series_values(
                 runner, run_inserts=True, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS, verify=True
             )
-            comparison = compare_closed_values(closed, live)
+            comparison = _with_decision(alert, compare_closed_values(closed, live), replay, live)
     except _CANCELLATION:
         raise
     except Exception as err:
@@ -209,13 +257,31 @@ def compare_closed_sql_values(
         return ShadowComparison(
             outcome="unavailable", reason="no_overlapping_buckets", freshly_built=closed.freshly_built
         )
-    pairs = [(live.get(bucket, 0.0), closed.values.get(bucket, 0.0)) for bucket in buckets]
+    stored = {bucket: closed.values.get(bucket, 0.0) for bucket in buckets}
+    pairs = [(live.get(bucket, 0.0), value) for bucket, value in stored.items()]
+    largest = max(abs(a - b) for a, b in pairs)
     return ShadowComparison(
         outcome="match" if all(math.isclose(a, b, rel_tol=SQL_RELATIVE_TOLERANCE) for a, b in pairs) else "mismatch",
         buckets_compared=len(pairs),
-        max_abs_difference=max(abs(a - b) for a, b in pairs),
+        max_abs_difference=largest,
+        max_rel_difference=max(_relative_difference(a, b) for a, b in pairs),
+        live_with_stored_values=None
+        if largest == 0
+        else _rows_with_stored_values(rows, bucket_index, value_index, stored),
         freshly_built=closed.freshly_built,
     )
+
+
+def _rows_with_stored_values(
+    rows: list, bucket_index: int, value_index: int, stored: dict[datetime, float]
+) -> list | None:
+    buckets = [_bucket_instant(row[bucket_index]) for row in rows]
+    if not stored.keys() <= set(buckets):
+        return None
+    return [
+        [*row[:value_index], stored[bucket], *row[value_index + 1 :]] if bucket in stored else row
+        for row, bucket in zip(rows, buckets)
+    ]
 
 
 def _sql_comparison(
@@ -252,12 +318,15 @@ def compare_sql_series_values_shadow(
     resolve_value_column: Callable[[], str | None],
     evaluation: HogQLAlertEvaluation,
     alert_kind: AlertKind,
+    replay: Replay | None = None,
 ) -> None:
     started = time.monotonic()
     try:
         if not is_series_values_precompute_enabled(alert.team):
             return
-        comparison = _sql_comparison(alert, source, rows, column_names, resolve_value_column, evaluation)
+        comparison = _with_decision(
+            alert, _sql_comparison(alert, source, rows, column_names, resolve_value_column, evaluation), replay, rows
+        )
     except _CANCELLATION:
         raise
     except Exception as err:
@@ -303,7 +372,9 @@ def _record(
                 "reason": comparison.reason,
                 "buckets_compared": comparison.buckets_compared,
                 "buckets_missing": comparison.buckets_missing,
-                "max_abs_difference": comparison.max_abs_difference,
+                "max_abs_difference": _finite(comparison.max_abs_difference),
+                "max_rel_difference": _finite(comparison.max_rel_difference),
+                "alert_decision_matches": comparison.decision_matches,
                 "alert_id": str(alert.id),
                 "calculation_interval": alert.calculation_interval,
                 "alert_kind": alert_kind,

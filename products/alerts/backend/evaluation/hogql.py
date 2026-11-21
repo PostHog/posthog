@@ -1,4 +1,5 @@
 import math
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -27,7 +28,7 @@ from products.alerts.backend.evaluation.contract import (
     execution_mode_for_alert,
     zero_sentinel_series,
 )
-from products.alerts.backend.evaluation.series_values_shadow import AlertKind, compare_sql_series_values_shadow
+from products.alerts.backend.evaluation.series_values_shadow import AlertKind, Replay, compare_sql_series_values_shadow
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -159,6 +160,7 @@ def _compare_with_stored_values(
     fetched: _FetchedRows,
     *,
     alert_kind: AlertKind,
+    replay: Replay | None = None,
 ) -> None:
     compare_sql_series_values_shadow(
         alert,
@@ -168,6 +170,7 @@ def _compare_with_stored_values(
         resolve_value_column=lambda: _shadow_value_column(config, fetched),
         evaluation=config.evaluation,
         alert_kind=alert_kind,
+        replay=replay,
     )
 
 
@@ -239,15 +242,7 @@ class HogQLExtractor:
         config = hogql_config_or_default(alert.config)
         evaluation = config.evaluation
 
-        fetched = _calculate_rows_and_columns(
-            insight,
-            alert.team,
-            user=alert.created_by,
-            execution_mode=execution_mode,
-            cache_age_seconds=cache_age_seconds,
-            evaluation=evaluation,
-        )
-        _compare_with_stored_values(alert, insight, config, fetched, alert_kind="threshold")
+        fetched = self._fetch(alert, insight, config, execution_mode, cache_age_seconds)
         rows = fetched.rows
         column_names = fetched.column_names
         if len(rows) == 0:
@@ -311,6 +306,49 @@ class HogQLExtractor:
             framed=False,
             include_series_label=label_cell is not None,
         )
+
+    def _fetch(
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        config: HogQLAlertConfig,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None,
+    ) -> _FetchedRows:
+        fetched = _calculate_rows_and_columns(
+            insight,
+            alert.team,
+            user=alert.created_by,
+            execution_mode=execution_mode,
+            cache_age_seconds=cache_age_seconds,
+            evaluation=config.evaluation,
+        )
+        _compare_with_stored_values(
+            alert,
+            insight,
+            config,
+            fetched,
+            alert_kind="threshold",
+            replay=lambda rows: _ReplayedHogQLExtractor(replace(fetched, rows=rows)).extract(
+                alert, insight, None, execution_mode, cache_age_seconds
+            ),
+        )
+        return fetched
+
+
+class _ReplayedHogQLExtractor(HogQLExtractor):
+    def __init__(self, fetched: _FetchedRows) -> None:
+        self._fetched = fetched
+
+    def _fetch(
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        config: HogQLAlertConfig,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None,
+    ) -> _FetchedRows:
+        return self._fetched
 
 
 def extract_hogql_detector_series(
