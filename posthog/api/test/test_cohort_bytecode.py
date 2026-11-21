@@ -1,8 +1,23 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+
+_HAS_BROWSER = {"key": "$browser", "type": "person", "negation": False, "operator": "is_set"}
+_PAGEVIEW_LAST_30_DAYS_NEGATED = {
+    "key": "$pageview",
+    "type": "behavioral",
+    "value": "performed_event",
+    "negation": True,
+    "event_type": "events",
+    "explicit_datetime": "-30d",
+}
+_PAGEVIEW_LAST_30_DAYS = {**_PAGEVIEW_LAST_30_DAYS_NEGATED, "negation": False}
+_PAGEVIEW_EVER = {"key": "$pageview", "type": "behavioral", "value": "performed_event", "event_type": "events"}
 
 
 class TestCohortBytecodeScenarios(APIBaseTest):
@@ -464,6 +479,45 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertEqual(person_filter["type"], "person")
         self.assertIsNotNone(person_filter.get("bytecode"))
         self.assertIsNotNone(person_filter.get("conditionHash"))
+
+    @parameterized.expand(
+        [
+            ("and_root_with_every_child_negated", "AND", [_PAGEVIEW_LAST_30_DAYS_NEGATED]),
+            ("or_root_with_a_negated_child", "OR", [_HAS_BROWSER, _PAGEVIEW_LAST_30_DAYS_NEGATED]),
+            ("event_without_a_time_window", "AND", [_HAS_BROWSER, _PAGEVIEW_EVER]),
+        ]
+    )
+    def test_shapes_the_realtime_processor_skips_are_not_realtime(
+        self, _name: str, root_type: str, values: list[dict[str, Any]]
+    ):
+        realtime_filters = {"properties": {"type": "AND", "values": [_HAS_BROWSER]}}
+        skipped_filters = {"properties": {"type": root_type, "values": values}}
+
+        created = self._create_and_fetch("Skipped by the processor", skipped_filters)
+        self.assertIsNone(created.cohort_type)
+
+        edited = self._create_and_fetch("Edited into a skipped shape", realtime_filters)
+        self.assertEqual(edited.cohort_type, "realtime")
+        self.assertIsNone(self._patch_and_fetch(edited.id, skipped_filters).cohort_type)
+
+    def test_criteria_restored_after_a_skipped_shape_do_not_keep_old_readiness(self):
+        from products.cohorts.backend.models.cohort import Cohort
+
+        supported = {"properties": {"type": "AND", "values": [_HAS_BROWSER, _PAGEVIEW_LAST_30_DAYS]}}
+        cohort = self._create_and_fetch("Round trip", supported)
+        stamped_at = datetime(2026, 1, 1, tzinfo=UTC)
+        Cohort.objects.filter(id=cohort.id).update(
+            last_backfill_events_at=stamped_at, last_backfill_person_properties_at=stamped_at
+        )
+
+        skipped = self._patch_and_fetch(
+            cohort.id, {"properties": {"type": "AND", "values": [_PAGEVIEW_LAST_30_DAYS_NEGATED]}}
+        )
+        self.assertIsNone(skipped.cohort_type)
+
+        restored = self._patch_and_fetch(cohort.id, supported)
+        self.assertEqual(restored.cohort_type, "realtime")
+        self.assertEqual((restored.last_backfill_events_at, restored.last_backfill_person_properties_at), (None, None))
 
     def test_cohort_exceeding_20m_person_threshold_not_realtime(self):
         # 7. Cohort with more than 20M persons should not be realtime
