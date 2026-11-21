@@ -626,3 +626,12 @@ class ReviewPerspectiveStat:
 class ReviewPerspectiveStats:
     report_count: int
     perspectives: Sequence[ReviewPerspectiveStat]
+
+
+@frozen
+class ForkRecreationOutcome:
+    created: bool
+    message: str
+    pull_request_number: int | None = None
+    pull_request_url: str | None = None
+    handed_over: bool = True

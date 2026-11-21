@@ -1,15 +1,13 @@
 import { setTimeout as sleep } from 'timers/promises'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { internalFetch } from '~/common/utils/request'
-
 import type { ResidentBacklog } from '../backlog/backlog'
 import type { Named } from '../cards'
 import type { SeedState } from '../generator/generator'
 import type { CyclotronProbe } from '../probe/cyclotron-probe'
-import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
+import type { TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
 import type { JudgeEvidence } from './invariants'
+import type { TruthSource } from './truth'
 
 export type IntakeAnswer =
     | { accepted: true }
@@ -20,7 +18,7 @@ export type FollowUpAnswer = IntakeAnswer | { notSent: string }
 
 export type JournalEntry = {
     unitId: string
-    kind: 'event' | 'transactional'
+    kind: 'event' | 'capture' | 'transactional'
     teamId: number
     offeredAt: number
     step?: number
@@ -52,7 +50,7 @@ export interface Judge {
 }
 
 export type JudgeOptions = {
-    edgeUrl: string
+    truth: TruthSource
     probe: Pick<CyclotronProbe, 'unfinishedJobs'>
     fetchRetries: number
     residentBacklog?: () => Promise<ResidentBacklog>
@@ -61,7 +59,7 @@ export type JudgeOptions = {
 }
 
 export function createJudge({
-    edgeUrl,
+    truth: source,
     probe,
     fetchRetries,
     residentBacklog,
@@ -75,25 +73,13 @@ export function createJudge({
 
     const pullTruth = async (): Promise<void> => {
         for (;;) {
-            const response = await internalFetch(`${edgeUrl}/_truth?after=${cursor}`)
-            if (response.status !== 200) {
-                throw new Error(`The edge answered /_truth with ${response.status}`)
-            }
-            const page = parseJSON(await response.text()) as TruthPage
+            const page = await source.after(cursor)
             if (page.records.length === 0) {
                 return
             }
             truth.push(...page.records)
             cursor = page.next
         }
-    }
-
-    const truthHead = async (): Promise<number> => {
-        const response = await internalFetch(`${edgeUrl}/_truth/head`)
-        if (response.status !== 200) {
-            throw new Error(`The edge answered /_truth/head with ${response.status}`)
-        }
-        return (parseJSON(await response.text()) as TruthHead).head
     }
 
     const unrecordedUnits = (): string[] => {
@@ -114,7 +100,7 @@ export function createJudge({
     return {
         async open(seed) {
             journal = []
-            cursor = await truthHead()
+            cursor = await source.head()
             truth = []
             teams = [...seed.teamIds]
         },
