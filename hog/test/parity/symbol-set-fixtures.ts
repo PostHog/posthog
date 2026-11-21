@@ -1,7 +1,7 @@
-import { SymbolDataType, writeSymbolData } from '@/error-tracking/container'
-import { ZipWriter } from '@/error-tracking/native/zip'
+import { SymbolDataType } from '@/error-tracking/container'
 
 import { SMALL_MAPPING } from './fixtures'
+import { writeSymbolData, writeZip as zip } from './symbol-set-writer'
 
 // The payload of a SourceAndMap symbol set: each part after its length as a little-endian u64.
 function sourceAndMapPayload(source: Uint8Array, map: Uint8Array): Buffer {
@@ -12,16 +12,7 @@ function sourceAndMapPayload(source: Uint8Array, map: Uint8Array): Buffer {
     return Buffer.concat([sourceLength, source, mapLength, map])
 }
 
-// Stored symbol sets for the extract and download scenarios. hog's writers build them: the upload
-// scenarios prove those bytes match posthog-cli's, and here both CLIs only read them.
-
-const zip = (entries: Record<string, string>): Buffer => {
-    const writer = new ZipWriter()
-    for (const [name, contents] of Object.entries(entries)) {
-        writer.add(name, Buffer.from(contents))
-    }
-    return writer.finish()
-}
+// Stored symbol sets for the extract and download scenarios. Both CLIs only read them.
 
 const v1 = (type: SymbolDataType, payload: string): Buffer =>
     Buffer.concat([

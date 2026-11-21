@@ -3,7 +3,7 @@
 // stdin and stdout. The worker sends {"type":"hello","protocol":1,"version":"0.1.0"}, then answers
 // each request in order with {"ok":true,"result":R} or {"ok":false,"error":{"code","message"}},
 // and keeps running after a failure. R for each `op`:
-//   detect             {"sourcemap":[index],"composed":[index],"mapping":[index]}
+//   detect             {"sourcemap":[index],"composed":[],"mapping":[],"elf":[],"macho":[]}
 //   read_pairs         {"pairs":[{"id":0,"sourcePath":"...",...} | {"skipped":"reason"} | null]}
 //   inject             {"outcomes":[{"action","chunkId","warnings","pair"}]}
 //   drop, save         {}
@@ -18,18 +18,33 @@
 //   clone_metadata     {"map":{"id":1,...}}, the `to` map with the chunk id and release of `from`
 //   write_maps         {}, every map or none
 //   prepare_maps       the answer of `prepare`, with no duplicates
-// `prepare` writes each pair's symbol set to a file for hog to send and lets the pairs go, and
-// `prepare_maps` does the same for Hermes maps, which have ids of their own. Other pairs and maps
-// stay in memory under their ids until hog closes stdin, which ends the worker. PROTOCOL changes
-// whenever a request or an answer does, because hog and the worker ship as two files.
+//   native_candidates  {"files":[{"candidates":[{"id",...} | {"problem"}]} | {"unparseable"}]}
+//   dsym_slices        {"members":[{"slices":[{"id","uuid"}]} | {"unreadable"}]}
+//   source_paths       {"sources":[{"paths":["..."]} | {"failed"}]}
+//   pack_native        {"unreadable":[[{"path","message"}]],"containers":[{"contentHash",...} | {"failed"}
+//                      | null]}, failed for every slice of a dSYM bundle that failed, and null for a
+//                      native file that a dSYM which fits replaces
+// Each architecture of a fat Mach-O is a binary with an id of its own. `pack_native` reads each
+// list in `sources` when it packs the binaries that use it, keeps it only until they are packed,
+// and answers one `unreadable` list for it, and one container per item.
+// `prepare`, `prepare_maps` and `pack_native` write symbol sets to files for hog to send and let
+// their pairs, maps and binaries go. The others stay in memory until hog closes stdin, which ends
+// the worker. PROTOCOL changes whenever a request or an answer does, because hog and the worker
+// ship as two files.
 
 mod cleanup;
 mod constant;
+mod dsym;
+mod guard;
 mod hermes;
 mod memory;
+mod native;
 mod node;
 mod pair;
+#[cfg(test)]
+mod parity;
 mod proguard;
+mod sources;
 mod store;
 mod trace;
 mod upload;
@@ -38,6 +53,7 @@ mod write;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::{BTreeMap, HashMap, HashSet},
     io::{self, BufRead, IsTerminal, Write},
     path::{Path, PathBuf},
 };
@@ -125,6 +141,40 @@ enum Request {
         ids: Vec<usize>,
         folder: Option<String>,
     },
+    NativeCandidates {
+        paths: Vec<String>,
+    },
+    DsymSlices {
+        paths: Vec<String>,
+    },
+    SourcePaths {
+        ids: Vec<usize>,
+    },
+    #[serde(rename_all = "camelCase")]
+    PackNative {
+        sources: Vec<Vec<String>>,
+        items: Vec<PackItem>,
+        folder: Option<String>,
+        max_size: usize,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PackItem {
+    id: usize,
+    // A place in the request's `sources`. Null packs the binary alone.
+    sources: Option<usize>,
+    chunk_id: String,
+    // The dSYM bundle a slice comes from, a place hog numbers. Null for a native file.
+    bundle: Option<usize>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Packed {
+    Container(upload::Container),
+    Failed { failed: String },
 }
 
 #[derive(Deserialize)]
@@ -133,12 +183,15 @@ struct Candidate {
     bundle: bool,
     map: bool,
     mapping: bool,
+    // A native binary has any name, so discovery asks for the format its first bytes give.
+    native: bool,
 }
 
 struct Detected {
     sourcemap: bool,
     composed: bool,
     mapping: bool,
+    native: Option<native::Format>,
 }
 
 #[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -156,6 +209,8 @@ enum Answer {
         sourcemap: Vec<usize>,
         composed: Vec<usize>,
         mapping: Vec<usize>,
+        elf: Vec<usize>,
+        macho: Vec<usize>,
     },
     Pairs {
         pairs: Vec<PairAnswer>,
@@ -186,7 +241,63 @@ enum Answer {
     Map {
         map: MapState,
     },
+    NativeFiles {
+        files: Vec<NativeFileAnswer>,
+    },
+    DsymMembers {
+        members: Vec<DsymMemberAnswer>,
+    },
+    SourcePaths {
+        sources: Vec<SourcePathsAnswer>,
+    },
+    Packed {
+        unreadable: Vec<Vec<sources::Unreadable>>,
+        containers: Vec<Option<Packed>>,
+    },
     Done {},
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum NativeFileAnswer {
+    Parsed { candidates: Vec<CandidateAnswer> },
+    Unparseable { unparseable: String },
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum CandidateAnswer {
+    Problem {
+        problem: native::Problem,
+    },
+    #[serde(rename_all = "camelCase")]
+    Valid {
+        id: usize,
+        debug_id: String,
+        format: native::Format,
+        // hog keeps the larger of two files with one debug id.
+        size: usize,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum DsymMemberAnswer {
+    Read { slices: Vec<SliceAnswer> },
+    Unreadable { unreadable: String },
+}
+
+#[derive(Serialize)]
+struct SliceAnswer {
+    id: usize,
+    uuid: String,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum SourcePathsAnswer {
+    Found { paths: Vec<String> },
+    Failed { failed: String },
 }
 
 #[derive(Serialize)]
@@ -311,6 +422,7 @@ fn state(id: usize, pair: &SourcePair) -> PairState {
 struct Worker {
     pairs: Store<SourcePair>,
     maps: Store<hermes::MapFile>,
+    binaries: Store<native::Binary>,
     targets: Store<cleanup::Target>,
     stylesheets: Store<cleanup::CssCandidate>,
     trace: Trace,
@@ -363,6 +475,15 @@ impl Worker {
             Request::CloneMetadata { from, to } => self.clone_metadata(from, to),
             Request::WriteMaps { ids } => self.write_maps(&ids),
             Request::PrepareMaps { ids, folder } => self.prepare_maps(&ids, folder.as_deref()),
+            Request::NativeCandidates { paths } => Ok(self.native_candidates(&paths)),
+            Request::DsymSlices { paths } => Ok(self.dsym_slices(&paths)),
+            Request::SourcePaths { ids } => self.source_paths(&ids),
+            Request::PackNative {
+                sources,
+                items,
+                folder,
+                max_size,
+            } => self.pack_native(&sources, &items, folder.as_deref(), max_size),
         }
     }
 
@@ -379,6 +500,7 @@ impl Worker {
                     sourcemap: file.bundle && pair::has_sourcemap(path, public_path_prefix),
                     composed: file.map && pair::is_composed_map(path),
                     mapping: file.mapping && proguard::is_valid_mapping(&node::read(path)?),
+                    native: file.native.then(|| native::magic_format(path)).flatten(),
                 })
             })
             .collect();
@@ -400,6 +522,8 @@ impl Worker {
             sourcemap: indices(|file| file.sourcemap),
             composed: indices(|file| file.composed),
             mapping: indices(|file| file.mapping),
+            elf: indices(|file| file.native == Some(native::Format::Elf)),
+            macho: indices(|file| file.native == Some(native::Format::Macho)),
         })
     }
 
@@ -736,6 +860,247 @@ impl Worker {
     }
 }
 
+impl Worker {
+    fn native_candidates(&mut self, paths: &[String]) -> Answer {
+        let parsed: Vec<Result<Vec<native::Candidate>, String>> = paths
+            .par_iter()
+            .map(|path| guard::guarded(|| native::candidates(Path::new(path))))
+            .collect();
+        self.trace.mark("native candidates");
+
+        let files = parsed
+            .into_iter()
+            .map(|result| match result {
+                Ok(candidates) => NativeFileAnswer::Parsed {
+                    candidates: candidates
+                        .into_iter()
+                        .map(|candidate| match candidate {
+                            native::Candidate::Problem(problem) => {
+                                CandidateAnswer::Problem { problem }
+                            }
+                            native::Candidate::Valid { debug_id, binary } => {
+                                CandidateAnswer::Valid {
+                                    debug_id,
+                                    format: binary.format(),
+                                    size: binary.size(),
+                                    id: self.binaries.hold(binary),
+                                }
+                            }
+                        })
+                        .collect(),
+                },
+                Err(unparseable) => NativeFileAnswer::Unparseable { unparseable },
+            })
+            .collect();
+        Answer::NativeFiles { files }
+    }
+
+    fn dsym_slices(&mut self, paths: &[String]) -> Answer {
+        let read: Vec<Result<Vec<dsym::Slice>, String>> = paths
+            .par_iter()
+            .map(|path| guard::guarded(|| dsym::slices(Path::new(path))))
+            .collect();
+        self.trace.mark("dsym slices");
+
+        let members = read
+            .into_iter()
+            .map(|result| match result {
+                Ok(slices) => DsymMemberAnswer::Read {
+                    slices: slices
+                        .into_iter()
+                        .map(|slice| SliceAnswer {
+                            uuid: slice.uuid,
+                            id: self.binaries.hold(slice.binary),
+                        })
+                        .collect(),
+                },
+                Err(unreadable) => DsymMemberAnswer::Unreadable { unreadable },
+            })
+            .collect();
+        Answer::DsymMembers { members }
+    }
+
+    fn source_paths(&self, ids: &[usize]) -> Result<Answer, Failure> {
+        let binaries: Vec<&native::Binary> = ids
+            .iter()
+            .map(|id| self.binaries.get(*id))
+            .collect::<Result<_, _>>()?;
+
+        let sources = binaries
+            .par_iter()
+            .map(|binary| {
+                match guard::guarded(|| binary.source_paths().map_err(|error| format!("{error:#}")))
+                {
+                    Ok(paths) => SourcePathsAnswer::Found { paths },
+                    Err(failed) => SourcePathsAnswer::Failed { failed },
+                }
+            })
+            .collect();
+        self.trace.mark("source paths");
+
+        Ok(Answer::SourcePaths { sources })
+    }
+
+    // A dSYM symbol set that fits wins over a native file with its UUID, so a native file that shares
+    // a dSYM's UUID packs only after it, and only when the dSYM does not fit. Its sources are still
+    // read, for the warnings.
+    fn pack_native(
+        &mut self,
+        sources: &[Vec<String>],
+        items: &[PackItem],
+        folder: Option<&str>,
+        max_size: usize,
+    ) -> Result<Answer, Failure> {
+        let folder = folder.map(Path::new);
+        if let Some(item) = items
+            .iter()
+            .find(|item| item.sources.is_some_and(|place| place >= sources.len()))
+        {
+            let message = format!("binary {} names a source list that is not there", item.id);
+            return Err(Failure::bad_request(message));
+        }
+        let ids: Vec<usize> = items.iter().map(|item| item.id).collect();
+        let binaries = self.binaries.take_all(&ids)?;
+        // A binary hog left out, such as the smaller of two with one debug ID, is never packed.
+        self.binaries.release_all();
+
+        let dsym_ids: HashSet<&str> = items
+            .iter()
+            .filter(|item| item.bundle.is_some())
+            .map(|item| item.chunk_id.as_str())
+            .collect();
+        let waits: Vec<bool> = items
+            .iter()
+            .map(|item| item.bundle.is_none() && dsym_ids.contains(item.chunk_id.as_str()))
+            .collect();
+
+        let mut groups: BTreeMap<Option<usize>, Vec<usize>> = (0..sources.len())
+            .map(|place| (Some(place), Vec::new()))
+            .collect();
+        for (index, item) in items.iter().enumerate() {
+            groups.entry(item.sources).or_default().push(index);
+        }
+        let pack_group = |place: Option<usize>, indexes: &[usize]| {
+            let (files, unreadable) = match place {
+                Some(place) => {
+                    let (files, unreadable) = sources::collect(&sources[place]);
+                    (Some(files), Some(unreadable))
+                }
+                None => (None, None),
+            };
+            let packed: Vec<(usize, Result<upload::Container, String>)> = indexes
+                .par_iter()
+                .map(|&index| {
+                    let packed = native::pack(&binaries[index], files.as_ref(), folder)
+                        .map_err(|error| format!("{error:#}"));
+                    (index, packed)
+                })
+                .collect();
+            (place.zip(unreadable), packed)
+        };
+
+        let mut unreadable: Vec<Option<Vec<sources::Unreadable>>> =
+            (0..sources.len()).map(|_| None).collect();
+        let mut first: Vec<Option<Result<upload::Container, String>>> =
+            (0..items.len()).map(|_| None).collect();
+        let packed: Vec<_> = groups
+            .par_iter()
+            .filter_map(|(&place, indexes)| {
+                let ready: Vec<usize> = indexes
+                    .iter()
+                    .copied()
+                    .filter(|&index| !waits[index])
+                    .collect();
+                (!ready.is_empty()).then(|| pack_group(place, &ready))
+            })
+            .collect();
+        for (list, packed) in packed {
+            if let Some((place, list)) = list {
+                unreadable[place] = Some(list);
+            }
+            for (index, packed) in packed {
+                first[index] = Some(packed);
+            }
+        }
+
+        // As posthog-cli does, a dSYM bundle that fails to pack is skipped whole and leaves a native
+        // file with its UUID to upload, while a native file that fails stops the request.
+        let mut failed_bundles: HashMap<usize, String> = HashMap::new();
+        for (item, packed) in items.iter().zip(&first) {
+            match (item.bundle, packed) {
+                (Some(bundle), Some(Err(message))) => {
+                    failed_bundles
+                        .entry(bundle)
+                        .or_insert_with(|| message.clone());
+                }
+                (None, Some(Err(message))) => return Err(Failure::failed(message)),
+                _ => {}
+            }
+        }
+        let fitting: HashSet<&str> = items
+            .iter()
+            .zip(&first)
+            .filter(|(item, _)| {
+                item.bundle
+                    .is_some_and(|bundle| !failed_bundles.contains_key(&bundle))
+            })
+            .filter_map(|(item, packed)| match packed {
+                Some(Ok(packed)) if packed.size <= max_size => Some(item.chunk_id.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        // A list that only waiting binaries read is still read, for its warnings.
+        let packed: Vec<_> = groups
+            .par_iter()
+            .filter_map(|(&place, indexes)| {
+                let late: Vec<usize> = indexes
+                    .iter()
+                    .copied()
+                    .filter(|&index| {
+                        waits[index] && !fitting.contains(items[index].chunk_id.as_str())
+                    })
+                    .collect();
+                let unread = place.is_some_and(|place| unreadable[place].is_none());
+                (unread || !late.is_empty()).then(|| pack_group(place, &late))
+            })
+            .collect();
+        for (list, packed) in packed {
+            if let Some((place, list)) = list {
+                unreadable[place].get_or_insert(list);
+            }
+            for (index, packed) in packed {
+                first[index] = Some(packed);
+            }
+        }
+        self.trace.mark("pack native");
+
+        let containers: Vec<Option<Packed>> = items
+            .iter()
+            .zip(first)
+            .map(|(item, packed)| {
+                if let Some(message) = item.bundle.and_then(|bundle| failed_bundles.get(&bundle)) {
+                    return Ok(Some(Packed::Failed {
+                        failed: message.clone(),
+                    }));
+                }
+                packed
+                    .transpose()
+                    .map(|packed| packed.map(Packed::Container))
+            })
+            .collect::<Result<_, _>>()
+            .map_err(Failure::failed)?;
+
+        Ok(Answer::Packed {
+            unreadable: unreadable
+                .into_iter()
+                .map(Option::unwrap_or_default)
+                .collect(),
+            containers,
+        })
+    }
+}
+
 fn send(message: &impl Serialize) -> io::Result<()> {
     let mut line = serde_json::to_vec(message)?;
     line.push(b'\n');
@@ -756,6 +1121,7 @@ fn main() -> io::Result<()> {
         std::process::exit(2);
     }
     memory::tune_allocator();
+    guard::install_hook();
 
     send(&Hello {
         r#type: "hello",
@@ -766,6 +1132,7 @@ fn main() -> io::Result<()> {
     let mut worker = Worker {
         pairs: Store::new("pair"),
         maps: Store::new("map"),
+        binaries: Store::new("binary"),
         targets: Store::new("cleanup target"),
         stylesheets: Store::new("stylesheet"),
         trace: Trace::from_environment(),

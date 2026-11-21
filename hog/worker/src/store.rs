@@ -35,6 +35,10 @@ impl<T> Store<T> {
             .ok_or_else(|| unknown(kind, id))
     }
 
+    pub fn release_all(&mut self) {
+        self.items.iter_mut().for_each(|item| *item = None);
+    }
+
     pub fn take_all(&mut self, ids: &[usize]) -> Result<Vec<T>, Failure> {
         let mut taken = Vec::with_capacity(ids.len());
         for (place, id) in ids.iter().enumerate() {

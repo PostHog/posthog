@@ -57,6 +57,8 @@ const Detected = z.object({
     sourcemap: z.array(z.number()),
     composed: z.array(z.number()),
     mapping: z.array(z.number()),
+    elf: z.array(z.number()),
+    macho: z.array(z.number()),
 })
 const Pairs = z.object({
     pairs: z.array(z.union([PairState, z.object({ skipped: z.string() }), z.null()])),
@@ -85,6 +87,40 @@ export type MapState = z.output<typeof MapState>
 
 const Maps = z.object({ maps: z.array(z.union([MapState, z.object({ unreadable: z.string() })])) })
 const ClonedMap = z.object({ map: MapState })
+const NativeProblem = z.enum(['no_debug_info', 'no_build_id', 'missing_uuid', 'compressed_dwarf', 'unparseable_slice'])
+export type NativeProblem = z.output<typeof NativeProblem>
+
+const NativeBinary = z.object({
+    id: z.number(),
+    debugId: z.string(),
+    format: z.enum(['elf', 'macho']),
+    size: z.number(),
+})
+export type NativeBinary = z.output<typeof NativeBinary>
+
+const NativeFiles = z.object({
+    files: z.array(
+        z.union([
+            z.object({ candidates: z.array(z.union([NativeBinary, z.object({ problem: NativeProblem })])) }),
+            z.object({ unparseable: z.string() }),
+        ])
+    ),
+})
+const DsymMembers = z.object({
+    members: z.array(
+        z.union([
+            z.object({ slices: z.array(z.object({ id: z.number(), uuid: z.string() })) }),
+            z.object({ unreadable: z.string() }),
+        ])
+    ),
+})
+const SourcePaths = z.object({
+    sources: z.array(z.union([z.object({ paths: z.array(z.string()) }), z.object({ failed: z.string() })])),
+})
+const Packed = z.object({
+    unreadable: z.array(z.array(z.object({ path: z.string(), message: z.string() }))),
+    containers: z.array(z.union([Container, z.object({ failed: z.string() })]).nullable()),
+})
 
 export type InjectAction = z.output<typeof InjectAction>
 export type InjectOutcome = z.output<typeof Outcomes>['outcomes'][number]
@@ -94,18 +130,32 @@ type CssCandidate = NonNullable<z.output<typeof CssCandidates>['candidates'][num
 type CleanupReport = z.output<typeof Cleaned>
 type ProguardContainer = z.output<typeof ProguardContainer>
 export type MapAnswer = z.output<typeof Maps>['maps'][number]
+type NativeFileAnswer = z.output<typeof NativeFiles>['files'][number]
+type DsymMemberAnswer = z.output<typeof DsymMembers>['members'][number]
+type SourcePathsAnswer = z.output<typeof SourcePaths>['sources'][number]
+type PackedNative = z.output<typeof Packed>
+
+export interface PackItem {
+    id: number
+    sources: number | null
+    chunkId: string
+    bundle: number | null
+}
 
 interface DetectCandidate {
     path: string
     bundle: boolean
     map: boolean
     mapping: boolean
+    native: boolean
 }
 
 export interface Detected {
     sourcemap: Set<string>
     composed: Set<string>
     mapping: Set<string>
+    elf: Set<string>
+    macho: Set<string>
 }
 
 async function* readLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
@@ -213,14 +263,20 @@ export class Worker {
     }
 
     async detect(files: DetectCandidate[], publicPathPrefix: string | undefined): Promise<Detected> {
-        const asked = files.filter((file) => file.bundle || file.map || file.mapping)
+        const asked = files.filter((file) => file.bundle || file.map || file.mapping || file.native)
         const found = await this.call(
             { op: 'detect', files: asked, publicPathPrefix: publicPathPrefix ?? null },
             Detected,
-            { sourcemap: [], composed: [], mapping: [] }
+            { sourcemap: [], composed: [], mapping: [], elf: [], macho: [] }
         )
         const paths = (indices: number[]): Set<string> => new Set(indices.map((index) => asked[index]!.path))
-        return { sourcemap: paths(found.sourcemap), composed: paths(found.composed), mapping: paths(found.mapping) }
+        return {
+            sourcemap: paths(found.sourcemap),
+            composed: paths(found.composed),
+            mapping: paths(found.mapping),
+            elf: paths(found.elf),
+            macho: paths(found.macho),
+        }
     }
 
     async readPairs(paths: string[], publicPathPrefix: string | undefined): Promise<PairAnswer[]> {
@@ -290,6 +346,32 @@ export class Worker {
 
     async prepareMaps(ids: number[], folder: string | null): Promise<PreparedSymbolSets> {
         return this.call({ op: 'prepare_maps', ids, folder }, Prepared, { skipped: [], prepared: [], duplicates: [] })
+    }
+
+    async nativeCandidates(paths: string[]): Promise<NativeFileAnswer[]> {
+        return (await this.call({ op: 'native_candidates', paths }, NativeFiles, { files: [] })).files
+    }
+
+    async dsymSlices(paths: string[]): Promise<DsymMemberAnswer[]> {
+        return (await this.call({ op: 'dsym_slices', paths }, DsymMembers, { members: [] })).members
+    }
+
+    // A dSYM slice answers for its whole file.
+    async sourcePaths(ids: number[]): Promise<SourcePathsAnswer[]> {
+        return (await this.call({ op: 'source_paths', ids }, SourcePaths, { sources: [] })).sources
+    }
+
+    // The worker lets every binary go, so this is the last request that names one.
+    async packNative(
+        sources: string[][],
+        items: PackItem[],
+        folder: string | null,
+        maxSize: number
+    ): Promise<PackedNative> {
+        return this.call({ op: 'pack_native', sources, items, folder, maxSize }, Packed, {
+            unreadable: sources.map(() => []),
+            containers: [],
+        })
     }
 
     async close(): Promise<void> {
