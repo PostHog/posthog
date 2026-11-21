@@ -10,7 +10,7 @@ use crate::event_restrictions::{
     AppliedRestrictions, EventContext, EventRestrictionService, Pipeline,
 };
 use crate::prometheus::report_dropped_events;
-use crate::quota_limiters::CaptureQuotaLimiter;
+use crate::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
 
 use super::fan_out::SpanEvent;
@@ -20,11 +20,48 @@ pub enum QuotaOutcome {
     Error(CaptureError),
 }
 
-/// All-or-nothing quota check: if ANY span would be dropped by quota, reject the entire batch.
+/// All-or-nothing quota check per quota family: if ANY `$ai_*` span would be dropped by quota,
+/// every `$ai_*` span is, so LLM traces stay whole. The `$mcp_*` spans count against the events
+/// quota and pass or fail together on their own. Returns the spans that passed.
 pub async fn check_quota(
     limiter: &CaptureQuotaLimiter,
     token: &str,
-    span_events: &[SpanEvent],
+    mut span_events: Vec<SpanEvent>,
+    gateway_verified: bool,
+) -> Result<Vec<SpanEvent>, QuotaOutcome> {
+    let mut over_quota = Vec::new();
+    for llm in [true, false] {
+        let family: Vec<&SpanEvent> = span_events
+            .iter()
+            .filter(|event| is_llm_family(event) == llm)
+            .collect();
+        if family.is_empty() {
+            continue;
+        }
+        match check_family_quota(limiter, token, family, gateway_verified).await {
+            Ok(()) => {}
+            Err(QuotaOutcome::Dropped) => over_quota.push(llm),
+            Err(error) => return Err(error),
+        }
+    }
+    span_events.retain(|event| !over_quota.contains(&is_llm_family(event)));
+    if span_events.is_empty() {
+        return Err(QuotaOutcome::Dropped);
+    }
+    Ok(span_events)
+}
+
+fn is_llm_family(event: &SpanEvent) -> bool {
+    is_llm_event(EventInfo {
+        name: &event.event_name,
+        has_product_tour_id: false,
+    })
+}
+
+async fn check_family_quota(
+    limiter: &CaptureQuotaLimiter,
+    token: &str,
+    span_events: Vec<&SpanEvent>,
     gateway_verified: bool,
 ) -> Result<(), QuotaOutcome> {
     let count = span_events.len();
@@ -40,9 +77,7 @@ pub async fn check_quota(
         return Ok(());
     }
 
-    let refs: Vec<&SpanEvent> = span_events.iter().collect();
-
-    match limiter.check_and_filter(token, refs).await {
+    match limiter.check_and_filter(token, span_events).await {
         Ok(filtered) if filtered.len() == count => Ok(()),
         Ok(filtered) => {
             let dropped = count - filtered.len();

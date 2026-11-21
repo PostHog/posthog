@@ -25,12 +25,13 @@ const SESSION_ID_KEYS: &[&str] = &[
     "eve.session.id",
     "anthropic.session.id",
     "gen_ai.conversation.id",
+    "mcp.session.id",
 ];
 
 /// Changing this value gives every session and trace without an explicit distinct_id a new one.
 const DERIVED_DISTINCT_ID_NAMESPACE: Uuid = Uuid::from_u128(0x392e81d53d134a6fb541bdbf6c865e56);
 
-fn get_string_attr<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
+pub(super) fn get_string_attr<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
     attrs
         .iter()
         .find(|attr| attr.key == key)
