@@ -89,6 +89,9 @@ database "posthog" {
     column "person_properties_map_custom" {
       type = "Map(String, String)"
     }
+    column "properties_group_feature_flags" {
+      type = "Map(String, String)"
+    }
     engine "distributed" {
       cluster_name    = "flags"
       remote_database = "posthog"
@@ -546,10 +549,13 @@ database "posthog" {
     partition_by = "toYYYYMM(timestamp)"
     ttl          = "toDate(timestamp) + toIntervalDay(92)"
     settings = {
-      index_granularity                = "8192"
-      materialize_ttl_recalculate_only = "1"
-      storage_policy                   = "s3_tiered"
-      ttl_only_drop_parts              = "1"
+      index_granularity                              = "8192"
+      map_serialization_version                      = "with_buckets"
+      map_serialization_version_for_zero_level_parts = "with_buckets"
+      materialize_ttl_recalculate_only               = "1"
+      max_buckets_in_map                             = "32"
+      storage_policy                                 = "s3_tiered"
+      ttl_only_drop_parts                            = "1"
     }
     column "uuid" {
       type = "UUID"
@@ -650,6 +656,10 @@ database "posthog" {
     column "person_properties_map_custom" {
       type         = "Map(String, String)"
       materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"
+    }
+    column "properties_group_feature_flags" {
+      type         = "Map(String, String)"
+      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
     }
     index "distinct_id_idx" {
       expr        = "distinct_id"

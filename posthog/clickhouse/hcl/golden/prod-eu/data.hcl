@@ -1950,6 +1950,9 @@ database "posthog" {
     column "person_properties_map_custom" {
       type = "Map(String, String)"
     }
+    column "properties_group_feature_flags" {
+      type = "Map(String, String)"
+    }
     engine "distributed" {
       cluster_name    = "flags"
       remote_database = "posthog"

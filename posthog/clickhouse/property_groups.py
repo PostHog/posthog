@@ -21,6 +21,9 @@ class PropertyGroupDefinition:
     hidden: bool = (
         False  # whether or not this column should be returned when searching for groups containing a property key
     )
+    # The bloom filters on mapKeys and mapValues help a group of few keys per row. A group of hundreds of keys per row
+    # gains no read speed from them and makes inserts slower.
+    has_indexes: bool = True
 
     def contains(self, property_key: str) -> bool:
         if self.hidden:
@@ -49,7 +52,7 @@ class PropertyGroupDefinition:
     def get_index_definitions(
         self, source_column: PropertySourceColumnName, group_name: PropertyGroupName
     ) -> Iterable[str]:
-        if not self.is_materialized:
+        if not self.is_materialized or not self.has_indexes:
             return
 
         map_column_name = self.get_column_name(source_column, group_name)
@@ -239,12 +242,18 @@ def without_materialization(definitions: PropertyGroupDefinitions) -> PropertyGr
     }
 
 
-# Flag calls carry no $ai_* keys, so the ai groups are left out. The feature_flags group is left out because a
-# $feature/* map would copy a large share of each flag call's JSON. HogQL therefore reads $feature/* keys from the
-# JSON on this table. No column on this table family carries a CODEC.
+# Flag calls carry no $ai_* keys, so the ai groups are left out. The feature_flags group is hidden, so HogQL reads
+# $feature/* keys from the JSON until the retained window carries the column.
+# No column on this table family carries a CODEC.
 flag_evaluations_property_group_definitions: PropertyGroupDefinitions = {
     "properties": {
         "custom": dataclasses.replace(event_property_group_definitions["properties"]["custom"], codec=None),
+        "feature_flags": dataclasses.replace(
+            event_property_group_definitions["properties"]["feature_flags"],
+            codec=None,
+            hidden=True,
+            has_indexes=False,
+        ),
     },
     "person_properties": {
         "custom": dataclasses.replace(event_property_group_definitions["person_properties"]["custom"], codec=None),

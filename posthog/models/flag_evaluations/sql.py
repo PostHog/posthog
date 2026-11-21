@@ -195,6 +195,14 @@ def _single_line(pieces: Iterable[str]) -> str:
     return "".join(f"\n    , {' '.join(piece.split())}" for piece in pieces)
 
 
+# The bucketed layout lets a read of one key of a wide map skip most of the map's data. The zero-level setting applies it to freshly inserted parts too, which otherwise keep the basic layout
+# until a merge. A mutation such as MATERIALIZE COLUMN keeps the layout the part already has.
+FLAG_EVALUATIONS_MAP_SERIALIZATION_SETTINGS = (
+    "map_serialization_version = 'with_buckets', "
+    "map_serialization_version_for_zero_level_parts = 'with_buckets', "
+    "max_buckets_in_map = 32"
+)
+
 # Property-group maps with the events tables' key filters. On cloud, HogQL reads custom event and
 # person properties on events from the same maps instead of the JSON. They are MATERIALIZED, unlike
 # the typed columns above, because no writer sets them. Property removal copies rows without them,
@@ -259,7 +267,7 @@ ENGINE = {FLAG_EVALUATIONS_DATA_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY {FLAG_EVALUATIONS_ORDER_BY}
 {ttl_period("timestamp", FLAG_EVALUATIONS_TTL_DAYS, unit="DAY")}
-SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
+SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, {FLAG_EVALUATIONS_MAP_SERIALIZATION_SETTINGS}
 """
 )
 

@@ -408,7 +408,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 (
                     str(row_uuid),
                     "$feature_flag_called",
-                    json.dumps({"quote": 'a"b', "nulled": None, "$lib": "web", "token": "t", "keep": "yes"}),
+                    json.dumps(
+                        {
+                            "quote": 'a"b',
+                            "nulled": None,
+                            "$lib": "web",
+                            "token": "t",
+                            "keep": "yes",
+                            "$feature/beta": True,
+                            "$feature/variant": 'a"b',
+                            "$feature/nulled": None,
+                        }
+                    ),
                     json.dumps({"email": "a@example.com", "$creator_event_uuid": "x"}),
                     self.occurred_at,
                     self.team.pk,
@@ -418,11 +429,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         )
 
         rows = sync_execute(
-            "SELECT properties_group_custom, person_properties_map_custom FROM flag_evaluations WHERE uuid = %(uuid)s",
+            "SELECT properties_group_custom, properties_group_feature_flags, person_properties_map_custom "
+            "FROM flag_evaluations WHERE uuid = %(uuid)s",
             {"uuid": str(row_uuid)},
         )
 
-        assert rows == [({"quote": 'a"b', "keep": "yes"}, {"email": "a@example.com"})]
+        assert rows == [
+            (
+                {"quote": 'a"b', "keep": "yes"},
+                {"$feature/beta": "true", "$feature/variant": 'a"b'},
+                {"email": "a@example.com"},
+            )
+        ]
 
     def test_custom_property_filter_reads_the_property_group_map_for_an_ordinary_value(self):
         where = f" AND properties.probe = '{EVENT_PROBE}'"
