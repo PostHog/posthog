@@ -470,6 +470,21 @@ describe('EmailDomainScene', () => {
         expect(element('email-domain-records-added')).toBeInTheDocument()
     })
 
+    it('takes a domain whose sending stopped back to ready once its records verify again', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep('Verification stopped')
+        expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+
+        backend.verifyAtProviderOnly(DOMAIN)
+        click('email-domain-restart-verification')
+        await flush()
+
+        expectStep(/You can send from/)
+        expect(backend.sender(SENDER_ID)?.config).not.toHaveProperty('ses_sending_status')
+    })
+
     it('lets the person restart a stopped verification again after the first restart fails', async () => {
         seedSender()
         backend.sesReports(DOMAIN, 'failed')

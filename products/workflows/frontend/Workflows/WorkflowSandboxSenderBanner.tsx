@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import { isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
 
 import { IntegrationType } from '~/types'
 
@@ -27,7 +28,7 @@ function nextStepFor(integrations: IntegrationType[] | null): { nextStep: string
     if (ownSender) {
         return { nextStep: 'To reach your users, switch those steps to your verified sender.' }
     }
-    const stoppedSender = integrations?.find(isVerifiedEmailSender)
+    const stoppedSender = integrations?.find((sender) => isVerifiedEmailSender(sender) && isSendingStopped(sender))
     if (stoppedSender) {
         return {
             nextStep: 'To reach your users, fix your sending domain and switch those steps to it.',

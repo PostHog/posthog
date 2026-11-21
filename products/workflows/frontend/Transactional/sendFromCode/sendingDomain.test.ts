@@ -49,4 +49,17 @@ describe('sendingDomain', () => {
 
         expect(sendingDomainOf(integrations, defaultIntegrationId)).toMatchObject({ status: 'verified', email })
     })
+
+    it('asks to check the DNS records of the stopped project default when no sender can send', () => {
+        const integrations = [
+            stoppedSender(1, 'hello@first-stopped.example.com'),
+            stoppedSender(2, 'hello@default-stopped.example.com'),
+        ]
+
+        expect(sendingDomainOf(integrations, 2)).toEqual({
+            status: 'pending',
+            integrationId: 2,
+            domain: 'default-stopped.example.com',
+        })
+    })
 })

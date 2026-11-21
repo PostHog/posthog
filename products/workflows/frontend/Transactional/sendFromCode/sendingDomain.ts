@@ -1,10 +1,6 @@
 import { IntegrationType } from '~/types'
 
-import {
-    isDeliverableEmailSender,
-    isVerifiedEmailSender,
-    resolveDefaultEmailSender,
-} from '../../Channels/defaultEmailSender'
+import { isDeliverableEmailSender, resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
 
 export type SendingDomain =
     | { status: 'none' }
@@ -36,10 +32,7 @@ export function sendingDomainOf(
 ): SendingDomain {
     const deliverable = integrations.filter(isDeliverableEmailSender)
     const defaultSender = resolveDefaultEmailSender(integrations, defaultIntegrationId)
-    const sender =
-        deliverable.find((integration) => integration.id === defaultSender?.integrationId) ??
-        deliverable[0] ??
-        integrations.find(isVerifiedEmailSender)
+    const sender = deliverable.find((integration) => integration.id === defaultSender?.integrationId) ?? deliverable[0]
     if (sender) {
         const { domain = '', email = '', name } = fieldsOf(sender)
         return {
@@ -50,7 +43,9 @@ export function sendingDomainOf(
             from: senderAddress(name, email),
         }
     }
-    const pending = integrations.find((integration) => integration.kind === 'email')
+    // A stopped sender needs its DNS records verified again, so it shows as pending, the project default first.
+    const emailSenders = integrations.filter((integration) => integration.kind === 'email')
+    const pending = emailSenders.find((integration) => integration.id === defaultIntegrationId) ?? emailSenders[0]
     if (pending) {
         return { status: 'pending', integrationId: pending.id, domain: fieldsOf(pending).domain ?? '' }
     }

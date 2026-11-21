@@ -64,6 +64,7 @@ interface FakeDomain {
     preexisting: Set<RecordKind>
     confirmed: Set<RecordKind>
     awaitingRecord: boolean
+    sendingStopped: boolean
 }
 
 interface Hold {
@@ -219,6 +220,7 @@ export class FakeEmailDomainBackend {
                 preexisting: new Set(),
                 confirmed: new Set(),
                 awaitingRecord: false,
+                sendingStopped: false,
             })
         }
         return sender
@@ -276,11 +278,27 @@ export class FakeEmailDomainBackend {
 
     verifyDomain(domain: string): void {
         this.publishRecords(domain)
-        this.domainState(domain).ses = 'verified'
+        const state = this.domainState(domain)
+        state.ses = 'verified'
+        state.sendingStopped = false
+        this.senders.forEach((sender) => {
+            const { ses_sending_status: _cleared, ...config } = sender.config as EmailSenderConfig
+            if (config.domain === domain) {
+                sender.config = { ...config, verified: true }
+            }
+        })
+    }
+
+    /** The sender health check found the domain's records gone: its senders keep `verified` but every send fails. */
+    stopsSending(domain: string): void {
+        this.verifyDomain(domain)
+        const state = this.domainState(domain)
+        state.ses = 'failed'
+        state.sendingStopped = true
         this.senders.forEach((sender) => {
             const config = sender.config as EmailSenderConfig
             if (config.domain === domain) {
-                sender.config = { ...config, verified: true }
+                sender.config = { ...config, ses_sending_status: 'failed' }
             }
         })
     }
@@ -344,7 +362,7 @@ export class FakeEmailDomainBackend {
         const status = this.overallStatus(state, allFound)
         return {
             status,
-            verified: state.ses === 'verified' && !state.awaitingRecord,
+            verified: state.sendingStopped || (state.ses === 'verified' && !state.awaitingRecord),
             checked_at: CHECKED_AT,
             steps: [
                 { key: 'domain_added', state: 'done' },

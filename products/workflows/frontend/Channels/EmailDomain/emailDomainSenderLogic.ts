@@ -25,6 +25,7 @@ export interface EmailSenderConfig {
     provider: 'ses' | 'maildev'
     mail_from_subdomain?: string
     verified?: boolean
+    ses_sending_status?: string
     setup_method?: EmailSetupMethod
 }
 
