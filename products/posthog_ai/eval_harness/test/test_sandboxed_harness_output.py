@@ -902,10 +902,11 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         assert json.loads(summary.split("=== scores ===\n")[1]) == {"score": index / 2}
     roots = [
         call.kwargs["properties"]
-        for call in run.posthog_client.capture.call_args_list
+        for call in run.posthog_client.capture_ai.call_args_list
         if call.kwargs.get("event") == "$ai_trace"
     ]
     assert [root["$ai_trace_id"] for root in roots] == ["trace-2", "trace-1", "trace-0"]
+    assert not any(call.kwargs.get("event") == "$ai_trace" for call in run.posthog_client.capture.call_args_list)
 
 
 @pytest.mark.parametrize("verbose", [False, True])

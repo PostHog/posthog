@@ -2092,7 +2092,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 feedback_properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties)
+            posthoganalytics.capture_ai(distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties)
         else:
             properties: dict[str, Any] = {
                 "$ai_metric_name": "reviewer_quality",
@@ -2105,7 +2105,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             }
             if trace_id:
                 properties["$ai_trace_id"] = trace_id
-            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_metric", properties=properties)
+            posthoganalytics.capture_ai(distinct_id=distinct_id, event="$ai_metric", properties=properties)
 
         return Response(status=drf_status.HTTP_202_ACCEPTED)
 

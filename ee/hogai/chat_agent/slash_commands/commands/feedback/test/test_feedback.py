@@ -42,7 +42,7 @@ class TestFeedbackCommand(BaseTest):
         self.assertIn("Please provide your feedback", message.content)
         self.assertIn("/feedback <your feedback>", message.content)
 
-    @patch("ee.hogai.chat_agent.slash_commands.commands.feedback.command.posthoganalytics.capture")
+    @patch("ee.hogai.chat_agent.slash_commands.commands.feedback.command.posthoganalytics.capture_ai")
     async def test_execute_captures_feedback_event(self, mock_capture):
         state = AssistantState(messages=[HumanMessage(content="/feedback This is awesome!")])
         config: RunnableConfig = {"configurable": {"thread_id": "test-conversation-id", "trace_id": "test-trace-id"}}
