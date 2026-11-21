@@ -231,6 +231,15 @@ class TestFilterCatalogPublication(TestCase):
         self.assertEqual(source.catalog_versions.count(), 1)
         self.assertEqual(source.rollout_state, "internal")
         self.assertFalse(source.filter_query_eligible)
+        github = SignalFilterSourceDefinition.objects.get(source_product="github", source_type="issue")
+        self.assertEqual(github.rollout_state, "internal")
+        self.assertTrue(github.filter_query_eligible)
+
+        github.filter_query_eligible = False
+        github.save()
+        call_command("publish_signal_filter_catalogs", stdout=StringIO())
+        github.refresh_from_db()
+        self.assertFalse(github.filter_query_eligible)
 
         source.rollout_state = SignalFilterSourceDefinition.RolloutState.ENABLED
         source.save()

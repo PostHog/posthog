@@ -465,7 +465,8 @@ The backlog after the tick is in `remaining_due_pairs`, `remaining_due_without_l
 `publish_signal_filter_catalogs` publishes the checked-in field catalogs in `../filter_catalog_seeds.py` to the instance-global filter catalog tables.
 Run it once in each region after a change to a seed.
 An unchanged catalog creates no version, and a changed one becomes the next active version.
-It sets the rollout state only when it creates a source, and it never sets filter eligibility.
+It sets the rollout state and filter eligibility only when it creates a source, so a rerun keeps any later rollout decision.
+A seed starts ineligible unless it sets `initial_filter_query_eligible`.
 
 ```bash
 uv run manage.py publish_signal_filter_catalogs

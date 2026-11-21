@@ -146,8 +146,9 @@ class SignalFilterSourceDefinition(InternalCatalogModel):
         adapter_kind: SignalFilterSourceDefinition.AdapterKind,
         initial_rollout_state: SignalFilterSourceDefinition.RolloutState,
         bundle: dict[str, JsonValue],
+        initial_filter_query_eligible: bool = False,
     ) -> CatalogPublication:
-        # Rollout state applies only to a new source, and eligibility is never set here,
+        # Rollout state and eligibility apply only to a new source,
         # so that a rerun cannot undo a rollout decision made after the first publish.
         validate_catalog_bundle(bundle)
         _validate_executable(bundle)
@@ -177,6 +178,9 @@ class SignalFilterSourceDefinition(InternalCatalogModel):
             catalog_version = SignalFilterCatalogVersion(source=source, version=latest + 1, bundle=bundle)
             catalog_version.save(using=using)
             source.activate(catalog_version)
+            if source_created and initial_filter_query_eligible:
+                source.filter_query_eligible = True
+                source.save(using=using, update_fields=["filter_query_eligible"])
         return CatalogPublication(source_created=source_created, version=catalog_version.version, version_created=True)
 
 

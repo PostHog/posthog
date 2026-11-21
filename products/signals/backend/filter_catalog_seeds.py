@@ -14,6 +14,7 @@ class CatalogSeed:
     adapter_kind: SignalFilterSourceDefinition.AdapterKind
     initial_rollout_state: SignalFilterSourceDefinition.RolloutState
     bundle: dict[str, JsonValue]
+    initial_filter_query_eligible: bool = False
 
 
 def _field(name: str, field_type: CatalogFieldType, description: str, binding: JsonValue) -> JsonValue:
@@ -29,6 +30,10 @@ def _field(name: str, field_type: CatalogFieldType, description: str, binding: J
 
 def _json_path(column: str, key: str) -> JsonValue:
     return {"kind": "json_path", "column": column, "path": [key]}
+
+
+def _json_array_map(column: str, key: str) -> JsonValue:
+    return {"kind": "json_array_map", "column": column, "array_path": [], "value_path": [key]}
 
 
 # Bindings follow the issue rows of the Linear warehouse import, which stores nested
@@ -90,4 +95,64 @@ LINEAR_ISSUE_SEED = CatalogSeed(
     },
 )
 
-CATALOG_SEEDS: tuple[CatalogSeed, ...] = (LINEAR_ISSUE_SEED,)
+
+# Each repository imports to its own table, and a field whose column a table lacks fails that table's
+# filter. So bind only to keys that every GitHub API version returns: version 2026-03-10 removed `assignee`.
+GITHUB_ISSUE_SEED = CatalogSeed(
+    source_product=SignalSourceProduct.GITHUB,
+    source_type=SignalSourceType.ISSUE,
+    adapter_kind=SignalFilterSourceDefinition.AdapterKind.WAREHOUSE,
+    initial_rollout_state=SignalFilterSourceDefinition.RolloutState.INTERNAL,
+    initial_filter_query_eligible=True,
+    bundle={
+        "schema_version": 1,
+        "fields": [
+            _field(
+                "label_names",
+                "array<string>",
+                "Names of the issue's labels. Empty when the issue has no labels.",
+                _json_array_map("labels", "name"),
+            ),
+            _field(
+                "assignee_logins",
+                "array<string>",
+                "GitHub usernames of the people assigned to the issue. Empty when the issue is unassigned.",
+                _json_array_map("assignees", "login"),
+            ),
+            _field(
+                "author_login",
+                "string",
+                "GitHub username of the person who opened the issue. Bot accounts end in [bot].",
+                _json_path("user", "login"),
+            ),
+            _field(
+                "author_association",
+                "string",
+                "The author's relationship to the repository: OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, "
+                "FIRST_TIME_CONTRIBUTOR, FIRST_TIMER or NONE.",
+                {"kind": "column", "column": "author_association"},
+            ),
+            _field(
+                "issue_type",
+                "string",
+                "Name of the issue's type, such as Bug or Feature. Null when the issue has no type.",
+                _json_path("type", "name"),
+            ),
+            _field(
+                "milestone_title",
+                "string",
+                "Title of the issue's milestone. Null when the issue has no milestone.",
+                _json_path("milestone", "title"),
+            ),
+        ],
+        "starter_expressions": [
+            "has(label_names, 'bug')",
+            "NOT has(label_names, 'wontfix')",
+            "issue_type = 'Bug'",
+            "author_association NOT IN ('OWNER', 'MEMBER', 'COLLABORATOR')",
+        ],
+        "provenance": {"origin": "manual"},
+    },
+)
+
+CATALOG_SEEDS: tuple[CatalogSeed, ...] = (LINEAR_ISSUE_SEED, GITHUB_ISSUE_SEED)
