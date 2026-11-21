@@ -55,6 +55,7 @@ class OrganizationUsageInfo(TypedDict):
     events: OrganizationUsageResource | None
     exceptions: OrganizationUsageResource | None
     recordings: OrganizationUsageResource | None
+    mobile_recordings: NotRequired[OrganizationUsageResource | None]
     survey_responses: OrganizationUsageResource | None
     rows_synced: OrganizationUsageResource | None
     cdp_trigger_events: OrganizationUsageResource | None
@@ -536,8 +537,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
         Updates the organization's usage data with the quota_limited_until timestamp.
         """
         from ee.billing.quota_limiting import (
+            REPLAY_QUOTA_RESOURCES,
             QuotaLimitingCaches,
-            QuotaResource,
             add_limited_team_tokens,
             dispatch_recordings_remote_config_sync,
             update_organization_usage_fields,
@@ -560,7 +561,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 {"quota_limited_until": billing_period_end_timestamp, "quota_limiting_suspended_until": None},
             )
 
-            if resource == QuotaResource.RECORDINGS:
+            if resource in REPLAY_QUOTA_RESOURCES:
                 dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
             self._project_llm_gateway_quota_if_ai(resource)
         else:
@@ -572,8 +573,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
         Removes teams from the limiting cache and clears quota_limited_until from usage data.
         """
         from ee.billing.quota_limiting import (
+            REPLAY_QUOTA_RESOURCES,
             QuotaLimitingCaches,
-            QuotaResource,
             dispatch_recordings_remote_config_sync,
             remove_limited_team_tokens,
             update_organization_usage_fields,
@@ -591,7 +592,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 self, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
             )
 
-        if resource == QuotaResource.RECORDINGS:
+        if resource in REPLAY_QUOTA_RESOURCES:
             dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
         self._project_llm_gateway_quota_if_ai(resource)
 

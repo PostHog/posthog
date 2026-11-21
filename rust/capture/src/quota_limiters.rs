@@ -65,6 +65,10 @@ pub struct CaptureQuotaLimiter {
     // all events are dropped for the incoming payload. Due to this, this limiter
     // IS ALWAYS APPLIED LAST in the chain.
     global_limiter: RedisLimiter,
+
+    // recordings mode only: mobile replay has its own quota, so a mobile batch is
+    // checked against this limiter instead of the web global limiter
+    mobile_recordings_limiter: Option<RedisLimiter>,
 }
 
 impl CaptureQuotaLimiter {
@@ -87,6 +91,19 @@ impl CaptureQuotaLimiter {
         )
         .expect(&err_msg);
 
+        let mobile_recordings_limiter =
+            (config.capture_mode == CaptureMode::Recordings).then(|| {
+                RedisLimiter::new(
+                    redis_timeout,
+                    redis_client.clone(),
+                    QUOTA_LIMITER_CACHE_KEY.to_string(),
+                    config.redis_key_prefix.clone(),
+                    QuotaResource::MobileRecordings,
+                    ServiceName::Capture,
+                )
+                .expect("failed to create mobile recordings limiter")
+            });
+
         Self {
             capture_mode: config.capture_mode,
             redis_timeout,
@@ -94,6 +111,7 @@ impl CaptureQuotaLimiter {
             redis_client: redis_client.clone(),
             global_limiter,
             scoped_limiters: vec![],
+            mobile_recordings_limiter,
         }
     }
 
@@ -209,6 +227,33 @@ impl CaptureQuotaLimiter {
             .map(|i| indices_to_events.remove(i).unwrap())
             .collect();
         Ok(filtered_events)
+    }
+
+    /// Recordings path: a mobile batch is limited only by the mobile replay quota, and a
+    /// web batch by the usual chain. `is_mobile` must come from the batch's first event,
+    /// because ingestion and billing stamp the whole batch with that event's source.
+    pub async fn check_and_filter_recordings<T: HasEventName>(
+        &self,
+        token: &str,
+        events: Vec<T>,
+        is_mobile: bool,
+    ) -> Result<Vec<T>, CaptureError> {
+        let Some(mobile_limiter) = self
+            .mobile_recordings_limiter
+            .as_ref()
+            .filter(|_| is_mobile)
+        else {
+            return self.check_and_filter(token, events).await;
+        };
+
+        if mobile_limiter.is_limited(token).await {
+            let dropped_count = events.len() as u64;
+            report_quota_limit_exceeded(&QuotaResource::MobileRecordings, dropped_count);
+            counter!(CAPTURE_EVENTS_DROPPED_TOTAL, "cause" => "mobile_recordings_over_quota")
+                .increment(dropped_count);
+            return Err(CaptureError::BillingLimit);
+        }
+        Ok(events)
     }
 
     /// Check if a token is limited for a specific quota resource bucket.
