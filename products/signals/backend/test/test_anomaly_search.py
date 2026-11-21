@@ -30,6 +30,7 @@ from products.signals.backend.anomaly_scores.search import (
 )
 from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
 from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 NOW = datetime.datetime(2026, 10, 23, 12, tzinfo=datetime.UTC)
 
@@ -385,10 +386,8 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
     def test_links_the_insight_with_context_before_the_flags(
         self, _name: str, endpoint: str, params: dict[str, Any], row: Any
     ) -> None:
-        self.insight.query = {
-            "kind": "InsightVizNode",
-            "source": {"kind": "TrendsQuery", "series": [{"event": "signup"}], "dateRange": {"date_from": "-7d"}},
-        }
+        series = [{"kind": "EventsNode", "event": "signup"}]
+        self.insight.query = trends_metric_query(series=series, date_from="-7d")
         self.insight.save()
         for day in (20, 22):
             self._score(_day(day), score=0.99, flag=1, series_key="signups")
@@ -398,14 +397,12 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         url = urlparse(row(body)["insight_url"])
         query = json.loads(parse_qs(url.fragment)["q"][0])
         assert (url.path, url.query) == (f"/project/{self.team.project_id}/insights/{self.insight.short_id}", "")
-        assert query == {
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "TrendsQuery",
-                "series": [{"event": "signup"}],
-                "dateRange": {"date_from": "2026-09-26T00:00:00+00:00", "date_to": "2026-10-26T00:00:00+00:00"},
-            },
+        expected = trends_metric_query(series=series)
+        expected["source"]["dateRange"] = {
+            "date_from": "2026-09-26T00:00:00+00:00",
+            "date_to": "2026-10-26T00:00:00+00:00",
         }
+        assert query == expected
 
     def test_search_names_the_live_dashboards_of_each_insight(self) -> None:
         other = Insight.objects.create(team=self.team, name="Checkout", saved=True)
