@@ -38,7 +38,7 @@ FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
 # The Distributed table that holds the same rows in the native JSON schema. A query reads it as `flag_evaluations`,
 # so every field reference keeps its prefix.
-FLAG_EVALUATIONS_JSON_CLICKHOUSE_TABLE = "flag_evaluations_json"
+FLAG_EVALUATIONS_JSON_CLICKHOUSE_TABLE = f"{FLAG_EVALUATIONS_CLICKHOUSE_TABLE}_json"
 
 # FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS back.
 # The TTL constant lives in posthog/models/flag_evaluations/sql.py.
@@ -314,9 +314,8 @@ class FlagEvaluationsTable(EventsRetentionTable):
     def to_printed_clickhouse_table_ref(self, context, use_logical_alias=True):
         if not context.reads_flag_evaluations_json():
             return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
-        if use_logical_alias:
-            return f"{FLAG_EVALUATIONS_JSON_CLICKHOUSE_TABLE} AS {FLAG_EVALUATIONS_CLICKHOUSE_TABLE}"
-        return FLAG_EVALUATIONS_JSON_CLICKHOUSE_TABLE
+        alias = f" AS {FLAG_EVALUATIONS_CLICKHOUSE_TABLE}" if use_logical_alias else ""
+        return f"{FLAG_EVALUATIONS_JSON_CLICKHOUSE_TABLE}{alias}"
 
     def to_printed_hogql(self):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
