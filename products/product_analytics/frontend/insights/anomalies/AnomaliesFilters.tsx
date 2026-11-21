@@ -11,7 +11,7 @@ import {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { ANOMALIES_DATE_RANGES } from './anomaliesDateRanges'
-import { ANOMALY_RATE_FILTER_OFF, anomaliesTabLogic } from './anomaliesTabLogic'
+import { anomaliesTabLogic } from './anomaliesTabLogic'
 
 const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterval | null> = [
     { value: null, label: 'All intervals' },
@@ -23,20 +23,11 @@ const INTERVAL_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveInterva
 
 const ORDER_OPTIONS: LemonSelectOptions<SignalsAnomaliesSearchRetrieveOrder> = [
     { value: SignalsAnomaliesSearchRetrieveOrder.Recent, label: 'Most recent' },
-    { value: SignalsAnomaliesSearchRetrieveOrder.Rate, label: 'Highest anomaly rate' },
-]
-
-const MAX_ANOMALY_RATE_OPTIONS: LemonSelectOptions<number> = [
-    { value: 0.05, label: 'Anomaly rate up to 5%' },
-    { value: 0.1, label: 'Anomaly rate up to 10%' },
-    { value: 0.25, label: 'Anomaly rate up to 25%' },
-    { value: 0.5, label: 'Anomaly rate up to 50%' },
-    { value: ANOMALY_RATE_FILTER_OFF, label: 'Any anomaly rate' },
 ]
 
 export function AnomaliesFilters(): JSX.Element {
-    const { filters, maxAnomalyRate } = useValues(anomaliesTabLogic)
-    const { setFilters, setMaxAnomalyRate } = useActions(anomaliesTabLogic)
+    const { filters } = useValues(anomaliesTabLogic)
+    const { setFilters } = useActions(anomaliesTabLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
 
     return (
@@ -84,13 +75,6 @@ export function AnomaliesFilters(): JSX.Element {
                 options={ORDER_OPTIONS}
                 onChange={(order) => setFilters({ order })}
                 data-attr="anomalies-tab-order"
-            />
-            <LemonSelect<number>
-                size="small"
-                value={maxAnomalyRate}
-                options={MAX_ANOMALY_RATE_OPTIONS}
-                onChange={setMaxAnomalyRate}
-                data-attr="anomalies-tab-max-anomaly-rate"
             />
         </div>
     )
