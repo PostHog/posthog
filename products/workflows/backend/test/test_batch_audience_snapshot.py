@@ -72,6 +72,26 @@ class TestBatchAudienceSnapshot(TestCase):
         assert again.status == HogFlowBatchJobAudienceStatus.RESOLVING
         mock_task.assert_called_once_with(self.team.pk, str(job.id), "email", 5)
 
+    @parameterized.expand(
+        [
+            ("ready", HogFlowBatchJobAudienceStatus.READY, ["$host"]),
+            ("still_resolving", HogFlowBatchJobAudienceStatus.RESOLVING, []),
+        ]
+    )
+    def test_a_ready_audience_names_the_test_account_filters_it_left_out(self, _dispatch, _name, status, expected):
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": "localhost", "operator": "is_not"},
+            {"key": "email", "type": "person", "value": "@internal.example.com", "operator": "not_icontains"},
+        ]
+        self.team.save()
+        job = self._job(audience_status=status, filters={"properties": [], "filter_test_accounts": True})
+
+        snapshot = request_audience_snapshot(
+            team_id=self.team.pk, batch_job_id=str(job.id), dedupe_key=None, max_audience_size=5
+        )
+
+        assert snapshot.skipped_test_account_filters == expected
+
     def test_resolve_stores_the_audience_and_marks_it_ready(self, _dispatch):
         job = self._job(audience_status=HogFlowBatchJobAudienceStatus.RESOLVING)
 
