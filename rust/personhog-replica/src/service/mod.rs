@@ -1,6 +1,7 @@
 mod consistency;
 mod error;
 pub mod field_mask;
+mod followed;
 mod types;
 
 #[cfg(test)]
@@ -66,6 +67,9 @@ use uuid::Uuid;
 
 use crate::storage::{self, FullStorage};
 
+use followed::followed_or_stored;
+pub use followed::{Attached, FollowerReads};
+
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
 const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
@@ -93,11 +97,21 @@ const DELETE_TOMBSTONED_DEFAULT_ROWS: i64 = 1000;
 
 pub struct PersonHogReplicaService {
     storage: Arc<dyn FullStorage>,
+    /// Present when this replica follows the changelog.
+    follower: Option<FollowerReads>,
 }
 
 impl PersonHogReplicaService {
     pub fn new(storage: Arc<dyn FullStorage>) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            follower: None,
+        }
+    }
+
+    pub fn with_follower(mut self, follower: FollowerReads) -> Self {
+        self.follower = Some(follower);
+        self
     }
 }
 
@@ -111,18 +125,20 @@ impl PersonHogReplica for PersonHogReplicaService {
         &self,
         request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
-        let req = request.into_inner();
+        let (metadata, _, req) = request.into_parts();
         reject_strong_consistency(&req.read_options)?;
 
-        let person = self
-            .storage
-            .get_person_by_id(req.team_id, req.person_id)
-            .await
-            .map_err(|e| log_and_convert_error(e, "get_person"))?;
+        let followed = self.followed_person(&metadata, req.team_id, req.person_id);
+        let person = followed_or_stored(followed, || async {
+            self.storage
+                .get_person_by_id(req.team_id, req.person_id)
+                .await
+                .map(|person| person.map(Into::into))
+                .map_err(|e| log_and_convert_error(e, "get_person"))
+        })
+        .await?;
 
-        Ok(Response::new(GetPersonResponse {
-            person: person.map(Into::into),
-        }))
+        Ok(Response::new(GetPersonResponse { person }))
     }
 
     async fn get_persons(
@@ -168,21 +184,23 @@ impl PersonHogReplica for PersonHogReplicaService {
         &self,
         request: Request<GetPersonByUuidRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
-        let req = request.into_inner();
+        let (metadata, _, req) = request.into_parts();
         reject_strong_consistency(&req.read_options)?;
 
         let uuid = Uuid::parse_str(&req.uuid)
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
 
-        let person = self
-            .storage
-            .get_person_by_uuid(req.team_id, uuid)
-            .await
-            .map_err(|e| log_and_convert_error(e, "get_person_by_uuid"))?;
+        let followed = self.followed_person_by_uuid(&metadata, req.team_id, &uuid.to_string());
+        let person = followed_or_stored(followed, || async {
+            self.storage
+                .get_person_by_uuid(req.team_id, uuid)
+                .await
+                .map(|person| person.map(Into::into))
+                .map_err(|e| log_and_convert_error(e, "get_person_by_uuid"))
+        })
+        .await?;
 
-        Ok(Response::new(GetPersonResponse {
-            person: person.map(Into::into),
-        }))
+        Ok(Response::new(GetPersonResponse { person }))
     }
 
     async fn get_persons_by_uuids(
