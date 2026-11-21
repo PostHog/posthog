@@ -59,7 +59,7 @@ const DrawerContent = React.forwardRef<React.ComponentRef<typeof DrawerPrimitive
                         {...props}
                     >
                         <DrawerHandle />
-                        <div className="w-full max-w-[32rem] mx-auto">{children}</div>
+                        <div className="mx-auto flex min-h-0 w-full max-w-[32rem] flex-col">{children}</div>
                     </DrawerPrimitive.Popup>
                 </DrawerPrimitive.Viewport>
             </DrawerPortal>
