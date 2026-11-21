@@ -62,12 +62,12 @@ describe('sendSpacing', () => {
         ['two audiences of different cohorts', audience([21]), audience([24]), false],
         ['an audience of everyone', audience([]), audience([24]), true],
         [
-            'an audience that filters on a person property',
+            'two audiences of different cohorts that also filter on a person property',
             audience([21], [
                 { key: 'plan', type: 'person', operator: 'exact', value: ['free'] },
             ] as SendAudience['filters']),
-            audience([24]),
-            true,
+            audience([24], [{ key: 'email', type: 'person', operator: 'is_set' }] as SendAudience['filters']),
+            false,
         ],
         [
             'two audiences that each leave out a different cohort',
