@@ -81,6 +81,8 @@ const ZOD_BUILDERS = new Set([
     'url',
     'uuid',
 ])
+// hog-worker ships in the release beside hog, and the catalog delivers none of it.
+const WORKER_DIR = 'hog/worker/'
 const DEFINITION_FILES = new Set([
     'services/mcp/schema/tool-definitions.json',
     'services/mcp/schema/generated-tool-definitions.json',
@@ -793,12 +795,17 @@ function registryChangeDelivered(input: GapInput, carried: Set<string>): boolean
         )
 }
 
-// Anything compiled into hog counts unless the catalog provably carries it.
+// Anything compiled into hog counts unless the catalog provably carries it, and so does any hog-worker change.
 export function findCatalogGaps(input: GapInput): GapResult {
     const carried = catalogTools(input)
     const reasons: Reason[] = []
 
     for (const file of input.changed) {
+        if (file.startsWith(WORKER_DIR)) {
+            reasons.push({ file, why: 'built into hog-worker' })
+            continue
+        }
+
         if (!input.compiled.files.has(file) || file === CATALOG_TOOLS_JSON) {
             continue
         }
