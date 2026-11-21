@@ -164,3 +164,16 @@ ERROR_MESSAGES = {
     "BillExpirationException": "AWS no longer keeps data for these dates. Select a later start date.",
     "ValidationException": "AWS rejected the request. Check the source settings and try again.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "ce:GetSavingsPlanPurchaseRecommendationDetails",
+    "ce:GetSavingsPlansCoverage",
+    "ce:GetSavingsPlansPurchaseRecommendation",
+    "ce:GetSavingsPlansUtilization",
+    "ce:GetSavingsPlansUtilizationDetails",
+    "savingsplans:DescribeSavingsPlanRates",
+    "savingsplans:DescribeSavingsPlans",
+    "savingsplans:DescribeSavingsPlansOfferings",
+)

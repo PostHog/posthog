@@ -93,3 +93,19 @@ NON_RETRYABLE_ERRORS: dict[str, str] = {
     "OptInRequired": "Enable AWS Batch in the selected region before you connect it.",
     "not subscribed": "Enable AWS Batch for this account before you connect it.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "batch:DescribeComputeEnvironments",
+    "batch:DescribeConsumableResource",
+    "batch:DescribeJobDefinitions",
+    "batch:DescribeJobQueues",
+    "batch:DescribeJobs",
+    "batch:DescribeSchedulingPolicies",
+    "batch:GetJobQueueSnapshot",
+    "batch:ListConsumableResources",
+    "batch:ListJobs",
+    "batch:ListSchedulingPolicies",
+    "batch:ListServiceJobs",
+)
