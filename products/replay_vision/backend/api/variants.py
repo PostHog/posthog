@@ -13,8 +13,8 @@ from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.api.observations import ReplayObservationSerializer
 from products.replay_vision.backend.api.scout_permissions import ScoutDataAccessPermission
 from products.replay_vision.backend.experiment_variants import experiment_variants_readout
-from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
+from products.replay_vision.backend.scope.load import experiment_id_of
 
 
 class VariantsExperimentSerializer(serializers.Serializer):
@@ -164,17 +164,20 @@ class ReplayScannerVariantsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         operation_id="vision_scanners_variants_list",
         responses={
             200: ExperimentVariantsReadoutSerializer,
-            400: OpenApiResponse(description="The scanner is not an experiment scanner."),
+            400: OpenApiResponse(description="The scanner does not watch an experiment."),
         },
         description=(
-            "Per-variant readout for an experiment scanner: observation counts, distinct people, median "
+            "Per-variant readout for a scanner that watches an experiment: observation counts, distinct people, median "
             "session length, sampling rate and latest observations per variant, read live, plus the digests "
             "and differences of the scanner's variant analysis scout."
         ),
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
         scanner = scanner_for_recording_derived_read(self)
-        if scanner.scanner_type != ScannerType.EXPERIMENT:
-            raise ValidationError("Only experiment scanners have variants.")
+        # On the experiment it watches, not the type it is: a scanner carrying its experiment in
+        # `scope` is an answer format of its own, and gating on the type would answer 400 for every
+        # scanner the scope-aware create path makes. `experiment_id_of` reads whichever store holds it.
+        if experiment_id_of(scanner) is None:
+            raise ValidationError("Only scanners that watch an experiment have variants.")
         readout = experiment_variants_readout(scanner, access=self.user_access_control, viewer_id=request.user.id)
         return Response(ExperimentVariantsReadoutSerializer(readout).data)

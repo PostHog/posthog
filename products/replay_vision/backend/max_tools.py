@@ -345,10 +345,12 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
             scanner, "viewer"
         ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
             return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
-        if scanner.scanner_type != ScannerType.EXPERIMENT:
+        # The same gate as the variants endpoint: on the experiment the scanner watches, not its
+        # type, so a scanner carrying its experiment in `scope` is answered rather than refused.
+        if experiment_id_of(scanner) is None:
             return (
-                f"That scanner is a {scanner.scanner_type} scanner. Only experiment scanners have variants.",
-                {"error": "wrong_scanner_type"},
+                f"That {scanner.scanner_type} scanner does not watch an experiment, so it has no variants.",
+                {"error": "no_experiment_scope"},
             )
 
         # A tool runs outside a request, so the team scope the fail-closed observation reads need is set here.

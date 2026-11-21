@@ -22,6 +22,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.scanner_access import accessible_observations, is_uuid
+from products.replay_vision.backend.scope.load import stored_scope
 from products.replay_vision.backend.variant_analysis import (
     VariantAnalysisDifference,
     VariantAnalysisLine,
@@ -102,7 +103,10 @@ def experiment_variants_readout(
     # back into this package's importers.
     from products.experiments.backend.facade.replay import experiment_prompt_context, experiment_status  # noqa: PLC0415
 
-    experiment_scope = scanner.experiment_scope() or {}
+    # Read through `stored_scope`, not `experiment_scope()`: a scanner carrying its experiment in
+    # the `scope` column is not the legacy type, and the older accessor answers None for it, so the
+    # readout would name no experiment and list no variant that has yet to be observed.
+    experiment_scope = stored_scope(scanner) or {}
     experiment_id = experiment_scope.get("experiment_id")
     context = experiment_prompt_context(scanner.team, experiment_id=experiment_id) if experiment_id else None
     status = experiment_status(scanner.team, experiment_id=experiment_id) if experiment_id else None
