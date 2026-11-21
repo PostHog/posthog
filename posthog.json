@@ -1,4 +1,7 @@
 {
+    "$schema": "https://raw.githubusercontent.com/PostHog/posthog/master/hog/posthog.schema.json",
+    "host": "https://us.posthog.com",
+    "projectId": 2,
     "languages": {
         "typescript": {
             "output_path": "frontend/src/lib/posthog-typed.ts",

@@ -11,7 +11,8 @@
 # - node-base: shared Node.js base with pnpm already provisioned
 # - product-manifests: collect the package.json of each products/* workspace package
 # - frontend-build: build the frontend (static assets)
-# - sourcemap-upload: upload sourcemaps to PostHog (isolated, no artifacts)
+# - frontend-dist: the frontend build alone, which CI exports to upload its sourcemaps
+# - sourcemap-upload: the frontend/dist that ships, which CI replaces once it uploaded the sourcemaps
 # - node-scripts-build: build plugin transpiler and other Node.js build artifacts
 # - cli-catalog-build: build the API tool catalog that hog downloads from /api/cli/catalog.json
 # - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
@@ -85,83 +86,23 @@ RUN bin/turbo --filter=@posthog/frontend build
 #
 # ---------------------------------------------------------
 #
-# Isolated stage for sourcemap upload - keeps secrets and external network calls
-# out of the main build cache. This stage produces no artifacts for the final image.
+# The frontend build alone, so CI can export it with `--target frontend-dist --output type=local` and
+# upload its sourcemaps from the job (see .github/scripts/upload-frontend-sourcemaps.sh).
 #
-FROM node:26.13.1-bookworm-slim AS sourcemap-upload
-WORKDIR /code
-SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
-
-ARG COMMIT_HASH
-
+FROM scratch AS frontend-dist
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 
-# Upload sourcemaps to error tracking, recording whether it GENUINELY succeeded so the later strip
-# only deletes the .map files when an uploaded copy exists. The build never fails on a sourcemap
-# problem (missing secret, CLI download / network / auth failure): in that case the status is
-# "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
-# which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
+
 #
-# Two passes. The stable-name copies (`*-S<10 hex>.js`, see frontend/bin/stableChunkNames.mjs) keep
-# one URL for as long as their code is unchanged, so they must not carry the per-release id that the
-# first pass injects. The second pass runs with no release flags and without GITHUB_ACTIONS, so the CLI
-# resolves no release and injects only the chunk id, which it derives from the file's own content.
+# ---------------------------------------------------------
 #
-# The CLI installer is pinned to an immutable release tag and checksum-verified before execution:
-# the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
-# To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
-#   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
-ARG POSTHOG_CLI_VERSION=0.18.2
-ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e28bfd0d07a4f697f7a
-# The CLI stamps the release it creates with git metadata (branch, remote, repo name) read from the
-# GitHub Actions environment. Only frontend/dist is copied into this stage, so there is no .git
-# directory to fall back on: without these the release is created with no link back to the code it
-# was built from, and the CLI skips the metadata silently because --release-name/--release-version
-# already let it create the release. The CLI treats empty values as absent, so local builds that
-# pass none of these behave as before. In the CD workflow the release usually exists already, created
-# with the same metadata before the build, and this stage only looks it up by name and version.
-ARG GITHUB_ACTIONS
-ARG GITHUB_SHA
-ARG GITHUB_REF_NAME
-ARG GITHUB_REPOSITORY
-ARG GITHUB_SERVER_URL
-ENV GITHUB_ACTIONS=$GITHUB_ACTIONS \
-    GITHUB_SHA=$GITHUB_SHA \
-    GITHUB_REF_NAME=$GITHUB_REF_NAME \
-    GITHUB_REPOSITORY=$GITHUB_REPOSITORY \
-    GITHUB_SERVER_URL=$GITHUB_SERVER_URL
-RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
-    if ( \
-        [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
-        apt-get update && \
-        apt-get install -y --no-install-recommends ca-certificates curl && \
-        curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/posthog-cli-installer.sh \
-            "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv${POSTHOG_CLI_VERSION}/posthog-cli-installer.sh" && \
-        echo "${POSTHOG_CLI_INSTALLER_SHA256}  /tmp/posthog-cli-installer.sh" | sha256sum -c - && \
-        sh /tmp/posthog-cli-installer.sh && \
-        export PATH="/root/.posthog:$PATH" && \
-        export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
-        export POSTHOG_CLI_ENV_ID=2 && \
-        STABLE_CHUNKS='**/*-S[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F].js' && \
-        posthog-cli sourcemap process \
-            --directory /code/frontend/dist \
-            --exclude "$STABLE_CHUNKS" \
-            --public-path-prefix /static \
-            --release-mode event \
-            --release-name posthog \
-            --release-version "${COMMIT_HASH:-unknown}" && \
-        env -u GITHUB_ACTIONS posthog-cli sourcemap process \
-            --directory /code/frontend/dist \
-            --include "$STABLE_CHUNKS" \
-            --public-path-prefix /static \
-            --release-mode event \
-    ); then \
-        echo uploaded > /tmp/.sourcemaps-status; \
-    else \
-        echo "WARNING: sourcemaps not uploaded (no secret or upload failed); .map files will be retained in the image" >&2; \
-        echo retained > /tmp/.sourcemaps-status; \
-    fi && \
-    touch /tmp/.sourcemaps-processed
+# The frontend/dist that ships, and whether its sourcemaps reached error tracking. This build uploads
+# nothing and keeps the .map files. CI uploads from the job instead, where its credentials never enter
+# a build, and replaces this whole stage with a build context named sourcemap-upload. That context holds
+# the processed frontend/dist and a status of "uploaded", so the posthog-build stage strips the maps.
+#
+FROM frontend-build AS sourcemap-upload
+RUN echo retained > /tmp/.sourcemaps-status && touch /tmp/.sourcemaps-processed
 
 
 #
@@ -293,10 +234,10 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 # so they never import every source module, and a source module that fails to import fails the build.
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py render_wizard_tool_catalog
 
-# Strip JS sourcemaps (~2.8GB) from the artifacts that ship in the final image — but ONLY when the
-# isolated sourcemap-upload stage confirmed a real upload to error tracking (status "uploaded"). If the
-# upload failed or no secret was provided, the .map files are kept so the only remaining copy isn't
-# lost. Done here (not in the final stage) so the bytes never enter the COPYed layers.
+# Strip JS sourcemaps (~2.8GB) from the artifacts that ship in the final image, but ONLY when the
+# sourcemap-upload stage says CI uploaded them to error tracking (status "uploaded"). Otherwise the
+# .map files are kept so the only remaining copy isn't lost. Done here (not in the final stage) so the
+# bytes never enter the COPYed layers.
 COPY --from=sourcemap-upload /tmp/.sourcemaps-status /tmp/.sourcemaps-status
 RUN if [ "$(cat /tmp/.sourcemaps-status)" = uploaded ]; then \
         echo "sourcemaps uploaded — stripping .map files from the image"; \
@@ -429,7 +370,7 @@ COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/static
 # where the JS sourcemaps have already been stripped.
 COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
 
-# Ensure sourcemap-upload stage runs (the file itself is not needed in the final image).
+# Keeps the sourcemap-upload stage in the build (the file itself is not needed in the final image).
 COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
 
 # Copy products.json from the frontend-build stage
