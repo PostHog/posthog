@@ -21,6 +21,7 @@ export function ProductUsagePersonTooltip({
                 </div>
             )}
             <span>{`${person.actionCount} actions, ${Math.round(person.engagedSeconds)} seconds on product pages`}</span>
+            {!!person.agentCalls && <span>{`${person.agentCalls} AI agent calls`}</span>}
             {person.actions.map((action) => (
                 <span key={action.event}>{`${action.event}: ${action.count}`}</span>
             ))}
