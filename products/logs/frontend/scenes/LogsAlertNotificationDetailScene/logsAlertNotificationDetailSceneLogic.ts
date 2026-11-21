@@ -42,8 +42,10 @@ export interface logsAlertNotificationDetailSceneLogicValues {
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
     currentTeamId: number | null // teamLogic
     alert: LogsAlertConfigurationDetailApi | null
+    alertError: boolean
     alertId: string
     alertLoading: boolean
+    alertSettled: boolean
     breadcrumbs: Breadcrumb[]
     destinationGroup: LogsAlertDestinationGroup | null
     eventLabelByHogFunctionId: Record<string, string>
@@ -141,7 +143,8 @@ export interface logsAlertNotificationDetailSceneLogicMeta {
             destinationGroup: LogsAlertDestinationGroup | null,
             recentSends: LogsAlertDestinationSendApi[] | null,
             recentSendsLoading: boolean,
-            recentSendsError: boolean
+            recentSendsError: boolean,
+            alertSettled: boolean
         ) => boolean
         eventLabelByHogFunctionId: (destinationGroup: LogsAlertDestinationGroup | null) => Record<string, string>
         messageCustomized: (
@@ -194,6 +197,21 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
     }),
 
     reducers({
+        alertSettled: [
+            false,
+            {
+                loadAlert: () => false,
+                loadAlertSuccess: () => true,
+                loadAlertFailure: () => true,
+            },
+        ],
+        alertError: [
+            false,
+            {
+                loadAlert: () => false,
+                loadAlertFailure: () => true,
+            },
+        ],
         hasLoaded: [
             false,
             {
@@ -291,33 +309,43 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
                 hogFunctionId: string,
                 alert: LogsAlertConfigurationDetailApi | null
             ): LogsAlertDestinationGroup | null => {
-                const groups = groupLogsAlertDestinations(hogFunctions, () => null)
-                const group = groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
-                // The alert's own list splits groups that differ by more than the URL, such as a header,
-                // so the page keeps to the functions that list puts in this destination.
+                // Only the alert's own list says which functions form this destination. A URL input is secret,
+                // so the HogFunction API masks it and grouping by URL would split one destination per function,
+                // which would let Remove delete one function and leave the rest sending.
                 const listed = alert?.destinations.find((d) => d.hog_function_ids.includes(hogFunctionId))
-                if (!group || !listed) {
-                    return group
+                const members = listed ? hogFunctions.filter((hf) => listed.hog_function_ids.includes(hf.id)) : []
+                const selected = members.find((hf) => hf.id === hogFunctionId)
+                if (!selected) {
+                    return null
                 }
-                return {
-                    ...group,
-                    hogFunctions: group.hogFunctions.filter((hf) => listed.hog_function_ids.includes(hf.id)),
-                }
+                const [identity] = groupLogsAlertDestinations([selected], () => null)
+                return { ...identity, hogFunctions: members, enabled: members.every((hf) => hf.enabled) }
             },
         ],
         // Due once per page: a pause or enable reloads the functions but changes no past send, and a
         // failed load waits for Retry. Watched rather than checked after the functions load, so a flag
         // that turns on later still loads the sends.
+        // Waits for the alert, because its destination list decides the group's functions. Sends loaded from
+        // the functions alone would cover one function of a group whose URL is secret.
         recentSendsDue: [
-            (s) => [s.featureFlags, s.destinationGroup, s.recentSends, s.recentSendsLoading, s.recentSendsError],
+            (s) => [
+                s.featureFlags,
+                s.destinationGroup,
+                s.recentSends,
+                s.recentSendsLoading,
+                s.recentSendsError,
+                s.alertSettled,
+            ],
             (
                 featureFlags: FeatureFlagsSet,
                 group: LogsAlertDestinationGroup | null,
                 recentSends: LogsAlertDestinationSendApi[] | null,
                 loading: boolean,
-                error: boolean
+                error: boolean,
+                alertSettled: boolean
             ): boolean =>
                 !!featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION] &&
+                alertSettled &&
                 group !== null &&
                 recentSends === null &&
                 !loading &&

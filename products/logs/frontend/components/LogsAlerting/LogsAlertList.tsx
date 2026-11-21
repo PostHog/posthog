@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { PlatformAlertStateTimeline } from 'products/alerts_platform/frontend/PlatformAlertStateTimeline'
 import {
-    LogsAlertDestinationTypeEnumApi,
+    AlertDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
@@ -25,11 +25,7 @@ import { logsAlertingLogic } from './logsAlertingLogic'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
 import { SNOOZE_DURATIONS } from './logsAlertUtils'
 
-export function LogsAlertDestinationTags({
-    types,
-}: {
-    types: readonly LogsAlertDestinationTypeEnumApi[]
-}): JSX.Element {
+export function LogsAlertDestinationTags({ types }: { types: readonly AlertDestinationTypeEnumApi[] }): JSX.Element {
     return (
         <div className="flex gap-1">
             {DESTINATION_TAGS.filter(({ type }) => types.includes(type)).map(({ type, label, icon }) => (

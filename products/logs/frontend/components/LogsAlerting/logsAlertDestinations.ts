@@ -14,10 +14,10 @@ import {
 } from 'products/logs/frontend/generated/api'
 import {
     LogsAlertCreateDestinationApi,
-    LogsAlertDestinationTypeEnumApi,
+    AlertDestinationTypeEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
-const LOGS_DESTINATION_TYPES: string[] = Object.values(LogsAlertDestinationTypeEnumApi)
+const LOGS_DESTINATION_TYPES: string[] = Object.values(AlertDestinationTypeEnumApi)
 
 export const LOGS_ALERT_DESTINATION_TYPE_OPTIONS = DESTINATION_TYPE_OPTIONS.filter((option) =>
     LOGS_DESTINATION_TYPES.includes(option.value)

@@ -37,6 +37,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
+from products.cdp.backend.templates.discord.template_discord import template as template_discord
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
@@ -1074,6 +1075,7 @@ class TestLogsAlertAPI(APIBaseTest):
         # which looks up a HogFunctionTemplate by template_id.
         sync_template_to_db(template_slack)
         sync_template_to_db(template_microsoft_teams)
+        sync_template_to_db(template_discord)
         sync_template_to_db(template_pagerduty)
         HogFunctionTemplate.objects.get_or_create(
             template_id="template-webhook",
@@ -1162,7 +1164,8 @@ class TestLogsAlertAPI(APIBaseTest):
             # A destination with no creator is unattributable in the activity log.
             assert hf.created_by_id == self.user.id
             inputs = hf.inputs or {}
-            assert inputs["url"]["value"] == "https://example.com/hook"
+            assert "url" not in inputs
+            assert (hf.encrypted_inputs or {})["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
             assert body["type"] in (
                 "logs_alert.firing",
@@ -1188,7 +1191,9 @@ class TestLogsAlertAPI(APIBaseTest):
         for hf in hog_functions:
             assert hf.template_id == "template-microsoft-teams"
             inputs = hf.inputs or {}
-            assert inputs["webhookUrl"]["value"] == teams_url
+            # The URL is the channel's credential, so the HogFunction API must never return it.
+            assert "webhookUrl" not in inputs
+            assert (hf.encrypted_inputs or {})["webhookUrl"]["value"] == teams_url
             text_value = inputs["text"]["value"]
             # Adaptive Card markdown: bold label and an inline action link, not Slack-style single asterisks.
             assert text_value.startswith("**")
@@ -1352,10 +1357,10 @@ class TestLogsAlertAPI(APIBaseTest):
         edited.masking = {"ttl": 3600, "hash": "{event.event}", "threshold": None}
         edited.save(update_fields=["masking"])
         for refused in HogFunction.objects.filter(id__in=ids_by_url["https://refused.example.com/hook"]):
-            inputs = refused.inputs or {}
-            inputs["url"]["value"] = "http://refused.example.com/hook"
-            refused.inputs = inputs
-            refused.save(update_fields=["inputs"])
+            encrypted_inputs = refused.encrypted_inputs or {}
+            encrypted_inputs["url"]["value"] = "http://refused.example.com/hook"
+            refused.encrypted_inputs = encrypted_inputs
+            refused.save(update_fields=["encrypted_inputs"])
 
         customized_by_ids = {
             frozenset(destination["hog_function_ids"]): destination["message_customized"]
@@ -1368,6 +1373,27 @@ class TestLogsAlertAPI(APIBaseTest):
             frozenset(str(i) for i in ids_by_url["https://refused.example.com/hook"]): False,
         }
 
+    def test_newly_added_destinations_read_as_stock(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        for payload in (
+            {
+                "type": "teams",
+                "webhook_url": "https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+            },
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/123/token"},
+            {"type": "pagerduty", "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY},
+        ):
+            response = self.client.post(self._destinations_url(created["id"]), payload, format="json")
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        customized_by_type = {
+            destination["type"]: destination["message_customized"]
+            for destination in self._read_destinations(created["id"])
+        }
+
+        assert customized_by_type == {"teams": False, "discord": False, "pagerduty": False}
+
     def test_reading_an_alert_redacts_a_malformed_stored_webhook_url(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()
@@ -1378,10 +1404,10 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         hog_function = HogFunction.objects.get(id=create_response.json()["hog_function_ids"][0])
-        inputs = hog_function.inputs or {}
-        inputs["url"]["value"] = "https://[broken/path"
-        hog_function.inputs = inputs
-        hog_function.save(update_fields=["inputs"])
+        encrypted_inputs = hog_function.encrypted_inputs or {}
+        encrypted_inputs["url"]["value"] = "https://[broken/path"
+        hog_function.encrypted_inputs = encrypted_inputs
+        hog_function.save(update_fields=["encrypted_inputs"])
 
         assert self._read_destinations(created["id"])[0]["webhook_url"] == "<redacted>"
 

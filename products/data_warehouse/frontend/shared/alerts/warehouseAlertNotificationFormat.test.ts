@@ -1,4 +1,4 @@
-import { WarehouseAlertDestinationTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { AlertDestinationTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { describeNotification } from './warehouseAlertNotificationFormat'
 
@@ -8,8 +8,9 @@ describe('describeNotification', () => {
         ['a saved webhook, already reduced to its scheme and host', 'https://hooks.example.com', 'hooks.example.com'],
         ['no part of a webhook URL without a scheme', 'hooks.example.com/services/T000/B000/secret', undefined],
     ])('shows %s', (_, webhookUrl, expected) => {
-        expect(
-            describeNotification({ type: WarehouseAlertDestinationTypeEnumApi.Webhook, webhook_url: webhookUrl })
-        ).toEqual({ title: 'Webhook', detail: expected })
+        expect(describeNotification({ type: AlertDestinationTypeEnumApi.Webhook, webhook_url: webhookUrl })).toEqual({
+            title: 'Webhook',
+            detail: expected,
+        })
     })
 })

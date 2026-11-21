@@ -34,12 +34,12 @@
             "type": "number"
         },
         "type": {
-            "description": "Destination type. Use slack, webhook, teams, or pagerduty. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url. PagerDuty requires pagerduty_routing_key.",
-            "enum": ["slack", "webhook", "teams", "pagerduty"],
+            "description": "Destination type. Use slack, webhook, teams, discord, or pagerduty. Slack requires slack_workspace_id and slack_channel_id. Webhook, teams, and discord require webhook_url. PagerDuty requires pagerduty_routing_key.",
+            "enum": ["slack", "webhook", "teams", "discord", "pagerduty"],
             "type": "string"
         },
         "webhook_url": {
-            "description": "Required when type is webhook or teams.",
+            "description": "Required when type is webhook, teams, or discord.",
             "format": "uri",
             "type": "string"
         }

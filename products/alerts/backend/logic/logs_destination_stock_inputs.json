@@ -1,4 +1,13 @@
 {
+    "template-discord": {
+        "allowedMentions": ["none"],
+        "content": [
+            "**🔴 Log alert '{event.properties.alert_name}' is firing**\n\n**Threshold breached:** {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})\n\n[View logs]({project.url}/logs?{event.properties.logs_url_params})",
+            "**🟢 Log alert '{event.properties.alert_name}' has resolved**\n\n**Current count:** {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})\n\n[View logs]({project.url}/logs?{event.properties.logs_url_params})",
+            "**⚠️ Log alert '{event.properties.alert_name}' was auto-disabled**\n\n**Reason:** {event.properties.consecutive_failures} consecutive check failures.\n\n**Last error:** {event.properties.last_error_message}\n\n[View alert]({project.url}/logs/alerts/{event.properties.alert_id})",
+            "**🟡 Log alert '{event.properties.alert_name}' couldn't evaluate**\n\n**Reason:** {event.properties.error_message}\n\n**Failure count:** {event.properties.consecutive_failures}\n\n[View alert]({project.url}/logs/alerts/{event.properties.alert_id})"
+        ]
+    },
     "template-microsoft-teams": {
         "text": [
             "**🔴 Log alert '{event.properties.alert_name}' is firing**\n\n**Threshold breached:** {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})\n\n[View logs]({project.url}/logs?{event.properties.logs_url_params})",
