@@ -196,3 +196,10 @@ class Panel:
 
     def operations(self, obj: "Model") -> list[Operation]:
         return []
+
+    def refresh_seconds(self, obj: "Model") -> int | None:
+        """While this returns a number, the record page fetches the panel again after that many seconds.
+
+        Return a number only while work that changes the panel runs, and None when it ends, so the page stops asking.
+        """
+        return None

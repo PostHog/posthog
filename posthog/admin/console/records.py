@@ -64,6 +64,10 @@ class RecordType:
     def operation_url_name(self) -> str:
         return f"admin_console_{self.key}_operation"
 
+    @property
+    def panel_live_url_name(self) -> str:
+        return f"admin_console_{self.key}_panel_live"
+
     def url(self, obj: Model) -> str:
         return reverse(self.url_name, kwargs={"pk": obj.pk})
 
