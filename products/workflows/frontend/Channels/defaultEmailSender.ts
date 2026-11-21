@@ -1,4 +1,4 @@
-import { EmailSender, isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
+import { isSendingStopped } from 'scenes/hog-functions/email-templater/emailSenderFields'
 
 export type DefaultEmailSenderReason = 'project_default' | 'only_verified_sender'
 
@@ -18,7 +18,7 @@ export function isVerifiedEmailSender(integration: EmailSenderCandidate): boolea
 }
 
 export function isDeliverableEmailSender(integration: EmailSenderCandidate): boolean {
-    return isVerifiedEmailSender(integration) && !isSendingStopped(integration as EmailSender)
+    return isVerifiedEmailSender(integration) && !isSendingStopped(integration)
 }
 
 export function resolveDefaultEmailSender(

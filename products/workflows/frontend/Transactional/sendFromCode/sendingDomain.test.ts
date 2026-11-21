@@ -37,14 +37,14 @@ describe('sendingDomain', () => {
 
     test.each([
         ['the project default among several verified senders', 2, 'hello@second.example.com'],
-        ['the first verified sender when the default is not verified', 3, 'hello@first.example.com'],
-        ['the first verified sender when the default stopped sending', 4, 'hello@first.example.com'],
+        ['the first sender that can send when the default is not verified', 3, 'hello@first.example.com'],
+        ['the first sender that can send when the default stopped sending', 4, 'hello@first.example.com'],
     ])('sends from %s', (_case, defaultIntegrationId, email) => {
         const integrations = [
+            stoppedSender(4, 'hello@stopped.example.com'),
             emailSender(1, 'hello@first.example.com', true),
             emailSender(2, 'hello@second.example.com', true),
             emailSender(3, 'hello@pending.example.com', false),
-            stoppedSender(4, 'hello@stopped.example.com'),
         ]
 
         expect(sendingDomainOf(integrations, defaultIntegrationId)).toMatchObject({ status: 'verified', email })

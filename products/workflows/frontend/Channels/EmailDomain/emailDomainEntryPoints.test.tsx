@@ -177,7 +177,6 @@ describe('email domain setup entry points', () => {
     })
 
     it("opens the stopped sender's domain page from the live workflow banner when no verified sender can send", async () => {
-        const capture = jest.spyOn(posthog, 'capture')
         backend.addSender({ email: 'hello@pending.example.com' })
         const stopped = backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
         stopped.config = { ...(stopped.config as Record<string, unknown>), ses_sending_status: 'failed' }
@@ -188,7 +187,9 @@ describe('email domain setup entry points', () => {
         await flush()
 
         expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(stopped.id)}$`))
-        expect(capture).toHaveBeenCalledWith('email domain setup started', { entry: 'sandbox_sender_banner_repair' })
+        expect(posthog.capture).toHaveBeenCalledWith('email domain setup started', {
+            entry: 'sandbox_sender_banner_repair',
+        })
     })
 
     it("offers no setup from the live workflow banner while the senders can't be read", async () => {
