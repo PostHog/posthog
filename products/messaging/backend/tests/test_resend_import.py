@@ -908,7 +908,8 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
 
         notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
         expected = (
-            "This import's Contacts step adds the segment's contacts to it once it finishes."
+            "This import's Contacts step adds the segment's contacts to it once it finishes. If it doesn't finish, "
+            "import Contacts again."
             if filled
             else "Import Contacts too to add the people already in the segment."
         )

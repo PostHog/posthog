@@ -358,8 +358,8 @@ def _save_topics(context: ImportContext, topics: list[dict[str, Any]]) -> SavedP
                 _named(
                     "Resend sends these only to people who opted in",
                     [topic for topic in public if topic.get("default_subscription") == "opt_out"],
-                    "Your Resend contacts keep their choice once Topic preferences finishes, and people you add later get "
-                    "them unless they opt out."
+                    "Your Resend contacts keep their choice once Topic preferences finishes. Until then, and for people "
+                    "you add later, PostHog sends these to everyone who hasn't opted out."
                     if "topic_opt_outs" in context.steps
                     else "PostHog sends them to everyone who hasn't opted out, so import Topic preferences too to keep "
                     "your contacts' choices.",
