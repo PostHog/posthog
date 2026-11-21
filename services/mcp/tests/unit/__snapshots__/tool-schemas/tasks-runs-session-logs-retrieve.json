@@ -27,9 +27,14 @@
             "minimum": 1,
             "type": "number"
         },
-        "offset": {
-            "default": 0,
-            "description": "Zero-based offset into the filtered log entries",
+        "output": {
+            "const": "json",
+            "default": "json",
+            "description": "Response format. Always \"json\" for this tool.",
+            "type": "string"
+        },
+        "start": {
+            "description": "Zero-based index of the first event to return (default 0). With a filter, it counts only the matching events.",
             "minimum": 0,
             "type": "number"
         },

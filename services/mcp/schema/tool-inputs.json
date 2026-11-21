@@ -2882,6 +2882,12 @@
             },
             "required": ["id"]
         },
+        "TaskRunLogEntriesOutputSchema": {
+            "default": "json",
+            "description": "Response format. Always \"json\" for this tool.",
+            "type": "string",
+            "const": "json"
+        },
         "UpdateFeatureFlagFiltersSchema": {
             "type": "object",
             "properties": {

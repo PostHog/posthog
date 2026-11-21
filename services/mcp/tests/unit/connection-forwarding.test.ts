@@ -5,6 +5,7 @@ import { ApiClient } from '@/api/client'
 import { ForwardingApiClient } from '@/lib/connection-forwarding'
 import { ExecCommandError, PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import executeSqlTool from '@/tools/posthogAiTools/executeSql'
 import { createConnectionCallTool } from '@/tools/posthogConnections/call'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -288,6 +289,36 @@ describe('posthog connection forwarding', () => {
 
             expect(error).toBeInstanceOf(ExecCommandError)
             expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ path: FORWARD_PATH }))
+        })
+
+        it('reads a page of run log entries through the connection as JSON', async () => {
+            const page = { entries: [{ type: 'notification' }], offset: 200, count: 201 }
+            const forwarded: unknown[] = []
+            const request = vi.fn(async (opts: { path: string; body?: Record<string, unknown> }) => {
+                if (opts.path === TARGET_PATH) {
+                    return TARGET
+                }
+                forwarded.push(opts.body)
+                return { status: 200, data: page }
+            })
+            const tool = createConnectionCallTool((name) => GENERATED_TOOL_MAP[name]?.())
+
+            const result: any = await tool.handler(createContext(request), {
+                connection_id: '99',
+                tool: 'tasks-runs-session-logs-retrieve',
+                arguments: { task_id: 'task-id', id: 'run-id', offset: 200 },
+            })
+
+            expect({ forwarded, result: result.result }).toEqual({
+                forwarded: [
+                    {
+                        method: 'GET',
+                        path: 'api/projects/4242/tasks/task-id/runs/run-id/log_entries/',
+                        query: { output: 'json', start: '200', limit: '100' },
+                    },
+                ],
+                result: page,
+            })
         })
 
         it('runs a tool that builds its own request through the connection, not against the target', async () => {
