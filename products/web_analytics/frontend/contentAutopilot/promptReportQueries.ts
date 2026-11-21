@@ -154,7 +154,7 @@ const setWhere = (window: PromptSetWindow): string =>
     [
         segmentWhere(window),
         ...(window.engine !== null ? ['engine = {engine}'] : []),
-        ...(window.topic !== null ? ['prompt_topic = {topic}'] : []),
+        ...(window.topic !== null ? ['lowerUTF8(prompt_topic) = lowerUTF8({topic})'] : []),
     ].join(' AND ')
 
 /** The same daily metric per engine across every prompt in the set. */

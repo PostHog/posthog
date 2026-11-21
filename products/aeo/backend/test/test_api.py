@@ -333,6 +333,7 @@ class TestAEOPromptAPI(APIBaseTest):
         [
             ("no_filter", "", 6, None),
             ("one_topic", "&topic=same topic", 5, ("topic", "same topic")),
+            ("one_topic_in_other_case", "&topic=Same Topic", 5, ("topic", "same topic")),
             ("no_topic", "&topic=", 1, ("topic", "")),
             ("active", "&active=true", 5, ("active", True)),
             ("inactive", "&active=false", 1, ("active", False)),
@@ -357,7 +358,7 @@ class TestAEOPromptAPI(APIBaseTest):
             assert {row[field] for row in first["results"] + second["results"]} == {value}
 
     def test_topics_lists_each_topic_with_its_prompt_count(self) -> None:
-        prompts = [{"prompt": "a?", "topic": "Replay"}, {"prompt": "b?", "topic": "Replay"}, {"prompt": "c?"}]
+        prompts = [{"prompt": "a?", "topic": "Replay"}, {"prompt": "b?", "topic": "replay"}, {"prompt": "c?"}]
         self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
 
         response = self.client.get(f"{self.url}topics/")
@@ -843,7 +844,7 @@ class TestAEOPromptAPI(APIBaseTest):
         ids = self._import_prompts(
             [
                 {"prompt": "funnels?", "topic": "Analytics"},
-                {"prompt": "retention?", "topic": "Analytics"},
+                {"prompt": "retention?", "topic": "analytics"},
                 {"prompt": "replay?", "topic": ""},
                 {"prompt": "flags?", "topic": "Flags"},
                 {"prompt": "surveys?", "topic": "Surveys"},
@@ -1276,6 +1277,7 @@ class TestAEOPromptAPI(APIBaseTest):
             ("every_check", {}, (3, 3), ["claude-web-search", "exa-answer"], ["", "Pricing", "Replay"], 2),
             ("one_engine", {"engine": "exa-answer"}, (1, 3), ["exa-answer"], ["", "Pricing", "Replay"], 1),
             ("one_topic", {"topic": "Pricing"}, (1, 1), ["claude-web-search"], ["Pricing"], 1),
+            ("one_topic_in_other_case", {"topic": "pricing"}, (1, 1), ["claude-web-search"], ["Pricing"], 1),
             ("no_topic", {"topic": ""}, (1, 1), ["exa-answer"], [""], 1),
             ("unknown_engine", {"engine": "nope"}, (0, 3), [], ["", "Pricing", "Replay"], 0),
         ]
@@ -1989,6 +1991,7 @@ class TestAEOKeywordAPI(APIBaseTest):
             ("every_answer", {}, 3, 3, ["claude-web-search", "exa-answer", "openai-web-search"]),
             ("one_engine", {"engine": "exa-answer"}, 1, 1, ["exa-answer"]),
             ("one_topic", {"topic": "Pricing"}, 2, 2, ["claude-web-search", "openai-web-search"]),
+            ("one_topic_in_other_case", {"topic": "PRICING"}, 2, 2, ["claude-web-search", "openai-web-search"]),
             ("no_topic", {"topic": ""}, 1, 1, ["exa-answer"]),
             ("branded", {"branded": "branded"}, 1, 1, ["claude-web-search"]),
             ("non_branded", {"branded": "non_branded"}, 2, 2, ["exa-answer", "openai-web-search"]),
