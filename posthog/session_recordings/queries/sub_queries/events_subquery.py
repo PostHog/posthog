@@ -134,6 +134,12 @@ class UnsessionedFilter:
 
 
 @frozen
+class NamedEventPredicate:
+    named_event: ast.Expr
+    predicate: ast.Expr
+
+
+@frozen
 class GatheredExprs:
     exprs: list[ast.Expr]
     hybrid_query: Optional[ast.SelectQuery]
@@ -608,14 +614,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _event_predicates(
         entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode], team: Team
     ) -> list[ast.Expr]:
-        return [predicate for _, predicate in ReplayFiltersEventsSubQuery._named_event_predicates(entities, team)]
+        return [pair.predicate for pair in ReplayFiltersEventsSubQuery._named_event_predicates(entities, team)]
 
     @staticmethod
     def _named_event_predicates(
         entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode], team: Team
-    ) -> list[tuple[ast.Expr, ast.Expr]]:
+    ) -> list[NamedEventPredicate]:
         """Each entity's event or action match, next to that match with the entity's own properties."""
-        pairs: list[tuple[ast.Expr, ast.Expr]] = []
+        pairs: list[NamedEventPredicate] = []
 
         for entity in entities:
             if isinstance(entity, DataWarehouseNode):
@@ -628,7 +634,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             if entity.properties:
                 entity_exprs.append(property_to_expr(entity.properties, team=team, scope="replay_entity"))
 
-            pairs.append((named_event, ast.And(exprs=entity_exprs)))
+            pairs.append(NamedEventPredicate(named_event=named_event, predicate=ast.And(exprs=entity_exprs)))
 
         return pairs
 
@@ -1000,12 +1006,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         gathered_exprs: list[ast.Expr] = []
         unsessioned_filters: list[UnsessionedFilter] = []
         named_event_predicates = self._named_event_predicates(self.entities, self._team)
-        event_where_exprs = [predicate for _, predicate in named_event_predicates]
+        event_where_exprs = [pair.predicate for pair in named_event_predicates]
         # The entity's own properties are left out: under AND, the entity and the top-level property can
         # match different events. Under OR, the entity's own scan already finds these events, except those
         # that fail its own properties, which isn't worth one more scan per property.
         named_event_exprs = (
-            [named_event for named_event, _ in named_event_predicates] if self.property_operand == "AND" else []
+            [pair.named_event for pair in named_event_predicates] if self.property_operand == "AND" else []
         )
         if event_where_exprs:
             entity_exprs = (
