@@ -379,7 +379,7 @@ A file from history has no local copy and shows by name only (see [GAPS.md](GAPS
 ## Reading a run
 
 - `GET tasks/{t}/` gives the title and the latest run. With a `runId` the sheet follows that run through `GET tasks/{t}/runs/{r}/`.
-- **Ended run.** `GET tasks/{t}/runs/{r}/logs/` returns the whole resume chain as JSON lines, folded into the thread.
+- **Ended run.** `GET tasks/{t}/runs/{r}/log_entries/` returns the whole resume chain as JSON lines, folded into the thread.
 - **Live run.** `GET tasks/{t}/runs/{r}/stream/` without a cursor replays the stored log, then streams.
   The app buffers catch-up frames and shows the history together, then streams new replies.
   Catch-up ends on a keepalive, stream completion, or 250 ms of silence after a Redis frame; silence during durable-log replay never ends it.

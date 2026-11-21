@@ -1,7 +1,7 @@
 import type { TaskRunStatus } from '@/model/types'
 import { DEMO_BRIEFINGS, DEMO_DECISION } from './briefings'
 
-// Stored run logs for the demo sessions in `chats.ts`, shaped like `GET tasks/{id}/runs/{run}/logs/` lines.
+// Stored run logs for the demo sessions in `chats.ts`, shaped like `GET tasks/{id}/runs/{run}/log_entries/` lines.
 
 export interface DemoSessionLog {
     title: string
