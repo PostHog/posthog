@@ -135,7 +135,8 @@ async function judgeLive(live: LiveRamp, window: StepWindow, offered: number): P
                           host: [...live.host()],
                           drive: span,
                           timeline: [],
-                      })
+                      }),
+                      step.scale
                   ),
                   step
               )
@@ -331,7 +332,7 @@ function candidatesOf({ planned, steps, minOffered, stop, bars, invariants, gate
             add(step.index, harness(step, 'generator'), shortfall)
         }
         const lagged = laggedOf(step)
-        if (lagged) {
+        if (lagged && !cutShort(step)) {
             add(step.index, harness(step, 'runner'), lagged)
         }
     }

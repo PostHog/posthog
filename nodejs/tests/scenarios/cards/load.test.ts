@@ -394,6 +394,22 @@ describe('load', () => {
             undefined,
             'setup.teams: event_email sends 82 units a second to each team',
         ],
+        [
+            'an event kind listed twice, whose two streams reach the same workflow',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    traffic: [{ name: 'event_email' }, { name: 'event_email' }],
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 21, for: '15s' },
+                    ],
+                },
+            },
+            undefined,
+            'setup.teams: event_email sends 84 units a second to each team',
+        ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
     })

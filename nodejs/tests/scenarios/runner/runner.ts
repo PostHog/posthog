@@ -665,7 +665,8 @@ export function createRunner(
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
                     profile,
-                    baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) })
+                    baselineOf({ ...evidence, drive: admittedWindowOf(card.drive, driveWindow, units.steps) }),
+                    units.steps[0]?.scale
                 )
                 const bars = judgeBars(card.bars, {
                     ...evidence,

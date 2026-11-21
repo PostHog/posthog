@@ -733,6 +733,32 @@ describe('ramp', () => {
             },
         ],
         [
+            'a refusal that halted the drive early in a step whose runner lagged',
+            {
+                steps: [
+                    driven(0),
+                    driven(1),
+                    { ...driven(2, 10), endedAt: T + 4 * MINUTE + 5000, dueUnits: 25, loopLagP99Ms: 900 },
+                ],
+                stop: { index: 2, end: 'broke', reason: 'refused_at_intake went over its gate of 0 with 1 refused' },
+                invariants: [failed('refused_at_intake', 'u-2-3')],
+                gates: { refused_at_intake: 0 },
+            },
+            {
+                end: 'broke',
+                sustainedScale: 2,
+                broke: {
+                    scale: 5,
+                    offeredPerSecond: 2,
+                    by: 'refused_at_intake',
+                    kind: 'gate',
+                    at: iso(T + 4 * MINUTE),
+                    part: null,
+                },
+                reason: 'refused_at_intake broke at the 5x step',
+            },
+        ],
+        [
             'a refusal answered after its step ran its full length, which the generator offered short',
             {
                 steps: [driven(0), driven(1), driven(2, 510)],

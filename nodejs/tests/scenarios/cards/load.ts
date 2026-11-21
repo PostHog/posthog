@@ -142,13 +142,15 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     const limit = Number(profile.settings.CDP_RATE_LIMITER_REFILL_RATE ?? defaults.CDP_RATE_LIMITER_REFILL_RATE)
     const ceiling = limit * RATE_LIMIT_SHARE
     const topScale = Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
-    return card.drive.traffic.flatMap(({ name }) => {
+    const listed = card.drive.traffic.map(({ name }) => name)
+    return [...new Set(listed)].flatMap((name) => {
         const kind = TRAFFIC.find((traffic) => traffic.name === name)
         const shape = kind?.profile.safeParse(profile.traffic[name])
         if (kind === undefined || kind.intake === 'transactional' || !shape?.success) {
             return []
         }
-        const perWorkflow = (shape.data.ratePerSecond * topScale) / card.setup.teams
+        const streams = listed.filter((listedName) => listedName === name).length
+        const perWorkflow = (shape.data.ratePerSecond * streams * topScale) / card.setup.teams
         return perWorkflow <= ceiling
             ? []
             : [
