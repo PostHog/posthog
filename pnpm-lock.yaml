@@ -1610,8 +1610,11 @@ importers:
         specifier: 1.3.14
         version: 1.3.14
       typescript:
+        specifier: catalog:compiler-api
+        version: '@typescript/typescript6@6.0.2'
+      typescript-native:
         specifier: 'catalog:'
-        version: 7.1.0-beta
+        version: typescript@7.1.0-beta
 
   nodejs:
     dependencies:

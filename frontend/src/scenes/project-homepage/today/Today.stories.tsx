@@ -1150,6 +1150,36 @@ export const SampleReportPage: Story = {
     parameters: { pageUrl: `${urls.todayReport('sample-pr')}?sample=1` },
 }
 
+const PERSONAL_REASONS: Record<string, string> = {
+    'report-1': 'You fixed the last two sign-up validation bugs.',
+    'report-3':
+        'You changed the summarize prompt last week, and the cost rose right after that change, so you can best check whether the new prompt causes it.',
+}
+
+export const HomeWithPersonalRanking: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    const limit = Number(new URL(request.url).searchParams.get('limit') ?? ALL_REPORTS.length)
+                    return [
+                        200,
+                        {
+                            results: ALL_REPORTS.slice(0, limit).map((report) => ({
+                                ...report,
+                                personal_tier: PERSONAL_REASONS[report.id] ? 'top' : null,
+                                personal_reason: PERSONAL_REASONS[report.id] ?? null,
+                            })),
+                            count: OPEN_REPORT_COUNT,
+                            ranker: 'personal',
+                        },
+                    ]
+                },
+            },
+        }),
+    ],
+}
+
 export const HomeWithReportsOnly: Story = {
     decorators: [
         mswDecorator({

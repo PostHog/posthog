@@ -11,7 +11,7 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
-import { OfferContext, TRAFFIC, bounceFollowup, transactionalEmail } from './traffic'
+import { OfferContext, TRAFFIC, bounceFollowup, captureWebhook, transactionalEmail } from './traffic'
 
 const SECRET = 'scenario-transactional-secret'
 const UNIT = { unitId: 'run-a-1', teamId: 7, flowId: 'flow-7' }
@@ -54,25 +54,26 @@ const contextFor = (url: string, settled: string | undefined = undefined): Offer
 })
 
 describe('traffic', () => {
-    it.each(TRAFFIC.flatMap((kind) => [0, 2].map((parks) => [kind.name, parks, kind] as const)))(
-        '%s parks its flow %i times on a short delay before its action',
-        async (_name, parks, kind) => {
-            const flow = HogFlowSchema.parse(await kind.flow(UNIT.teamId, 3, parks))
-            const next = (from: string): string | undefined => flow.edges.find((edge) => edge.from === from)?.to
-            const walked: object[] = []
-            for (let id: string | undefined = 'trigger'; id !== undefined; id = next(id)) {
-                const { type, config } = flow.actions.find((action) => action.id === id)!
-                walked.push(type === 'delay' ? { type, config } : { type })
-            }
-
-            expect(walked).toEqual([
-                { type: 'trigger' },
-                ...Array.from({ length: parks }, () => ({ type: 'delay', config: { delay_duration: '1s' } })),
-                { type: kind.deliveries[0] === 'webhook' ? 'function' : 'function_email' },
-                { type: 'exit' },
-            ])
+    it.each(
+        TRAFFIC.filter((kind) => kind !== captureWebhook).flatMap((kind) =>
+            [0, 2].map((parks) => [kind.name, parks, kind] as const)
+        )
+    )('%s parks its flow %i times on a short delay before its action', async (_name, parks, kind) => {
+        const flow = HogFlowSchema.parse(await kind.flow(UNIT.teamId, 3, parks))
+        const next = (from: string): string | undefined => flow.edges.find((edge) => edge.from === from)?.to
+        const walked: object[] = []
+        for (let id: string | undefined = 'trigger'; id !== undefined; id = next(id)) {
+            const { type, config } = flow.actions.find((action) => action.id === id)!
+            walked.push(type === 'delay' ? { type, config } : { type })
         }
-    )
+
+        expect(walked).toEqual([
+            { type: 'trigger' },
+            ...Array.from({ length: parks }, () => ({ type: 'delay', config: { delay_duration: '1s' } })),
+            { type: kind.deliveries[0] === 'webhook' ? 'function' : 'function_email' },
+            { type: 'exit' },
+        ])
+    })
 
     describe('transactional_email', () => {
         it.each<[string, Answer, object]>([
