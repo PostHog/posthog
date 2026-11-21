@@ -1,5 +1,9 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -7,10 +11,12 @@ from posthog.hogql.direct_connection import (
     RAW_QUERY_TABLE_DENIED_ERROR,
     get_direct_connection_source,
     raw_query_denied_by_table_access,
+    require_browser_session_for_organization_grant,
 )
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
+from posthog.clickhouse.query_tagging import AccessMethod, QueryTags
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 
@@ -345,3 +351,23 @@ class TestRawQueryTableAccess(APIBaseTest):
 
         with patch("posthog.hogql.direct_connection.feature_enabled_or_false", return_value=True):
             assert raw_query_denied_by_table_access(self.team, source, user=None) is True
+
+
+class TestRequireBrowserSessionForOrganizationGrant(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("browser_session", {"browser_session": True}, False),
+            ("background_work", {}, True),
+            ("token", {"access_method": AccessMethod.PERSONAL_API_KEY}, True),
+            ("token_with_a_session_tag", {"access_method": AccessMethod.OAUTH, "browser_session": True}, True),
+        ]
+    )
+    def test_only_a_browser_session_reaches_the_organization_grant(
+        self, _name: str, tags: dict[str, Any], refused: bool
+    ) -> None:
+        with patch("posthog.hogql.direct_connection.get_query_tags", return_value=QueryTags(**tags)):
+            if refused:
+                with self.assertRaisesMessage(ExposedHogQLError, "browser session"):
+                    require_browser_session_for_organization_grant()
+            else:
+                require_browser_session_for_organization_grant()
