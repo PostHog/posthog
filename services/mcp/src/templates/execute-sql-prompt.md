@@ -37,6 +37,7 @@ Raw SQL (`sendRawQuery`) cannot apply structured filters. Explain this limitatio
 - **HogQL rejects the ClickHouse `SETTINGS` clause outright** — appending `SETTINGS ...` (e.g. to tune `max_execution_time` or `join_algorithm`) always fails with `Unsupported: SelectStmt.settingsClause()`. Don't include it.
 - **`toDate()` takes exactly one argument** — it does not accept ClickHouse's `toDate(value, timezone)` form. Convert timezone first with `toTimeZone()`, then wrap in `toDate()`: `toDate(toTimeZone(timestamp, 'US/Pacific'))`, not `toDate(timestamp, 'US/Pacific')`.
 - **Only the 64-bit width-suffixed conversion functions work** — `toInt64`, `toFloat64` and their `OrNull`/`OrZero`/`OrDefault` variants are aliases of `toInt()`, `toFloat()`, `toIntOrZero()`, and so on, and return NULL instead of failing on input they can't convert. Other widths (`toInt32`, `toUInt8`, `toFloat32`, ...) fail, so use `toInt()` or `toFloat()` instead.
+- **`TRY_CAST(value AS type)` returns NULL instead of failing** when a value can't be converted, for example `TRY_CAST(properties.$amount AS Float64)`. It accepts SQL type names (`integer`, `float`, `text`, `boolean`, `date`, `timestamp`) and ClickHouse names (`Int64`, `UInt8`, `Float64`, `DateTime`). A string cast to `date` or `timestamp` must be ISO 8601, such as `2024-03-05` or `2024-03-05T10:00:00Z`; any other format, or an invalid date, gives NULL.
 
 ### Format SQL for readability
 
