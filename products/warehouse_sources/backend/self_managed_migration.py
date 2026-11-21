@@ -278,7 +278,7 @@ def _object_storage_sources() -> dict[StorageService, ObjectStorageSource[Any]]:
 
 
 def _credential_of(table: DataWarehouseTable) -> SelfManagedCredential | None:
-    credential = table.credential
+    credential = table.team_credential
     if credential is None:
         return None
     return _self_managed_credential(credential)

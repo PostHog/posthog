@@ -79,7 +79,7 @@ class SmartlookSource(ResumableSource[SmartlookSourceConfig, SmartlookResumeConf
             ENDPOINTS,
             {},
             names,
-            should_sync_default={"visitor_events": False},
+            should_sync_default={"event_visitors": False, "funnel_step_visitors": False, "visitor_events": False},
         )
         for schema in schemas:
             schema.detected_primary_keys = list(ENDPOINTS[schema.name].primary_keys)
@@ -125,7 +125,9 @@ class SmartlookSource(ResumableSource[SmartlookSourceConfig, SmartlookResumeConf
             caption=(
                 "Import visitors, sessions, event definitions, funnels, and visitor events with full refresh. "
                 "Smartlook limits API requests by plan. Large imports can require the REST API add-on. "
-                "Visitor events require requests for each visitor and are disabled by default."
+                "Visitor events require requests for each visitor and are disabled by default. "
+                "Event visitors and funnel step visitors cover the last 30 days, need requests for each "
+                "event or funnel step, and are disabled by default."
             ),
             fields=cast(
                 list[FieldType],

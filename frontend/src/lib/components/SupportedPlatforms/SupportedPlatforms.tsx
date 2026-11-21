@@ -4,25 +4,16 @@ import { IconCheck, IconInfo, IconX } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { isObject } from 'lib/utils/guards'
 
+import { PLATFORM_LABELS, platformSupportDetails } from './platformSupportDetails'
 import { PlatformSupport, PlatformSupportConfig } from './types'
 
 type SupportedPlatformProps = {
     config: PlatformSupportConfig
 }
 
-const PLATFORM_LABELS: Record<string, string> = {
-    web: 'Web',
-    android: 'Android',
-    ios: 'iOS',
-    reactNative: 'React Native',
-    flutter: 'Flutter',
-}
-
 function SupportedPlatform({ label, platform }: { label: string; platform: PlatformSupport | undefined }): JSX.Element {
-    const supportedSinceVersion = isObject(platform) && typeof platform?.version === 'string' ? platform.version : false
-    const note = isObject(platform) ? platform.note : undefined
+    const { supportedSinceVersion, note } = platformSupportDetails(platform)
 
     const node = (
         <div

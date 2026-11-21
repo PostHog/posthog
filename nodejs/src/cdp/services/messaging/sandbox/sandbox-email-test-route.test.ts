@@ -22,7 +22,7 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction, SandboxEmailStepResult } from '../../hogflows/actions/email_sandbox'
 import { RecipientTokensService } from '../recipient-tokens.service'
-import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
+import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_SERVER_ERROR, SES_THROTTLE } from './_tests/fake-ses-endpoint'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { SandboxCaps, claimSandboxCaps } from './sandbox-caps'
@@ -165,7 +165,7 @@ describe('sandbox email test sends', () => {
             }),
         ])
         await waitForExpect(() =>
-            expect(capturedAnalytics).toEqual([
+            expect(capturedFor(world.team.uuid)).toEqual([
                 expect.objectContaining({
                     distinctId: world.team.uuid,
                     event: 'workflows sandbox email sent',
@@ -222,7 +222,7 @@ describe('sandbox email test sends', () => {
         })
         expect(world.ses.delivered).toEqual([])
         await waitForExpect(() =>
-            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
                 ['workflows sandbox email blocked', 'test'],
             ])
         )
@@ -233,7 +233,7 @@ describe('sandbox email test sends', () => {
 
         await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'ses_rejected' })
         await waitForExpect(() =>
-            expect(capturedAnalytics.map(({ event, properties }) => [event, properties?.source])).toEqual([
+            expect(capturedFor(world.team.uuid).map(({ event, properties }) => [event, properties?.source])).toEqual([
                 ['workflows sandbox email failed', 'test'],
             ])
         )
