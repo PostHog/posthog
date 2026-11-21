@@ -24,8 +24,10 @@ class SigNozEndpointConfig:
     # Stable, monotonic sort keys sent as the query's `order`. The secondary key breaks
     # timestamp ties so limit/offset paging is deterministic.
     order_keys: tuple[str, ...] = ()
-    # Config endpoints are plain GET list endpoints without pagination.
+    # Older self-hosted instances may expose only the unpaginated v1 lists.
     path: Optional[str] = None
+    legacy_path: Optional[str] = None
+    legacy_data_keys: tuple[str, ...] = ()
     # Key path from the response's `data` payload to the list of records. Empty means
     # `data` itself is the list.
     data_keys: tuple[str, ...] = ()
@@ -83,18 +85,37 @@ SIGNOZ_ENDPOINTS: dict[str, SigNozEndpointConfig] = {
     "alert_rules": SigNozEndpointConfig(
         name="alert_rules",
         kind="config",
-        path="/api/v1/rules",
+        path="/api/v3/rules",
         data_keys=("rules",),
+        legacy_path="/api/v1/rules",
+        legacy_data_keys=("rules",),
+        allowed_fields=(
+            "id",
+            "state",
+            "alert",
+            "description",
+            "alertType",
+            "ruleType",
+            "disabled",
+            "labels",
+            "createdAt",
+            "createdBy",
+            "updatedAt",
+            "updatedBy",
+        ),
         primary_keys=("id",),
-        # `createAt` is SigNoz's (sic) creation timestamp on rules — stable, unlike updateAt.
-        partition_key="createAt",
+        partition_key="createdAt",
+        page_size=200,
     ),
     "dashboards": SigNozEndpointConfig(
         name="dashboards",
         kind="config",
-        path="/api/v1/dashboards",
+        path="/api/v2/dashboards",
+        data_keys=("dashboards",),
+        legacy_path="/api/v1/dashboards",
         primary_keys=("id",),
         partition_key="createdAt",
+        page_size=200,
     ),
     "notification_channels": SigNozEndpointConfig(
         name="notification_channels",

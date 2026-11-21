@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
@@ -28,8 +28,7 @@ DEFAULT_LOOKBACK_DAYS = 30
 # versions this API in the endpoint path, not via a request header, and this source has always
 # queried the v5 `query_range` endpoint. So the framework's legacy unversioned label and this
 # explicit label resolve to the same requests — new sources are stamped "v5" while existing pins
-# keep syncing byte-for-byte. The management REST endpoints (rules, dashboards, channels) are
-# unversioned v1 and stay hardcoded in settings.py.
+# keep using the same telemetry API. Management endpoint versions are defined in settings.py.
 SIGNOZ_API_VERSION_V5 = "v5"
 
 QUERY_RANGE_PATH = "/api/v5/query_range"
@@ -150,7 +149,7 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    url = f"https://{normalized}/api/v1/rules"
+    url = f"https://{normalized}/api/v1/channels"
     try:
         # Don't follow redirects: the validated host could 3xx to an internal address,
         # defeating the host check above (SSRF). capture=False keeps the probe out of HTTP
@@ -252,6 +251,23 @@ def _extract_config_items(response_json: Any, config: SigNozEndpointConfig) -> l
     if not isinstance(node, list):
         return []
     items = [item for item in node if isinstance(item, dict)]
+    if config.name == "alert_rules":
+        items = [
+            {
+                **item,
+                **{
+                    key: item[legacy_key]
+                    for key, legacy_key in (
+                        ("createdAt", "createAt"),
+                        ("createdBy", "createBy"),
+                        ("updatedAt", "updateAt"),
+                        ("updatedBy", "updateBy"),
+                    )
+                    if key not in item and legacy_key in item
+                },
+            }
+            for item in items
+        ]
     if config.allowed_fields is not None:
         # Strict allowlist — drop everything else so credential-bearing fields never leak
         # into the warehouse table (see SigNozEndpointConfig.allowed_fields).
@@ -265,6 +281,44 @@ def _parse_retry_after(response: requests.Response) -> float | None:
     if raw and raw.strip().isdigit():
         return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
     return None
+
+
+def _get_config_rows(
+    base: str, config: SigNozEndpointConfig, fetch: Callable[[str], Any]
+) -> Iterator[list[dict[str, Any]]]:
+    paginated = config.legacy_path is not None
+    page_size = min(config.page_size, 200)
+
+    def page_url(offset: int) -> str:
+        url = f"{base}{config.path}"
+        if paginated:
+            return f"{url}?limit={page_size}&offset={offset}&sort=created_at&order=asc"
+        return url
+
+    try:
+        response = fetch(page_url(0))
+    except (requests.HTTPError, SigNozNonJSONResponseError) as error:
+        if config.legacy_path is None:
+            raise
+        if isinstance(error, requests.HTTPError) and (error.response is None or error.response.status_code != 404):
+            raise
+        # Missing routes can return the SPA's HTML with status 200 on older instances.
+        config = dataclasses.replace(config, path=config.legacy_path, data_keys=config.legacy_data_keys)
+        paginated = False
+        response = fetch(page_url(0))
+
+    offset = 0
+    while True:
+        items = _extract_config_items(response, config)
+        if not items:
+            return
+        yield items
+        offset += len(items)
+        if not paginated:
+            return
+        if offset >= response["data"]["total"]:
+            return
+        response = fetch(page_url(offset))
 
 
 def _retry_wait(retry_state: RetryCallState) -> float:
@@ -357,9 +411,7 @@ def get_rows(
             raise
 
     if config.kind == "config":
-        items = _extract_config_items(fetch(f"{base}{config.path}"), config)
-        if items:
-            yield items
+        yield from _get_config_rows(base, config, fetch)
         return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
