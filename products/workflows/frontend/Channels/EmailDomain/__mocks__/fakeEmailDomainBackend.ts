@@ -73,6 +73,7 @@ interface Hold {
 }
 
 const CHECKED_AT = '2026-01-01T00:00:00Z'
+const STATUS_CACHE_MS = 10_000
 const FIRST_SENDER_ID = 42
 const VERIFICATION_TOKEN = 'pSM7OoC2Jl6dNKGRmkc4KZpesve3QP3cUUT2FGZZ1PU='
 const DKIM_SELECTORS = [
@@ -185,6 +186,7 @@ export class FakeEmailDomainBackend {
     private failures = new Map<FakeEndpoint, FakeFailure>()
     private oneOffFailures = new Map<FakeEndpoint, FakeFailure>()
     private holds = new Map<FakeEndpoint, Hold>()
+    private statusCache = new Map<number, { status: EmailDomainStatusApi; cachedAt: number }>()
     private nextSenderId = FIRST_SENDER_ID
 
     addSender(config: Pick<EmailSenderConfig, 'email'> & Partial<EmailSenderConfig>): IntegrationConfigApi {
@@ -376,6 +378,22 @@ export class FakeEmailDomainBackend {
         }
     }
 
+    /** Like the server, a read without refresh gets the answer cached in the last 10 seconds, and an answer whose
+     * provider verification is not recorded yet is never cached. */
+    private cachedStatusOf(sender: IntegrationConfigApi, refresh: boolean): EmailDomainStatusApi {
+        const cached = this.statusCache.get(sender.id)
+        if (!refresh && cached && Date.now() - cached.cachedAt < STATUS_CACHE_MS) {
+            return cached.status
+        }
+        const config = sender.config as EmailSenderConfig
+        const status = this.statusOf(config.domain)
+        const unrecordedVerification = this.domainState(config.domain).ses === 'verified' && config.verified !== true
+        if (!unrecordedVerification) {
+            this.statusCache.set(sender.id, { status, cachedAt: Date.now() })
+        }
+        return status
+    }
+
     detectionOf(domain: string): EmailDomainConnectCheckApi {
         const host = [...this.dnsHosts.entries()].find(
             ([registered]) => domain === registered || domain.endsWith(`.${registered}`)
@@ -390,10 +408,12 @@ export class FakeEmailDomainBackend {
                 '/api/environments/:team_id/integrations/:id/': this.serve('integration_get', ({ params }) =>
                     this.withSender(Number(params.id), (sender) => sender)
                 ),
-                '/api/environments/:team_id/integrations/:id/email/status/': this.serve('email_status', ({ params }) =>
-                    this.withSender(Number(params.id), (sender) =>
-                        this.statusOf((sender.config as EmailSenderConfig).domain)
-                    )
+                '/api/environments/:team_id/integrations/:id/email/status/': this.serve(
+                    'email_status',
+                    ({ params, request }) =>
+                        this.withSender(Number(params.id), (sender) =>
+                            this.cachedStatusOf(sender, new URL(request.url).searchParams.get('refresh') === 'true')
+                        )
                 ),
                 '/api/environments/:team_id/integrations/domain-connect/check/': this.serve(
                     'domain_connect_check',

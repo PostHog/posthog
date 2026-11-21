@@ -399,6 +399,7 @@ describe('EmailDomainScene', () => {
 
         backend.verifyDomain(DOMAIN)
         cleanup()
+        jest.setSystemTime(Date.now() + 60_000)
         await open(`${urls.workflowsEmailDomain(SENDER_ID)}?from=transactional`)
         expectStep(/You can send from/)
         expect(element('email-domain-ready-back-to-origin')).toHaveAttribute(

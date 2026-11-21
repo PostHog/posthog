@@ -365,7 +365,7 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
         loadSenderSuccess: ({ sender }) => {
             if (cache.statusAwaitingSender && sender) {
                 cache.statusAwaitingSender = false
-                actions.loadStatus()
+                actions.loadStatus(true)
             }
         },
         recordVerification: async () => {
