@@ -20,6 +20,7 @@ import requests
 import responses
 from parameterized import parameterized
 from rest_framework import status
+from urllib3 import HTTPConnectionPool
 from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
 from posthog.constants import AvailableFeature
@@ -536,6 +537,9 @@ class TestProcessDueSchedules(APIBaseTest):
         assert schedule.next_run_at is None
 
 
+CDP_POOL = HTTPConnectionPool("localhost")
+
+
 def _is_integer(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -587,7 +591,7 @@ class FakeCdpScheduledRuns:
             )
         except jwt.InvalidTokenError:
             return None
-        if not all(_is_integer(team_id) for team_id in claims["team_ids"]):
+        if not isinstance(claims["team_ids"], list) or not all(_is_integer(team_id) for team_id in claims["team_ids"]):
             return None
         return set(claims["team_ids"])
 
@@ -605,9 +609,15 @@ class FakeCdpScheduledRuns:
         if request.headers.get("Content-Type") != "application/json":
             return 415, {}, json.dumps({"error": "Unsupported media type"})
         runs = json.loads(request.body)["runs"]
-        if len(runs) > 100 or not all(
-            _is_integer(run["team_id"]) and isinstance(run["hog_flow_id"], str) and isinstance(run["variables"], dict)
-            for run in runs
+        if (
+            not isinstance(runs, list)
+            or len(runs) > 100
+            or not all(
+                _is_integer(run["team_id"])
+                and isinstance(run["hog_flow_id"], str)
+                and isinstance(run["variables"], dict)
+                for run in runs
+            )
         ):
             return 400, {}, json.dumps({"error": "Invalid scheduled runs"})
         token_team_ids = self._token_team_ids(request.headers.get("Authorization", ""))
@@ -806,7 +816,7 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             (
                 "connection_refused",
                 requests.ConnectionError(
-                    MaxRetryError(None, FakeCdpScheduledRuns.URL, NewConnectionError(None, "Connection refused"))
+                    MaxRetryError(CDP_POOL, FakeCdpScheduledRuns.URL, NewConnectionError(None, "Connection refused"))
                 ),
                 True,
             ),
