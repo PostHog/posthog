@@ -8,7 +8,7 @@ import { getDefaultConfig } from '~/common/config/config'
 
 import { TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
-import { Card, Named, Profile } from './schema'
+import { Card, Named, Profile, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
@@ -133,6 +133,30 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
     ]
 }
 
+// The event pipeline rate limits each workflow, and each seeded team runs one workflow per traffic kind, so a kind's
+// load splits over setup.teams workflows. A card that brings any of them near the limit would measure the limit, not
+// the queue.
+const RATE_LIMIT_SHARE = 0.8
+
+function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): string[] {
+    const limit = Number(profile.settings.CDP_RATE_LIMITER_REFILL_RATE ?? defaults.CDP_RATE_LIMITER_REFILL_RATE)
+    const ceiling = limit * RATE_LIMIT_SHARE
+    const topScale = Math.max(...stepsOf(card.drive).map(({ scale }) => scale))
+    return card.drive.traffic.flatMap(({ name }) => {
+        const kind = TRAFFIC.find((traffic) => traffic.name === name)
+        const shape = kind?.profile.safeParse(profile.traffic[name])
+        if (kind === undefined || kind.intake === 'transactional' || !shape?.success) {
+            return []
+        }
+        const perWorkflow = (shape.data.ratePerSecond * topScale) / card.setup.teams
+        return perWorkflow <= ceiling
+            ? []
+            : [
+                  `setup.teams: ${name} sends ${perWorkflow} units a second to each team's workflow at the ${topScale}x step, over ${ceiling}, ${RATE_LIMIT_SHARE * 100}% of the per-workflow rate limit; spread it over ${Math.ceil((perWorkflow * card.setup.teams) / ceiling)} teams or more`,
+              ]
+    })
+}
+
 type ProfileRead = { profile: Profile } | { problems: string[] }
 
 function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
@@ -191,6 +215,7 @@ function check(
         ...('profile' in loaded
             ? [
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
+                  ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...targetProblems(card, loaded.profile, target),
               ]
             : loaded.problems),
