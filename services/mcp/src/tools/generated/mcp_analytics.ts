@@ -221,7 +221,7 @@ const DateRange = z.object({
             'Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries.'
         )
         .optional(),
-    excludeIncompletePeriods: z.coerce
+    excludeIncompletePeriods: z
         .boolean()
         .nullable()
         .describe(
@@ -229,7 +229,7 @@ const DateRange = z.object({
         )
         .default(false)
         .optional(),
-    explicitDate: z.coerce
+    explicitDate: z
         .boolean()
         .nullable()
         .describe(
@@ -313,7 +313,7 @@ const MCPAnalyticsPropertyFilter = z.union([EventPropertyFilter, PersonPropertyF
 
 const MCPHarnessBreakdownQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
+    filterTestAccounts: z.boolean().optional(),
     kind: z.literal('MCPHarnessBreakdownQuery').default('MCPHarnessBreakdownQuery'),
     properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
@@ -324,7 +324,7 @@ const MCPHarnessBreakdownQuery = z.object({
 
 const MCPToolStatsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
+    filterTestAccounts: z.boolean().optional(),
     kind: z.literal('MCPToolStatsQuery').default('MCPToolStatsQuery'),
     properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
@@ -336,7 +336,7 @@ const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month',
 
 const MCPToolDailyStatsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
+    filterTestAccounts: z.boolean().optional(),
     interval: IntervalType.describe(
         'Bucket granularity for the series. The frontend passes getDefaultInterval so a sub-day window buckets by hour/minute instead of collapsing to a single day point. Defaults to day.'
     ).optional(),
@@ -349,7 +349,7 @@ const MCPToolDailyStatsQuery = z.object({
 
 const MCPToolFailuresQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
+    filterTestAccounts: z.boolean().optional(),
     kind: z.literal('MCPToolFailuresQuery').default('MCPToolFailuresQuery'),
     properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
@@ -372,7 +372,7 @@ const MCPToolFailureOccurrencesQuery = z.object({
     errorType: z
         .string()
         .describe('Raw $mcp_error_type bucket; "unknown" selects errored events without an error type.'),
-    filterTestAccounts: z.coerce.boolean().optional(),
+    filterTestAccounts: z.boolean().optional(),
     kind: z.literal('MCPToolFailureOccurrencesQuery').default('MCPToolFailureOccurrencesQuery'),
     properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
@@ -382,7 +382,7 @@ const MCPToolFailureOccurrencesQuery = z.object({
 
 const MCPToolTopUsersQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
+    filterTestAccounts: z.boolean().optional(),
     kind: z.literal('MCPToolTopUsersQuery').default('MCPToolTopUsersQuery'),
     properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
@@ -392,7 +392,7 @@ const MCPToolTopUsersQuery = z.object({
 
 const MCPToolNeighborsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
+    filterTestAccounts: z.boolean().optional(),
     kind: z.literal('MCPToolNeighborsQuery').default('MCPToolNeighborsQuery'),
     neighborDirection: z
         .enum(['before', 'after'])
@@ -405,7 +405,7 @@ const MCPToolNeighborsQuery = z.object({
 
 const MCPToolSampleIntentsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
+    filterTestAccounts: z.boolean().optional(),
     kind: z.literal('MCPToolSampleIntentsQuery').default('MCPToolSampleIntentsQuery'),
     properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
@@ -415,7 +415,7 @@ const MCPToolSampleIntentsQuery = z.object({
 
 const MCPToolDescriptionsQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce.boolean().optional(),
+    filterTestAccounts: z.boolean().optional(),
     kind: z.literal('MCPToolDescriptionsQuery').default('MCPToolDescriptionsQuery'),
     properties: z.array(MCPAnalyticsPropertyFilter).optional(),
     toolName: z
@@ -427,10 +427,7 @@ const integer = z.coerce.number().int()
 
 const MCPMissingCapabilitiesQuery = z.object({
     dateRange: DateRange.optional(),
-    filterTestAccounts: z.coerce
-        .boolean()
-        .describe("Exclude reports from the project's internal and test users.")
-        .optional(),
+    filterTestAccounts: z.boolean().describe("Exclude reports from the project's internal and test users.").optional(),
     kind: z.literal('MCPMissingCapabilitiesQuery').default('MCPMissingCapabilitiesQuery'),
     limit: integer.describe('Page size; defaults to 100, capped at 500.').optional(),
     offset: integer

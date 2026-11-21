@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { generateZodFromSchemaRef } from '../../scripts/lib/json-schema-to-zod'
 
@@ -90,7 +91,7 @@ describe('generateZodFromSchemaRef — union primitive strictness', () => {
         expect(out).not.toContain('z.coerce')
     })
 
-    it('keeps coercion on lone primitive fields', () => {
+    it('keeps coercion on lone number fields but never coerces booleans', () => {
         const root = {
             definitions: {
                 Subject: {
@@ -103,6 +104,50 @@ describe('generateZodFromSchemaRef — union primitive strictness', () => {
         const out = generateZodFromSchemaRef(root, 'Subject')
 
         expect(out).toContain('z.coerce.number()')
-        expect(out).toContain('z.coerce.boolean()')
+        expect(out).toContain('flag: z.boolean()')
+        expect(out).not.toContain('z.coerce.boolean()')
+    })
+})
+
+describe('generateZodFromSchemaRef — parsed values', () => {
+    // Runs the emitted source with zod, so these check what a caller actually gets back.
+    function build(definitions: Record<string, unknown>): z.ZodTypeAny {
+        const code = generateZodFromSchemaRef(
+            { definitions } as Parameters<typeof generateZodFromSchemaRef>[0],
+            'Subject'
+        )
+        return new Function('z', `${code}\nreturn Subject`)(z) as z.ZodTypeAny
+    }
+
+    const subject = build({
+        integer: { type: 'integer' },
+        Subject: {
+            type: 'object',
+            properties: {
+                flag: { type: 'boolean' },
+                count: { type: 'number' },
+                group: { anyOf: [{ $ref: '#/definitions/integer' }, { type: 'null' }] },
+            },
+        },
+    })
+
+    // Boolean("false") is true, so a coercing boolean flips a caller's string "false".
+    // The shared `integer` const coerces for lone fields, so reusing it inside a union
+    // turns null into 0, which is a real group type index.
+    it.each([
+        { label: 'boolean false', input: { flag: false }, expected: { flag: false } },
+        { label: 'boolean true', input: { flag: true }, expected: { flag: true } },
+        { label: 'numeric string for a lone number', input: { count: '5' }, expected: { count: 5 } },
+        { label: 'null for an integer-or-null ref', input: { group: null }, expected: { group: null } },
+        { label: 'integer for an integer-or-null ref', input: { group: 1 }, expected: { group: 1 } },
+    ])('keeps $label', ({ input, expected }) => {
+        expect(subject.parse(input)).toEqual(expected)
+    })
+
+    it.each([
+        { label: 'the string "false" for a boolean', input: { flag: 'false' } },
+        { label: 'an empty string for an integer-or-null ref', input: { group: '' } },
+    ])('rejects $label', ({ input }) => {
+        expect(subject.safeParse(input).success).toBe(false)
     })
 })

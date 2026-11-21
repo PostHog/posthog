@@ -140,6 +140,19 @@ describe('generated query wrappers', () => {
     })
 
     it.each([
+        ['a stringified boolean', { trendsFilter: { showLegend: 'false' } }, false],
+        ['an empty number', { aggregation_group_type_index: '' }, false],
+        ['a null for a nullable number', { aggregation_group_type_index: null }, true],
+    ])('validates %s on query-trends without coercing it to a different value', (_case, input, expected) => {
+        const tool = GENERATED_TOOLS['query-trends']!()
+        const result = tool.schema.safeParse({ ...insightQueries[0][1], ...input })
+
+        expect(result.success ? result.data : 'rejected').toEqual(
+            expected ? expect.objectContaining(input) : 'rejected'
+        )
+    })
+
+    it.each([
         ['zero interval count', 0, false],
         ['one interval', 1, true],
     ])('validates stickiness %s', (_case, intervalCount, expected) => {
