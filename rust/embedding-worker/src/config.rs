@@ -2,6 +2,8 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
 
+use crate::route::{EmbeddingRoute, RouteSettings};
+
 #[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(nested = true)]
@@ -35,7 +37,11 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
 
-    pub openai_api_key: String,
+    pub openai_api_key: Option<String>,
+
+    pub ai_gateway_url: Option<String>,
+
+    pub ai_gateway_api_key: Option<String>,
 
     // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
     #[envconfig(default = "4")]
@@ -76,5 +82,13 @@ impl Config {
         ConsumerConfig::set_defaults("embedding-worker", "document_embeddings_input", false);
 
         Self::init_from_env()
+    }
+
+    pub fn embedding_route(&self) -> anyhow::Result<EmbeddingRoute> {
+        EmbeddingRoute::resolve(RouteSettings {
+            openai_api_key: self.openai_api_key.as_deref(),
+            ai_gateway_url: self.ai_gateway_url.as_deref(),
+            ai_gateway_api_key: self.ai_gateway_api_key.as_deref(),
+        })
     }
 }
