@@ -22,7 +22,7 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     kotlin {
                                         sourceSets {
                                             commonMain.dependencies {
-                                                implementation("com.posthog:posthog-kmp:0.+")
+                                                implementation("com.posthog:posthog-kmp:0.11.+")
                                             }
                                         }
                                     }
@@ -31,8 +31,8 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                         ]}
                     />
                     <Markdown>
-                        `0.+` resolves to the latest `0.x` release. The SDK is a pre-release, so the API can change
-                        between minor versions – pin an exact version from [Maven
+                        `0.11.+` resolves to the latest `0.11.x` release. The SDK is a pre-release, so the API can
+                        change between minor versions – pin an exact version from [Maven
                         Central](https://central.sonatype.com/artifact/com.posthog/posthog-kmp) if you would rather
                         upgrade deliberately. The setup below requires `0.8.0` or higher.
                     </Markdown>

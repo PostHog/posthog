@@ -10,7 +10,7 @@ export const getReactNativeInstallSteps = (
 ): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
-    const pkg = options?.minVersion ? `posthog-react-native@^${options.minVersion}` : 'posthog-react-native'
+    const pkg = options?.minVersion ? `posthog-react-native@^${options.minVersion}` : 'posthog-react-native@4'
 
     return [
         {
