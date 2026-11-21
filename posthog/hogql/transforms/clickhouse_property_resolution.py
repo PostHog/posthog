@@ -35,7 +35,13 @@ from posthog.hogql.constants import (
     is_virtual_feature_flag_key,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField, Table
+from posthog.hogql.database.models import (
+    DatabaseField,
+    MapStringDatabaseField,
+    StringArrayDatabaseField,
+    StringJSONDatabaseField,
+    Table,
+)
 from posthog.hogql.database.schema.flag_evaluations import reads_flag_evaluations_json_table
 from posthog.hogql.database.schema.util.json_text import is_json_container_text
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
@@ -1872,7 +1878,16 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                 filter_expr=node.filter_expr,
             )
 
-        return _json_property_presence_expr(field_type, first_key, source=source)
+        presence = _json_property_presence_expr(field_type, first_key, source=source)
+        if reads_flag_evaluations_json_table(table_type.table, self.context):
+            # The cleaner drops a null value from the document and lists its key in `<column>_null_keys`. The legacy
+            # flag_evaluations text still holds the key, and `response` documents JSONHas as the null-versus-missing test.
+            null_keys = _synthetic_column_field(
+                field_type, f"{field.name}_null_keys", is_nullable=False, database_field=StringArrayDatabaseField
+            )
+            assert null_keys is not None
+            return _call("or", [presence, _call("has", [null_keys, _const(first_key.replace(".", "%2E"))])])
+        return presence
 
     def _native_json_null_test(self, operand: ast.Expr, *, present: bool) -> ast.Expr | None:
         """The NULL test of a native property read, as a test of its path, or None to test the value read.
