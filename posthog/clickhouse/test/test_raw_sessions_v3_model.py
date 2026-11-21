@@ -16,6 +16,7 @@ from posthog.models.raw_sessions.sessions_v3 import (
     GET_NUM_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
+    TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3,
 )
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -835,6 +836,50 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         result = self.select_by_session_id(session_id)
 
         assert set(result[0]["event_names"]) == {"$pageview", "$autocapture", "custom_event"}
+
+    @parameterized.expand([("materialized_view",), ("backfill",)])
+    def test_mcp_and_ai_events_do_not_create_or_extend_sessions(self, writer):
+        distinct_id = create_distinct_id()
+        mcp_only_session_id = create_session_id()
+        ai_only_session_id = create_session_id()
+        web_session_id = create_session_id()
+
+        def create(event: str, session_id: str, timestamp: str, url: str | None = None) -> None:
+            properties = {"$session_id": session_id}
+            if url is not None:
+                properties["$current_url"] = url
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                properties=properties,
+                timestamp=timestamp,
+            )
+
+        create("$mcp_tool_call", mcp_only_session_id, "2024-03-08T10:00:00")
+        create("$ai_generation", ai_only_session_id, "2024-03-08T10:00:00")
+        create("$ai_generation", web_session_id, "2024-03-08T09:00:00", url="https://example.com/ai-before")
+        create("$pageview", web_session_id, "2024-03-08T10:00:00", url="https://example.com/entry")
+        create("$pageview", web_session_id, "2024-03-08T10:05:00", url="https://example.com/exit")
+        create("$ai_trace", web_session_id, "2024-03-08T11:00:00", url="https://example.com/ai-after")
+
+        if writer == "backfill":
+            flush_persons_and_events()
+            sync_execute(TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3())
+            sync_execute(
+                RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="team_id = %(team_id)s"),
+                {"team_id": self.team.id},
+            )
+
+        assert self.select_by_session_id(mcp_only_session_id) == []
+        assert self.select_by_session_id(ai_only_session_id) == []
+
+        [web_session] = self.select_by_session_id(web_session_id)
+        assert web_session["min_timestamp"] == datetime.datetime(2024, 3, 8, 10, 0, tzinfo=datetime.UTC)
+        assert web_session["max_timestamp"] == datetime.datetime(2024, 3, 8, 10, 5, tzinfo=datetime.UTC)
+        assert web_session["entry_url"] == "https://example.com/entry"
+        assert web_session["end_url"] == "https://example.com/exit"
+        assert web_session["event_names"] == ["$pageview"]
 
     def test_hosts_are_collected(self):
         distinct_id = create_distinct_id()
