@@ -10,4 +10,6 @@ rules:
     - match:
           - '/flag_evaluations_backfill.py'
           - '/tests/test_flag_evaluations_backfill.py'
+          - '/flag_evaluations_json_backfill.py'
+          - '/tests/test_flag_evaluations_json_backfill.py'
       owners: team-feature-flags
