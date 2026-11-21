@@ -535,7 +535,7 @@ function artifact(pathname, content) {
     return { path: pathname, content, contentHash: sha256(content), sizeBytes: Buffer.byteLength(content, 'utf8') }
 }
 
-async function buildCanvas(project) {
+async function buildCanvas(project, imageSources = []) {
     const diagnostics = validate(project)
     if (diagnostics.length) {
         return { contractVersion: 1, status: 'failed', diagnostics }
@@ -635,16 +635,9 @@ async function buildCanvas(project) {
             `${runtime}${notebookBridge}\n${selectionRuntime}\n${highlightRuntime}\n${keyboardRuntime}`
         )
     )
-    const networkOrigins = project.capabilities?.network?.origins ?? []
-    const externalSources = networkOrigins.join(' ')
-    const projectCsp = externalSources
-        ? csp
-              .replace("connect-src 'none'", `connect-src ${externalSources}`)
-              .replace("style-src 'self' 'unsafe-inline'", `style-src 'self' 'unsafe-inline' ${externalSources}`)
-              .replace("img-src 'self' data: blob:", `img-src 'self' data: blob: ${externalSources}`)
-              .replace("font-src 'self' data:", `font-src 'self' data: ${externalSources}`)
-              .replace("media-src 'self' data: blob:", `media-src 'self' data: blob: ${externalSources}`)
-              .replace("frame-src 'none'", `frame-src ${externalSources}`)
+    // The meta policy intersects with the response header, so it lists the same image sources.
+    const projectCsp = imageSources.length
+        ? csp.replace("img-src 'self' data: blob:", `img-src 'self' data: blob: ${imageSources.join(' ')}`)
         : csp
     // `sandbox` is ignored in a <meta> policy and logs a console warning on every
     // artifact load; the artifact origin delivers it via the response header.
@@ -676,7 +669,7 @@ for await (const chunk of process.stdin) {
 }
 try {
     const request = JSON.parse(input)
-    process.stdout.write(JSON.stringify(await buildCanvas(request.project)))
+    process.stdout.write(JSON.stringify(await buildCanvas(request.project, request.imageSources)))
 } catch (error) {
     process.stdout.write(
         JSON.stringify({

@@ -59,9 +59,9 @@ build pipeline's dependency admission ships.
 ## Rules that still apply
 
 - PostHog data comes only through the `ph` bridge (see `querying-canvas-data`), including
-  `ph.capture` for interaction analytics. Other requests and external styles, images, fonts, media,
-  or frames require their exact public HTTPS origins in `capabilities.network.origins` and work only
-  after publishing. Remote scripts and dynamic imports remain blocked.
+  `ph.capture` for interaction analytics. A canvas can't reach other sites: requests and external
+  styles, images, fonts, media, frames, scripts, and dynamic imports are all blocked. Use images from
+  the PostHog media library (see `building-canvases`) and put other files in the project.
 - A document that states PostHog numbers must make each one verifiable: an insight-backed number
   links its saved insight through `ph.openExternal` (URL from the `generate-app-url` MCP tool,
   from a click); an ad-hoc `ph.query` number discloses the exact query that ran in a `<details>`

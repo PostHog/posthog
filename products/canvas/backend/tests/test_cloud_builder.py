@@ -13,7 +13,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
-from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
+from products.canvas.backend.contract import (
+    allowed_import_specifiers,
+    canvas_sdk_version,
+    platform_dependencies,
+    uploaded_media_source,
+)
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import _PLATFORM_ELEMENT_TOKENS, synthetic_source_project, validate_source_project
 
@@ -676,15 +681,24 @@ bridge.port1.close();
 
         self.assertEqual(manifest["capabilities"], project["capabilities"])
         html = next(file["content"] for file in files if file["path"] == "index.html")
-        self.assertIn("connect-src https://api.example.com", html)
-        self.assertIn("style-src 'self' 'unsafe-inline' https://api.example.com", html)
-        self.assertIn("img-src 'self' data: blob: https://api.example.com", html)
-        self.assertIn("font-src 'self' data: https://api.example.com", html)
-        self.assertIn("media-src 'self' data: blob: https://api.example.com", html)
-        self.assertIn("frame-src https://api.example.com", html)
-        self.assertNotIn("script-src 'self' https://api.example.com", html)
+        self.assertIn("connect-src 'none'", html)
+        self.assertIn("style-src 'self' 'unsafe-inline';", html)
+        self.assertIn(f"img-src 'self' data: blob: {uploaded_media_source()};", html)
+        self.assertNotIn("api.example.com", html.split('content="', 1)[1].split('"', 1)[0])
+        self.assertIn("font-src 'self' data:;", html)
+        self.assertIn("frame-src 'none'", html)
 
-    def test_preserves_declared_remote_stylesheet_links(self) -> None:
+    def test_meta_policy_admits_media_prefix_without_declared_origins(self) -> None:
+        project = self._project('document.body.textContent = "Hello"')
+
+        files, _, _ = validate_builder_output(run_cloud_builder(project))
+
+        html = next(file["content"] for file in files if file["path"] == "index.html")
+        meta_csp = html.split('content="', 1)[1].split('"', 1)[0]
+        self.assertIn(f"img-src 'self' data: blob: {uploaded_media_source()};", meta_csp)
+        self.assertIn("connect-src 'none'", meta_csp)
+
+    def test_keeps_remote_stylesheet_links_without_granting_them(self) -> None:
         project = self._project('document.body.textContent = "Hello"')
         project["files"]["index.html"] = (
             '<head><link rel="stylesheet" href="https://styles.example.com/theme.css" /></head>'
@@ -699,11 +713,9 @@ bridge.port1.close();
 
         self.assertEqual(diagnostics, [])
         html = next(file["content"] for file in files if file["path"] == "index.html")
-        # A declared remote stylesheet is not a local build entry, so it stays in
-        # the HTML and loads at runtime under the widened style-src CSP, instead
-        # of failing the build with entry_not_found.
+        # A remote stylesheet stays in the HTML instead of failing with entry_not_found.
         self.assertIn('href="https://styles.example.com/theme.css"', html)
-        self.assertIn("style-src 'self' 'unsafe-inline' https://styles.example.com", html)
+        self.assertIn("style-src 'self' 'unsafe-inline';", html)
 
     def test_runtime_reports_csp_violations_without_blocked_urls(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))

@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -362,16 +362,17 @@ class TestCanvasSourceAdapter(SimpleTestCase):
             ),
         ]
     )
-    def test_literal_external_resources_require_declared_origin(self, _name, snippet, path, expected_origin):
+    def test_literal_external_resources_are_blocked(self, _name, snippet, path, expected_origin):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE, path: snippet})
 
         diagnostics = validate_source_project(candidate)
 
-        entry = next(d for d in diagnostics if d["code"] == "capability_missing_network_origin")
-        self.assertIn(f'"{expected_origin}" in capabilities.network.origins', entry["message"])
+        entry = next(d for d in diagnostics if d["code"] == "external_resource_blocked")
+        self.assertEqual(entry["severity"], "error")
+        self.assertIn(f'"{expected_origin}"', entry["message"])
         self.assertEqual(entry["path"], path)
 
-    def test_declared_origin_covers_literal_external_resources(self):
+    def test_declared_origin_does_not_unblock_literal_external_resources(self):
         candidate = project(
             files={CANVAS_COMPONENT_PATH: CODE + 'fetch("https://api.example.com/v1/data");'},
             capabilities={"network": {"origins": ["https://api.example.com"]}},
@@ -379,7 +380,7 @@ class TestCanvasSourceAdapter(SimpleTestCase):
 
         diagnostics = validate_source_project(candidate)
 
-        self.assertNotIn("capability_missing_network_origin", [entry["code"] for entry in diagnostics])
+        self.assertIn("external_resource_blocked", [entry["code"] for entry in diagnostics])
 
     @parameterized.expand(
         [
@@ -392,7 +393,17 @@ class TestCanvasSourceAdapter(SimpleTestCase):
 
         diagnostics = validate_source_project(candidate)
 
-        self.assertNotIn("capability_missing_network_origin", [entry["code"] for entry in diagnostics])
+        self.assertNotIn("external_resource_blocked", [entry["code"] for entry in diagnostics])
+
+    @override_settings(UPLOADED_MEDIA_PUBLIC_URL="https://media.example.com")
+    def test_media_library_images_are_not_blocked(self):
+        candidate = project(
+            files={CANVAS_COMPONENT_PATH: CODE + '<img src="https://media.example.com/uploaded_media/abc" />'}
+        )
+
+        diagnostics = validate_source_project(candidate)
+
+        self.assertNotIn("external_resource_blocked", [entry["code"] for entry in diagnostics])
 
     @parameterized.expand(
         [
@@ -408,7 +419,7 @@ class TestCanvasSourceAdapter(SimpleTestCase):
 
         diagnostics = validate_source_project(candidate)
 
-        self.assertNotIn("capability_missing_network_origin", [entry["code"] for entry in diagnostics])
+        self.assertNotIn("external_resource_blocked", [entry["code"] for entry in diagnostics])
 
     @parameterized.expand(
         [
@@ -452,14 +463,19 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         diagnostics = validate_source_project(candidate)
         self.assertIn("invalid_network_origin", [d["code"] for d in diagnostics])
 
-    def test_accepts_exact_https_network_origin(self):
+    def test_exact_https_network_origin_publishes_with_a_not_granted_warning(self):
         candidate = project(
             capabilities={
                 "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
                 "network": {"origins": ["https://api.example.com:8443"]},
             }
         )
-        self.assertFalse(has_errors(validate_source_project(candidate)))
+        diagnostics = validate_source_project(candidate)
+        self.assertFalse(has_errors(diagnostics))
+        warnings = [d for d in diagnostics if d["code"] == "network_origin_not_granted"]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0]["severity"], "warning")
+        self.assertIn('"https://api.example.com:8443"', warnings[0]["message"])
 
     def test_import_diagnostics_carry_file_and_line(self):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE + 'import _ from "lodash";'})
