@@ -496,6 +496,37 @@ describe('EmailDomainScene', () => {
         expect(backend.requestsTo('email_verify')).toHaveLength(1)
     })
 
+    it('shows a stopped domain as ready once someone else restores sending, to a member who may not verify', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        backend.fail('email_verify', { status: 403, body: { detail: 'You do not have permission to do this.' } })
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        await flush(30_000)
+        expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+
+        backend.verifyDomain(DOMAIN)
+        await flush(10_000)
+
+        expectStep(/You can send from/)
+        expect(backend.requestsTo('email_verify')).toHaveLength(3)
+    })
+
+    it('offers a check at once for a stopped domain the provider reports pending, and the check repairs it', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.sesReports(DOMAIN, 'pending')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+
+        backend.verifyAtProviderOnly(DOMAIN)
+        click('email-domain-check-again')
+        await flush()
+
+        expectStep(/You can send from/)
+        expect(backend.sender(SENDER_ID)?.config).not.toHaveProperty('ses_sending_status')
+    })
+
     it('keeps a MAIL FROM subdomain adopted after the page loaded when the sender name is saved', async () => {
         seedSender()
         backend.verifyDomain(DOMAIN)

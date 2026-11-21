@@ -282,6 +282,7 @@ export class FakeEmailDomainBackend {
         this.publishRecords(domain)
         const state = this.domainState(domain)
         state.ses = 'verified'
+        state.awaitingRecord = false
         state.sendingStopped = false
         this.senders.forEach((sender) => {
             const { ses_sending_status: _cleared, ...config } = sender.config as EmailSenderConfig
@@ -480,10 +481,11 @@ export class FakeEmailDomainBackend {
         return async (info) => {
             const body = await readBody(info.request)
             this.requests.push({ endpoint, method: info.request.method, url: info.request.url, body })
-            // A held read answers with the state at request time, and a held write lands only on release.
-            const read = info.request.method === 'GET' ? respond(info, body) : null
-            await this.holds.get(endpoint)?.promise
+            // A held read answers with the state at request time, and a held write lands only on release. A refused
+            // request never runs, so it caches no status.
             const failure = this.failureFor(endpoint)
+            const read = !failure && info.request.method === 'GET' ? respond(info, body) : null
+            await this.holds.get(endpoint)?.promise
             if (failure) {
                 return [failure.status, failure.body ?? { detail: 'The fake backend refused this request' }]
             }

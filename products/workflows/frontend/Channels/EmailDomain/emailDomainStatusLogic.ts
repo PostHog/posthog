@@ -11,6 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import {
     integrationsEmailStatusRetrieve,
     integrationsEmailVerifyCreate,
+    integrationsRetrieve,
 } from 'products/integrations/frontend/generated/api'
 import type {
     EmailDomainSetupRecordKindEnumApi,
@@ -38,16 +39,20 @@ const isSetupEvidence = (record: EmailDomainStatusRecordApi): boolean =>
 const waitsForSender = (status: EmailDomainStatusApi | null, sender: IntegrationConfigApi | null): boolean =>
     !!status?.verified && !sender
 // A poll only reports the provider's answer, and email/verify records it. The attempt cap keeps a provider that
-// answers verified but never records out of a loop. The server caches a status for 10 seconds, so a stopped sender
-// is repaired only on a live check.
+// answers verified but never records out of a loop. Past the cap, as for a member who may not verify, each poll reads
+// the sender's stop marker again, so a repair by someone else still shows. The server caches a status for 10 seconds, so a stopped
+// sender is repaired only on a live check.
 const recordStepOf = (
     status: EmailDomainStatusApi | null,
     domainVerified: boolean,
     recordAttempts: number,
     refreshed: boolean
-): 'live-check' | 'record' | null => {
-    if (status?.status !== 'verified' || domainVerified || recordAttempts >= MAX_VERIFICATION_RECORD_ATTEMPTS) {
+): 'live-check' | 'record' | 'recheck-sender' | null => {
+    if (status?.status !== 'verified' || domainVerified) {
         return null
+    }
+    if (recordAttempts >= MAX_VERIFICATION_RECORD_ATTEMPTS) {
+        return 'recheck-sender'
     }
     return status.verified && !refreshed ? 'live-check' : 'record'
 }
@@ -70,6 +75,7 @@ export interface emailDomainStatusLogicValues {
     restartResult: boolean | null
     restartResultLoading: boolean
     sendingRestoredByVerify: boolean
+    sendingStopped: boolean
     setupEvidenceFound: boolean
     status: EmailDomainStatusApi | null
     statusLoading: boolean
@@ -87,6 +93,9 @@ export interface emailDomainStatusLogicActions {
     } // emailDomainSenderLogic
     loadIntegrations: (_?: any) => any // integrationsLogic
     checkAgain: () => {
+        value: true
+    }
+    checkSendingRestored: () => {
         value: true
     }
     loadStatus: (refresh?: boolean) => {
@@ -158,6 +167,7 @@ export interface emailDomainStatusLogicMeta {
             sender: IntegrationConfigApi | null,
             sendingRestoredByVerify: boolean
         ) => boolean
+        sendingStopped: (sender: IntegrationConfigApi | null, sendingRestoredByVerify: boolean) => boolean
         records: (status: EmailDomainStatusApi | null) => EmailDomainStatusRecordApi[]
         foundCount: (records: EmailDomainStatusRecordApi[]) => number
         allRecordsFound: (records: EmailDomainStatusRecordApi[], foundCount: number) => boolean
@@ -194,6 +204,7 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
         stopPolling: true,
         recheck: true,
         checkAgain: true,
+        checkSendingRestored: true,
         recordVerification: true,
         verificationRecorded: true,
     }),
@@ -307,6 +318,11 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                 sendingRestoredByVerify: boolean
             ): boolean => !!status?.verified && !!sender && (sendingRestoredByVerify || !isSendingStopped(sender)),
         ],
+        sendingStopped: [
+            (s) => [s.sender, s.sendingRestoredByVerify],
+            (sender: IntegrationConfigApi | null, sendingRestoredByVerify: boolean): boolean =>
+                !!sender && !sendingRestoredByVerify && isSendingStopped(sender),
+        ],
         records: [
             (s) => [s.status],
             (status: EmailDomainStatusApi | null): EmailDomainStatusRecordApi[] => status?.records ?? [],
@@ -356,13 +372,22 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             const recordAttempts: number = cache.verificationRecordAttempts ?? 0
             const verified = values.domainVerified
             const recordStep = recordStepOf(status, verified, recordAttempts, !!payload?.refresh)
-            if (recordStep === 'live-check') {
-                actions.loadStatus(true)
-                return
-            }
-            if (recordStep === 'record') {
-                cache.verificationRecordAttempts = recordAttempts + 1
-                actions.recordVerification()
+            if (recordStep) {
+                const runStep = {
+                    'live-check': () => actions.loadStatus(true),
+                    record: () => {
+                        cache.verificationRecordAttempts = recordAttempts + 1
+                        actions.recordVerification()
+                    },
+                    'recheck-sender': () => {
+                        actions.checkSendingRestored()
+                        if (values.pollingStartedAt === null) {
+                            actions.startPolling()
+                        }
+                        actions.schedulePoll()
+                    },
+                }[recordStep]
+                runStep()
                 return
             }
             if (verified || status?.status === 'failed') {
@@ -383,6 +408,19 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             if (cache.statusAwaitingSender && sender) {
                 cache.statusAwaitingSender = false
                 actions.loadStatus()
+            }
+        },
+        checkSendingRestored: async () => {
+            if (!values.integrationId || !values.currentTeamId) {
+                return
+            }
+            try {
+                const sender = await integrationsRetrieve(String(values.currentTeamId), values.integrationId)
+                if (!isSendingStopped(sender)) {
+                    actions.verificationRecorded()
+                }
+            } catch {
+                // The next poll reads the sender again.
             }
         },
         recordVerification: async () => {
