@@ -447,7 +447,7 @@ async def _publish_queryable_files(
 
 
 @recorded_phase("sync_bookkeeping")
-async def _finalize_sync_bookkeeping(
+async def finalize_sync_bookkeeping(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
     resource: "Optional[SourceResponse]",
@@ -737,7 +737,7 @@ async def run_post_load_operations(
         # initial_sync_complete never advance, leaving the schema stuck "completed but not
         # initial-synced" on every subsequent run.
         logger.debug("No deltalake table; finalizing bookkeeping for a zero-row run")
-        await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
+        await finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
         return PostLoadResult(queryable_folder=None)
 
     # Detect CDC companion writes — scd2_append writes always go to the companion _cdc resource.
@@ -755,7 +755,7 @@ async def run_post_load_operations(
         job, schema, delta_table_ref, resource_name, is_cdc_companion, logger
     )
 
-    await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
+    await finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
 
     # For cdc_only mode during the initial load, skip registering the consolidated
     # DataWarehouseTable — only the _cdc companion table should be visible.

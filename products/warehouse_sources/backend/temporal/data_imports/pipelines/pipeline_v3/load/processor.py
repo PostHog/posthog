@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.incremental_histor
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     PostLoadResult,
+    finalize_sync_bookkeeping,
     run_post_load_operations,
     supports_partial_data_loading,
 )
@@ -1426,6 +1427,8 @@ def process_messages(
 
 def _process_external_destinations_only(
     export_signal: "ExportSignalMessage",
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
     verify_ownership: Callable[[], None] | None,
 ) -> None:
     """Deliver a batch for a run that writes to external destinations only.
@@ -1449,6 +1452,9 @@ def _process_external_destinations_only(
         verify_ownership()
 
     report_phase("finalize")
+    # Sources read initial_sync_complete to switch from a full read to an incremental one, so
+    # without it every run extracts the whole table again.
+    async_to_sync(finalize_sync_bookkeeping)(job, schema, None, None, logger)
     _mark_job_completed(export_signal)
 
 
@@ -1536,7 +1542,7 @@ def _process_message_reported(
         if not warehouse_is_a_destination(export_signal):
             # The customer asked for their data elsewhere and not here, so there is no delta
             # write, no table to register and no post-import to run.
-            _process_external_destinations_only(export_signal, verify_ownership)
+            _process_external_destinations_only(export_signal, job, schema, verify_ownership)
             return
 
         append_runs = (
