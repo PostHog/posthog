@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
+from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM, DenyIDJagProjectSecretAPIKeyWrites
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -14,6 +14,7 @@ from posthog.models.utils import (
     generate_random_token_secret,
     hash_key_value,
 )
+from posthog.test.id_jag import id_jag_access_token
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -113,6 +114,26 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         super().setUp()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+    def test_id_jag_token_can_list_keys_but_not_create_one(self):
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="existing", secure_value="sha256$existing", scopes=["endpoint:read"]
+        )
+        token = id_jag_access_token(self.user, self.organization, "project:read project:write")
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys")
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "from id-jag", "scopes": ["endpoint:read"]},
+        )
+
+        assert listed.status_code == 200, listed.content
+        assert [row["id"] for row in listed.json()["results"]] == [key.id]
+        assert created.status_code == 403, created.content
+        assert created.json()["detail"] == DenyIDJagProjectSecretAPIKeyWrites.message
+        assert ProjectSecretAPIKey.objects.filter(team=self.team).count() == 1
 
     @parameterized.expand([("endpoint:read",), ("person:write",)])
     def test_create_project_secret_api_key(self, scope: str):

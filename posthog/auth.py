@@ -310,7 +310,10 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
         request_data: Optional[dict[str, Any]] = None,
         extra_data: Optional[dict[str, Any]] = None,
     ) -> Optional[tuple[str, str]]:
-        """Try to find personal API key in request and return it along with where it was found."""
+        """Try to find personal API key in request and return it along with where it was found.
+
+        An OAuth or ID-JAG access token in the header is never a personal API key, so this returns None for it and
+        leaves it to its own authenticator. The rate limiter and the CSRF middleware read the same answer."""
         if "authorization" in request.headers:
             authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
@@ -319,6 +322,8 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 if token.startswith(
                     OAUTH_ACCESS_TOKEN_PREFIX
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
+                    return None
+                if IDJagAccessTokenAuthentication.is_id_jag_token(token):
                     return None
                 return token, cls.SOURCE_HEADER
         data = request.data if request_data is None and isinstance(request, Request) else request_data
@@ -1015,8 +1020,11 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
         authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
         if not authorization_match:
             return None
+        token = authorization_match.group(1).strip()
+        # `decode_jwt` rejects the algorithm of an ID-JAG token, and the handler below would call it a bad export token.
+        if IDJagAccessTokenAuthentication.is_id_jag_token(token):
+            return None
         try:
-            token = authorization_match.group(1).strip()
             info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
             user_id = info["id"]
             team_id = info["team_id"]
