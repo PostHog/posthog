@@ -5,6 +5,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { BUILT_IN_ERROR_TRACKING_PROPERTIES } from '../builtInProperties'
 import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY, issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
+import type { PropertyTableRow } from '../PropertiesTable'
 import { ExceptionPropertiesTable } from './ExceptionPropertiesTable'
 
 export type ContextDisplayProps = {
@@ -12,6 +13,7 @@ export type ContextDisplayProps = {
     properties?: Record<string, unknown>
     additionalProperties: Record<string, unknown>
     propertyNameFilter?: string
+    showAllProperties?: boolean
 }
 
 export function ContextDisplay({
@@ -19,24 +21,31 @@ export function ContextDisplay({
     properties,
     additionalProperties,
     propertyNameFilter = '',
+    showAllProperties = false,
 }: ContextDisplayProps): JSX.Element {
     const { addPropertyFilter } = useActions(issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }))
     const onFilterValue = (key: string, value: string | number | boolean): void => {
         addPropertyFilter(key, value)
     }
-    const additionalEntries = Object.entries(additionalProperties)
-        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base' }))
-        .map(([key, value]) => ({
-            key,
-            value,
-            filterKey: key,
-        }))
+    const additionalEntries = toSortedEntries(Object.entries(additionalProperties))
     const builtInEntries = BUILT_IN_ERROR_TRACKING_PROPERTIES.map(({ property, title, versionProperty }) => ({
         key: title,
         value: getBuiltInPropertyValue(properties, property, versionProperty),
         filterKey: property,
         filterValue: properties?.[property],
     }))
+    const shownBuiltInKeys = new Set(
+        BUILT_IN_ERROR_TRACKING_PROPERTIES.flatMap(({ property, versionProperty }, index) =>
+            builtInEntries[index].value === undefined ? [] : [property, versionProperty]
+        )
+    )
+    const otherEntries = showAllProperties
+        ? toSortedEntries(
+              Object.entries(properties ?? {}).filter(
+                  ([key]) => !(key in additionalProperties) && !shownBuiltInKeys.has(key)
+              )
+          )
+        : []
     const normalizedPropertyNameFilter = propertyNameFilter.trim().toLocaleLowerCase()
 
     return (
@@ -60,6 +69,11 @@ export function ContextDisplay({
                                 title: 'Custom properties',
                                 entries: filterEntriesByPropertyName(additionalEntries, normalizedPropertyNameFilter),
                             },
+                            {
+                                id: 'other-exception-properties',
+                                title: 'Other properties',
+                                entries: filterEntriesByPropertyName(otherEntries, normalizedPropertyNameFilter),
+                            },
                         ]}
                         emptyMessage={normalizedPropertyNameFilter ? 'No matching properties' : 'No properties'}
                         onFilterValue={onFilterValue}
@@ -68,6 +82,12 @@ export function ContextDisplay({
                 .exhaustive()}
         </>
     )
+}
+
+function toSortedEntries(entries: [string, unknown][]): PropertyTableRow[] {
+    return entries
+        .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base' }))
+        .map(([key, value]) => ({ key, value, filterKey: key }))
 }
 
 function filterEntriesByPropertyName<T extends { key: string; filterKey?: string }>(

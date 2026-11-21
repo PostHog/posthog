@@ -1,6 +1,7 @@
 import { IconCopy, IconFilter, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export type PropertyTableRow = {
@@ -95,6 +96,17 @@ export function PropertiesTable({
                     dataIndex: 'value',
                     className: 'whitespace-nowrap',
                     render: (value) => {
+                        if (isJSONValue(value)) {
+                            return (
+                                <div className="min-w-0 whitespace-normal">
+                                    <JSONViewer
+                                        src={normalizeSentinelsDeep(value) as object}
+                                        collapsed={1}
+                                        collapseStringsAfterLength={80}
+                                    />
+                                </div>
+                            )
+                        }
                         return (
                             <div
                                 className={tableLayout === 'fixed' ? 'truncate' : 'whitespace-nowrap'}
@@ -147,18 +159,25 @@ function getFilterableValue(value: unknown): string | number | boolean | null {
     return null
 }
 
-function renderValue(value: unknown, level = 0): React.ReactNode {
+function isJSONValue(value: unknown): value is object {
+    return value !== null && typeof value === 'object'
+}
+
+function normalizeSentinelsDeep(value: unknown): unknown {
+    if (typeof value === 'string') {
+        return normalizeSentinels(value)
+    }
     if (Array.isArray(value)) {
-        return '[' + value.map((v) => renderValue(v, level + 1)).join(', ') + ']'
-    } else if (value && typeof value === 'object') {
-        return (
-            '{' +
-            Object.entries(value)
-                .map(([k, v]) => `${k}: ${renderValue(v, level + 1)}`)
-                .join(', ') +
-            '}'
-        )
-    } else if (typeof value === 'string') {
+        return value.map(normalizeSentinelsDeep)
+    }
+    if (isJSONValue(value)) {
+        return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, normalizeSentinelsDeep(entry)]))
+    }
+    return value
+}
+
+function renderValue(value: unknown): React.ReactNode {
+    if (typeof value === 'string') {
         if (value === SENTINELS.Redacted) {
             return (
                 <MaskedValue
@@ -192,9 +211,6 @@ function renderValue(value: unknown, level = 0): React.ReactNode {
             )
         }
         if (/^https?:\/\/.+/.test(value)) {
-            if (level > 0) {
-                return value
-            }
             return (
                 <Link to={value as string} target="_blank">
                     {value}
