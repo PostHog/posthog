@@ -4273,10 +4273,10 @@ Today (6): `AdSets`, `Ads`, `Advertisers`, `Audiences`, `CampaignStats`, `Campai
 
 Diffed against: <https://api.criteo.com/2026-07/marketingsolutions/open-api-specifications.json>
 
-- [ ] `Transactions report (POST /2026-07/transactions/report)` — Per-transaction sales data, a headline advertiser metric not in CampaignStats (high)
-- [ ] `Creatives (GET /2026-07/marketing-solutions/advertisers/{advertiser-id}/creatives)` — Creative lookup for ads we already sync (medium)
-- [ ] `Audience segments (POST /2026-07/marketing-solutions/audience-segments/search)` — Segment definitions that sit beside the synced Audiences (medium)
-- [ ] `Placements report (POST /2026-07/placements/report)` — Performance by placement or site (medium)
+- [ ] `Transactions report (POST /2026-07/transactions/report)` — Per-transaction sales data, a headline advertiser metric not in CampaignStats (high). Skipped: the spec gives an opaque binary response body, and no JSON row shape or unique row grain is documented.
+- [x] `Creatives (GET /2026-07/marketing-solutions/advertisers/{advertiser-id}/creatives)` — Creative lookup for ads we already sync (medium)
+- [x] `Audience segments (POST /2026-07/marketing-solutions/audience-segments/search)` — Segment definitions that sit beside the synced Audiences (medium)
+- [ ] `Placements report (POST /2026-07/placements/report)` — Performance by placement or site (medium). Skipped: the spec gives an opaque binary response body, rows have no date dimension for a unique key, and data is kept for only 3 months.
 - [ ] `Coupons (GET /2026-07/marketing-solutions/advertisers/{advertiser-id}/coupons)` — Coupon ads for each advertiser (low)
 
 Note: Parsed the 2026-07 Marketing Solutions OpenAPI file. Report endpoints are POST with date ranges and need windowed incremental syncs. Creatives and coupons need a request per advertiser. Marketplace performance outcomes (budgets, sellers, seller campaigns) were left out as a niche program.
