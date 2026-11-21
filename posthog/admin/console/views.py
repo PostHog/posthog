@@ -638,6 +638,10 @@ def _with_query(url: str, request: HttpRequest) -> str:
 @require_safe
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
+    RecentTools.remember(request, tool)
+    app_response = tool.app_page(request)
+    if app_response is not None:
+        return app_response
     offered = tool.operations(request)
     operations = [
         _rendered_operation(
@@ -652,7 +656,6 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         for operation in offered
         if operation.listed
     ]
-    RecentTools.remember(request, tool)
     return render(
         request,
         "admin_console/tool.html",

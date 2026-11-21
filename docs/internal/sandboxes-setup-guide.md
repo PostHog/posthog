@@ -479,7 +479,7 @@ Use `TaskRun.workflow_id` to recover the full Temporal workflow ID from the run.
 
 ### Sandbox templates
 
-Staff can inspect the agent release pipeline at `/admin/tasks/task/infrastructure/` in each region.
+Staff can inspect the agent release pipeline in PostHog Admin at `/admin/console/tools/agent-release-pipeline/` in each region.
 Release reads use the configured GitHub App installation for `PostHog/posthog`, with a temporary token restricted to Contents and Actions reads on that repository. No integration record or installation ID setting is needed. Deployments without GitHub App credentials use `GITHUB_TOKEN` when set.
 The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
 Release evidence separates workflow status from image build and base promotion results, including skipped builds.
