@@ -1215,6 +1215,31 @@ describe('sqlEditorLogic', () => {
             expect(editorRootLogic.values.titleSectionProps.name).toEqual('Loading view...')
         })
 
+        // The warehouse header hides the scene title for a page with no parent breadcrumb, so a saved view without
+        // the "SQL query" parent loses its name and its "Edited" tag there.
+        it.each([
+            ['saved view', MOCK_VIEW.name, () => logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)],
+            [
+                'insight',
+                MOCK_INSIGHT.name,
+                () => logic.actions.createTab(MOCK_INSIGHT_QUERY.source.query, undefined, MOCK_INSIGHT),
+            ],
+        ])('nests an open %s under the SQL query breadcrumb', async (_kind, expectedName, openTab) => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            openTab()
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            expect(editorRootLogic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(['SQL query', expectedName])
+        })
+
         it('shows loading insight title when opening an insight from URL before insight loads', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,

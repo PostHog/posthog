@@ -1,6 +1,7 @@
 import type { TodayRailPane } from './todayShellLogic'
 
-export type TodayIntroPane = Exclude<TodayRailPane, 'home'>
+// The warehouse pane's sidebar shows the open page's own tabs, so it has nothing for an intro to describe.
+export type TodayIntroPane = Exclude<TodayRailPane, 'home' | 'warehouse'>
 
 export interface TodayPaneIntroCopy {
     title: string

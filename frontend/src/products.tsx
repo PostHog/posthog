@@ -177,6 +177,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/models': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
+    '/warehouse': ['WarehouseHome', 'warehouseHome'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
@@ -984,6 +985,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'data_warehouse',
     },
     WarehouseDestinationConnect: { projectBased: true, name: 'Connect warehouse destination' },
+    WarehouseHome: {
+        name: 'Warehouse',
+        projectBased: true,
+        description: 'Connect your data, build views on it and check that it stays fresh.',
+        iconType: 'data_warehouse',
+    },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -1643,6 +1650,7 @@ export const productUrls = {
         `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
+    warehouse: (): string => '/warehouse',
     dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {

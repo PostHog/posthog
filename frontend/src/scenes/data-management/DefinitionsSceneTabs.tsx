@@ -1,11 +1,11 @@
 import { useValues } from 'kea'
 
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 
 import { DefinitionsSceneTabKey, definitionsSceneTabsLogic } from './definitionsSceneTabsLogic'
 
 export function DefinitionsSceneTabs({ activeKey }: { activeKey: DefinitionsSceneTabKey }): JSX.Element {
     const { tabs } = useValues(definitionsSceneTabsLogic)
 
-    return <LemonTabs activeKey={activeKey} tabs={tabs} sceneInset className="mb-3" />
+    return <SceneTabs activeKey={activeKey} tabs={tabs} sceneInset className="mb-3" />
 }

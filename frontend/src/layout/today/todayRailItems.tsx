@@ -1,6 +1,7 @@
 import {
     IconApps,
     IconChat,
+    IconDatabase,
     IconFlag,
     IconGear,
     IconHome,
@@ -39,6 +40,7 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     people: { label: 'People', title: 'People', icon: <IconPeople />, action: TodayNewPeopleButton },
     release: { label: 'Release', title: 'Release', icon: <IconFlag /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
+    warehouse: { label: 'Warehouse', title: 'Warehouse', icon: <IconDatabase /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }
 
