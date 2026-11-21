@@ -25,6 +25,7 @@ from products.growth.backend.sdk_version_rollup import SDK_VERSIONS_WINDOW_DAYS,
 
 # Issue severity follows the SDK Health assessment severity: a single outdated SDK is a warning,
 # but when the bulk of a team's SDKs are outdated the assessment escalates to "danger".
+# A mobile SDK that is a major version behind never escalates, see `is_mobile_major_upgrade`.
 _SEVERITY_BY_ASSESSMENT: dict[str, HealthIssue.Severity] = {
     "danger": HealthIssue.Severity.CRITICAL,
     "warning": HealthIssue.Severity.WARNING,
@@ -197,6 +198,7 @@ def _build_combined_data(
         release_dates = sdk_github_data.get("releaseDates", {})
         combined[lib_name] = {
             "latest_version": latest_version,
+            "release_dates": release_dates,
             "usage": [
                 {
                     "lib_version": entry["lib_version"],
@@ -237,6 +239,7 @@ def _build_health_result(assessment: SdkAssessment) -> HealthCheckResult:
             "banners": assessment.banners,
             "is_outdated": assessment.is_outdated,
             "is_old": assessment.is_old,
+            "migration_guide_url": assessment.migration_guide_url,
             "usage": [
                 {
                     "lib_version": release.version,
