@@ -14,7 +14,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { convertRawEvent } from './convert-raw-event'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'
 import { processAiErrorNormalization } from './errors'
-import { processAiToolCallExtraction } from './tools'
+import { processAiToolCallExtraction, processAiToolUsageExtraction } from './tools'
 
 export type { EventWithProperties } from './costs'
 
@@ -31,6 +31,7 @@ const isEventWithProperties = (event: PluginEvent): event is EventWithProperties
  * 3. Calculate costs (generation/embedding events only)
  * 4. Extract model parameters (generation/embedding events only)
  * 5. Extract tool calls (generation events only)
+ * 6. Extract tool results, unknown tools and intent (generation events only)
  */
 export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithProperties => {
     // Map OTel attribute names to PostHog property names before any other processing.
@@ -55,7 +56,7 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
 
     const withModelParams = extractCoreModelParams(eventWithCosts)
 
-    return processAiToolCallExtraction(withModelParams)
+    return processAiToolUsageExtraction(processAiToolCallExtraction(withModelParams))
 }
 
 /**
