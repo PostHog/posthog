@@ -21,6 +21,7 @@ from posthog.temporal.delete_teams.activities import (
     delete_ui_customization_activity,
     deprovision_managed_warehouse_activity,
     enqueue_clickhouse_deletion_activity,
+    notify_billing_organization_deleted_activity,
     queue_recording_deletions_activity,
     send_organization_deleted_email_activity,
     send_project_deleted_email_activity,
@@ -60,6 +61,8 @@ LIGHT_ACTIVITY_TIMEOUT = dt.timedelta(minutes=10)
 LIGHT_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
 EMAIL_ACTIVITY_TIMEOUT = dt.timedelta(minutes=2)
 EMAIL_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
+BILLING_NOTICE_TIMEOUT = dt.timedelta(minutes=2)
+BILLING_NOTICE_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
 
 # Bulky Postgres phases, run in dependency-safe order (each its own retryable activity).
 BULKY_POSTGRES_ACTIVITIES = (
@@ -256,6 +259,22 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteOrganizationWorkflowInputs) -> None:
+        # First, because a card check can still finish after the delete and subscribe the org.
+        if temporalio.workflow.patched("notify-billing-organization-deleted"):
+            try:
+                await temporalio.workflow.execute_activity(
+                    notify_billing_organization_deleted_activity,
+                    OrganizationRecordInputs(organization_id=inputs.organization_id, user_id=inputs.user_id),
+                    start_to_close_timeout=BILLING_NOTICE_TIMEOUT,
+                    heartbeat_timeout=BILLING_NOTICE_HEARTBEAT_TIMEOUT,
+                    retry_policy=SIDE_EFFECT_RETRY_POLICY,
+                )
+            except temporalio.exceptions.ActivityError:
+                temporalio.workflow.logger.warning(
+                    "notify_billing_organization_deleted_activity failed; continuing organization deletion",
+                    exc_info=True,
+                )
+
         # Deprovision the org's managed warehouse (duckgres) first: the org-record cascade
         # below destroys the DuckgresServer pointer, and without this the warehouse would
         # survive the org fully alive — external writers keep ingesting, storage keeps being

@@ -24,7 +24,7 @@ import structlog
 from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, Throttled
 
-from posthog.cloud_utils import get_cached_instance_license
+from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.dataclasses import frozen
 from posthog.entitlements.contracts import Entitlements
 from posthog.entitlements.dispatch import dispatch_entitlement_reactions, entitlement_reactions_enabled
@@ -276,6 +276,7 @@ def build_billing_token(
 
 
 DEACTIVATED_ORGANIZATIONS_SERVICE_ACTION = "deactivated_organizations"
+DELETED_ORGANIZATIONS_SERVICE_ACTION = "deleted_organizations"
 
 
 def build_billing_system_token(license: License, service_action: str) -> str:
@@ -1241,6 +1242,23 @@ class BillingManager:
 
         return res.json()
 
+    def mark_organizations_deleted(self, organization_ids: list[str]) -> dict[str, Any]:
+        """Tell billing these organizations are deleted, so it refuses to start a subscription for them.
+
+        Billing keeps the first deletion time and never clears it, so repeating the call is safe. Only 200
+        counts as delivered: the default valid_codes would read 404 (endpoint not deployed) as success.
+        """
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/internal/deleted-organizations",
+            headers=self._system_auth_headers(DELETED_ORGANIZATIONS_SERVICE_ACTION),
+            json={"organization_ids": organization_ids},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()
+
     def get_deactivated_organizations(self) -> list[str]:
         """Organization ids billing currently excludes from the revenue forecast."""
         res = http_session.get(
@@ -1592,3 +1610,13 @@ class BillingManager:
                 response_text=res.text[:500] if res.text else "",
             )
             raise Exception(f"Billing service returned {res.status_code}: {res.text}")
+
+
+def notify_billing_organization_deleted(organization_id: str) -> None:
+    """Mark the organization deleted in billing, so a card check finishing after the delete can't subscribe it."""
+    if not is_cloud():
+        return
+    license = get_cached_instance_license()
+    if not license:
+        return
+    BillingManager(license).mark_organizations_deleted([organization_id])
