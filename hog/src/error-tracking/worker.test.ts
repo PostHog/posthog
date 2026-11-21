@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { Worker, WORKER_PROTOCOL } from './worker'
+import { Worker, WORKER_PROTOCOL, workerPath } from './worker'
 
 const EXECUTABLE = 0o755
 
@@ -40,5 +40,15 @@ describe('starting hog-worker', () => {
         const failure = await detect(path).catch((error: unknown) => error)
 
         expect(failure).toMatchObject({ code: 'worker_missing', message: expect.stringContaining(path) })
+    })
+
+    test('sends a person who runs it to hog', async () => {
+        const path = workerPath({ isDevelopment: true, execPath: process.execPath, platform: process.platform })
+
+        const run = Bun.spawn([path, '--help'], { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+
+        expect(await run.exited).toBe(2)
+        expect(await new Response(run.stdout).text()).toBe('')
+        expect(await new Response(run.stderr).text()).toContain('Use hog instead')
     })
 })
