@@ -18,6 +18,10 @@ from products.notifications.backend.facade.api import (
 )
 from products.workflows.backend.facade.contracts import EmailSendingSuspensionChange
 from products.workflows.backend.services import email_sending_controls
+from products.workflows.backend.services.email_sending_tier_audit import (
+    EMAIL_SENDING_SUSPENDED_ACTIVITY,
+    EMAIL_SENDING_UNSUSPENDED_ACTIVITY,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -81,7 +85,7 @@ def suspend_email_sending(
         return change
     team = Team.objects.get(pk=team_id)
     logger.info("staff_suspend_email_sending", team_id=team_id, reason=reason, user_id=user_id)
-    _log_activity(team, "email_sending_suspended", reason, user_id, was_impersonated)
+    _log_activity(team, EMAIL_SENDING_SUSPENDED_ACTIVITY, reason, user_id, was_impersonated)
     # The suspension already committed, and a retry would find the team suspended and skip the messages.
     # So a failure here is reported to the caller instead of raised.
     try:
@@ -102,7 +106,7 @@ def unsuspend_email_sending(
         return change
     team = Team.objects.get(pk=team_id)
     logger.info("staff_unsuspend_email_sending", team_id=team_id, user_id=user_id)
-    _log_activity(team, "email_sending_unsuspended", "", user_id, was_impersonated)
+    _log_activity(team, EMAIL_SENDING_UNSUSPENDED_ACTIVITY, "", user_id, was_impersonated)
     try:
         send_email_sending_unsuspended.delay(team_id=team_id, unsuspended_at=change.changed_at.isoformat())
         _notify_in_app(team_id, suspended=False, reason="")

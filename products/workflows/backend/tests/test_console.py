@@ -1,5 +1,7 @@
 import re
+from datetime import UTC, datetime
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -11,13 +13,15 @@ from parameterized import parameterized
 
 from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.admin.console.panels import Tone
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
 from posthog.models.team import Team
 
 from products.workflows.backend.console import EmailSendingPanel
+from products.workflows.backend.facade.activity import EMAIL_SENDING_TIER_SWEEP_JOB_TYPE
 from products.workflows.backend.facade.api import get_email_sending_state, suspend_email_sending
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
 
 _RECOMPUTE = "products.workflows.backend.console.recompute_email_sending_tier"
 _SUSPENSION = "products.workflows.backend.services.email_sending_suspension"
@@ -94,7 +98,7 @@ class TestEmailSendingConsolePanel(BaseTest):
         assert len(entries) == 1
         assert entries[0].user == self.user
         detail = entries[0].detail or {}
-        assert detail["context"] == {"reason": "staff_set"}
+        assert detail["context"] == {"reason": "staff_set", "staff_note": form["reason"]}
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == expected_changes
 
     @parameterized.expand(
@@ -170,7 +174,9 @@ class TestEmailSendingConsolePanel(BaseTest):
 
         response = self.client.post(self._operation_url("recompute-tier"), {"reason": "Customer asked"}, follow=True)
 
-        recompute.assert_called_once_with(self.team.pk, user_id=self.user.pk, was_impersonated=False)
+        recompute.assert_called_once_with(
+            self.team.pk, staff_note="Customer asked", user_id=self.user.pk, was_impersonated=False
+        )
         assert TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).exists()
         rendered = [str(message) for message in get_messages(response.wsgi_request)]
         content = response.content.decode() + " ".join(rendered)
@@ -200,7 +206,7 @@ class TestEmailSendingConsolePanel(BaseTest):
         assert suspended.user == self.user
         assert (suspended.detail or {})["context"] == {"reason": "Hard bounce rate above 5%"}
         tier = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
-        assert (tier.detail or {})["context"] == {"reason": "staff_suspension"}
+        assert (tier.detail or {})["context"] == {"reason": "staff_suspension", "staff_note": ""}
         assert [
             (
                 call.kwargs["properties"]["new_tier"],
@@ -269,3 +275,42 @@ class TestEmailSendingConsolePanel(BaseTest):
         assert response.status_code == expected_status
         state = get_email_sending_state(self.team.pk)
         assert (state is not None and state.suspended_at is not None) == expect_suspended
+
+    @patch(f"{_SUSPENSION}.create_notification")
+    @patch(f"{_SUSPENSION}.send_email_sending_suspended")
+    def test_history_page_lists_changes_newest_first_with_staff_notes(self, *_mocks: MagicMock) -> None:
+        with time_machine.travel(datetime(2026, 9, 30, 7, 15, tzinfo=UTC), tick=False):
+            log_email_sending_tier_change(
+                self.team,
+                previous_tier=1,
+                new_tier=0,
+                reason="rates_above_threshold",
+                pin_change=(False, False),
+                trigger=Trigger(job_type=EMAIL_SENDING_TIER_SWEEP_JOB_TYPE, job_id="run-1", payload={}),
+            )
+        with time_machine.travel(datetime(2026, 10, 1, 9, 0, tzinfo=UTC), tick=False):
+            self.client.post(
+                self._operation_url("set-tier"), {"tier": "2", "pinned": "on", "reason": "Ticket 123: verified sender"}
+            )
+        with time_machine.travel(datetime(2026, 10, 2, 9, 0, tzinfo=UTC), tick=False):
+            self.client.post(self._operation_url("suspend"), {"reason": "Bounce rate above 10%"})
+        history_url = f"/admin/console/tools/email-sending-history/?team={self.team.pk}"
+
+        team_page = self.client.get(f"/admin/console/teams/{self.team.pk}/").content.decode()
+        content = self.client.get(history_url).content.decode()
+
+        assert history_url in team_page
+        for text in (
+            "Tier 0 → 2, Pinned",
+            "Set by staff",
+            "Ticket 123: verified sender",
+            "Suspended sending",
+            "Bounce rate above 10%",
+            "Tier 2 → 0",
+            self.user.email,
+            "Tier 1 → 0",
+            "Bounce or complaint rate over the limit",
+            "Daily tier check",
+        ):
+            assert text in content
+        assert content.index("Suspended sending") < content.index("Tier 0 → 2, Pinned") < content.index("Tier 1 → 0")
