@@ -669,6 +669,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_SURVEY_STEP: 'workflows-survey-step', // owner: @dmarchuk #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD: 'workflows-transactional-email-wizard', // owner: @silthus #team-workflows, leads sending from code with the Wizard command once Wizard ships it
+    WORKFLOWS_TRANSACTIONAL_PUSH_API: 'workflows-transactional-push-api', // owner: @dmarchuk #team-workflows, send push notifications from code with one API call
     WORKFLOWS_WIZARD_JOURNEY_FIRST: 'workflows-wizard-journey-first', // owner: @silthus #team-workflows multivariate=control,test, shows the onboarding wizard's journey or broadcast step before the email setup; gate on === 'test'
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const

@@ -19,4 +19,5 @@ export interface MessageTemplate {
     draft_content?: MessageTemplateApi['draft_content']
     sensitive?: MessageTemplateApi['sensitive']
     tags?: MessageTemplateApi['tags']
+    type?: MessageTemplateApi['type']
 }

@@ -69,6 +69,12 @@ export const manifest: ProductManifest = {
             iconType: 'transactional',
             projectBased: true,
         },
+        TransactionalPush: {
+            import: () => import('./frontend/Transactional/push/TransactionalPushScene'),
+            name: 'Transactional',
+            iconType: 'transactional',
+            projectBased: true,
+        },
         WorkflowsEmailDomain: {
             import: () => import('./frontend/Channels/EmailDomain/EmailDomainScene'),
             name: 'Workflows',
@@ -110,6 +116,7 @@ export const manifest: ProductManifest = {
         '/transactional/metrics': ['Transactional', 'transactional'],
         '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
         '/transactional/code-emails/:id': ['TransactionalCodeEmail', 'transactionalCodeEmail'],
+        '/transactional/push/:id': ['TransactionalPush', 'transactionalPush'],
         // A template opened from a section's Templates tab stays in that section.
         '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -137,6 +144,7 @@ export const manifest: ProductManifest = {
         transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
         transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
         transactionalCodeEmail: (id: string): string => `/transactional/code-emails/${id}`,
+        transactionalPush: (id: string): string => `/transactional/push/${id}`,
         broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
     },
     fileSystemTypes: {

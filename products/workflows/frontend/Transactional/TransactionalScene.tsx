@@ -2,10 +2,6 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useRef } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
-
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -14,13 +10,14 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { EngagementEventsBanner } from '../EngagementEventsBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
 import { ImportFromAnotherToolButton } from '../OptOuts/ImportFromAnotherToolButton'
 import { ProviderImportModal } from '../OptOuts/ProviderImportModal'
+import { NewTransactionalPushModal } from './push/NewTransactionalPushModal'
+import { TransactionalNewButtons } from './TransactionalNewButtons'
 import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
 import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
@@ -34,6 +31,7 @@ export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const showWebhooks = useFeatureFlag('WORKFLOWS_EMAIL_DELIVERY_WEBHOOKS')
+    const showPush = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_PUSH_API')
     // Leaving for another scene changes the URL before that scene has loaded, so this one keeps showing its last view.
     const route = transactionalRouteFor(location.pathname)
     const lastRoute = useRef<TransactionalRoute>(route ?? 'transactional')
@@ -59,13 +57,13 @@ export function TransactionalScene(): JSX.Element {
             <EmailSuspensionBanner />
             <EngagementEventsBanner />
             <TransactionalTabs currentTab={currentTab} showWebhooks={showWebhooks} />
+            {showPush ? <NewTransactionalPushModal /> : null}
             <ProviderImportModal />
         </SceneContent>
     )
 }
 
 function TransactionalSceneActions({ tab }: { tab: Exclude<TransactionalRoute, 'new'> }): JSX.Element | null {
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     if (tab === 'webhooks') {
         return null
     }
@@ -75,29 +73,7 @@ function TransactionalSceneActions({ tab }: { tab: Exclude<TransactionalRoute, '
     return (
         <>
             <ImportFromAnotherToolButton entryPoint="transactional" dataAttr="transactional-import-from-another-tool" />
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Workflow}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                {todayRailNav ? (
-                    <Button
-                        data-attr="new-transactional-email"
-                        onClick={() => router.actions.push(urls.transactionalNew())}
-                        variant="primary"
-                    >
-                        New transactional email
-                    </Button>
-                ) : (
-                    <LemonButton
-                        data-attr="new-transactional-email"
-                        to={urls.transactionalNew()}
-                        type="primary"
-                        size="small"
-                    >
-                        New transactional email
-                    </LemonButton>
-                )}
-            </AccessControlAction>
+            <TransactionalNewButtons />
         </>
     )
 }
