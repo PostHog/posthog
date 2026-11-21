@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from parameterized import parameterized
 
 from posthog.temporal.ai.anomaly_investigation.report import salvage_report
@@ -305,8 +305,10 @@ def test_build_callbacks_skips_when_default_client_missing() -> None:
 class _ScriptedRunnable:
     def __init__(self, responses: list) -> None:
         self._responses = list(responses)
+        self.sent_messages: list[list] = []
 
     async def ainvoke(self, messages, config=None):
+        self.sent_messages.append(list(messages))
         response = self._responses.pop(0)
         if isinstance(response, Exception):
             raise response
@@ -525,3 +527,37 @@ async def test_finalize_turn_retries_then_salvages_invalid_report(
     assert result.report.summary == "One tenant drove the spike."
     assert len(result.report.hypotheses) == expected_hypothesis_count
     assert result.report.recommendations == ["Check the tenant."]
+
+
+async def test_max_tokens_stop_finalizes_instead_of_returning_fallback() -> None:
+    truncated_turn = AIMessage(
+        content=[{"type": "tool_use", "id": "report-1", "name": FINAL_REPORT_TOOL_NAME, "input": {}}],
+        response_metadata={"stop_reason": "max_tokens"},
+    )
+    finalize = _ScriptedRunnable([_report_turn(_VALID_REPORT_ARGS)])
+    llm = MagicMock()
+    llm.bind_tools.side_effect = lambda tools: (
+        _ScriptedRunnable(
+            [AIMessage(content="", tool_calls=[{"name": "noop_tool", "args": {}, "id": "call-1"}]), truncated_turn]
+        )
+        if len(tools) > 1
+        else finalize
+    )
+
+    with (
+        patch("ee.hogai.llm.MaxChatAnthropic", return_value=llm),
+        patch("posthog.temporal.ai.anomaly_investigation.runner.posthoganalytics") as mock_module,
+    ):
+        mock_module.default_client = None
+        result = await run_investigation(
+            team=MagicMock(id=1),
+            user=MagicMock(id=2),
+            anomaly_context="anomaly context",
+        )
+
+    assert result.report.verdict == "true_positive"
+    assert len(result.report.hypotheses) == 1
+    assert result.tool_calls_used == 1
+    [finalize_request] = finalize.sent_messages
+    assert truncated_turn not in finalize_request
+    assert isinstance(finalize_request[-1], HumanMessage)
