@@ -1164,6 +1164,34 @@ database "posthog" {
       replica_name = "{replica}-{shard}"
     }
   }
+  table "sharded_endpoint_runs_hourly" {
+    partition_by = "toYYYYMMDD(day)"
+    order_by = ["team_id", "day", "hour", "endpoint_id", "version", "execution_type", "access", "refresh_mode", "has_variables", "has_pagination"]
+    ttl      = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_endpoint_runs_hourly_columns"
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.endpoint_runs_hourly"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+  table "sharded_endpoint_runs_hourly_staging" {
+    partition_by = "toYYYYMMDD(day)"
+    order_by = ["team_id", "day", "hour", "endpoint_id", "version", "execution_type", "access", "refresh_mode", "has_variables", "has_pagination"]
+    ttl      = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_endpoint_runs_hourly_columns"
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.sharded_endpoint_runs_hourly_staging"
+      replica_name = "{replica}-{shard}"
+    }
+  }
 
   table "email_status_data" {
     order_by     = ["team_id", "message_id"]

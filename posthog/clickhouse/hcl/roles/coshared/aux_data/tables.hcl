@@ -960,6 +960,87 @@ database "posthog" {
       type = "SimpleAggregateFunction(max, DateTime)"
     }
   }
+  table "_endpoint_runs_hourly_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "hour" {
+      type = "DateTime"
+    }
+    column "endpoint_id" {
+      type = "String"
+    }
+    column "version" {
+      type = "UInt32"
+    }
+    column "execution_type" {
+      type = "LowCardinality(String)"
+    }
+    column "access" {
+      type = "LowCardinality(String)"
+    }
+    column "refresh_mode" {
+      type = "LowCardinality(String)"
+    }
+    column "has_variables" {
+      type = "Bool"
+    }
+    column "has_pagination" {
+      type = "Bool"
+    }
+    column "runs" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "cache_hits" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "cache_misses" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "failed" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "first_run_at" {
+      type = "SimpleAggregateFunction(min, DateTime)"
+    }
+    column "last_run_at" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+    column "active_slots" {
+      type = "SimpleAggregateFunction(groupBitOr, UInt16)"
+    }
+    column "wait_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "miss_wait_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "miss_wait_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "ch_queries" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_duration_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_read_bytes_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_cpu_us_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_duration_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "ch_read_bytes_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+  }
   table "conversion_goal_attributed_preaggregated" {
     extend = "_conversion_goal_attributed_preaggregated_columns"
     engine "distributed" {
@@ -1419,6 +1500,14 @@ database "posthog" {
       cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_warehouse_object_reads_daily"
+    }
+  }
+  table "endpoint_runs_hourly" {
+    extend = "_endpoint_runs_hourly_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_endpoint_runs_hourly"
     }
   }
 }

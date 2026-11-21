@@ -1642,6 +1642,41 @@
   
   '''
 # ---
+# name: test_create_table_query[endpoint_runs_hourly]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS endpoint_runs_hourly
+  (
+      team_id Int64,
+      day Date,
+      hour DateTime,
+      endpoint_id String,
+      version UInt32,
+      execution_type LowCardinality(String),
+      access LowCardinality(String),
+      refresh_mode LowCardinality(String),
+      has_variables Bool,
+      has_pagination Bool,
+      runs SimpleAggregateFunction(sum, UInt64),
+      cache_hits SimpleAggregateFunction(sum, UInt64),
+      cache_misses SimpleAggregateFunction(sum, UInt64),
+      failed SimpleAggregateFunction(sum, UInt64),
+      first_run_at SimpleAggregateFunction(min, DateTime),
+      last_run_at SimpleAggregateFunction(max, DateTime),
+      active_slots SimpleAggregateFunction(groupBitOr, UInt16),
+      wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_queries SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      ch_read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      ch_cpu_us_sum SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64)
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_endpoint_runs_hourly')
+  
+  '''
+# ---
 # name: test_create_table_query[error_tracking_fingerprint_issue_state]
   '''
   
@@ -7972,6 +8007,84 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_endpoint_runs_hourly]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_endpoint_runs_hourly
+  (
+      team_id Int64,
+      day Date,
+      hour DateTime,
+      endpoint_id String,
+      version UInt32,
+      execution_type LowCardinality(String),
+      access LowCardinality(String),
+      refresh_mode LowCardinality(String),
+      has_variables Bool,
+      has_pagination Bool,
+      runs SimpleAggregateFunction(sum, UInt64),
+      cache_hits SimpleAggregateFunction(sum, UInt64),
+      cache_misses SimpleAggregateFunction(sum, UInt64),
+      failed SimpleAggregateFunction(sum, UInt64),
+      first_run_at SimpleAggregateFunction(min, DateTime),
+      last_run_at SimpleAggregateFunction(max, DateTime),
+      active_slots SimpleAggregateFunction(groupBitOr, UInt16),
+      wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_queries SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      ch_read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      ch_cpu_us_sum SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.endpoint_runs_hourly', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(day)
+  ORDER BY (team_id, day, hour, endpoint_id, version, execution_type, access, refresh_mode, has_variables, has_pagination)
+  TTL day + INTERVAL 60 DAY
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_endpoint_runs_hourly_staging]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_endpoint_runs_hourly_staging
+  (
+      team_id Int64,
+      day Date,
+      hour DateTime,
+      endpoint_id String,
+      version UInt32,
+      execution_type LowCardinality(String),
+      access LowCardinality(String),
+      refresh_mode LowCardinality(String),
+      has_variables Bool,
+      has_pagination Bool,
+      runs SimpleAggregateFunction(sum, UInt64),
+      cache_hits SimpleAggregateFunction(sum, UInt64),
+      cache_misses SimpleAggregateFunction(sum, UInt64),
+      failed SimpleAggregateFunction(sum, UInt64),
+      first_run_at SimpleAggregateFunction(min, DateTime),
+      last_run_at SimpleAggregateFunction(max, DateTime),
+      active_slots SimpleAggregateFunction(groupBitOr, UInt16),
+      wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_queries SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      ch_read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      ch_cpu_us_sum SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_endpoint_runs_hourly_staging', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(day)
+  ORDER BY (team_id, day, hour, endpoint_id, version, execution_type, access, refresh_mode, has_variables, has_pagination)
+  TTL day + INTERVAL 60 DAY
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_events]
   '''
   
@@ -13885,6 +13998,84 @@
   PARTITION BY toYYYYMMDD(minute)
   ORDER BY (team_id, minute, distinct_id)
   
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_endpoint_runs_hourly]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_endpoint_runs_hourly
+  (
+      team_id Int64,
+      day Date,
+      hour DateTime,
+      endpoint_id String,
+      version UInt32,
+      execution_type LowCardinality(String),
+      access LowCardinality(String),
+      refresh_mode LowCardinality(String),
+      has_variables Bool,
+      has_pagination Bool,
+      runs SimpleAggregateFunction(sum, UInt64),
+      cache_hits SimpleAggregateFunction(sum, UInt64),
+      cache_misses SimpleAggregateFunction(sum, UInt64),
+      failed SimpleAggregateFunction(sum, UInt64),
+      first_run_at SimpleAggregateFunction(min, DateTime),
+      last_run_at SimpleAggregateFunction(max, DateTime),
+      active_slots SimpleAggregateFunction(groupBitOr, UInt16),
+      wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_queries SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      ch_read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      ch_cpu_us_sum SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.endpoint_runs_hourly', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(day)
+  ORDER BY (team_id, day, hour, endpoint_id, version, execution_type, access, refresh_mode, has_variables, has_pagination)
+  TTL day + INTERVAL 60 DAY
+  SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_endpoint_runs_hourly_staging]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_endpoint_runs_hourly_staging
+  (
+      team_id Int64,
+      day Date,
+      hour DateTime,
+      endpoint_id String,
+      version UInt32,
+      execution_type LowCardinality(String),
+      access LowCardinality(String),
+      refresh_mode LowCardinality(String),
+      has_variables Bool,
+      has_pagination Bool,
+      runs SimpleAggregateFunction(sum, UInt64),
+      cache_hits SimpleAggregateFunction(sum, UInt64),
+      cache_misses SimpleAggregateFunction(sum, UInt64),
+      failed SimpleAggregateFunction(sum, UInt64),
+      first_run_at SimpleAggregateFunction(min, DateTime),
+      last_run_at SimpleAggregateFunction(max, DateTime),
+      active_slots SimpleAggregateFunction(groupBitOr, UInt16),
+      wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_sum SimpleAggregateFunction(sum, UInt64),
+      miss_wait_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_queries SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_sum SimpleAggregateFunction(sum, UInt64),
+      ch_read_bytes_sum SimpleAggregateFunction(sum, UInt64),
+      ch_cpu_us_sum SimpleAggregateFunction(sum, UInt64),
+      ch_duration_ms_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64),
+      ch_read_bytes_quantiles AggregateFunction(quantiles(0.5, 0.9), UInt64)
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.sharded_endpoint_runs_hourly_staging', '{replica}-{shard}')
+  PARTITION BY toYYYYMMDD(day)
+  ORDER BY (team_id, day, hour, endpoint_id, version, execution_type, access, refresh_mode, has_variables, has_pagination)
+  TTL day + INTERVAL 60 DAY
   SETTINGS ttl_only_drop_parts = 1
   
   '''

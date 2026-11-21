@@ -301,6 +301,92 @@ database "posthog" {
     }
   }
 
+  table "endpoint_runs_hourly" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "hour" {
+      type = "DateTime"
+    }
+    column "endpoint_id" {
+      type = "String"
+    }
+    column "version" {
+      type = "UInt32"
+    }
+    column "execution_type" {
+      type = "LowCardinality(String)"
+    }
+    column "access" {
+      type = "LowCardinality(String)"
+    }
+    column "refresh_mode" {
+      type = "LowCardinality(String)"
+    }
+    column "has_variables" {
+      type = "Bool"
+    }
+    column "has_pagination" {
+      type = "Bool"
+    }
+    column "runs" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "cache_hits" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "cache_misses" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "failed" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "first_run_at" {
+      type = "SimpleAggregateFunction(min, DateTime)"
+    }
+    column "last_run_at" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+    column "active_slots" {
+      type = "SimpleAggregateFunction(groupBitOr, UInt16)"
+    }
+    column "wait_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "miss_wait_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "miss_wait_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "ch_queries" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_duration_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_read_bytes_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_cpu_us_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_duration_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "ch_read_bytes_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_endpoint_runs_hourly"
+    }
+  }
+
   table "error_tracking_fingerprint_issue_state" {
     column "team_id" {
       type = "Int64"
@@ -2947,6 +3033,190 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.conversion_goal_attributed_preaggregated"
       replica_name   = "{replica}-{shard}"
       version_column = "computed_at"
+    }
+  }
+
+  table "sharded_endpoint_runs_hourly" {
+    order_by     = ["team_id", "day", "hour", "endpoint_id", "version", "execution_type", "access", "refresh_mode", "has_variables", "has_pagination"]
+    partition_by = "toYYYYMMDD(day)"
+    ttl          = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "hour" {
+      type = "DateTime"
+    }
+    column "endpoint_id" {
+      type = "String"
+    }
+    column "version" {
+      type = "UInt32"
+    }
+    column "execution_type" {
+      type = "LowCardinality(String)"
+    }
+    column "access" {
+      type = "LowCardinality(String)"
+    }
+    column "refresh_mode" {
+      type = "LowCardinality(String)"
+    }
+    column "has_variables" {
+      type = "Bool"
+    }
+    column "has_pagination" {
+      type = "Bool"
+    }
+    column "runs" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "cache_hits" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "cache_misses" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "failed" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "first_run_at" {
+      type = "SimpleAggregateFunction(min, DateTime)"
+    }
+    column "last_run_at" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+    column "active_slots" {
+      type = "SimpleAggregateFunction(groupBitOr, UInt16)"
+    }
+    column "wait_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "miss_wait_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "miss_wait_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "ch_queries" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_duration_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_read_bytes_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_cpu_us_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_duration_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "ch_read_bytes_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.endpoint_runs_hourly"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "sharded_endpoint_runs_hourly_staging" {
+    order_by     = ["team_id", "day", "hour", "endpoint_id", "version", "execution_type", "access", "refresh_mode", "has_variables", "has_pagination"]
+    partition_by = "toYYYYMMDD(day)"
+    ttl          = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "hour" {
+      type = "DateTime"
+    }
+    column "endpoint_id" {
+      type = "String"
+    }
+    column "version" {
+      type = "UInt32"
+    }
+    column "execution_type" {
+      type = "LowCardinality(String)"
+    }
+    column "access" {
+      type = "LowCardinality(String)"
+    }
+    column "refresh_mode" {
+      type = "LowCardinality(String)"
+    }
+    column "has_variables" {
+      type = "Bool"
+    }
+    column "has_pagination" {
+      type = "Bool"
+    }
+    column "runs" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "cache_hits" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "cache_misses" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "failed" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "first_run_at" {
+      type = "SimpleAggregateFunction(min, DateTime)"
+    }
+    column "last_run_at" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+    column "active_slots" {
+      type = "SimpleAggregateFunction(groupBitOr, UInt16)"
+    }
+    column "wait_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "miss_wait_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "miss_wait_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "ch_queries" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_duration_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_read_bytes_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_cpu_us_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "ch_duration_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "ch_read_bytes_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.sharded_endpoint_runs_hourly_staging"
+      replica_name = "{replica}-{shard}"
     }
   }
 
