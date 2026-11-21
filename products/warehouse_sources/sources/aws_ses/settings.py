@@ -130,9 +130,9 @@ AWS_SES_ENDPOINTS: dict[str, AwsSesEndpointConfig] = {
         path="/v2/email/multi-region-endpoints",
         primary_key=["endpoint_id"],
         result_key="MultiRegionEndpoints",
-        # ListMultiRegionEndpoints bounds PageSize at 1000 (shape PageSizeV2); the other list
-        # operations take an unbounded MaxItems.
-        page_size=1000,
+        # The API model documents a PageSize maximum of 1000, but SES answers any value above
+        # 100 with BadRequestException.
+        page_size=100,
         timestamp_columns=("created_timestamp", "last_updated_timestamp"),
     ),
     "suppressed_destinations": AwsSesEndpointConfig(
