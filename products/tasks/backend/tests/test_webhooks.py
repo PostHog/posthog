@@ -832,6 +832,53 @@ class TestGitHubPRWebhook(TestCase):
         self.task.refresh_from_db()
         self.assertIn(pr_url, self.task.pr_urls)
 
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
+    @patch("posthog.github.pull_request_events.posthoganalytics.capture")
+    def test_pr_opened_does_not_link_a_task_that_only_pushed_to_the_branch(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        head_branches = [{"repository": "posthog/posthog", "branch": "feature/shared-pr-branch"}]
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="master",
+            output={"head_branches": head_branches},
+        )
+        fixer_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Fixer task",
+            description="Pushes a review fix to another task's PR",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        fixer_run = TaskRun.objects.create(
+            task=fixer_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="master",
+            output={"head_branches": head_branches},
+        )
+        pr_url = "https://github.com/posthog/posthog/pull/781"
+        payload = {
+            "action": "opened",
+            "pull_request": {
+                "html_url": pr_url,
+                "merged": False,
+                "head": {"ref": "feature/shared-pr-branch", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 202)
+
+        fixer_run.refresh_from_db()
+        self.assertNotIn("verified_pr_urls", fixer_run.state or {})
+        fixer_task.refresh_from_db()
+        self.assertEqual(fixer_task.pr_urls, [])
+
     @parameterized.expand([("primary_url", False), ("additional_url", True)])
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.credentials_service.instance_settings.get_instance_setting")
@@ -2205,7 +2252,7 @@ class TestFindTaskRun(TestCase):
         self.assertIsNone(result)
 
     @parameterized.expand([("self_driving_head_branch", False), ("signed_head_branch", True)])
-    def test_branch_fallback_prefers_newest_run_even_when_it_is_terminal(self, _name, signed_head_branch):
+    def test_branch_match_across_tasks_without_a_reported_pr(self, _name, signed_head_branch):
         branch_fields = (
             {
                 "branch": "master",
@@ -2237,7 +2284,178 @@ class TestFindTaskRun(TestCase):
 
         result = find_task_run(team_ids=[self.team.id], branch="feature/shared-branch", repository="posthog/posthog")
 
-        self.assertEqual(result, newest_run)
+        # Self-driving branches are assigned per task, so the newest one wins. Any task can push to
+        # another task's PR branch, so a signed push alone matches nothing.
+        self.assertEqual(result, None if signed_head_branch else newest_run)
+
+    @parameterized.expand(
+        [
+            (
+                "opener_pushed_and_reports_pr_url",
+                {
+                    "branch": "master",
+                    "output": {
+                        "pr_url": "https://github.com/PostHog/posthog/pull/42",
+                        "head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}],
+                    },
+                },
+                False,
+            ),
+            (
+                "opener_pushed_and_reports_additional_url",
+                {
+                    "branch": "master",
+                    "output": {
+                        "pr_urls": ["https://github.com/posthog/posthog/pull/42"],
+                        "head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}],
+                    },
+                },
+                False,
+            ),
+            (
+                "opener_only_reports_pr_url",
+                {"branch": "feature/shared-branch", "output": {"pr_url": "https://github.com/posthog/posthog/pull/42"}},
+                False,
+            ),
+            (
+                "fixer_also_reports_pr_url",
+                {
+                    "branch": "master",
+                    "output": {
+                        "pr_url": "https://github.com/posthog/posthog/pull/42",
+                        "head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}],
+                    },
+                },
+                True,
+            ),
+        ]
+    )
+    def test_newer_push_from_another_task_does_not_take_the_pr_from_its_opener(
+        self, _name, opener_fields, fixer_reports_pr
+    ):
+        opener_run = TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, **opener_fields
+        )
+        fixer_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Fixer task",
+            description="Pushes a review fix to another task's PR",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=fixer_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="master",
+            output={
+                "head_branches": [{"repository": "posthog/posthog", "branch": "feature/shared-branch"}],
+                **({"pr_url": "https://github.com/posthog/posthog/pull/42"} if fixer_reports_pr else {}),
+            },
+        )
+
+        result = find_task_run(
+            team_ids=[self.team.id],
+            pr_url="https://github.com/posthog/posthog/pull/42",
+            branch="feature/shared-branch",
+            repository="posthog/posthog",
+        )
+
+        self.assertEqual(result, None if fixer_reports_pr else opener_run)
+
+    @parameterized.expand(
+        [
+            ("run_state_only", False, False),
+            ("task_head_branch", True, False),
+            ("owner_reports_pr", False, True),
+            ("owner_reports_pr_with_task_head_branch", True, True),
+        ]
+    )
+    def test_claim_from_another_task_against_a_self_driving_branch_owner(
+        self, _name: str, owner_task_has_head_branch: bool, owner_reports_pr: bool
+    ) -> None:
+        pr_url = "https://github.com/posthog/posthog/pull/43"
+        branch = "posthog-self-driving/fix-shared-abc123"
+        owner_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Self-driving task",
+            description="Owns the branch",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            head_branch=branch if owner_task_has_head_branch else None,
+        )
+        owner_run = TaskRun.objects.create(
+            task=owner_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="master",
+            state={"self_driving_head_branch": branch},
+            output={"pr_url": pr_url} if owner_reports_pr else None,
+        )
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="master",
+            output={"pr_url": pr_url, "head_branches": [{"repository": "posthog/posthog", "branch": branch}]},
+        )
+
+        result = find_task_run(team_ids=[self.team.id], pr_url=pr_url, branch=branch, repository="posthog/posthog")
+
+        # The claimant's pushed branch and reported PR are both member-writable, so they cannot
+        # take the PR from a server-assigned owner, but they block an owner that does not report it.
+        self.assertEqual(result, owner_run if owner_reports_pr else None)
+
+    @parameterized.expand(
+        [
+            ("self_driving_owner", "self_driving", "owner"),
+            ("self_driving_owner_with_task_head_branch", "self_driving_with_task_head_branch", "owner"),
+            ("checkout_branches_of_two_tasks", "second_checkout_report", None),
+        ]
+    )
+    def test_checkout_branch_report_from_another_task_does_not_take_the_pr(
+        self, _name: str, evidence: str, expected: str | None
+    ) -> None:
+        pr_url = "https://github.com/posthog/posthog/pull/44"
+        branch = "posthog-self-driving/fix-owned-def456"
+        owner_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Owner task",
+            description="Owns the branch",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+            head_branch=branch if evidence == "self_driving_with_task_head_branch" else None,
+        )
+        owner_fields: dict = {
+            "self_driving": {"branch": "master", "state": {"self_driving_head_branch": branch}},
+            "self_driving_with_task_head_branch": {"branch": "master", "state": {"self_driving_head_branch": branch}},
+            "second_checkout_report": {"branch": branch, "output": {"pr_url": pr_url}},
+        }[evidence]
+        owner_run = TaskRun.objects.create(
+            task=owner_task, team=self.team, status=TaskRun.Status.IN_PROGRESS, **owner_fields
+        )
+        claimant_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Claimant task",
+            description="Reports the PR from its checkout branch only",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            repository="posthog/posthog",
+        )
+        TaskRun.objects.create(
+            task=claimant_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch=branch,
+            output={"pr_url": pr_url},
+        )
+
+        result = find_task_run(team_ids=[self.team.id], pr_url=pr_url, branch=branch, repository="posthog/posthog")
+
+        self.assertEqual(result, owner_run if expected == "owner" else None)
 
     @parameterized.expand([("self_driving_head_branch", False), ("signed_head_branch", True)])
     def test_branch_fallback_ignores_reviewhog_runs(self, _name, signed_head_branch):
