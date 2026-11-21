@@ -298,6 +298,14 @@ if git init -q "$wt_root/origin" 2>/dev/null &&
     # entries inside a real .git directory must stay writable or the dev stack breaks.
     wt_write_allowed "echo x > '$wt_root/origin/.git/DEV_SANDBOX_PROBE'" \
         "entry inside a real .git dir (the deny is the node, not a subpath)"
+    # The pnpm shims run unsandboxed on the next `pnpm`, so neither the shim nor a
+    # parent swap may get through. The rest of .flox/cache must stay writable.
+    mkdir -p "$wt_root/wt/.flox/cache/node-shims"
+    : >"$wt_root/wt/.flox/cache/node-shims/pnpm"
+    wt_write_blocked ": >> .flox/cache/node-shims/pnpm" ".flox/cache/node-shims/pnpm (runs unsandboxed)"
+    wt_write_blocked "mv .flox/cache .flox/cache.swapped" ".flox/cache rename (shim directory swap)"
+    wt_write_blocked "mv .flox .flox.swapped" ".flox rename (shim directory swap)"
+    wt_write_allowed "echo x > .flox/cache/DEV_SANDBOX_PROBE" "entry inside .flox/cache (only the shims are denied)"
 else
     echo "  --   could not build a throwaway worktree, skipping .git redirect checks"
 fi

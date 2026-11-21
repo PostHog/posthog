@@ -236,9 +236,11 @@ fi
 # root's pnpm against a workspace that pins another. The shims cd there first.
 _NODE_SHIM_DIR="$FLOX_ENV_CACHE/node-shims"
 mkdir -p "$_NODE_SHIM_DIR"
+# Resolved now, because $FLOX_ENV sits under the sandbox-writable .flox/run.
+_shim_node="$(readlink -f "$FLOX_ENV/bin/node" 2>/dev/null || true)"
 for _shim_tool in corepack pnpm pnpx yarn; do
   _shim_target="$(readlink -f "$FLOX_ENV/bin/$_shim_tool" 2>/dev/null || true)"
-  [[ -f "$_shim_target" ]] || continue
+  [[ -f "$_shim_target" && -x "$_shim_node" ]] || continue
   _shim_tmp="$(mktemp "$_NODE_SHIM_DIR/.$_shim_tool.XXXXXX")"
   cat >"$_shim_tmp" <<EOF
 #!/bin/sh
@@ -247,12 +249,12 @@ case "\${1:-}" in
   --dir | -C) [ \$# -ge 2 ] && { cd "\$2" || exit 1; shift 2; } ;;
   --dir=*) cd "\${1#--dir=}" || exit 1; shift ;;
 esac
-exec "$FLOX_ENV/bin/node" "$_shim_target" "\$@"
+exec "$_shim_node" "$_shim_target" "\$@"
 EOF
   chmod +x "$_shim_tmp"
   mv -f "$_shim_tmp" "$_NODE_SHIM_DIR/$_shim_tool"
 done
-unset _shim_tool _shim_target _shim_tmp
+unset _shim_tool _shim_target _shim_tmp _shim_node
 if [[ ":$PATH:" != *":$_NODE_SHIM_DIR:"* ]]; then
   export PATH="$_NODE_SHIM_DIR:$PATH"
 fi
