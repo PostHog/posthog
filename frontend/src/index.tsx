@@ -9,6 +9,7 @@ import { markBootPhase } from 'lib/utils/bootTiming'
 import { applyDeferredAppContext, watchEarlyUserContextReads } from 'lib/utils/deferredAppContext'
 import { retryBootImport } from 'lib/utils/retryImport'
 
+import { reportBootFailure } from './reportBootFailure'
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
@@ -86,6 +87,9 @@ function renderApp(): void {
 }
 
 function renderStylesheetFailure(): void {
+    const error = new Error('App stylesheet failed after all retries')
+    error.name = 'StylesheetLoadError'
+    reportBootFailure(error)
     getAppRoot()?.render(
         <div className="Preloader" role="alert">
             <div>
