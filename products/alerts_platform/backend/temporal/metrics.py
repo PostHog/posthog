@@ -194,6 +194,18 @@ def increment_checks_deferred(source: str, count: int) -> None:
     ).add(count)
 
 
+def record_ingestion_checkpoint_lag(source: str, lag_seconds: int) -> None:
+    """How far behind the tick a source's ingestion checkpoint is, so checks read at that instant.
+
+    A source keeps a checkpoint however old it is, so a partition that stops reporting holds every
+    check at one instant without failing any of them. A lag that only grows is that freeze.
+    """
+    get_metric_meter({"source": source}).create_gauge(
+        "alerts_platform_ingestion_checkpoint_lag_seconds",
+        "Seconds the ingestion checkpoint a source's checks read at is behind the tick",
+    ).set(lag_seconds)
+
+
 def increment_checks_unfinished(source: str, count: int) -> None:
     """Admitted checks that reached no outcome, because their activity failed or timed out.
 
