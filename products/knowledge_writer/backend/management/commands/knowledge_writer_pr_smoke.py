@@ -66,6 +66,7 @@ from ...logic.routing import route_request
 from ...logic.server_commit import docs_branch_head
 from ...logic.writer_change import WRITER_CHANGE_ARTIFACT_NAME, writer_change_artifact
 from ...settings import WriterSettings, source_repositories, writer_settings
+from ...task_profiles import WRITER
 from ...temporal.client import merge_check_workflow_id, publish_workflow_id
 
 PRODUCTION_DOCS_REPOSITORY = "posthog/posthog.com"
@@ -76,13 +77,18 @@ AGENT_POLL_INTERVAL_SECONDS = 15
 SCRATCH_PUBLISH_TIMEOUT_SECONDS = 300
 SMOKE_NOTE = "Knowledge writer smoke test."
 SMOKE_REQUESTER = "knowledge-writer-smoke-test"
-LOCAL_LLM_GATEWAY_LIVENESS_URL = "http://localhost:3308/_liveness"
 PROBE_TIMEOUT_SECONDS = 3
 LOCAL_SANDBOX_URLS = {
     "SELF_CAPTURE_HOST": "http://localhost:8010",
     "SANDBOX_API_URL": "http://localhost:8010",
-    "SANDBOX_LLM_GATEWAY_URL": "http://host.docker.internal:3308",
 }
+WRITER_GATEWAY_PRODUCT = WRITER.billing_product
+LOCAL_AI_GATEWAY = {
+    "SANDBOX_AI_GATEWAY_URL": "http://localhost:8080",
+    "SANDBOX_AI_GATEWAY_MINT_KEY": "phs_localgatewaye2elocalgatewaye2e0001",
+    "SANDBOX_AI_GATEWAY_PRODUCTS": WRITER_GATEWAY_PRODUCT,
+}
+GITHUB_APP_SETTINGS = ("GITHUB_APP_CLIENT_ID", "GITHUB_APP_PRIVATE_KEY")
 MERGE_CHECK_TIMEOUT_SECONDS = 25 * 60
 MERGE_CHECK_DELETE_TIMEOUT_SECONDS = 120
 RUN_RECORDS_DIRECTORY = Path.home() / ".cache" / "posthog" / "knowledge-writer-e2e"
@@ -251,13 +257,23 @@ class Command(BaseCommand):
 
 def missing_prerequisites(team: Team, repository: str, *, needs_agent: bool) -> list[MissingPrerequisite]:
     flags = [WRITER_FLAG, OPEN_PULL_REQUESTS_FLAG, *([AGENT_LAUNCH_FLAG] if needs_agent else [])]
-    missing = [*missing_writer_environment(team, repository), *missing_flags(team, flags)]
+    missing = [*missing_writer_environment(team, repository), *missing_github_app(), *missing_flags(team, flags)]
     temporal_problem = temporal_worker_problem()
     if temporal_problem:
         missing.append(temporal_problem)
     if needs_agent:
-        missing += missing_agent_services()
+        missing += missing_agent_services(team)
     return missing
+
+
+def missing_github_app() -> list[MissingPrerequisite]:
+    return [
+        MissingPrerequisite(
+            name=name, fix=f"export the {name} that create_github_app wrote to .env, which Django does not load"
+        )
+        for name in GITHUB_APP_SETTINGS
+        if not getattr(settings, name)
+    ]
 
 
 def missing_writer_environment(team: Team, repository: str) -> list[MissingPrerequisite]:
@@ -323,25 +339,72 @@ async def task_queue_pollers() -> int:
     return len(described.pollers)
 
 
-def missing_agent_services() -> list[MissingPrerequisite]:
-    missing: list[MissingPrerequisite] = []
-    try:
-        requests.get(LOCAL_LLM_GATEWAY_LIVENESS_URL, timeout=PROBE_TIMEOUT_SECONDS).raise_for_status()
-    except requests.RequestException as error:
+def missing_agent_services(team: Team) -> list[MissingPrerequisite]:
+    coder_urls = missing_coder_urls()
+    gateway_settings = missing_ai_gateway_settings()
+    if gateway_settings:
+        return [*gateway_settings, *coder_urls]
+    gateway_problem = ai_gateway_problem(team)
+    return [*([gateway_problem] if gateway_problem else []), *coder_urls]
+
+
+def missing_ai_gateway_settings() -> list[MissingPrerequisite]:
+    missing = [
+        MissingPrerequisite(name=name, fix=f"export {name}={value} here and in the Temporal worker's shell")
+        for name, value in LOCAL_AI_GATEWAY.items()
+        if not getattr(settings, name)
+    ]
+    routed_products = {entry.strip() for entry in (settings.SANDBOX_AI_GATEWAY_PRODUCTS or "").split(",")}
+    if settings.SANDBOX_AI_GATEWAY_PRODUCTS and WRITER_GATEWAY_PRODUCT not in routed_products:
         missing.append(
             MissingPrerequisite(
-                name="LLM gateway",
-                fix=f"run bin/start-llm-gateway with LLM_GATEWAY_DEBUG=true ({error.__class__.__name__})",
+                name="SANDBOX_AI_GATEWAY_PRODUCTS",
+                fix=f"add {WRITER_GATEWAY_PRODUCT} to its comma-separated list here and in the Temporal worker's shell",
             )
         )
+    return missing
+
+
+def ai_gateway_problem(team: Team) -> MissingPrerequisite | None:
+    gateway_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
+    try:
+        requests.get(f"{gateway_url}/readyz", timeout=PROBE_TIMEOUT_SECONDS).raise_for_status()
+    except requests.RequestException as error:
+        return MissingPrerequisite(
+            name="AI gateway",
+            fix=(
+                "run bin/start-ai-gateway until /readyz reports ok; an AI_GATEWAY_ANTHROPIC_API_KEY in "
+                f"~/Development/ai-gateway/.env wins over exported keys ({error.__class__.__name__})"
+            ),
+        )
+    try:
+        minted = requests.post(
+            f"{gateway_url}/v1/tokens",
+            json={"product": WRITER_GATEWAY_PRODUCT, "obo": str(team.id), "cap_usd": "0.01", "ttl_seconds": 60},
+            headers={"Authorization": f"Bearer {settings.SANDBOX_AI_GATEWAY_MINT_KEY}"},
+            timeout=PROBE_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as error:
+        return MissingPrerequisite(name="AI gateway token mint", fix=f"retry once /readyz reports ok ({error})")
+    if minted.ok:
+        return None
+    return MissingPrerequisite(
+        name="AI gateway token mint",
+        fix=(
+            f"the gateway refused a {WRITER_GATEWAY_PRODUCT} mint with HTTP {minted.status_code}; "
+            "a 503 clears a minute after boot, a 401 or 403 needs bin/setup-gateway-e2e"
+        ),
+    )
+
+
+def missing_coder_urls() -> list[MissingPrerequisite]:
     if not os.environ.get("CODER"):
-        return missing
-    missing += [
+        return []
+    return [
         MissingPrerequisite(name=name, fix=f"export {name}={url} for every process on a Coder workspace")
         for name, url in LOCAL_SANDBOX_URLS.items()
         if os.environ.get(name) != url
     ]
-    return missing
 
 
 def parsed_source_pull_request(url: str) -> SourcePullRequest:
