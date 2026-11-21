@@ -248,3 +248,5 @@ tools:
         response:
             include:
                 - results
+                - hasMore
+                - nextCursor
