@@ -37,7 +37,8 @@ const StoredManifest = z
 
 const stackNameOf = (runId: string): string => `scn-${runId}`
 
-const isRunId = (value: string): boolean => z.uuid().safeParse(value).success && value === value.toLowerCase()
+const isGivenRunId = (value: string): boolean =>
+    z.uuid({ version: 'v7' }).safeParse(value).success && value === value.toLowerCase()
 
 const schedulesOf = (runId: string): string[] => [`${stackNameOf(runId)}-expiry`, `${stackNameOf(runId)}-expiry-retry`]
 
@@ -124,8 +125,10 @@ export async function lease(
     { owner, commit }: Admitted
 ): Promise<Manifest> {
     const given = controller.env.SCENARIO_RUN_ID
-    if (given !== undefined && !isRunId(given)) {
-        throw new LeaseError(`SCENARIO_RUN_ID ${JSON.stringify(given)} is not a lowercase UUID, so no run is leased.`)
+    if (given !== undefined && !isGivenRunId(given)) {
+        throw new LeaseError(
+            `SCENARIO_RUN_ID ${JSON.stringify(given)} is not a lowercase UUID v7, so no run is leased. The harness mints v4 ids for its own runs, so a given id never names one of them.`
+        )
     }
     const runId = given ?? randomUUID()
     const createdAt = controller.now()
