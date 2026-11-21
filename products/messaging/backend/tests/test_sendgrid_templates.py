@@ -51,6 +51,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("key_loop", "{{#each o}}{{@key}}={{this}}{{/each}}", "{{@key}}"),
             ("format_date_without_a_format", "{{formatDate t}}", "{{formatDate t}}"),
             ("format_date_with_an_ordinal", '{{formatDate t "Do MMM"}}', '{{formatDate t "Do MMM"}}'),
+            ("format_date_day_of_the_year", '{{formatDate t "DDD"}}', '{{formatDate t "DDD"}}'),
             ("value_in_an_unquoted_attribute", "<a href={{token}}>x</a>", "{{token}}"),
             ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>', "{{token}}"),
             ("value_as_an_attribute_name", "<p {{token}}>x</p>", "{{token}}"),
@@ -110,6 +111,16 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         assert kept in converted.html
         assert kept in " ".join(converted.notes)
         assert (liquid_literal(kept) if kept.startswith("{{") else kept) in converted.html
+
+    def test_a_loop_variable_never_hides_a_value_assigned_for_a_comparison(self) -> None:
+        html = "{{#each items as |text1|}}{{#equals text1.code 5}}Y{{/equals}}{{/each}}"
+
+        converted = convert_version({"html_content": html, "generate_plain_content": False})
+
+        assert converted.html == (
+            '{% for item in variables.items %}{% assign text1 = item.code | append: "" %}'
+            '{% if text1 == "5" %}Y{% endif %}{% endfor %}'
+        )
 
     def test_the_rest_of_the_template_converts_around_a_tag_kept_as_written(self) -> None:
         converted = convert_version(

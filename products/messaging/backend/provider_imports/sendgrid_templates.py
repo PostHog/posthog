@@ -83,10 +83,8 @@ class _Found:
 
     def root_value(self, name: str) -> str | None:
         if name in _UNSUBSCRIBE_VARIABLES:
-            self.uses_unsubscribe = True
             return "{{ unsubscribe_url }}"
         if name == "Weblink":
-            self.web_link = True
             return ""
         if name in _SENDER_VARIABLES:
             self.sender_variables.add(name)
@@ -118,6 +116,7 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
         return "", found
     converter = HandlebarsToLiquid(
         is_html=is_html,
+        dialect="sendgrid",
         root_value=found.root_value,
         split_text=lambda text: _split_asm_tags(text, is_html),
     )
@@ -128,7 +127,11 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
     except OutputTooLarge:
         return _kept_as_text(source, contact_fields, "make a template too large to convert")
     found.unsupported = converter.unsupported
-    found.uses_unsubscribe = found.uses_unsubscribe or bool(converter.converted)
+    # Only the links that converted open PostHog's preferences page.
+    found.uses_unsubscribe = any(
+        tag in _UNSUBSCRIBE_VARIABLES or _ASM_TAG.fullmatch(tag) for tag in converter.converted
+    )
+    found.web_link = "Weblink" in converter.converted
     return converted, found
 
 
