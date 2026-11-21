@@ -675,6 +675,19 @@ describe('ramp', () => {
             },
         ],
         [
+            'a first step whose runner lagged while its load admission failed, which the runner outranks',
+            {
+                steps: [{ ...driven(0), loopLagP99Ms: 900 }, driven(1), driven(2)],
+                admissions: [{ name: 'load', passed: false, reason: 'hogflow claims ran at 1/s, under 5/s' }],
+            },
+            {
+                end: 'harness_limit',
+                sustainedScale: null,
+                broke: harnessAt(0, 'runner'),
+                reason: "the runner's event loop lagged 900 ms at p99 in the 1x step, over 250 ms",
+            },
+        ],
+        [
             'a last step the drive was interrupted in, which is no ceiling',
             { steps: [driven(0), driven(1), { ...driven(2, 100), endedAt: T + 4 * MINUTE + 20_000, dueUnits: 100 }] },
             {

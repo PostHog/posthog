@@ -391,7 +391,8 @@ export function rampOf(evidence: RampEvidence): Ramp {
     const { placed, unplaced } = candidatesOf(evidence)
     const sustainedBefore = (index: number): number | null =>
         index > 0 && unplaced.length === 0 ? steps[index - 1].scale : null
-    const admitted = steps[0] && admissionLimitOf(admissions, steps[0])
+    // A lagging runner offers less than it planned, so a failed admission at its first step names the runner's limit.
+    const admitted = steps[0] && !laggedOf(steps[0]) && admissionLimitOf(admissions, steps[0])
     if (admitted) {
         return { end: 'harness_limit', sustainedScale: null, broke: admitted.broke, reason: admitted.reason }
     }
