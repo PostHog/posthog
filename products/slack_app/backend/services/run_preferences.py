@@ -97,6 +97,25 @@ def _coherent_preferences(
     return AIPreferences(runtime_adapter=runtime_adapter, model=model, reasoning_effort=effort)
 
 
+def _distinct_id(user_id: int | None) -> str | None:
+    if user_id is None:
+        return None
+    from posthog.models.user import User  # noqa: PLC0415 — keeps the ORM off the slack_app import path
+
+    return User.objects.filter(id=user_id).values_list("distinct_id", flat=True).first()
+
+
+def _may_use(model: str, user_id: int | None) -> bool:
+    from products.tasks.backend.facade.run_config import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        get_model_access_error,
+        get_required_model_flag,
+    )
+
+    if get_required_model_flag(model) is None:
+        return True
+    return get_model_access_error(model, distinct_id=_distinct_id(user_id)) is None
+
+
 def resolve_run_preferences(
     *,
     override: ModelOverride | None = None,
@@ -125,7 +144,7 @@ def resolve_run_preferences(
         # Only a model named in the mention needs the catalogue, so it is not read
         # on the other paths.
         choice = find_model_choice(override_model, available_model_choices())
-        if choice is not None:
+        if choice is not None and _may_use(choice.model, user_id):
             return _coherent_preferences(choice.model, override_effort, fallback_runtime_adapter=choice.runtime_adapter)
 
     # Slack's floor would make the project and user defaults unreachable from Slack: the
@@ -189,6 +208,7 @@ def resolve_live_run_override(
     runtime_adapter: str | None,
     model: str | None,
     reasoning_effort: str | None,
+    user_id: int | None = None,
 ) -> LiveRunModelChange:
     """What a running agent can be switched to, given what a follow-up asked for.
 
@@ -210,7 +230,7 @@ def resolve_live_run_override(
     adapter = runtime_adapter or runtime_adapter_for(model)
 
     requested = find_model_choice(override.model, available_model_choices()) if override.model else None
-    if override.model and requested is None:
+    if override.model and (requested is None or not _may_use(requested.model, user_id)):
         return _NO_CHANGE
     if requested is not None and requested.runtime_adapter != adapter:
         return LiveRunModelChange(refused_model=requested.model)

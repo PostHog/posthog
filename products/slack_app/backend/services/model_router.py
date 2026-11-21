@@ -24,6 +24,7 @@ from products.slack_app.backend.services.model_catalogue import (
     display_name_for_model,
     filter_unsupported_effort,
     label_for,
+    model_line,
     normalize_model_id,
     offered_model_choices,
 )
@@ -39,8 +40,8 @@ _LUNA_NOTE = (
 )
 _SOL_NOTE = "A general coding model. Good for most code changes and debugging."
 
-# Keyed by id prefix, so a new version of a family gets its note without an edit. A model on
-# the capability ladder must match one, or the router picks it blind.
+# Keyed by the id with its version removed, so a new version of a family gets its note without an
+# edit. A model on the capability ladder must match one, or the router picks it blind.
 _MODEL_NOTES: dict[str, str] = {
     "claude-sonnet": (
         "A balanced model. Good for most code changes, bug fixes with a clear cause, and PostHog data questions."
@@ -53,13 +54,10 @@ _MODEL_NOTES: dict[str, str] = {
         "The most capable Claude model. Good only for the hardest problems, for example a design change "
         "across many systems or a subtle data or concurrency bug."
     ),
-    "gpt-6-astra": "The most capable OpenAI model. Good only for the hardest problems.",
-    "gpt-6-luna": _LUNA_NOTE,
-    "gpt-5.6-luna": _LUNA_NOTE,
-    "gpt-5.6-terra": "A mid-size model. Good for normal code changes with a clear goal.",
-    "gpt-6-sol": _SOL_NOTE,
-    "gpt-6.1-sol": _SOL_NOTE,
-    "gpt-5.6-sol": _SOL_NOTE,
+    "gpt-astra": "The most capable OpenAI model. Good only for the hardest problems.",
+    "gpt-luna": _LUNA_NOTE,
+    "gpt-terra": "A mid-size model. Good for normal code changes with a clear goal.",
+    "gpt-sol": _SOL_NOTE,
 }
 
 # User text stays in `state`. The instructions only name its fields, so the request cannot
@@ -132,7 +130,7 @@ def _stored_default(
 
 
 def _model_note(model: str) -> str | None:
-    return next((note for prefix, note in _MODEL_NOTES.items() if model.startswith(prefix)), None)
+    return _MODEL_NOTES.get(model_line(model))
 
 
 def _describe(candidate: _Candidate) -> str:

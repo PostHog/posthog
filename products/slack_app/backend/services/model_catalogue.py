@@ -21,35 +21,43 @@ from products.tasks.backend.facade.model_catalogue import (
     RuntimeGroup,
     catalog_model_choices,
     display_name_for_model,
+    family_model_choices,
     filter_unsupported_effort,
     group_by_runtime,
     label_for,
     model_allowed_by_product_pin,
+    model_line,
     normalize_model_id,
     offered_model_choices as catalog_offered_model_choices,
-    runtime_adapter_for,
+    served_runtime_adapter_for as runtime_adapter_for,
 )
 
 
 def available_model_choices() -> tuple[ModelChoice, ...]:
     """Every model a Slack-triggered run may use.
 
-    Read from the catalog rather than the gateway. Slack asks only what the catalog
-    answers — whether a mention names a real model, which runtime drives it, and what
-    efforts it takes — so the list no longer depends on a network call that can come
+    Read from the catalog and the cached gateway listing, never from the gateway itself.
+    Slack asks whether a mention names a real model, which runtime drives it, and what
+    efforts it takes, so the list must not depend on a network call that can come
     back empty and leave a mention with nothing to match against.
 
     Wider than what the App Home picker offers: a mention naming a retired model still
     resolves to it, because a person who asks for one by name is not choosing from a list.
     """
-    return tuple(
-        choice for choice in catalog_model_choices() if model_allowed_by_product_pin("slack_app", choice.model)
+    return (
+        *(choice for choice in catalog_model_choices() if model_allowed_by_product_pin("slack_app", choice.model)),
+        *family_model_choices("slack_app", offered_only=False),
     )
 
 
 def offered_model_choices() -> tuple[ModelChoice, ...]:
-    return tuple(
-        choice for choice in catalog_offered_model_choices() if model_allowed_by_product_pin("slack_app", choice.model)
+    return (
+        *(
+            choice
+            for choice in catalog_offered_model_choices()
+            if model_allowed_by_product_pin("slack_app", choice.model)
+        ),
+        *family_model_choices("slack_app", offered_only=True),
     )
 
 
@@ -76,6 +84,7 @@ __all__ = [
     "display_name_for_model",
     "group_by_runtime",
     "label_for",
+    "model_line",
     "normalize_model_id",
     "runtime_adapter_for",
 ]
