@@ -9,6 +9,11 @@
             "description": "End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
             "type": "string"
         },
+        "feedback_only": {
+            "default": false,
+            "description": "Only sessions where the agent sent feedback or reported a missing capability.",
+            "type": "boolean"
+        },
         "filter_test_accounts": {
             "default": false,
             "description": "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.",
