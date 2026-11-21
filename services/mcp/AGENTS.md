@@ -9,6 +9,10 @@ Run these commands from the repository root:
 - Run `pnpm --filter=@posthog/mcp run lint:fix` to apply safe Oxlint fixes. It does not apply suggestion fixes that may change behavior.
 - Run `pnpm --filter=@posthog/mcp run fix` before committing JavaScript, TypeScript, JSON, YAML, CSS, or SCSS changes. It applies safe Oxlint fixes, always runs Oxfmt, and fails if either tool fails.
 
+## Guidance, descriptions and responses
+
+Read [the guidance guide](src/hono/guidance/AGENTS.md) before you add a guidance rule, or before you put advice or a result-scope fact in a tool description or a tool response. It says which of the three holds a fact.
+
 ## Product-specific agent text
 
 - **Text about one product lives in that product's files.** `[review]` Put a workflow in a skill under `products/<name>/skills/`. Put a note on a tool's result in `agent_note` in the product's `tools.yaml`. Every product shares `src/tools/exec.ts` and `src/templates/sections/`, so keep product text out of them.
