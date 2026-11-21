@@ -327,8 +327,9 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
     sibling.map_one_host_per_shard(Query(f"TRUNCATE TABLE {FLAG_EVALUATIONS_JSON_DATA_TABLE}")).result()
     sibling.any_host(
         Query(
-            f"INSERT INTO {FLAG_EVALUATIONS_JSON_DATA_TABLE} (uuid, team_id, event, distinct_id, timestamp) VALUES",
-            [(uuid_module.uuid4(), 1, "$feature_flag_called", "a", datetime(2025, 3, 15))],
+            f"INSERT INTO {FLAG_EVALUATIONS_JSON_DATA_TABLE} "
+            "(uuid, team_id, event, distinct_id, timestamp, flag_key, response, request_id) VALUES",
+            [(uuid_module.uuid4(), 1, "$feature_flag_called", "a", datetime(2025, 3, 15), "flag", "true", "")],
         )
     ).result()
     placements = [

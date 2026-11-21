@@ -4147,9 +4147,12 @@ def test_native_property_removal_gate_checks_retained_copies(
         column: native_stored_document(document),
     }
 
-    def execute_query(query: Query, _role: NodeRole) -> Future[list[tuple[object, ...]]]:
+    def execute_query(query: Query | partial, _role: NodeRole) -> Future:
+        result: Future = Future()
+        if isinstance(query, partial):
+            result.set_result(_TypedColumns(from_properties=[], from_person_properties=[]))
+            return result
         assert isinstance(query.parameters, dict)
-        result: Future[list[tuple[object, ...]]] = Future()
         result.set_result(
             sync_execute(
                 """WITH events_json AS (
@@ -4359,7 +4362,11 @@ def test_property_removal_refusal_counts_a_typed_column_that_kept_the_value():
     request = _flag_call_removal_request(["$feature_flag_request_id"], hogql_predicate="properties.plan = 'pro'")
     cluster = Mock()
     cluster.any_host_by_role.side_effect = lambda fn, role: Mock(
-        result=lambda: fn(_ColumnCommentClient()) if role is NodeRole.DATA else _TypedColumns([], [])
+        result=lambda: (
+            fn(_ColumnCommentClient())
+            if role is NodeRole.DATA
+            else _TypedColumns(from_properties=[], from_person_properties=[])
+        )
     )
 
     with patch("posthog.dags.data_deletion_requests._refuse_unsweepable") as refuse:
