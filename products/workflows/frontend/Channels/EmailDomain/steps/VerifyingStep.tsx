@@ -84,7 +84,7 @@ function SecondaryActions(): JSX.Element {
 }
 
 function Actions(): JSX.Element {
-    const { status, pollingStopped, allRecordsFound, rechecking, restartResultLoading } =
+    const { status, pollingStopped, sendingStopped, allRecordsFound, rechecking, restartResultLoading } =
         useValues(emailDomainStatusLogic)
     const { checkAgain, restartVerification } = useActions(emailDomainStatusLogic)
     if (status?.status === 'failed') {
@@ -103,10 +103,11 @@ function Actions(): JSX.Element {
             </div>
         )
     }
-    if (pollingStopped) {
+    // A check can adopt the provider's current settings, which polling never does, so a stopped sender gets it at once.
+    if (pollingStopped || sendingStopped) {
         return (
             <div className="flex flex-col items-center gap-2">
-                {!allRecordsFound && (
+                {pollingStopped && !allRecordsFound && (
                     <LemonBanner type="warning" className="w-full">
                         Still waiting on DNS. We stopped checking automatically, so check again once you have added the
                         missing settings.
