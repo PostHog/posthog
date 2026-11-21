@@ -4,11 +4,7 @@ import typing
 from collections.abc import Sequence
 from string import Template
 
-from posthog.hogql.printer.events_json_document import (
-    EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    json_document_sql,
-    person_document_sql,
-)
+from posthog.hogql.printer.events_json_document import person_document_sql, stored_properties_document_sql
 
 if typing.TYPE_CHECKING:
     from products.batch_exports.backend.service import BatchExportField
@@ -420,11 +416,7 @@ SETTINGS
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
 # why the native query's SETTINGS carry it.
 _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
-    "properties": json_document_sql(
-        "events.properties",
-        exclude_empty_key="$feature_flags",
-        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    ),
+    "properties": stored_properties_document_sql("events.properties"),
     "person_properties": person_document_sql("events.person_properties"),
     **dict.fromkeys(("set", "set_once", "unset", "group_set"), "CAST(NULL, 'Nullable(String)')"),
 }
