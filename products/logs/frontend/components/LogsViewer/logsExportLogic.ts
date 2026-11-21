@@ -143,7 +143,7 @@ export const logsExportLogic = kea<logsExportLogicType>([
                 }
                 return row
             })
-            const csv = Papa.unparse([columns, ...rows])
+            const csv = Papa.unparse([columns, ...rows], { escapeFormulae: true })
             triggerBlobDownload(new Blob([csv], { type: 'text/csv' }), `logs-${exportTimestamp()}.csv`)
         },
         exportServerSide: async ({ totalLogsCount }) => {

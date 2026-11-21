@@ -79,5 +79,8 @@ export function formatReviewsForClipboard(reviews: TraceReview[], format: Review
     if (format === 'json') {
         return JSON.stringify(reviews, null, 4)
     }
-    return Papa.unparse(getReviewClipboardRows(reviews), format === 'tsv' ? { delimiter: '\t' } : undefined)
+    return Papa.unparse(
+        getReviewClipboardRows(reviews),
+        format === 'tsv' ? { delimiter: '\t', escapeFormulae: true } : { escapeFormulae: true }
+    )
 }
