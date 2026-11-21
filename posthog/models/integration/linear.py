@@ -11,6 +11,7 @@ import requests
 import structlog
 from rest_framework.exceptions import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.integrations.contracts import IntegrationRecord
 
 from . import common, model
@@ -44,6 +45,25 @@ class LinearRateLimitedError(LinearIntegrationError):
         self.retry_after_seconds = retry_after_seconds
 
 
+def _is_active_workspace_member(actor: dict[str, Any], actor_id: str, organization_id: str) -> bool:
+    return (
+        actor.get("id") == actor_id
+        and actor.get("active") is True
+        and actor.get("app") is False
+        and common.dot_get(actor, "organization.id") == organization_id
+    )
+
+
+def _actor_can_edit_team(actor: dict[str, Any], team: dict[str, Any]) -> bool:
+    visibility = team.get("visibility")
+    if visibility not in {"public", "private", "restricted"}:
+        return False
+    if visibility == "public" and actor.get("canAccessAnyPublicTeam") is True:
+        return True
+    members = common.dot_get(team, "members.nodes") or []
+    return any(member.get("id") == actor["id"] for member in members)
+
+
 def _rate_limit_wait_seconds(response: requests.Response) -> int:
     reset_ms = response.headers.get("X-RateLimit-Requests-Reset")
     try:
@@ -51,6 +71,12 @@ def _rate_limit_wait_seconds(response: requests.Response) -> int:
     except ValueError:
         wait = _RATE_LIMIT_DEFAULT_WAIT_SECONDS
     return min(max(wait, 1), _RATE_LIMIT_WINDOW_SECONDS)
+
+
+@frozen
+class LinearIssueForReference:
+    identifier: str
+    previous_identifiers: tuple[str, ...]
 
 
 class LinearIntegration:
@@ -221,6 +247,49 @@ class LinearIntegration:
             for node in nodes
             if isinstance(node.get("identifier"), str) and isinstance((node.get("state") or {}).get("type"), str)
         }
+
+    def issue_for_reference(self, issue_id: str, actor_id: str) -> LinearIssueForReference | None:
+        query = """
+        query ReferenceAuthority($issueId: ID!, $actorId: ID!) {
+            issues(first: 1, includeArchived: true, filter: {id: {eq: $issueId}}) {
+                nodes {
+                    id identifier previousIdentifiers
+                    team {
+                        visibility organization { id }
+                        members(first: 1, filter: {id: {eq: $actorId}}) { nodes { id } }
+                    }
+                }
+            }
+            users(first: 1, includeDisabled: true, filter: {id: {eq: $actorId}}) {
+                nodes { id active app canAccessAnyPublicTeam organization { id } }
+            }
+        }
+        """
+        body = self._read(query, variables={"issueId": issue_id, "actorId": actor_id})
+        tickets = common.dot_get(body, "data.issues.nodes")
+        actors = common.dot_get(body, "data.users.nodes")
+        if body.get("errors") or not isinstance(tickets, list) or not isinstance(actors, list):
+            raise LinearIntegrationError("Failed to read Linear reference permissions")
+        if not tickets or not actors:
+            return None
+        ticket, actor = tickets[0], actors[0]
+        team = ticket.get("team") or {}
+        workspace_id = self.integration.integration_id
+        if (
+            ticket.get("id") != issue_id
+            or not _is_active_workspace_member(actor, actor_id, workspace_id)
+            or common.dot_get(team, "organization.id") != workspace_id
+            or not _actor_can_edit_team(actor, team)
+        ):
+            return None
+        identifier = ticket.get("identifier")
+        if not isinstance(identifier, str) or not _ISSUE_IDENTIFIER.fullmatch(identifier):
+            raise LinearIntegrationError("Linear returned an invalid issue identifier")
+        previous = ticket.get("previousIdentifiers") or []
+        return LinearIssueForReference(
+            identifier=identifier,
+            previous_identifiers=tuple(value for value in previous if isinstance(value, str)),
+        )
 
     def workflow_state_type(self, state_id: str) -> str | None:
         state_query = """
