@@ -1,9 +1,9 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { ClickHouseClient, createClient as createClickHouseClient } from '@clickhouse/client'
-import https from 'https'
 import express from 'ultimate-express'
 
 import { hasJwtKeys } from '~/cdp/utils/jwt-utils'
+import { createClickhouseHttpsAgent } from '~/common/clickhouse-config'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
@@ -225,10 +225,7 @@ export class RecordingApi {
             database: this.config.CLICKHOUSE_DATABASE,
             request_timeout: 30_000,
             max_open_connections: 10,
-            // Internal ClickHouse uses self-signed certs with a hostname mismatch
-            ...(this.config.CLICKHOUSE_SECURE
-                ? { http_agent: new https.Agent({ rejectUnauthorized: false, keepAlive: true, maxSockets: 10 }) } // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
-                : {}),
+            ...(this.config.CLICKHOUSE_SECURE ? { http_agent: createClickhouseHttpsAgent(this.config) } : {}),
         })
 
         // Create the service layer
