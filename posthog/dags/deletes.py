@@ -321,12 +321,33 @@ _DOCUMENT_DELETE_PREDICATE = """or(
 )"""
 
 ShardMutations = dict[int, MutationWaiters]
-# Shard numbers are per cluster, so a sweep spanning two of them cannot key its waiters by shard
-# alone. Keyed by cluster name and the role that owns its shards rather than by handle: the handle
-# is recovered with ClickhouseCluster.sibling, which is memoized, and both survive the op boundary.
-# The role has to travel with the name, or sibling hands back a default-role handle with no shards
-# and the waits find nothing to wait on.
-ClusterShardMutations = dict[tuple[str, NodeRole], ShardMutations]
+
+
+@frozen
+class ClusterShards:
+    """The shards of one cluster, as a key that survives the op boundary.
+
+    Shard numbers are per cluster, so a sweep spanning two of them cannot key its waiters by shard
+    alone. The key holds the cluster name and the role that owns its shards rather than the handle:
+    `on` gets the handle back with ClickhouseCluster.sibling, which is memoized. The role has to
+    travel with the name, or sibling hands back a default-role handle with no shards and the waits
+    find nothing to wait on.
+    """
+
+    cluster_name: str
+    shard_role: NodeRole
+
+    @classmethod
+    def of(cls, cluster: ClickhouseCluster) -> "ClusterShards":
+        return cls(cluster_name=cluster.data_cluster_name, shard_role=cluster.shard_role)
+
+    def on(self, cluster: ClickhouseCluster) -> ClickhouseCluster:
+        return cluster.sibling(self.cluster_name, self.shard_role)
+
+
+# Not a tuple key: Dagster leaves the types nested in a dict key out of the job snapshot, and the
+# job's Overview tab then fails to load.
+ClusterShardMutations = dict[ClusterShards, ShardMutations]
 
 
 @dataclass
@@ -917,10 +938,9 @@ def delete_events(
         load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
     )
 
-    waiters: dict[tuple[str, NodeRole], dict[int, list[MutationWaiter]]] = {}
+    waiters: dict[ClusterShards, dict[int, list[MutationWaiter]]] = {}
     for placement in placements:
-        key = (placement.cluster.data_cluster_name, placement.cluster.shard_role)
-        by_shard = waiters.setdefault(key, {})
+        by_shard = waiters.setdefault(ClusterShards.of(placement.cluster), {})
         if placement.target.uses_patch_parts:
             _delete_with_patch_parts(placement, parameters)
             continue
@@ -989,7 +1009,7 @@ def delete_event_documents(
                 by_shard.setdefault(host.shard_num, []).append(mutation)
 
     cluster_mutations: ClusterShardMutations = {
-        (cluster.data_cluster_name, cluster.shard_role): {
+        ClusterShards.of(cluster): {
             shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()
         }
     }
@@ -1078,10 +1098,10 @@ def wait_for_delete_mutations_in_shards(
 ) -> PendingDeletesDictionary:
     pending_deletes_dict, cluster_mutations = delete_mutations
 
-    for (cluster_name, shard_role), shard_mutations in cluster_mutations.items():
+    for shards, shard_mutations in cluster_mutations.items():
         # Shared with the squash, which is where the retry comes from: under replication lag a
         # mutation can be briefly invisible on a shard, and that used to fail the whole run.
-        wait_for_mutations_on_shards(cluster.sibling(cluster_name, shard_role), shard_mutations)
+        wait_for_mutations_on_shards(shards.on(cluster), shard_mutations)
 
     return pending_deletes_dict
 
