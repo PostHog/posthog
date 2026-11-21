@@ -1978,7 +1978,7 @@ describe('runner through seed, drive and judge', () => {
 
     it('judges the admission over the first step it drove when a refusal stopped that step early, and offers no later step', async () => {
         const refusingIntake = http.createServer((_request, response) => {
-            response.writeHead(503).end()
+            response.writeHead(429).end()
         })
         await new Promise<void>((resolve) => refusingIntake.listen(0, '127.0.0.1', resolve))
         try {
