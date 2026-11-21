@@ -21,7 +21,7 @@ const {
     NODE_LANES,
     NODE_SUB_LANES,
     allKnownTargets,
-    buildContext,
+    loadRustInventory,
     parseRustAffectedCrates,
     compileContractMatcher,
     compileWorkspaceMatcher,
@@ -1629,7 +1629,7 @@ test('a determinator answer the inventory agrees with is used as it stands', () 
 // the same manifests by different code, so a name in one and not the other means
 // one of them is wrong. Reads the real repo, which is the only place that can drift.
 test('the crate inventory holds every crate the determinator can name', () => {
-    const { rustInventory } = buildContext(REPO_ROOT)
+    const rustInventory = loadRustInventory(REPO_ROOT)
     const members = fs
         .readFileSync(path.join(REPO_ROOT, 'rust/Cargo.toml'), 'utf8')
         .split(/^\s*\[/m)
