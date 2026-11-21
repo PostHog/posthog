@@ -77,23 +77,23 @@ impl Container {
 }
 
 #[derive(Serialize)]
-pub struct SkippedPair {
-    id: usize,
-    reason: &'static str,
+pub struct Skipped {
+    pub id: usize,
+    pub reason: &'static str,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PreparedPair {
-    id: usize,
-    chunk_id: String,
-    release_id: Option<String>,
+pub struct Prepared {
+    pub id: usize,
+    pub chunk_id: String,
+    pub release_id: Option<String>,
     #[serde(flatten)]
-    container: Container,
+    pub container: Container,
 }
 
-pub struct Prepared {
-    pub skipped: Vec<SkippedPair>,
+pub struct Claimed {
+    pub skipped: Vec<Skipped>,
     pub ready: Vec<(usize, String, SourcePair)>,
     pub duplicates: Vec<String>,
 }
@@ -190,13 +190,13 @@ fn event_mode_hash(mut pair: SourcePair, injected_chunk_id: Option<&str>) -> Res
 
 // A bundle with a native debug id and no chunk id carries the id its map is known by, so it goes
 // first and wins over a later pair with the same id. A skipped pair claims no id.
-pub fn claim(ids: &[usize], pairs: Vec<SourcePair>) -> Prepared {
+pub fn claim(ids: &[usize], pairs: Vec<SourcePair>) -> Claimed {
     let mut skipped = Vec::new();
     let mut ready = Vec::new();
     for (id, pair) in ids.iter().zip(pairs) {
         match upload_id(&pair) {
             Ok(chunk_id) => ready.push((*id, chunk_id, pair)),
-            Err(reason) => skipped.push(SkippedPair { id: *id, reason }),
+            Err(reason) => skipped.push(Skipped { id: *id, reason }),
         }
     }
 
@@ -213,7 +213,7 @@ pub fn claim(ids: &[usize], pairs: Vec<SourcePair>) -> Prepared {
         first
     });
 
-    Prepared {
+    Claimed {
         skipped,
         ready,
         duplicates,
@@ -244,7 +244,7 @@ pub fn prepare(
     pair: SourcePair,
     mode: ReleaseMode,
     folder: Option<&Path>,
-) -> Result<PreparedPair> {
+) -> Result<Prepared> {
     let release_id = pair.map.release_id.clone();
     let sourcemap = String::from_utf8(pair.map.serialize()?)?;
 
@@ -272,7 +272,7 @@ pub fn prepare(
         }
     };
 
-    Ok(PreparedPair {
+    Ok(Prepared {
         id,
         chunk_id,
         release_id,

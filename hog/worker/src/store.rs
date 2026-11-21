@@ -20,22 +20,19 @@ impl<T> Store<T> {
         self.items.len() - 1
     }
 
-    fn unknown(&self, id: usize) -> Failure {
-        Failure::bad_request(format!("the worker holds no {} {id}", self.kind))
-    }
-
     pub fn get(&self, id: usize) -> Result<&T, Failure> {
         self.items
             .get(id)
             .and_then(Option::as_ref)
-            .ok_or_else(|| self.unknown(id))
+            .ok_or_else(|| unknown(self.kind, id))
     }
 
     pub fn take(&mut self, id: usize) -> Result<T, Failure> {
-        match self.items.get_mut(id).and_then(Option::take) {
-            Some(item) => Ok(item),
-            None => Err(self.unknown(id)),
-        }
+        let kind = self.kind;
+        self.items
+            .get_mut(id)
+            .and_then(Option::take)
+            .ok_or_else(|| unknown(kind, id))
     }
 
     pub fn take_all(&mut self, ids: &[usize]) -> Result<Vec<T>, Failure> {
@@ -57,4 +54,8 @@ impl<T> Store<T> {
             self.items[*id] = Some(item);
         }
     }
+}
+
+fn unknown(kind: &str, id: usize) -> Failure {
+    Failure::bad_request(format!("the worker holds no {kind} {id}"))
 }
