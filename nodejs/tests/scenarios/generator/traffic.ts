@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'timers/promises'
 import { z } from 'zod'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -33,7 +34,7 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
     deliveries: string[]
     needsLocal?: true
     flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
-    offer(unit: Unit, context: OfferContext): Promise<JournalEntry['answer']>
+    offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<JournalEntry['answer']>
     followUp?: {
         flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
         offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<FollowUpAnswer>
@@ -215,7 +216,7 @@ export const transactionalEmail: TrafficKind = {
             step: await emailStep(emailIntegrationId, 'event.properties.to'),
             parks,
         }),
-    offer: (unit, { cdpApi }) => sendTransactional(unit, localOnly(cdpApi, 'CDP API')),
+    offer: (unit, { cdpApi }, signal) => sendTransactional(unit, localOnly(cdpApi, 'CDP API'), signal),
 }
 
 const BOUNCE_EVENT = 'scenario_bounce'
@@ -241,15 +242,64 @@ export const bounceFollowup: TrafficKind = {
         offer: async (unit, { sesFeedback, cdpApi }, signal) => {
             const notSent = await localOnly(sesFeedback, 'SES feedback').settled(unit.unitId, signal)
             signal.throwIfAborted()
-            return notSent === undefined ? sendTransactional(unit, localOnly(cdpApi, 'CDP API')) : { notSent }
+            return notSent === undefined ? sendTransactional(unit, localOnly(cdpApi, 'CDP API'), signal) : { notSent }
         },
     },
 }
 
+const SEND_RETRIES = 3
+const RETRY_BACKOFF_MS = 500
+const RETRY_WAIT_CAP_MS = 10_000
+
+// cdp-api returns the first send for a repeated idempotency key, so only a keyed send can be retried without
+// sending twice.
+export function retryDelayMsOf({
+    status,
+    retryAfter,
+    retry,
+    keyed,
+}: {
+    status: number
+    retryAfter: string | null
+    retry: number
+    keyed: boolean
+}): number | undefined {
+    if (!keyed || status < 500 || retry >= SEND_RETRIES) {
+        return undefined
+    }
+    const askedMs = retryAfter !== null && /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : undefined
+    return Math.min(askedMs ?? RETRY_BACKOFF_MS * 2 ** retry, RETRY_WAIT_CAP_MS)
+}
+
 async function sendTransactional(
     unit: Unit,
-    cdpApi: NonNullable<OfferContext['cdpApi']>
+    cdpApi: NonNullable<OfferContext['cdpApi']>,
+    signal: AbortSignal
 ): Promise<JournalEntry['answer']> {
+    const request = { to: unitAddress(unit), distinct_id: unit.unitId, variables: {}, idempotency_key: unit.unitId }
+    for (let retry = 0; ; retry += 1) {
+        const { answer, retryAfter } = await postTransactional(unit, cdpApi, request)
+        const waitMs =
+            'status' in answer
+                ? retryDelayMsOf({
+                      status: answer.status,
+                      retryAfter,
+                      retry,
+                      keyed: request.idempotency_key !== undefined,
+                  })
+                : undefined
+        if (waitMs === undefined) {
+            return retry === 0 ? answer : { ...answer, retries: retry }
+        }
+        await sleep(waitMs, undefined, { signal })
+    }
+}
+
+async function postTransactional(
+    unit: Unit,
+    cdpApi: NonNullable<OfferContext['cdpApi']>,
+    request: object
+): Promise<{ answer: IntakeAnswer; retryAfter: string | null }> {
     try {
         const response = await internalFetch(
             `${cdpApi.url}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
@@ -259,15 +309,16 @@ async function sendTransactional(
                     'content-type': 'application/json',
                     authorization: `Bearer ${cdpApi.jwt.mint({ team_id: unit.teamId, hog_flow_id: unit.flowId })}`,
                 },
-                body: JSON.stringify({ to: unitAddress(unit), distinct_id: unit.unitId, variables: {} }),
+                body: JSON.stringify(request),
             }
         )
         const body = await response.text()
+        const retryAfter = response.headers['retry-after'] ?? null
         return response.status >= 200 && response.status < 300
-            ? { accepted: true }
-            : { accepted: false, status: response.status, outcome: errorOf(body) }
+            ? { answer: { accepted: true }, retryAfter }
+            : { answer: { accepted: false, status: response.status, outcome: errorOf(body) }, retryAfter }
     } catch (error) {
-        return { accepted: false, transportError: String(error) }
+        return { answer: { accepted: false, transportError: String(error) }, retryAfter: null }
     }
 }
 

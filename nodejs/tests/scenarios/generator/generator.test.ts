@@ -272,7 +272,7 @@ describe('drive', () => {
 
     it.each([
         ['accepted', 202],
-        ['refused', 503],
+        ['refused', 422],
     ])('counts a transactional unit sent inside the window that cdp-api %s after the window', async (_, status) => {
         jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
         const held: http.ServerResponse[] = []
@@ -367,6 +367,33 @@ describe('drive', () => {
             await jest.advanceTimersByTimeAsync(200)
 
             expect({ live, summary: await driving }).toMatchObject({ live: 2, summary: { offeredUnits: 6 } })
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
+    })
+
+    it('sums the retries of transactional sends that cdp-api answered with a 5xx', async () => {
+        jest.useRealTimers()
+        let answers = 0
+        const server = http.createServer((request, response) => {
+            request.resume()
+            answers += 1
+            response.writeHead(answers === 1 ? 503 : 202, { 'retry-after': '0' }).end('{}')
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const { port } = server.address() as AddressInfo
+        try {
+            const { driving, journal } = startDrive(
+                cardWith({ ratePerSecond: 10, driveFor: '100ms', traffic: 'transactional_email' }),
+                ACKNOWLEDGED,
+                { cdpApi: { ...CDP_API, url: `http://127.0.0.1:${port}` } }
+            )
+
+            expect({ summary: await driving, journal }).toMatchObject({
+                summary: { offeredUnits: 1, sendRetries: 1 },
+                journal: [{ answer: { accepted: true, retries: 1 } }],
+            })
         } finally {
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
