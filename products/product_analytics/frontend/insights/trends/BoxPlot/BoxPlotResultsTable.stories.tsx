@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import __trendsBoxPlot from '~/mocks/fixtures/api/projects/team_id/insights/trendsBoxPlot.json'
 

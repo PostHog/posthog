@@ -10,9 +10,9 @@ import { Card } from '@posthog/quill'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { InsightCard, InsightCardProps } from 'lib/components/Cards/InsightCard/InsightCard'
 import { InsightVisualizationSkeleton } from 'lib/components/Cards/InsightCard/InsightVisualizationSkeleton'
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dateRangeZoomEnd, hasTimeComponent } from 'scenes/insights/insightVizDataLogic'
 
@@ -63,8 +63,9 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         refreshDashboardItem,
         setTileOverride,
         zoomDateRange,
+        setTileInView,
     } = useActions(dashboardLogic)
-    const { zoomPreview } = useValues(dashboardLogic)
+    const { zoomPreview, dashboardV2Enabled } = useValues(dashboardLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { renameInsight } = useActions(insightsModel)
     const { tile, insight } = cardProps
@@ -83,6 +84,15 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
         skip: exportPlacement,
     })
     const mergedRefs = useMergeRefs([ref, visibilityRef, keepRef])
+    // Only the dashboard page loads and refreshes tiles by what is on screen.
+    const reportsInView = dashboardV2Enabled && cardProps.placement === DashboardPlacement.Dashboard
+    useEffect(() => {
+        if (!reportsInView) {
+            return
+        }
+        setTileInView(tile.id, inView)
+        return () => setTileInView(tile.id, false)
+    }, [inView, reportsInView, tile.id, setTileInView])
     useEffect(() => {
         if (inView && !cardMounted) {
             return queueDashboardInsightMount(() => setCardMounted(true))

@@ -17,6 +17,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.logic.services.run_actor import get_task_run_credential_user, user_has_current_team_access
+from products.tasks.backend.logic.services.sandbox_config import (
+    agent_egress_staging_environment,
+    agent_egress_staging_probe_enabled,
+)
 from products.tasks.backend.models import TaskRun
 
 AGENT_EGRESS_CAPABILITY_REFRESH_SECONDS = 180
@@ -36,11 +40,29 @@ class AgentEgressProbeConfig(BaseModel):
     concurrency: int = Field(default=4, ge=1, le=32)
     requests_per_round: int = Field(default=16, ge=1, le=256)
     dev_proxy_ipv4: str | None = None
+    sandbox_id: str | None = None
+
+    @staticmethod
+    def require_environment(*, cleanup: bool = False) -> None:
+        if (
+            not (settings.DEBUG and settings.SANDBOX_PROVIDER == "MODAL_DOCKER")
+            and not agent_egress_staging_probe_enabled()
+            and not (cleanup and agent_egress_staging_environment())
+        ):
+            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER, or a staging probe opt-in")
+
+    def validate_controller(self, *, cleanup: bool = False) -> None:
+        self.require_environment(cleanup=cleanup)
+        if agent_egress_staging_environment() and (
+            (not cleanup and str(self.run_id) != settings.AGENT_EGRESS_STAGING_PROBE_RUN_ID)
+            or self.sandbox_id is not None
+            or self.dev_proxy_ipv4 is not None
+        ):
+            raise ValueError("Staging probes require the selected run, a fresh VM and no tunnel override")
 
     @classmethod
-    def load(cls, path: Path) -> AgentEgressProbeConfig:
-        if not settings.DEBUG or settings.SANDBOX_PROVIDER != "MODAL_DOCKER":
-            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER")
+    def load(cls, path: Path, *, cleanup: bool = False) -> AgentEgressProbeConfig:
+        cls.require_environment(cleanup=cleanup)
         if not settings.AGENT_EGRESS_PROBE_CONFIG_DIR:
             raise ValueError("Set AGENT_EGRESS_PROBE_CONFIG_DIR to a dedicated probe configuration directory")
         try:
@@ -48,13 +70,14 @@ class AgentEgressProbeConfig(BaseModel):
             resolved = path.resolve(strict=True)
             if not resolved.is_relative_to(directory):
                 raise ValueError("The probe configuration is outside its directory")
-            return cls.model_validate_json(resolved.read_bytes())
+            config = cls.model_validate_json(resolved.read_bytes())
+            config.validate_controller(cleanup=cleanup)
+            return config
         except (OSError, ValueError):
             raise ValueError("Invalid egress probe configuration") from None
 
     def eligible_run(self) -> TaskRun:
-        if not settings.DEBUG or settings.SANDBOX_PROVIDER != "MODAL_DOCKER":
-            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER")
+        self.validate_controller()
         run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=self.run_id, team_id=self.team_id)
         if (
             run.is_terminal
@@ -62,13 +85,20 @@ class AgentEgressProbeConfig(BaseModel):
             or run.task.deleted
             or run.task.team_id != run.team_id
             or not run.matches_task_ownership(run.task)
-            or run.task.repository
-            or run.task.repositories
-            or any(
-                (run.state or {}).get(key) for key in ("sandbox_id", "sandbox_environment_id", "cancel_requested_at")
-            )
+            or (run.state or {}).get("cancel_requested_at")
         ):
             raise ValueError("Use an active development run without repositories or an existing sandbox")
+        if self.sandbox_id is None:
+            if (
+                run.task.repository
+                or run.task.repositories
+                or any((run.state or {}).get(key) for key in ("sandbox_id", "sandbox_environment_id"))
+            ):
+                raise ValueError("Use an active development run without repositories or an existing sandbox")
+        elif (run.state or {}).get("sandbox_id") != self.sandbox_id or (run.state or {}).get(
+            "sandbox_backend", "modal"
+        ) != "modal":
+            raise ValueError("The observed sandbox does not belong to this run")
         actor = get_task_run_credential_user(run.task, run.state, raise_on_error=True)
         if actor is None or not user_has_current_team_access(actor, run.task.team, raise_on_error=True):
             raise ValueError("The run has no eligible actor")

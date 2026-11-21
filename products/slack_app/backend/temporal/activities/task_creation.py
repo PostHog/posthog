@@ -43,6 +43,7 @@ from products.slack_app.backend.temporal.helpers import (
     block_if_team_over_quota,
     safe_react,
     safe_unreact,
+    warn_if_personal_github_cannot_open_repository,
 )
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
@@ -615,7 +616,8 @@ def create_posthog_code_task_for_repo_activity(
         api as signals_facade,
         report_tasks,
     )
-    from products.slack_app.backend.models import PUBLIC_CHANNEL_CONVERSATION_TYPES, SlackThreadTaskMapping
+    from products.slack_app.backend.facade.constants import PUBLIC_CHANNEL_CONVERSATION_TYPES
+    from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
@@ -976,6 +978,19 @@ def create_posthog_code_task_for_repo_activity(
             create_pr=allow_pr_creation,
             slack_thread_context=slack_thread_context,
             posthog_mcp_scopes="full",
+        )
+    # The warning comes after the mapping write, so an activity retry returns at the mapping
+    # guard and does not post it twice. A person who did not tag the app asked for no task,
+    # so they get no warning about one.
+    if task_run and repository and not inputs.untagged_question:
+        warn_if_personal_github_cannot_open_repository(
+            slack=slack,
+            channel=channel,
+            thread_ts=thread_ts,
+            team_id=integration.team_id,
+            user_id=user_id,
+            slack_user_id=slack_user_id,
+            repository=repository,
         )
     return task_run is not None
 
@@ -1682,6 +1697,22 @@ def _build_terminal_recovery_prompt(previous_run: Any, user_text: str) -> str:
     return "\n".join(recovery_lines) + "\n\n" + user_text
 
 
+def _refresh_conversation_type(mapping: Any, slack: Any, event: dict[str, Any], channel: str) -> None:
+    """Resolve the thread's conversation type again before a new run stores the follow-up.
+
+    Slack keeps the channel id when it converts a channel between public and private and sends no
+    event for the conversion, so the stored ``conversation_type`` can be stale. The new run puts the
+    reply in its state, and a stale public type lets the whole team read that state. A failed lookup
+    comes back as ``UNKNOWN``, which keeps the task with its creator.
+    """
+    from products.slack_app.backend.services.slack_conversations import resolve_conversation_type  # noqa: PLC0415
+
+    conversation_type = resolve_conversation_type(slack, event, channel)
+    if conversation_type != mapping.conversation_type:
+        mapping.conversation_type = conversation_type
+        mapping.save(update_fields=["conversation_type", "updated_at"])
+
+
 def _resume_task_with_new_run(
     mapping: Any,
     previous_run: Any,
@@ -1741,6 +1772,8 @@ def _resume_task_with_new_run(
             text="I can't restart the agent — the original task creator is no longer available.",
         )
         return True
+
+    _refresh_conversation_type(mapping, slack, inputs.event, channel)
 
     create_pr = True
 

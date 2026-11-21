@@ -33,7 +33,7 @@ class ProvisioningReviewStage(models.TextChoices):
 
 class PartnerProvisioningStatus(models.TextChoices):
     """Whether an app can provision, as its owners see it. Follows the partner gates, which read
-    `active` alone."""
+    `OAuthApplication.provisioning_allowed`."""
 
     NOT_A_PARTNER = "not_a_partner", "Not a provisioning partner"
     IN_REVIEW = "in_review", "In review"

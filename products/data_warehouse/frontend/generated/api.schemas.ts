@@ -114,6 +114,8 @@ export interface PaginatedDataModelingJobListApi {
     /** @nullable */
     previous?: string | null
     results: DataModelingJobApi[]
+    /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. */
+    count_is_capped?: boolean
 }
 
 export interface CheckDatabaseNameResponseApi {
@@ -2474,9 +2476,20 @@ export interface SavedQueryRunApi {
     engine?: MaterializationEngineEnumApi
 }
 
+export interface SavedQueryRunSkippedNodeApi {
+    /** The data model node left out of the run. */
+    node_id: string
+    /** Name of the view left out of the run. */
+    name: string
+    /** Why the view was left out: its query doesn't compile, or it depends on a view whose query doesn't compile. */
+    reason: string
+}
+
 export interface SavedQueryRunResponseApi {
     /** The data model nodes included in the run. */
     node_ids: string[]
+    /** Views an upstream or downstream run selected but left out, because their query doesn't compile or they depend on one that doesn't. Their sources can't be checked against your access, so they don't run. Always empty for a run of only this view. */
+    skipped: SavedQueryRunSkippedNodeApi[]
 }
 
 /**

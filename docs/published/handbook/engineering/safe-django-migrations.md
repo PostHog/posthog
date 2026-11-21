@@ -707,6 +707,21 @@ The same two-phase pattern exists for **foreign keys** via `AddForeignKeyNotVali
 - **Timeout risk:** Large operations may exceed timeout limits
 - **Rollback complexity:** Partial completion is hard to recover from
 
+### Count the rows first
+
+A data migration runs in the deploy hook.
+Every Django deploy, in every region, waits until the hook finishes.
+A backfill that runs for hours blocks every merge behind it for hours.
+Killing the job does not help, because the next sync runs the same migration again.
+
+Before you write a data migration, count the rows it touches in each table, in US and in EU.
+Count every table the migration reads or updates, not only the one you expect to be big.
+Include expired and soft-deleted rows, because a filter that does not exclude them still scans them.
+
+- **Small (thousands of rows):** a batched `RunPython` in the migration is fine.
+- **Large, or not counted:** write a management command, run it after the deploy, and keep the migration to the small tables.
+- **Not needed at all:** if new code can read the old value, for example by translating a renamed value when it reads it, you do not need a data change. Make sure every reader translates, including services outside Django. Then the old values can age out or wait for a later cleanup.
+
 ### Safe Approach: Batching
 
 Break large updates into small batches with delays between them.
@@ -755,20 +770,22 @@ def backfill_in_batches(apps, schema_editor):
     MyModel = apps.get_model('myapp', 'MyModel')
     batch_size = 10000
     updated_count = 0
+    last_id = 0
 
     while True:
-        # Get batch of IDs that need updating
+        # Walk the primary key. Each batch reads only the next `batch_size` ids.
         ids = list(
-            MyModel.objects.filter(new_field__isnull=True)
+            MyModel.objects.filter(id__gt=last_id)
+            .order_by('id')
             .values_list('id', flat=True)[:batch_size]
         )
 
         if not ids:
             break
 
-        # Update batch
-        MyModel.objects.filter(id__in=ids).update(new_field='default_value')
-        updated_count += len(ids)
+        # The UPDATE applies the filter, so rows that need no change are skipped.
+        updated_count += MyModel.objects.filter(id__in=ids, new_field__isnull=True).update(new_field='default_value')
+        last_id = ids[-1]
 
         print(f"Updated {updated_count} rows...")
         time.sleep(0.1)  # Brief pause between batches
@@ -778,6 +795,12 @@ class Migration(migrations.Migration):
         migrations.RunPython(backfill_in_batches),
     ]
 ```
+
+Do not pick each batch with the filter itself (`filter(new_field__isnull=True)[:batch_size]`, or `WHERE <condition> AND id > last ORDER BY id LIMIT n`).
+When the condition matches millions of rows, Postgres finds every match again for each batch before it applies the limit.
+That holds even with an index on the condition, for example a GIN index on an array column.
+The cost then grows with the square of the row count: a run that looks fast on a test database can take days in production.
+Walking the primary key as above reads each row once.
 
 **Pattern 3: Using iterator for memory efficiency**
 
@@ -830,8 +853,8 @@ class Migration(migrations.Migration):
 - **Add pauses:** Small delays between batches reduce system load
 - **Use WHERE clauses:** Limit scope of updates
 - **Monitor progress:** Add logging every N rows
-- **Test on production data:** Verify performance before deploying
-- **Consider background jobs:** For very large updates (millions of rows), use a background job instead of a migration
+- **Count first:** See [Count the rows first](#count-the-rows-first). Large or uncounted tables go in a management command, not in the migration
+- **Test on production data:** Run `EXPLAIN` for one batch against a production-sized table before deploying
 - **Use `.iterator()`:** Avoids loading all rows into memory
 - **Use `.bulk_update()`:** Much faster than individual saves
 

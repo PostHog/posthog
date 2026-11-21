@@ -138,6 +138,11 @@ export interface UserBasicApi {
  * A canvas document. Version/build content hangs off the source and build endpoints.
  */
 export interface CanvasApi {
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
     readonly id: string
     readonly name: string
     /** What the canvas is: 'freeform' (a standalone app), 'component' (a reusable widget grids place), or 'grid' (a composition of components).

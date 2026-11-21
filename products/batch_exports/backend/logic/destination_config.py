@@ -12,7 +12,9 @@ from collections.abc import Callable, Mapping
 from posthog.utils import str_to_bool
 
 from products.batch_exports.backend.facade import contracts
+from products.batch_exports.backend.facade.enums import BatchExportDestinationType
 from products.batch_exports.backend.service import DESTINATION_WORKFLOWS, BaseBatchExportInputs
+from products.batch_exports.backend.temporal.destinations.utils import parse_key_prefix
 
 
 def _try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.Any, bool]:
@@ -39,6 +41,18 @@ def _try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.A
         return (value, False)
 
     return (new_value, True)
+
+
+def _validate_key_prefix(destination_type: str, config: Mapping[str, typing.Any]) -> None:
+    if destination_type == BatchExportDestinationType.REDSHIFT:
+        copy_inputs = config.get("copy_inputs")
+        if isinstance(copy_inputs, dict) and "s3_key_prefix" in copy_inputs:
+            prefix = copy_inputs["s3_key_prefix"]
+            if not isinstance(prefix, str):
+                raise contracts.InvalidDestinationConfigError("The Redshift staging key prefix must be a string.")
+            parse_key_prefix(prefix)
+    elif "prefix" in config:
+        parse_key_prefix(config["prefix"])
 
 
 def validate_destination_config(
@@ -102,4 +116,5 @@ def validate_destination_config(
 
             validated[destination_field.name] = config_value
 
+    _validate_key_prefix(destination_type, validated)
     return validated

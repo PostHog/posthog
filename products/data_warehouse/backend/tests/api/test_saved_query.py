@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -63,6 +64,10 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+
+
+def _hogql_database_builds(trigger: str) -> float:
+    return REGISTRY.get_sample_value("hogql_database_build_total", {"trigger": trigger}) or 0.0
 
 
 class TestSavedQuery(APIBaseTest):
@@ -1836,6 +1841,26 @@ class TestSavedQuery(APIBaseTest):
                 }
             ],
         )
+
+    def test_query_edit_builds_one_database_for_the_caller_and_one_for_lineage(self) -> None:
+        created = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "event_view", "query": {"kind": "HogQLQuery", "query": "select event as event from events"}},
+        ).json()
+        triggers = ("saved_query_save", "saved_query_dag_sync", "printer", "direct")
+        builds_before = {trigger: _hogql_database_builds(trigger) for trigger in triggers}
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{created['id']}",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select distinct_id as distinct_id from events"},
+                "edited_history_id": created["latest_history_id"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        builds = {trigger: _hogql_database_builds(trigger) - builds_before[trigger] for trigger in triggers}
+        self.assertEqual(builds, {"saved_query_save": 1, "saved_query_dag_sync": 1, "printer": 0, "direct": 0})
 
     def test_nested_view(self):
         saved_query_1_response = self.client.post(
@@ -3790,6 +3815,53 @@ class TestSavedQueryRun(APIBaseTest):
         self.assertGreater(call.kwargs["start_delay"], timedelta(0))
         node.refresh_from_db()
         self.assertNotIn(DataModelingJobEngine.MANAGED_WAREHOUSE, suspension_state(node))
+
+    @parameterized.expand(
+        [
+            ("trino_only_this_view", "trino", None),
+            ("trino_downstream", "trino", "downstream"),
+            ("clickhouse_downstream", "clickhouse", "downstream"),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_of_a_view_that_names_the_window_start_starts(
+        self, _name, engine, direction, mock_sync_connect, mock_eligible
+    ):
+        saved_query, _dag, _node = self._make_saved_query_with_node("windowed_view")
+        saved_query.query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT event, timestamp FROM events "
+            "WHERE timestamp >= ifNull({incremental_window_start}, toDateTime('1970-01-01'))",
+        }
+        saved_query.save()
+        mock_eligible.return_value = True
+        mock_client = self._trino_client()
+        mock_sync_connect.return_value = mock_client
+        body: dict[str, Any] = {"engine": engine}
+        if direction:
+            body["direction"] = direction
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/", body
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_client.start_workflow.assert_called_once()
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_of_a_view_that_no_longer_resolves_is_a_bad_request_not_a_denial(self, mock_sync_connect):
+        saved_query, _dag, _node = self._make_saved_query_with_node("broken_view")
+        saved_query.query = {"kind": "HogQLQuery", "query": "SELECT a_column_that_was_renamed FROM events"}
+        saved_query.save()
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/")
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("a_column_that_was_renamed", response.json()["detail"])
+        mock_client.start_workflow.assert_not_called()
 
     @patch("products.data_modeling.backend.logic.node_materialization.is_managed_warehouse_shadow_enabled")
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")

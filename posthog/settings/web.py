@@ -310,6 +310,7 @@ AUTHENTICATION_BACKENDS: list[str] = [
     "axes.backends.AxesStandaloneBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
+    "posthog.api.sso.ChatGPTOpenIdConnect",
     "django.contrib.auth.backends.ModelBackend",
     "posthog.auth.WebauthnBackend",
 ]
@@ -376,14 +377,10 @@ SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
-LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
+SOCIAL_AUTH_CHATGPT_KEY: str | None = os.getenv("SOCIAL_AUTH_CHATGPT_KEY")
+SOCIAL_AUTH_CHATGPT_SECRET: str | None = os.getenv("SOCIAL_AUTH_CHATGPT_SECRET")
 
-# Kill switch for legacy Team.secret_api_token auth (#66179). When False, the legacy
-# verifiers (TeamSecretTokenAuthentication, the conversations/customer-analytics external
-# team-token branches, the widget identity-verification legacy fallback) all go inert, and
-# ProjectSecretAPIKeyAuthentication stops deferring tokens that match a team's legacy
-# token — migrated tokens then authenticate via their backfilled PSAK mirror rows.
-ACCEPT_TEAM_SECRET_TOKENS = get_from_env("ACCEPT_TEAM_SECRET_TOKENS", True, type_cast=str_to_bool)
+LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_ENGINE = "posthog.session.backend"
@@ -683,9 +680,6 @@ SPECTACULAR_SETTINGS = {
             # Dashboard filters and data catalog metric runs both take the query schema's IntervalType,
             # a plain enum no class can carry.
             "IntervalTypeEnum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
-            # The anomaly and explain bodies keep this name; the metrics query clause's own
-            # aggregation adds 'none' and is named by its MetricQueryAggregation class.
-            "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # The AEO prompt and keyword suggestion jobs share this status class, and another class has the same pairs.
             "AEOSuggestionJobStatusEnum": "products.aeo.backend.facade.contracts.SuggestionJobStatus.choices",
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
@@ -1257,6 +1251,11 @@ WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS = int(get_from_env("WORKFLOWS_EMAIL_T
 # tier: this many separate days on which the team sent at least this fraction of its daily cap.
 WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS = int(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS", 2))
 WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO = float(get_from_env("WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO", 0.5))
+# An established paying customer starts from a floor instead of tier 0, so its first real send is not
+# capped at the probation allowance. A floor tier of 0 disables the floor. Billing scores an organization
+# 7 or more once it has paid an invoice, and an active trial reads as a subscription, so the bar is the score.
+WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_FLOOR_TIER", 3))
+WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE = int(get_from_env("WORKFLOWS_EMAIL_TIER_TRUSTED_MIN_SCORE", 7))
 # app_metrics2 metric names that count as a per-workflow auto-pause for the tier decision. Empty
 # means the signal contributes nothing, so the decision rests on rates and staff suspensions.
 WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES: list[str] = get_list(
@@ -1309,6 +1308,10 @@ OIDC_RSA_PRIVATE_KEYS_INACTIVE = [
 ]
 
 OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+# The origin of the PostHog instance that issues CIMD verification tokens, for example https://us.posthog.com.
+# Leave it empty on the instance that issues them. One metadata document serves every region and carries one token,
+# so every other instance refuses to create tokens and checks published tokens with this one.
+CIMD_VERIFICATION_TOKEN_ISSUER_URL: str = get_from_env("CIMD_VERIFICATION_TOKEN_ISSUER_URL", "").rstrip("/")
 # Provisioning partner reviews post a thread per review to this channel in PostHog's own Slack workspace, with the
 # token of PostHog's staff bot for reviews. Leave either empty to post nothing.
 PROVISIONING_REVIEW_SLACK_BOT_TOKEN: str = get_from_env("PROVISIONING_REVIEW_SLACK_BOT_TOKEN", "")
@@ -1595,14 +1598,6 @@ WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
 # Sized well above any realistic team; 0 disables the cap.
 WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
     "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
-)
-
-WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY: int = get_from_env(
-    "WEB_ANALYTICS_ACHIEVEMENT_QUERY_MAX_CONCURRENCY", 4, type_cast=int
-)
-
-WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE: int = get_from_env(
-    "WEB_ANALYTICS_ACHIEVEMENTS_SWEEP_BATCH_SIZE", 100, type_cast=int
 )
 
 # Stale-while-revalidate grace for user-facing web analytics precompute reads:

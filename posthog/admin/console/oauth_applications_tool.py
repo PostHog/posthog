@@ -13,6 +13,7 @@ from posthog.admin.console.oauth_application_panels import (
     KIND_LABELS,
     OAUTH_APPLICATIONS_TOOL_KEY,
     app_kind,
+    decision_operation_links,
     provisioning_status,
     review_page_url,
 )
@@ -24,6 +25,8 @@ from posthog.admin.console.tools import (
     ConsoleTool,
     FieldGroup,
     Filters,
+    Link,
+    Links,
     Live,
     Notice,
     Output,
@@ -34,10 +37,12 @@ from posthog.admin.console.tools import (
     Stats,
     Table,
 )
-from posthog.api.oauth.provisioning_review import review_workflow_id
+from posthog.api.oauth.provisioning_review import partner_provisioning_status, review_workflow_id
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import (
     CIMDProvisioningReview,
+    PartnerProvisioningStatus,
     ProvisioningReviewStage,
     ProvisioningReviewStatus,
 )
@@ -117,13 +122,31 @@ KIND_FILTERS = {
 ACTIVE_OFF = Q(_provisioning_config__active=False) | Q(_provisioning_config__active__isnull=True)
 DISABLED_OFF = Q(_provisioning_config__disabled=False) | Q(_provisioning_config__disabled__isnull=True)
 
-# These follow the partner gates, which read `active` alone. `provisioning_status` labels the same states.
+# These follow the partner gates, and `_provisioning_filter` adds the organization link when staff require one.
+# `provisioning_status` labels the same states.
 PROVISIONING_FILTERS = {
     "partner": Q(is_provisioning_partner=True),
     "on": Q(is_provisioning_partner=True, _provisioning_config__active=True),
     "off": Q(is_provisioning_partner=True) & ACTIVE_OFF & DISABLED_OFF,
     "blocked": Q(_provisioning_config__disabled=True) & (ACTIVE_OFF | Q(is_provisioning_partner=False)),
 }
+
+
+def _provisioning_filter(state: str) -> Q:
+    if not get_instance_setting("CIMD_PROVISIONING_REQUIRES_ORGANIZATION"):
+        return PROVISIONING_FILTERS[state]
+    # The gates also refuse an active self-registered partner with no organization behind it.
+    held_back = Q(
+        is_cimd_client=True,
+        organization__isnull=True,
+        organization_link_issuer="",
+        _provisioning_config__active=True,
+    )
+    if state == "on":
+        return PROVISIONING_FILTERS["on"] & ~held_back
+    if state == "off":
+        return PROVISIONING_FILTERS["off"] | (Q(is_provisioning_partner=True) & held_back)
+    return PROVISIONING_FILTERS[state]
 
 
 def _filtered_applications(form: ApplicationFilterForm) -> QuerySet[OAuthApplication]:
@@ -135,7 +158,7 @@ def _filtered_applications(form: ApplicationFilterForm) -> QuerySet[OAuthApplica
     if kind := form.cleaned_data["kind"]:
         applications = applications.filter(KIND_FILTERS[kind])
     if provisioning := form.cleaned_data["provisioning"]:
-        applications = applications.filter(PROVISIONING_FILTERS[provisioning])
+        applications = applications.filter(_provisioning_filter(provisioning))
     if review := form.cleaned_data["review"]:
         applications = (
             applications.filter(provisioning_review__isnull=True)
@@ -224,16 +247,27 @@ class OAuthApplicationsTool(ConsoleTool):
         log = _run_log(review)
         app = review.application
         evidence = _evidence_text(review)
+        app_url = RECORD_TYPES["oauth-application"].url(app)
+        decisions = decision_operation_links(app)
+        if partner_provisioning_status(app, review) == PartnerProvisioningStatus.WAITING_FOR_STAFF:
+            summary = Notice(
+                text=(
+                    f"{app.name} is waiting for a staff decision. Read the review below, then accept or block the "
+                    "partner."
+                ),
+                tone=Tone.WARNING,
+            )
+        else:
+            summary = Notice(
+                text=(
+                    f"{app.name} registered for provisioning from {app.client_id}. Change the decision or its "
+                    "capabilities on the app's page."
+                )
+            )
         return Page(
             blocks=(
-                Notice(
-                    text=(
-                        f"{app.name} registered for provisioning from {app.client_id}. Accept or block the partner, "
-                        "and change its capabilities, on the app's page."
-                    ),
-                    link_text="Open the app",
-                    href=RECORD_TYPES["oauth-application"].url(app),
-                ),
+                summary,
+                Links(items=(*decisions, Link(label="Open the app", href=app_url, primary=not decisions))),
                 Stats(
                     items=(
                         Stat(label="Status", value=_status_cell(review).text, tone=_status_cell(review).tone),

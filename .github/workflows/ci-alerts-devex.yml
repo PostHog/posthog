@@ -71,6 +71,10 @@ env:
     # Workflows that run on Depot CI, so GitHub has no runs for their lanes. The reconcile job
     # writes each of their lanes to DEPOT_RUNS_DIR first, as <workflow file>-<event>.json.
     DEPOT_WORKFLOWS: 'ci-backend.yml'
+    # Depot workflows whose schedule runs the full matrix only on some ticks. Their scheduled runs
+    # split into a Core-only lane and a full-matrix lane, read from <workflow file>-schedule-core-only.json
+    # and <workflow file>-schedule-full.json, so a green Core-only run can't mask a red full run.
+    SCHEDULED_FULL_MATRIX_WORKFLOWS: 'ci-backend.yml'
     # A scheduled lane produces one run an hour, so it needs its own arms: the push streak of 5
     # would take 5 hours to trip, while the push wall-clock arm of 60 minutes pages on a single
     # flaky run held for one tick. Two red ticks in a row, or red across two ticks, is the honest
@@ -117,7 +121,8 @@ jobs:
                   # Each lane is read on its own, so one unreadable lane does not hide the other.
                   status=0
                   python3 .github/scripts/depot_backend_runs.py gate-runs --trigger push --limit 40 --out "$RUNS_DIR/ci-backend.yml-push.json" || status=1
-                  python3 .github/scripts/depot_backend_runs.py gate-runs --trigger schedule --limit 12 --out "$RUNS_DIR/ci-backend.yml-schedule.json" || status=1
+                  python3 .github/scripts/depot_backend_runs.py gate-runs --trigger schedule --matrix core-only --limit 12 --out "$RUNS_DIR/ci-backend.yml-schedule-core-only.json" || status=1
+                  python3 .github/scripts/depot_backend_runs.py gate-runs --trigger schedule --matrix full --limit 24 --out "$RUNS_DIR/ci-backend.yml-schedule-full.json" || status=1
                   exit "$status"
 
             # Ticks list runs for every gating workflow (dozens of calls at worst)

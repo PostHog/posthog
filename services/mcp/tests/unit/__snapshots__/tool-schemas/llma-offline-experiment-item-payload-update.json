@@ -1,0 +1,121 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Experiment UUID.",
+            "type": "string"
+        },
+        "item_id": {
+            "description": "Item UUID within the experiment.",
+            "type": "string"
+        },
+        "payload": {
+            "description": "Top-level fields to update. Omitted fields keep their current values.",
+            "properties": {
+                "expected_output": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "items": {},
+                            "type": "array"
+                        },
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "input": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "items": {},
+                            "type": "array"
+                        },
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "metadata": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "output": {
+                    "anyOf": [
+                        {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "items": {},
+                            "type": "array"
+                        },
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
+        "revision": {
+            "description": "Revision returned by the latest read of this item, result, or payload.",
+            "minimum": 0,
+            "type": "number"
+        }
+    },
+    "required": ["id", "item_id", "revision", "payload"],
+    "type": "object"
+}

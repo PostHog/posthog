@@ -91,10 +91,29 @@ class NodeLineageCounts:
 
 
 @frozen
+class NodeLineage:
+    node_ids: frozenset[str]
+    counts: dict[str, NodeLineageCounts]
+
+
+@frozen
 class UpstreamTableRef:
     name: str
     warehouse_table_id: str | None = None
     is_posthog_table: bool = False
+
+
+@frozen
+class DescribedColumn:
+    name: str
+    ch_type: str
+
+
+@frozen
+class DescribeProbe:
+    sql: str
+    globalized_positions: frozenset[int]
+    printed_names: dict[int, str]
 
 
 @dataclass(frozen=True)
@@ -164,6 +183,23 @@ class ManagedWarehouseUnavailableError(MaterializationForbiddenError):
 
 class MaterializationAlreadyRunningError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class SkippedRunNode:
+    """A node that a manual run selected but left out, and the reason it gives the caller."""
+
+    node_id: str
+    name: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class StartedNodeRun:
+    """The nodes a manual run started, and the selected nodes it left out."""
+
+    node_ids: list[str]
+    skipped: list[SkippedRunNode]
 
 
 class MaterializationRanRecentlyError(Exception):

@@ -169,6 +169,7 @@ class TestClassifyLib(SimpleTestCase):
             ("posthog-python", "server"),
             ("posthog-rails", "server"),
             ("posthog-laravel", "server"),
+            ("posthog-rs-ffi", "server"),
             ("posthog-ios", "mobile"),
             ("posthog-unity", "mobile"),
             ("posthog-something-new", "other"),

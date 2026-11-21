@@ -131,6 +131,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
 - iOS follows the system's vertical-bar signal. When the rail is active, native tabs and stack toolbar buttons occupy it.
   Subscribe to Expo's initial edge event; its synchronous edge getter can deadlock React's event beat during startup.
   They use raster copies of the existing app glyphs, icon-only tab labels, and a distinct Chat action.
+  Tapping the selected tab in the floating bar or custom rail scrolls its list to the top. Switching tabs preserves the list position.
   Without a vertical rail, the native tab bar is hidden and the existing floating pill and Chat button remain.
   Native header options reset when the vertical system rail disappears.
   Navigation pin toasts and Undo live above the native tab host so tab visibility changes preserve them.
@@ -342,6 +343,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   10 recordings per page with a Load more footer. Up to 5 optional recommendations load afterward under Worth watching,
   below the recordings; recommendations matching loaded recordings enrich those rows without moving them.
   Pull to refresh reloads the first page and the recommendations.
+  With **Exclude internal users** on, recommendations appear only with recordings that pass the filter.
   Loading (row-shaped blocks), "Couldn't load your sessions" with Try again, "No recordings yet", the sign-in state and
   the demo state are separate screens. More (pushed only) holds Pin to navigation or Unpin from navigation, with the
   Views toast and Undo, and Open on web.

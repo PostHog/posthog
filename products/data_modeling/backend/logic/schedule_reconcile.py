@@ -23,6 +23,7 @@ from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
+from opentelemetry import trace
 from temporalio.client import (
     Client,
     Schedule,
@@ -92,6 +93,7 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 PLAN_FLOOR_REFUSAL_EVENT = "data modeling refresh refused by plan floor"
 PLAN_FLOOR_CLAMP_EVENT = "data modeling refresh clamped to plan floor"
@@ -361,6 +363,7 @@ def apply_saved_query_frequency_anchor(
     return written
 
 
+@tracer.start_as_current_span("data_modeling.reconcile_dag_schedules")
 def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None, strict: bool = False) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 

@@ -22,6 +22,7 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
         case 'posthog-node':
         case 'analytics-node':
         case 'posthog-edge':
+        case 'posthog-electron':
             return 'node'
         case 'posthog-convex':
             return 'convex'

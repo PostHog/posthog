@@ -1870,6 +1870,7 @@
          "posthog_user"."email_opt_in",
          "ee_role"."id",
          "ee_role"."name",
+         "ee_role"."organization_access_level",
          "ee_role"."organization_id",
          "ee_role"."created_at",
          "ee_role"."created_by_id",

@@ -51,6 +51,7 @@ def json_member_pairs_sql(
     document_sql: str,
     *,
     exclude_key: str | None = None,
+    exclude_empty_key: str | None = None,
     declared_string_paths: Iterable[str] = (),
 ) -> str:
     """`"key":<raw json>` strings for the members of a JSON column.
@@ -61,6 +62,8 @@ def json_member_pairs_sql(
 
     The JSON type materializes a declared string path on every row as `''`, so under those keys an empty value means
     the key was absent and the pair is left out. An empty string under any other key was sent and stays.
+    `exclude_empty_key` names a declared object path, such as the `$feature_flags` map, that every row has and that is
+    left out when it is empty.
     """
     conditions = []
     string_paths = ", ".join(escape_clickhouse_string(path) for path in declared_string_paths)
@@ -68,6 +71,8 @@ def json_member_pairs_sql(
         conditions.append(f"not (kv.2 = '\"\"' and kv.1 in ({string_paths}))")
     if exclude_key is not None:
         conditions.append(f"kv.1 != {escape_clickhouse_string(exclude_key)}")
+    if exclude_empty_key is not None:
+        conditions.append(f"not (kv.1 = {escape_clickhouse_string(exclude_empty_key)} and kv.2 = '{{}}')")
     members = f"JSONExtractKeysAndValuesRaw(toJSONString({document_sql}))"
     if conditions:
         members = f"arrayFilter(kv -> {' and '.join(conditions)}, {members})"
@@ -112,9 +117,13 @@ def feature_flag_pairs_sql(feature_flags_sql: str) -> str:
     return f"arrayConcat({flag_pairs}, {active_pair})"
 
 
-def json_document_sql(document_sql: str, *, declared_string_paths: Iterable[str] = ()) -> str:
+def json_document_sql(
+    document_sql: str, *, exclude_empty_key: str | None = None, declared_string_paths: Iterable[str] = ()
+) -> str:
     """A JSON column as document text, built from its member pairs so declared defaults can be left out."""
-    pairs = json_member_pairs_sql(document_sql, declared_string_paths=declared_string_paths)
+    pairs = json_member_pairs_sql(
+        document_sql, exclude_empty_key=exclude_empty_key, declared_string_paths=declared_string_paths
+    )
     return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
 

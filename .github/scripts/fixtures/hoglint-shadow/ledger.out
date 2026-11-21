@@ -1,0 +1,15 @@
+hoglint: this commit is blocked: 1 other problem.
+This change adds 1 line to hoglint.ledger, with no policy change.
+  contracts-no-django products.visual_review.backend.facade.contracts django.db.models  0 -> 1
+  needs a person: new debt needs a person. Remove the lines and fix the findings, or stop and tell the person.
+new findings (0)
+advisory rows (6040)
+  public-surface: bin.build-dashboard-widget-types names products.dashboards.backend.constants.WIDGET_DATE_FROM_LABELS, which is not exported to it
+    at bin/build-dashboard-widget-types.py:55  [team-devex]
+unknowns (114)
+  receiver-direction [inherited, not-modelled] posthog/caching/organization_serializer_cache.py:94: signal 'model' did not resolve
+  receiver-direction [inherited, not-modelled] posthog/caching/organization_serializer_cache.py:95: signal 'model' did not resolve
+unknowns attributed against HEAD (tree f5b7c014173c, stored summary): 0 introduced, 0 ambiguous, 114 inherited
+level isolated: 25 pass, 74 fail
+4832 findings accepted by the ledger
+What the hook checks and what to do: hoglint help hook.

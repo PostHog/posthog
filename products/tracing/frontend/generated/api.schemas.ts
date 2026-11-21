@@ -695,11 +695,30 @@ export interface _TracingQueryBodyApi {
     prefetchSpans?: number
     /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
+    /** Include each span's OpenTelemetry events, such as recorded exceptions. The events are large, so keep `limit` small. Ignored when `excludeAttributes` is true. Defaults to false. */
+    includeEvents?: boolean
 }
 
 export interface _TracingQueryRequestApi {
     /** The tracing spans query to execute. */
     query: _TracingQueryBodyApi
+}
+
+/**
+ * Event attributes. Keys are whatever the instrumentation set.
+ */
+export type _SpanEventApiAttributes = { [key: string]: string }
+
+export interface _SpanEventApi {
+    /** Event name, for example `exception`. */
+    name: string
+    /**
+     * When the event occurred. Null when the SDK did not set a time.
+     * @nullable
+     */
+    timestamp: string | null
+    /** Event attributes. Keys are whatever the instrumentation set. */
+    attributes: _SpanEventApiAttributes
 }
 
 /**
@@ -754,6 +773,8 @@ export interface _SpanApi {
     attributes: _SpanApiAttributes
     /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
     resource_attributes: _SpanApiResourceAttributes
+    /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+    events?: _SpanEventApi[]
 }
 
 export interface _TracingQueryResponseApi {
@@ -1189,23 +1210,6 @@ export interface _TracingTraceRequestApi {
 }
 
 /**
- * Event attributes. Keys are whatever the instrumentation set.
- */
-export type _SpanEventApiAttributes = { [key: string]: string }
-
-export interface _SpanEventApi {
-    /** Event name, for example `exception`. */
-    name: string
-    /**
-     * When the event occurred. Null when the SDK did not set a time.
-     * @nullable
-     */
-    timestamp: string | null
-    /** Event attributes. Keys are whatever the instrumentation set. */
-    attributes: _SpanEventApiAttributes
-}
-
-/**
  * Span attributes. Keys are whatever the instrumentation set.
  */
 export type _TraceSpanApiAttributes = { [key: string]: string }
@@ -1216,7 +1220,7 @@ export type _TraceSpanApiAttributes = { [key: string]: string }
 export type _TraceSpanApiResourceAttributes = { [key: string]: string }
 
 /**
- * A span in a single trace. The trace action adds self time and span events, which the list does not return.
+ * A span in a single trace. The trace action adds self time, which the list does not return.
  */
 export interface _TraceSpanApi {
     /** Span's own UUID. */
@@ -1253,10 +1257,10 @@ export interface _TraceSpanApi {
     attributes: _TraceSpanApiAttributes
     /** Resource attributes of the emitting service. Keys are whatever the instrumentation set. */
     resource_attributes: _TraceSpanApiResourceAttributes
+    /** OpenTelemetry span events, earliest first. The trace action returns them, and list queries only with `includeEvents`. Omitted when `excludeAttributes` is true. */
+    events?: _SpanEventApi[]
     /** Span duration minus the time spent in its children, in nanoseconds. */
     self_time_nano: number
-    /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
-    events?: _SpanEventApi[]
 }
 
 export interface _TraceSummarySpanApi {

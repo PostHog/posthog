@@ -17,13 +17,18 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/MaterializationStatusModal'
 import { PlanFloorClampBanner } from 'scenes/data-warehouse/saved_queries/PlanFloorClampBanner'
+import { SyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'
+import {
+    cadenceForDataFreshness,
+    dataFreshnessForCadence,
+    endpointSyncFrequencyBounds,
+} from '../endpointRefreshCadence'
 import { endpointSceneLogic, extractBreakdownPropertyNames, MaterializationPreview } from '../endpointSceneLogic'
 
 // Names where flipping a breakdown to optional is most likely a customer-data leak — show
@@ -36,16 +41,6 @@ function isSensitiveBreakdownName(name: string): boolean {
     const lower = name.toLowerCase()
     return SENSITIVE_BREAKDOWN_NAME_PATTERNS.some((p) => lower.includes(p))
 }
-
-const DATA_FRESHNESS_OPTIONS: { value: number; label: string }[] = [
-    { value: 900, label: '15 minutes' },
-    { value: 1800, label: '30 minutes' },
-    { value: 3600, label: '1 hour' },
-    { value: 21600, label: '6 hours' },
-    { value: 43200, label: '12 hours' },
-    { value: 86400, label: '1 day (default)' },
-    { value: 604800, label: '7 days' },
-]
 
 const BUCKET_OPTIONS: { value: string; label: string }[] = [
     { value: 'hour', label: 'Hour' },
@@ -100,20 +95,10 @@ export function EndpointConfiguration(): JSX.Element {
         dataFreshness ?? viewingVersion?.data_freshness_seconds ?? endpoint.data_freshness_seconds ?? 86400
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint.is_materialized
     const isMaterialized = localIsMaterialized ?? baseIsMaterialized
+    // The plan floor limits how often a materialized endpoint refreshes; a direct endpoint only caches.
     const planRefreshFloorSeconds = isMaterialized ? endpoint.plan_refresh_floor_seconds : null
     const planClamp = (viewingVersion ?? endpoint).plan_clamp
-    const dataFreshnessOptions = (
-        DATA_FRESHNESS_OPTIONS.some((option) => option.value === effectiveDataFreshness)
-            ? DATA_FRESHNESS_OPTIONS
-            : [
-                  ...DATA_FRESHNESS_OPTIONS,
-                  { value: effectiveDataFreshness, label: humanFriendlyDuration(effectiveDataFreshness) },
-              ]
-    ).map((option) =>
-        planRefreshFloorSeconds !== null && option.value < planRefreshFloorSeconds
-            ? { ...option, disabledReason: 'More often than your plan allows' }
-            : option
-    )
+    const refreshBounds = endpointSyncFrequencyBounds(planRefreshFloorSeconds)
     const materializationExpanded = leftActiveKeys.includes('materialization')
 
     const breakdownProperties = extractBreakdownPropertyNames(currentQuery)
@@ -171,10 +156,18 @@ export function EndpointConfiguration(): JSX.Element {
                                         resourceType={AccessControlResourceType.Endpoint}
                                         minAccessLevel={AccessControlLevel.Editor}
                                     >
-                                        <LemonSelect
-                                            value={effectiveDataFreshness}
-                                            onChange={setDataFreshness}
-                                            options={dataFreshnessOptions}
+                                        <SyncFrequencySelect
+                                            bounds={refreshBounds}
+                                            value={cadenceForDataFreshness(effectiveDataFreshness)}
+                                            onChange={(cadence) => {
+                                                const seconds = dataFreshnessForCadence(cadence)
+                                                if (seconds !== null) {
+                                                    setDataFreshness(seconds)
+                                                }
+                                            }}
+                                            label="Refresh every"
+                                            help="A materialized endpoint refreshes its stored results this often. A direct endpoint caches each response for this long."
+                                            data-attr="endpoint-data-freshness"
                                         />
                                     </AccessControlAction>
                                 </div>

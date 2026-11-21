@@ -44,6 +44,11 @@ REVIEW_DISPATCH_MAX_RETRIES = 8
 # A partner polls the registration endpoint while it waits, and every poll asks for the review to
 # be running. Inside this window that request costs no Temporal round trip.
 REVIEW_DISPATCH_DEDUP_SECONDS = 60
+ORGANIZATION_LINK_REQUIRED_MESSAGE = (
+    "Link this client to a PostHog organization before it can provision. An organization admin creates a CIMD "
+    "verification token in organization settings, and you publish it in your client metadata document, then register "
+    "again."
+)
 # Retries append to the log, so it is capped to keep a review that failed for hours readable.
 MAX_RUN_LOG_ENTRIES = 200
 
@@ -278,10 +283,14 @@ def send_partner_review_email(review_id: str, status: str) -> None:
     if template_name is None or organization is None:
         return
 
-    memberships = OrganizationMembership.objects.select_related("user").filter(
-        organization=organization,
-        level__gte=OrganizationMembership.Level.ADMIN,
-        user__is_active=True,
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .with_effective_level()
+        .filter(
+            organization=organization,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
+            user__is_active=True,
+        )
     )
     recipients = [membership.user for membership in memberships if membership.user.email]
     if not recipients:
@@ -382,10 +391,10 @@ def decide_partner(app: OAuthApplication, *, accept: bool, reason: str, partner_
 def partner_provisioning_status(
     app: OAuthApplication, review: CIMDProvisioningReview | None
 ) -> PartnerProvisioningStatus:
-    """Whether the app can provision right now. An active partner is on even when `disabled` is
-    also set, because every partner gate reads `active` alone."""
+    """Whether the app can provision right now, following `provisioning_allowed`, which every partner
+    gate reads. An allowed partner is on even when `disabled` is also set."""
     config = app.provisioning
-    if app.is_provisioning_partner and config.active:
+    if app.is_provisioning_partner and app.provisioning_allowed:
         return PartnerProvisioningStatus.ON
     if config.disabled:
         return PartnerProvisioningStatus.BLOCKED

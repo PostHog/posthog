@@ -1,13 +1,16 @@
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import timedelta
 from typing import Literal
 
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
@@ -21,9 +24,19 @@ from products.tasks.backend.logic.services.workflow_dispatch import materialize_
 from products.tasks.backend.models import TASK_RUN_FINISH_REPORT_STATE_KEY, Task, TaskRun, TaskStatusChange
 from products.tasks.backend.task_done import TaskDoneError, record_pull_request_outcome
 from products.tasks.backend.task_profiles import USER
-from products.tasks.backend.task_run_sync import DoneMode, done_mode, sync_task_status, transition
+from products.tasks.backend.task_run_sync import (
+    DONE_RETRY_SECONDS,
+    DONE_RETRY_TASK,
+    DoneMode,
+    done_mode,
+    sync_task_status,
+    transition,
+)
+from products.tasks.backend.tasks.tasks import finish_task_after_closed_turn
 
 PAYLOAD = "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload"
+PROFILE = "products.tasks.backend.task_run_sync.find_task_profile"
+SEND_TASK = "products.tasks.backend.task_run_sync.current_app.send_task"
 PR_ONE = "https://github.com/posthog/posthog/pull/1"
 PR_TWO = "https://github.com/posthog/posthog/pull/2"
 _DONE_ON_TURN_CLOSE = replace(USER, done_on_turn_close=True)
@@ -159,6 +172,36 @@ class TestTaskDone(TestCase):
             .first()
         )
         self.assertEqual(done_change, done_changed_by)
+
+    @parameterized.expand(
+        [
+            ("later_lookup_enforces", "enforce", "done"),
+            ("later_lookup_still_fails", None, "idle"),
+        ]
+    )
+    def test_turn_close_retries_the_finish_after_a_failed_flag_lookup(
+        self, _name: str, later_mode: str | None, status: str
+    ) -> None:
+        self._set_status(Task.Status.RUNNING)
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        with self._mode(None), patch(PROFILE, return_value=_DONE_ON_TURN_CLOSE), patch(SEND_TASK) as send_task:
+            sync_task_status(self.task.id)
+
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, "idle")
+        send_task.assert_called_once_with(DONE_RETRY_TASK, args=[str(self.task.id)], countdown=DONE_RETRY_SECONDS)
+
+        cache.clear()
+        with (
+            self._mode(later_mode),
+            patch(PROFILE, return_value=_DONE_ON_TURN_CLOSE),
+            nullcontext() if later_mode else self.assertRaises(Retry),
+        ):
+            finish_task_after_closed_turn(str(self.task.id))
+
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status, status)
 
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_a_resumed_run_that_closes_its_turn_finishes_the_task(self, _publish) -> None:

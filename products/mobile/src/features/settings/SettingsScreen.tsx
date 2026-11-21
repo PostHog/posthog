@@ -8,6 +8,7 @@ import { track } from '@/lib/analytics'
 import { isInternalBuild } from '@/lib/environment'
 import { READING_WIDTH } from '@/ui/adaptiveLayout'
 import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
+import { Pressable44 } from '@/ui/Pressable44'
 import { ScreenBlur } from '@/ui/ScreenBlur'
 import { ScreenChrome } from '@/ui/ScreenChrome'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
@@ -21,10 +22,9 @@ import { readAppVersion } from './appInfo'
 import { DefaultPageGroup } from './DefaultPageGroup'
 import { currentDefaultPageHref } from './defaultPageStore'
 import { EnvironmentGroup } from './EnvironmentGroup'
+import { InternalUsersToggle } from './InternalUsersToggle'
 import { LegalGroup } from './LegalGroup'
-import { NotificationPreferencesGroup } from './NotificationPreferencesGroup'
 import { ProjectSwitcher } from './ProjectSwitcher'
-import { PushStatusGroup } from './PushStatusGroup'
 import { SettingsGroup } from './SettingsGroup'
 import { SettingsRow } from './SettingsRow'
 import { SignOutSection } from './SignOutSection'
@@ -83,8 +83,26 @@ export function SettingsScreen(): ReactElement {
                     <EnvironmentRibbon host={sessionHost} style={styles.ribbon} />
                     <DefaultPageGroup />
                     {signedIn && !demo ? <ProjectSwitcher /> : null}
-                    {signedIn ? <PushStatusGroup /> : null}
-                    {signedIn || demo ? <NotificationPreferencesGroup /> : null}
+                    {signedIn || demo ? (
+                        <SettingsGroup title="Notifications">
+                            <Pressable44
+                                onPress={() => {
+                                    track('mobile_notification_settings_opened')
+                                    router.push('/settings/notifications')
+                                }}
+                                testID="settings-notifications"
+                                accessibilityLabel="Notification settings"
+                            >
+                                <SettingsRow label="Notification settings" value="Manage" />
+                            </Pressable44>
+                        </SettingsGroup>
+                    ) : null}
+                    <SettingsGroup title="Analytics">
+                        <InternalUsersToggle
+                            description="Uses each project's internal user filters in Web analytics, Live, and Sessions."
+                            testID="settings-exclude-internal-users"
+                        />
+                    </SettingsGroup>
                     <AppearanceGroup />
                     {__DEV__ ? (
                         <SettingsGroup

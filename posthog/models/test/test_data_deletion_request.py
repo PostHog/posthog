@@ -9,6 +9,7 @@ from posthog.test.base import materialized
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -989,6 +990,36 @@ def test_refresh_deletion_stats_does_not_write_over_a_concurrent_criteria_edit(t
     assert request.stats_calculated_at is None
 
 
+@pytest.mark.parametrize(
+    "status,marked,deletable",
+    [
+        (RequestStatus.FAILED, True, False),
+        (RequestStatus.IN_PROGRESS, True, False),
+        (RequestStatus.COMPLETED, True, True),
+        (RequestStatus.FAILED, False, True),
+    ],
+)
+@pytest.mark.parametrize("delete", [lambda obj: obj.delete(), lambda obj: type(obj).objects.filter(pk=obj.pk).delete()])
+def test_a_started_unfinished_property_removal_cannot_be_deleted(team, status, marked, deletable, delete):
+    obj = DataDeletionRequest.objects.create(
+        team_id=team.id,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        properties=["$ip"],
+        start_time=datetime(2026, 6, 10, tzinfo=UTC),
+        end_time=datetime(2026, 6, 16, tzinfo=UTC),
+        status=status,
+        property_removal_marker=datetime(2026, 6, 17, tzinfo=UTC) if marked else None,
+    )
+
+    if deletable:
+        delete(obj)
+    else:
+        with pytest.raises(ValidationError, match="run started and did not complete"), transaction.atomic():
+            delete(obj)
+
+    assert DataDeletionRequest.objects.filter(pk=obj.pk).exists() != deletable
+
+
 def _staff_request(**fields) -> DataDeletionRequest:
     defaults = {
         "team_id": TEAM_ID,
@@ -1001,6 +1032,8 @@ def _staff_request(**fields) -> DataDeletionRequest:
     return obj
 
 
+# A criteria edit reads the database to refuse a property removal whose run started.
+@pytest.mark.django_db
 @override_settings(CACHES=LOCMEM_CACHE)
 @time_machine.travel("2026-11-06T12:00:00Z", tick=False)
 @pytest.mark.parametrize(

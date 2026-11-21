@@ -32,7 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
-import { IntakeProducer, intakeModeOf } from './intake/intake-producer'
+import { IntakeProducer, intakeClusterOf, intakeModeOf } from './intake/intake-producer'
 import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
@@ -55,7 +55,6 @@ import { HogFlowManagerService } from './services/hogflows/hogflow-manager.servi
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import {
     SCHEDULED_RUNS_PER_BATCH,
     ScheduledRuns,
@@ -141,6 +140,7 @@ import {
 import { recordRequestOrigins } from './utils/cdp-fetch'
 import { deadlineAfter, throwIfDeadlinePassed } from './utils/deadline'
 import { dualRead, dualWrite } from './utils/dual-store'
+import { EncryptedFields } from './utils/encryption-utils'
 import { isHogLimitError, isHogVMError } from './utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
@@ -206,8 +206,8 @@ function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
 
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps & {
-    /** Holds caller-supplied idempotency keys. Null or unset makes the store report itself unavailable. */
-    idempotencyValkey?: RedisV2 | null
+    /** Holds the daily upload byte budget. Null or unset makes the upload route answer 503. */
+    emailAttachmentsValkey?: RedisV2 | null
 }
 
 // Null means the cohort asks to wait but its deadline is unreadable. Queuing it unparked would send to a
@@ -296,7 +296,6 @@ const liquidTagsInStep = (emailStep: EmailStep): number =>
 type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: GroupsMap }
 
 const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
-    idempotency_key_in_flight: 409,
     idempotency_key_reused: 422,
     idempotency_unavailable: 503,
     intake_unavailable: 503,
@@ -343,6 +342,7 @@ export class CdpApi {
     private emailTrackingService: EmailTrackingService
     private sandboxFeedbackService: SandboxFeedbackService
     private emailTrackingCodeSigner: EmailTrackingCodeSigner
+    private fingerprintSigner: EncryptedFields
     private recipientTokensService: RecipientTokensService
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
@@ -359,7 +359,6 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
-    private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
@@ -403,15 +402,11 @@ export class CdpApi {
         })
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(
-            config,
-            deps,
-            jobQueues,
-            new IdempotencyKeys(
-                deps.idempotencyValkey ?? null,
-                'workflow-webhook',
-                config.CDP_IDEMPOTENCY_VALKEY_ENABLED
-            )
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
+        // A fingerprint hashes the request, login code included, so new ones are signed with the sealed state keys. The
+        // shared keys come last, so a claim signed with them before this change still replays.
+        this.fingerprintSigner = new EncryptedFields(
+            [config.CDP_SEALED_STATE_KEYS, config.ENCRYPTION_SALT_KEYS].filter(Boolean).join(',')
         )
         this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
             config.ENCRYPTION_SALT_KEYS,
@@ -469,12 +464,7 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
         )
-        this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
-            deps.idempotencyValkey ?? null,
-            'transactional-email',
-            config.CDP_IDEMPOTENCY_VALKEY_ENABLED
-        )
-        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
+        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.emailAttachmentsValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
             maxBytesPerTeamDay: config.CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY,
         })
@@ -1722,14 +1712,18 @@ export class CdpApi {
     private transactionalSendsForRequest(): TransactionalSends {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
-            encryptedFields: this.deps.encryptedFields,
-            idempotencyKeys: this.transactionalEmailIdempotencyKeys,
+            encryptedFields: this.fingerprintSigner,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
                 invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
                 intake: {
                     modeOf: intakeModeOf(this.config),
-                    producer: new IntakeProducer(this.outputs, undefined, createInvocationSanitizer(this.config).seal),
+                    producer: new IntakeProducer(
+                        this.outputs,
+                        undefined,
+                        createInvocationSanitizer(this.config).seal,
+                        intakeClusterOf(this.config)
+                    ),
                     sealsSecrets: this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE,
                 },
             }),
@@ -1784,8 +1778,6 @@ export class CdpApi {
                     return res.status(409).json({ error: 'canceled' })
                 case 'not_found':
                     return res.status(404).json({ error: 'not_found' })
-                case 'idempotency_unavailable':
-                    return res.status(503).json({ error: 'idempotency_unavailable' })
             }
         })
     }
@@ -1820,11 +1812,10 @@ export class CdpApi {
             }
             const sends = new ScheduledTransactionalSends({
                 jobs: this.batchResolverProducer,
-                idempotencyKeys: this.transactionalEmailIdempotencyKeys,
                 hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,
-                stateOpener: this.deps.encryptedFields,
+                stateOpener: new EncryptedFields(this.config.CDP_SEALED_STATE_KEYS),
             })
             return await handle(sends, parseInt(req.params.team_id), req.params.message_id)
         } catch (e) {
