@@ -194,7 +194,7 @@ export interface emailDomainLogicMeta {
             sender: IntegrationConfigApi | null,
             senderFailed: boolean,
             senderMissing: boolean,
-            domainVerified: any,
+            domainVerified: boolean,
             status: EmailDomainStatusApi | null,
             statusUnavailable: boolean,
             recordsAdded: boolean,
