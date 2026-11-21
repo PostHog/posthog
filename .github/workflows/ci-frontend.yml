@@ -475,10 +475,9 @@ jobs:
               run: bin/turbo --filter=@posthog/frontend prepare
 
             # Seven read-only checks that read no other step's output. Run in sequence their
-            # walls added up: a median 119s of this job's 225s, and the repository-wide
-            # markdown scan is 91s of that by itself. A `parallel:` block runs them as
-            # background steps and waits for the longest one at the end, so the six short
-            # checks stop adding to the scan's wall.
+            # walls add up, dominated by the repository-wide markdown scan. A `parallel:`
+            # block runs them as background steps and waits for the longest one at the end,
+            # so the shorter checks run concurrently with the markdown scan.
             #
             # Every step here is a `run:` step. An action inside the block that writes
             # `$GITHUB_PATH` or `$GITHUB_ENV` races its neighbours and crashes the runner.
