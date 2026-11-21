@@ -416,6 +416,142 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
+    def enforced_alert_limit(cls, organization: Organization) -> int | None:
+        """The alert limit that evaluation and enabling hold a project to, or None for no limit.
+
+        Only a numeric `limit` on the organization's alerts feature counts. Billing can publish a partial
+        feature list when a plan fails to load, and self-hosted licenses list no alerts feature, so a
+        missing feature must not cap a paid organization's running alerts. Creates keep the free tier
+        fallback in `check_alert_limit`."""
+        alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
+        limit = alerts_feature.get("limit") if alerts_feature else None
+        return limit if isinstance(limit, int) and not isinstance(limit, bool) else None
+
+    @classmethod
+    def enable_limit_error(cls, *, team_id: int, organization: Organization, exclude_id: str) -> str | None:
+        """Return an error message if turning on the alert `exclude_id` would take the team past its plan's
+        alert limit, else None. Only the team's other alerts that run count, as in `alerts_kept_by_plan_limit`."""
+        limit = cls.enforced_alert_limit(organization)
+        if limit is None:
+            return None
+        running = cls._newest_running(team_id, organization, limit=limit, exclude_id=UUID(exclude_id))
+        if len(running) < limit:
+            return None
+        return f"Your plan allows {limit} enabled alerts per project. Disable another alert to enable this one."
+
+    @classmethod
+    def alerts_kept_by_plan_limit(cls, team_id: int, organization: Organization) -> frozenset[UUID] | None:
+        """The ids of the team's enabled alerts its plan keeps running, or None, without a query, when the
+        plan has no limit.
+
+        The limit is enforced on writes, so a project that moves to a smaller plan can hold more enabled
+        alerts than it allows. The newest ones up to the limit keep running, and both evaluation stacks skip
+        the rest until the project has room again."""
+        limit = cls.enforced_alert_limit(organization)
+        if limit is None:
+            return None
+        return frozenset(cls._newest_running(team_id, organization, limit=limit))
+
+    @classmethod
+    def _newest_running(
+        cls, team_id: int, organization: Organization, *, limit: int, exclude_id: UUID | None = None
+    ) -> list[UUID]:
+        """The ids of the team's newest alerts that would run, newest first, at most `limit`.
+
+        Each alert counts once, enabled by the stack that owns it: an insight row the insight stack owns, or
+        a platform alert with no insight row or whose copy the platform owns. An alert counts only if its
+        scheduler can ever check it: not on a cadence the plan lost, and not on a deleted insight or a
+        copy whose insight row is gone."""
+        # Deferred for the same reason as in `_counted`.
+        from posthog.tasks.alerts.utils import runnable_insight_alerts_q  # noqa: PLC0415
+
+        from products.alerts.backend.platform_insight_alert import RECURRENCE  # noqa: PLC0415
+
+        lost_intervals = [
+            interval
+            for interval, _ in cls.CALCULATION_INTERVAL_CHOICES
+            if cls.interval_entitlement_error(calculation_interval=interval, organization=organization)
+        ]
+        rows = (
+            cls.objects.filter(runnable_insight_alerts_q(), team_id=team_id)
+            .exclude(owner=PlatformAlertOwner.PLATFORM.value)
+            .exclude(calculation_interval__in=lost_intervals)
+        )
+        if exclude_id is not None:
+            rows = rows.exclude(pk=exclude_id)
+        # The rows before the platform's alerts. The two reads see different snapshots, so an alert whose
+        # owner changes between them can be counted twice, which the merge below undoes, or not at all,
+        # which `is_over_plan_limit` checks again before it skips anything.
+        newest_rows = list(rows.order_by("-created_at", "-id").values_list("created_at", "id")[:limit])
+        held = cls._newest_runnable_held(
+            team_id,
+            lost_minutes=[RECURRENCE[interval][0] for interval in lost_intervals],
+            exclude_id=exclude_id,
+            limit=limit,
+        )
+        newest: list[UUID] = []
+        for _, alert_id in sorted([*newest_rows, *held], reverse=True):
+            if alert_id not in newest:
+                newest.append(alert_id)
+        return newest[:limit]
+
+    @classmethod
+    def _newest_runnable_held(
+        cls, team_id: int, *, lost_minutes: list[int], exclude_id: UUID | None, limit: int
+    ) -> list[tuple[datetime, UUID]]:
+        """The newest platform-held alerts that can run, at most `limit`: a copy whose insight row still
+        exists on a live insight, or an alert with no insight row whose insight is live."""
+        from products.alerts_platform.backend.facade.api import newest_enabled_held_configurations  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+        from products.product_analytics.backend.facade.api import live_insight_ids_by_team  # noqa: PLC0415
+
+        runnable: list[tuple[datetime, UUID]] = []
+        offset = 0
+        while len(runnable) < limit:
+            page = newest_enabled_held_configurations(
+                team_id=team_id,
+                source_kind=SourceKind.INSIGHT,
+                excluded_check_interval_minutes=lost_minutes,
+                exclude_public_id=exclude_id,
+                limit=limit,
+                offset=offset,
+            )
+            copies_with_a_row = set(
+                cls.objects.filter(
+                    team_id=team_id,
+                    id__in=[candidate.public_id for candidate in page if candidate.has_source_row],
+                    insight__deleted=False,
+                ).values_list("id", flat=True)
+            )
+            insight_ids = {candidate.source_config.get("insight_id") for candidate in page}
+            live_insights = live_insight_ids_by_team(
+                team_ids=[team_id], insight_ids=[i for i in insight_ids if isinstance(i, int)]
+            ).get(team_id, set())
+            runnable.extend(
+                (candidate.created_at, candidate.public_id)
+                for candidate in page
+                if (
+                    candidate.public_id in copies_with_a_row
+                    if candidate.has_source_row
+                    else candidate.source_config.get("insight_id") in live_insights
+                )
+            )
+            if len(page) < limit:
+                break
+            offset += limit
+        return runnable[:limit]
+
+    def is_over_plan_limit(self, organization: Organization) -> bool:
+        """Whether this enabled alert is skipped because its project has more enabled alerts than its plan allows."""
+        if not self.enabled:
+            return False
+        for _ in range(2):
+            kept = self.alerts_kept_by_plan_limit(self.team_id, organization)
+            if kept is None or self.id in kept:
+                return False
+        return True
+
+    @classmethod
     def team_alert_count(cls, team_id: int) -> int:
         """Every insight alert of a team, as the limits count them."""
         return cls._counted(team_id)
@@ -571,25 +707,35 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         calculation_interval: str | AlertCalculationInterval | None,
         enabled: bool,
         existing: AlertConfiguration,
-    ) -> str | None:
-        """The real-time limit an update would break, or None. `existing` is the alert as it was before
-        the update.
+    ) -> AlertLimitRefusal | None:
+        """The plan limit an update would break, or None: the alert limit for an update that turns the
+        alert on, and the real-time limit. `existing` is the alert as it was before the update.
 
         Call it inside the update's transaction, after the update has written the alert and its platform
         copy: the platform takes a copy's row lock before this lock, so taking this one first could
-        deadlock with it. An update that adds an active real-time alert holds the team's insight alert
-        lock until the transaction ends, so two updates cannot both pass the count. Any other update
-        takes no lock."""
-        if not cls._adds_active_real_time(
+        deadlock with it. An update that turns an alert on or adds an active real-time alert holds the
+        team's insight alert lock until the transaction ends, so two updates cannot both pass the count.
+        Any other update takes no lock."""
+        turns_on = enabled and not existing.enabled
+        adds_real_time = cls._adds_active_real_time(
             calculation_interval=calculation_interval, enabled=enabled, existing=existing
-        ):
+        )
+        if not turns_on and not adds_real_time:
             return None
         # Deferred for the same reason as in `_counted`.
         from products.alerts_platform.backend.facade.api import hold_cap_lock  # noqa: PLC0415
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
 
         hold_cap_lock(team_id=team_id, source_kind=SourceKind.INSIGHT)
-        return cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk))
+        if turns_on and (
+            message := cls.enable_limit_error(team_id=team_id, organization=organization, exclude_id=str(existing.pk))
+        ):
+            return AlertLimitRefusal(field="enabled", message=message)
+        if adds_real_time and (
+            message := cls.check_real_time_alert_limit(team_id, organization, exclude_id=str(existing.pk))
+        ):
+            return AlertLimitRefusal(field="calculation_interval", message=message)
+        return None
 
     @staticmethod
     def _adds_active_real_time(

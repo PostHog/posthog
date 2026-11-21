@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     EnabledNativeConfiguration,
     HandbackRefusal,
+    HeldAlertCandidate,
     HeldAlertSearchMatch,
     HeldDeliveryAddress,
     LegacyAlertHistory,
@@ -429,6 +430,28 @@ def count_configurations(
         exclude_id=exclude_id,
         source_config_contains=source_config_contains,
         held_only=held_only,
+    )
+
+
+def newest_enabled_held_configurations(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    excluded_check_interval_minutes: Collection[int],
+    exclude_public_id: UUID | None,
+    limit: int,
+    offset: int = 0,
+) -> list[HeldAlertCandidate]:
+    """A team's enabled alerts of a kind whose settings the platform holds (those with no source row, and
+    the copies it owns), newest first, one page of `limit` from `offset`. For a source that ranks its
+    alerts against a plan limit, and checks itself that each one's source can still run."""
+    return platform_reads.newest_enabled_held_configurations(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        excluded_check_interval_minutes=excluded_check_interval_minutes,
+        exclude_public_id=exclude_public_id,
+        limit=limit,
+        offset=offset,
     )
 
 

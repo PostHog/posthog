@@ -23,6 +23,7 @@ class SkipReason(StrEnum):
     WEEKEND = "weekend"
     QUIET_HOURS = "quiet_hours"
     SNOOZED = "snoozed"
+    OVER_PLAN_LIMIT = "over_plan_limit"
     CHANGED_DURING_EVALUATION = "changed_during_evaluation"
 
 

@@ -196,6 +196,7 @@ describe('AIObservabilitySelfDriving', () => {
                     llm_detector_available: null,
                     pagerduty_available: false,
                     destination_count: 0,
+                    over_plan_limit: false,
                     name: 'Unexpected AI cost',
                     subscribed_users: [],
                     threshold: {
@@ -229,6 +230,7 @@ describe('AIObservabilitySelfDriving', () => {
                     llm_detector_available: null,
                     pagerduty_available: false,
                     destination_count: 0,
+                    over_plan_limit: false,
                     name: 'Unexpected error rate',
                     subscribed_users: [],
                     threshold: {
