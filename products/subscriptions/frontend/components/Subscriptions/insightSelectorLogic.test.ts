@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 import { DashboardTile } from '~/types'
 
@@ -54,6 +57,21 @@ describe('insightSelectorLogic', () => {
                 expect.objectContaining({ id: 1 }), // y=1, x=1
             ],
         })
+    })
+
+    it.each([
+        ['on, so defaults follow the grouped list', true, [102, 101]],
+        ['off, so defaults follow layout order', false, [101, 102]],
+    ])('with the tile groups flag %s', (_name, flagOn, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: flagOn })
+        const tiles = [
+            { id: 1, insight: { id: 101 } as any, layouts: { sm: { x: 0, y: 0 } }, group_key: 'b' },
+            { id: 2, insight: { id: 102 } as any, layouts: { sm: { x: 0, y: 5 } }, group_key: null },
+        ]
+        logic = insightSelectorLogic({ tiles: tiles as DashboardTile[] })
+        logic.mount()
+
+        expectLogic(logic).toMatchValues({ defaultSelectedInsightIds: expected })
     })
 
     it('filters tiles by search term (case insensitive)', () => {

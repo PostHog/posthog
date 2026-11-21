@@ -1,15 +1,21 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-import { DashboardTile } from '~/types'
+import { DashboardTile, TileGroupDisplay } from '~/types'
 
+import type { DashboardTileGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
+
+import { toggleInsight, toggleInsightGroup } from './insightGroupSelection'
 import { MAX_INSIGHTS, insightSelectorLogic } from './insightSelectorLogic'
 
 interface InsightSelectorProps {
     tiles: DashboardTile[]
+    groups?: Record<string, DashboardTileGroupApi>
+    groupDisplay?: TileGroupDisplay
     selectedInsightIds: number[]
     onChange: (ids: number[]) => void
     onDefaultsApplied?: (selectedIds: number[]) => void
@@ -17,13 +23,18 @@ interface InsightSelectorProps {
 
 export function InsightSelector({
     tiles,
+    groups,
+    groupDisplay,
     selectedInsightIds,
     onChange,
     onDefaultsApplied,
 }: InsightSelectorProps): JSX.Element {
-    const logic = insightSelectorLogic({ tiles, selectedInsightIds })
+    const logic = insightSelectorLogic({ tiles, selectedInsightIds, groups, groupDisplay })
     const {
+        defaultSelectedInsightIds,
         filteredTiles,
+        insightGroups,
+        insightGroupCheckboxStates,
         insightTiles,
         showSearch,
         searchTerm,
@@ -35,27 +46,48 @@ export function InsightSelector({
 
     useEffect(() => {
         // Auto-select the first N insights for new subscriptions (when nothing is selected yet)
-        if (insightTiles.length > 0 && selectedInsightIds.length === 0 && !userHasInteracted) {
-            const defaultSelection = insightTiles.slice(0, MAX_INSIGHTS).map((tile) => tile.insight!.id)
-            onChange(defaultSelection)
-            onDefaultsApplied?.(defaultSelection)
+        if (defaultSelectedInsightIds.length > 0 && selectedInsightIds.length === 0 && !userHasInteracted) {
+            onChange(defaultSelectedInsightIds)
+            onDefaultsApplied?.(defaultSelectedInsightIds)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [insightTiles, selectedInsightIds, userHasInteracted])
+    }, [defaultSelectedInsightIds, selectedInsightIds, userHasInteracted])
 
     const selectedCount = validSelectedIds.length
     const selectableCount = Math.min(insightTiles.length, MAX_INSIGHTS)
     const atMaxLimit = selectedCount >= MAX_INSIGHTS
 
-    const toggleInsight = (insightId: number): void => {
+    const select = (ids: number[]): void => {
         setUserHasInteracted()
-        if (validSelectedIds.includes(insightId)) {
-            const newIds = selectedInsightIds.filter((id) => id !== insightId)
-            onChange(newIds)
-        } else if (!atMaxLimit) {
-            onChange([...selectedInsightIds, insightId])
-        }
+        onChange(ids)
     }
+
+    const renderInsightCheckbox = (tile: DashboardTile): JSX.Element => {
+        const insight = tile.insight!
+        const isChecked = validSelectedIds.includes(insight.id)
+        const isDisabled = !isChecked && atMaxLimit
+        return (
+            <LemonCheckbox
+                key={tile.id}
+                checked={isChecked}
+                onChange={() =>
+                    select(
+                        toggleInsight({
+                            insightId: insight.id,
+                            selectedInsightIds,
+                            validSelectedIds,
+                            maxInsights: MAX_INSIGHTS,
+                        })
+                    )
+                }
+                label={insight.name || insight.derived_name || 'Untitled insight'}
+                disabledReason={isDisabled && 'Maximum number of insights selected. Deselect one to add another.'}
+            />
+        )
+    }
+
+    // While searching, matches show as a flat list so a group checkbox never selects insights the user can't see.
+    const showGroups = insightGroups.length > 0 && !searchTerm.trim()
 
     return (
         <div className="space-y-2">
@@ -80,27 +112,42 @@ export function InsightSelector({
                         fullWidth
                     />
                 )}
-                <div className="border-t pt-2 space-y-1 max-h-[200px] overflow-y-auto">
-                    {filteredTiles.length === 0 && insightTiles.length > 0 ? (
-                        <div className="text-secondary text-sm py-2">No insights match your search.</div>
-                    ) : (
-                        filteredTiles.map((tile) => {
-                            const insight = tile.insight!
-                            const isChecked = validSelectedIds.includes(insight.id)
-                            const isDisabled = !isChecked && atMaxLimit
+                <div
+                    className={clsx(
+                        'border-t pt-2 space-y-1 overflow-y-auto',
+                        // Group headings add rows, so the grouped list gets more height before it scrolls.
+                        showGroups ? 'max-h-100' : 'max-h-[200px]'
+                    )}
+                >
+                    {showGroups ? (
+                        insightGroups.map((group) => {
+                            const { checked, disabledReason } = insightGroupCheckboxStates[group.key]
                             return (
-                                <LemonCheckbox
-                                    key={tile.id}
-                                    checked={isChecked}
-                                    onChange={() => toggleInsight(insight.id)}
-                                    label={insight.name || insight.derived_name || 'Untitled insight'}
-                                    disabledReason={
-                                        isDisabled &&
-                                        'Maximum number of insights selected. Deselect one to add another.'
-                                    }
-                                />
+                                <div key={group.key} className="space-y-1">
+                                    <LemonCheckbox
+                                        checked={checked}
+                                        onChange={() =>
+                                            select(
+                                                toggleInsightGroup({
+                                                    group,
+                                                    selectedInsightIds,
+                                                    validSelectedIds,
+                                                    maxInsights: MAX_INSIGHTS,
+                                                })
+                                            )
+                                        }
+                                        label={<span className="font-semibold">{group.label}</span>}
+                                        disabledReason={disabledReason}
+                                        data-attr="subscription-insight-group-checkbox"
+                                    />
+                                    <div className="pl-6 space-y-1">{group.tiles.map(renderInsightCheckbox)}</div>
+                                </div>
                             )
                         })
+                    ) : filteredTiles.length === 0 && insightTiles.length > 0 ? (
+                        <div className="text-secondary text-sm py-2">No insights match your search.</div>
+                    ) : (
+                        filteredTiles.map(renderInsightCheckbox)
                     )}
                 </div>
                 {atMaxLimit && (

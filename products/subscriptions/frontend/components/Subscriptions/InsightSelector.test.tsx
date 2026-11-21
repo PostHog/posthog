@@ -3,6 +3,10 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import { ComponentProps } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { DashboardTile } from '~/types'
@@ -12,6 +16,8 @@ import { MAX_INSIGHTS } from './insightSelectorLogic'
 
 function renderInsightSelector(props: {
     tiles: DashboardTile[]
+    groups?: ComponentProps<typeof InsightSelector>['groups']
+    groupDisplay?: ComponentProps<typeof InsightSelector>['groupDisplay']
     selectedInsightIds: number[]
     onChange: jest.Mock
     onDefaultsApplied?: jest.Mock
@@ -86,6 +92,45 @@ describe('InsightSelector', () => {
 
         await userEvent.click(screen.getByText('Sessions'))
         expect(onChange).toHaveBeenCalledWith([101, 102])
+    })
+
+    it('selects every insight in a tab from its checkbox', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true })
+        const onChange = jest.fn()
+        const tiles = createMockTiles().map((tile) => ({ ...tile, group_key: tile.id === 1 ? null : 'retention' }))
+        renderInsightSelector({
+            tiles: tiles as DashboardTile[],
+            groups: { retention: { title: 'Retention' } },
+            groupDisplay: 'tabs',
+            // 999 is no longer on the dashboard and has to survive a group click until save.
+            selectedInsightIds: [999, 101],
+            onChange,
+        })
+
+        await userEvent.click(screen.getByText('Retention'))
+        expect(onChange).toHaveBeenCalledWith([999, 101, 102, 103])
+    })
+
+    it('hides group checkboxes while searching', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_TILE_GROUP_SECTIONS]: true })
+        const tiles = Array.from({ length: 11 }, (_, i) => ({
+            id: i + 1,
+            insight: { id: 100 + i, name: `Insight ${i}` } as any,
+            layouts: { sm: { x: 0, y: i } } as any,
+            group_key: i === 0 ? null : 'retention',
+        }))
+        renderInsightSelector({
+            tiles: tiles as DashboardTile[],
+            groups: { retention: { title: 'Retention' } },
+            groupDisplay: 'tabs',
+            selectedInsightIds: [100],
+            onChange: jest.fn(),
+        })
+        expect(screen.getByText('Retention')).toBeInTheDocument()
+
+        await userEvent.type(screen.getByPlaceholderText('Search insights...'), 'Insight 1')
+
+        expect(screen.queryByText('Retention')).not.toBeInTheDocument()
     })
 
     it('calls onChange when deselecting an insight', async () => {
