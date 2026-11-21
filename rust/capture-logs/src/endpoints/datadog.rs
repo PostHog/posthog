@@ -166,21 +166,51 @@ pub fn extract_trace_span_ids(extra: &HashMap<String, serde_json::Value>) -> (St
     (trace_id, span_id)
 }
 
+/// Query parameter values shared by every log in a request, parsed once per request.
+#[derive(Debug, Default)]
+pub struct DatadogRequestDefaults {
+    pub ddsource: Option<String>,
+    pub service: Option<String>,
+    pub hostname: Option<String>,
+    pub message: Option<String>,
+    pub status: Option<String>,
+    pub resource_tags: HashMap<String, String>,
+    pub attributes: HashMap<String, String>,
+}
+
+impl From<&DatadogQueryParams> for DatadogRequestDefaults {
+    fn from(query_params: &DatadogQueryParams) -> Self {
+        Self {
+            ddsource: query_params.ddsource.clone(),
+            service: query_params.service.clone(),
+            hostname: query_params.hostname.clone(),
+            message: query_params.message.clone(),
+            status: query_params.status.clone(),
+            resource_tags: parse_datadog_tags(query_params.ddtags.as_deref()),
+            attributes: query_params
+                .extra
+                .iter()
+                .map(|(key, value)| (key.clone(), json!(value).to_string()))
+                .collect(),
+        }
+    }
+}
+
 pub fn datadog_log_to_kafka_row(
     log: DatadogLog,
-    query_params: &DatadogQueryParams,
+    defaults: &DatadogRequestDefaults,
 ) -> (KafkaLogRow, bool) {
     // Body values take precedence over query params
-    let status = log.status.as_deref().or(query_params.status.as_deref());
+    let status = log.status.as_deref().or(defaults.status.as_deref());
     let (severity_text, severity_number) = normalize_datadog_severity(status);
 
     // Datadog uses milliseconds since epoch
     let raw_timestamp = datetime_from_millis(log.timestamp);
 
-    let service = log.service.or_else(|| query_params.service.clone());
-    let hostname = log.hostname.or_else(|| query_params.hostname.clone());
-    let ddsource = log.ddsource.or_else(|| query_params.ddsource.clone());
-    let message = log.message.or_else(|| query_params.message.clone());
+    let service = log.service.or_else(|| defaults.service.clone());
+    let hostname = log.hostname.or_else(|| defaults.hostname.clone());
+    let ddsource = log.ddsource.or_else(|| defaults.ddsource.clone());
+    let message = log.message.or_else(|| defaults.message.clone());
 
     let mut resource_attributes = HashMap::new();
     if let Some(ref service_val) = service {
@@ -194,8 +224,12 @@ pub fn datadog_log_to_kafka_row(
     }
 
     // Add query param ddtags to resource_attributes
-    let query_tags = parse_datadog_tags(query_params.ddtags.as_deref());
-    resource_attributes.extend(query_tags);
+    resource_attributes.extend(
+        defaults
+            .resource_tags
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone())),
+    );
 
     // Add body ddtags to resource_attributes (takes precedence)
     let body_tags = parse_datadog_tags(log.ddtags.as_deref());
@@ -221,11 +255,7 @@ pub fn datadog_log_to_kafka_row(
 
     // Merge attributes: query params extra fields, then body extra fields
     // Later values override earlier ones
-    let mut attributes = HashMap::new();
-
-    for (key, value) in &query_params.extra {
-        attributes.insert(key.clone(), json!(value).to_string());
-    }
+    let mut attributes = defaults.attributes.clone();
 
     for (key, value) in &log.extra {
         attributes.insert(key.clone(), value.to_string());
@@ -331,11 +361,12 @@ pub async fn export_datadog_logs_http(
         },
     };
 
+    let defaults = DatadogRequestDefaults::from(&query_params);
     let mut rows: Vec<KafkaLogRow> = Vec::with_capacity(logs.len());
     let mut timestamps_overridden: u64 = 0;
     let mut expanded_bytes: usize = 0;
     for log in logs {
-        let (row, overridden) = datadog_log_to_kafka_row(log, &query_params);
+        let (row, overridden) = datadog_log_to_kafka_row(log, &defaults);
         expanded_bytes += log_row_expanded_bytes(&row);
         if expanded_bytes > service.max_expanded_request_bytes {
             return Err(expansion_rejection(service.max_expanded_request_bytes));

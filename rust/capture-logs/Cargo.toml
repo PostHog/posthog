@@ -43,6 +43,7 @@ snap = { workspace = true }
 prometheus-rw-proto = { path = "../prometheus-rw-proto" }
 
 [dev-dependencies]
+rstest = "0.28"
 tower = { workspace = true }
 flate2 = { workspace = true }
 
