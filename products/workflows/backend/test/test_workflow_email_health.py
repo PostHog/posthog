@@ -1,6 +1,7 @@
 import os
 import importlib
 from datetime import datetime, timedelta
+from typing import TypedDict
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -31,6 +32,12 @@ from products.workflows.backend.services.workflow_email_health import (
 )
 
 AUTO_PAUSE_ON = {"WORKFLOW_EMAIL_AUTO_PAUSE_ENABLED": True}
+
+
+class SeedCounts(TypedDict, total=False):
+    sent: int
+    hard_bounces: int
+    complaints: int
 
 
 @override_settings(**AUTO_PAUSE_ON)
@@ -334,44 +341,67 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("transactional_breach_alone", ["transactional"], (300, 60), None, [], [("needs attention", True, False)]),
+            (
+                "transactional_breach_alone",
+                ["transactional"],
+                {"sent": 300, "hard_bounces": 60},
+                [],
+                [],
+                [("needs attention", True, False)],
+            ),
             (
                 "transactional_breach_beside_a_quiet_sibling",
                 ["transactional"],
-                (300, 60),
-                (8, 1),
+                {"sent": 300, "hard_bounces": 60},
+                [{"sent": 8, "hard_bounces": 1}],
+                [],
+                [("needs attention", True, False)],
+            ),
+            (
+                "transactional_workflow_in_the_warning_band",
+                ["transactional"],
+                {"sent": 10000, "complaints": 20},
+                [],
                 [],
                 [("needs attention", True, False)],
             ),
             (
                 "sibling_breach_beside_a_quiet_transactional_workflow",
                 ["transactional"],
-                (1, 1),
-                (300, 60),
+                {"sent": 1, "hard_bounces": 1},
+                [{"sent": 300, "hard_bounces": 60}],
+                ["sibling"],
+                [("is paused", False, True)],
+            ),
+            (
+                "clean_transactional_sends_leave_the_project_rate",
+                ["transactional"],
+                {"sent": 300},
+                [{"sent": 150, "hard_bounces": 30}, {"sent": 100}],
                 ["sibling"],
                 [("is paused", False, True)],
             ),
             (
                 "one_marketing_step_makes_it_pausable",
                 ["transactional", "marketing"],
-                (300, 60),
-                None,
+                {"sent": 300, "hard_bounces": 60},
+                [],
                 ["own"],
                 [("is paused", False, True)],
             ),
             (
                 "an_email_step_with_a_malformed_config_makes_it_pausable",
                 ["transactional", "malformed"],
-                (300, 60),
-                None,
+                {"sent": 300, "hard_bounces": 60},
+                [],
                 ["own"],
                 [("is paused", False, True)],
             ),
             (
                 "a_generic_step_running_the_email_template_makes_it_pausable",
                 ["transactional", "generic"],
-                (300, 60),
-                None,
+                {"sent": 300, "hard_bounces": 60},
+                [],
                 ["own"],
                 [("is paused", False, True)],
             ),
@@ -381,8 +411,8 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self,
         _name: str,
         categories: list[str],
-        own_seed: tuple[int, int],
-        sibling_seed: tuple[int, int] | None,
+        own_seed: SeedCounts,
+        sibling_seeds: list[SeedCounts],
         paused: list[str],
         emails: list[tuple[str, bool, bool]],
     ):
@@ -406,9 +436,11 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self.flow.save()
         sibling = HogFlow.objects.create(name="Second blast", team=self.team)
         names = {str(self.flow.id): "own", str(sibling.id): "sibling"}
-        self._seed(sent=own_seed[0], hard_bounces=own_seed[1])
-        if sibling_seed is not None:
-            self._seed(source_id=str(sibling.id), sent=sibling_seed[0], hard_bounces=sibling_seed[1])
+        self._seed(**own_seed)
+        for index, sibling_seed in enumerate(sibling_seeds):
+            source = sibling if index == 0 else HogFlow.objects.create(name=f"Blast {index}", team=self.team)
+            names.setdefault(str(source.id), f"sibling_{index}")
+            self._seed(source_id=str(source.id), **sibling_seed)
 
         with (
             patch("products.workflows.backend.services.workflow_email_health.reload_hog_flows_on_workers"),
@@ -416,9 +448,8 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         ):
             sweep_workflow_email_health(now=self.now)
 
-        for flow in (self.flow, sibling):
-            flow.refresh_from_db()
-        assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
+        flows = HogFlow.objects.filter(team=self.team).order_by("created_at")
+        assert [names[str(flow.id)] for flow in flows if flow.email_sending_paused_at] == paused
         paused_flow = sibling if paused == ["sibling"] else self.flow
         delivered: list[tuple[str, list[str], str]] = []
         for message in mail.outbox:
