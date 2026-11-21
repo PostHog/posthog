@@ -78,6 +78,8 @@ UNION_EXPANSION = "FROM flag_evaluations"
 FLAG_CALLS_FROM = "FROM events WHERE event = '$feature_flag_called'"
 FLAG_CALLS = f"SELECT count() {FLAG_CALLS_FROM}"
 SAMPLED_FLAG_CALLS = "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'"
+UNKEYED_FEATURE_PROPERTY = f"{FLAG_CALLS} AND properties.`$feature/new-checkout` = 'true'"
+FEATURE_PROPERTY_REFUSAL = "it reads \\$feature/new-checkout without a \\$feature_flag filter"
 KEYED_BOUNDED_FLAG_CALLS = f"{FLAG_CALLS} AND properties.$feature_flag = 'f' AND timestamp >= now() - INTERVAL 7 DAY"
 
 
@@ -1244,6 +1246,31 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ("mode_2_native_sample", SAMPLED_FLAG_CALLS, ONLY, True, "it uses SAMPLE"),
             ("mode_0_legacy_select_star", f"SELECT * {FLAG_CALLS_FROM}", EVENTS, False, None),
             ("mode_1_legacy_select_star", f"SELECT * {FLAG_CALLS_FROM}", READ, False, None),
+            ("mode_2_native_feature_property", UNKEYED_FEATURE_PROPERTY, ONLY, True, FEATURE_PROPERTY_REFUSAL),
+            ("mode_0_native_feature_property", UNKEYED_FEATURE_PROPERTY, EVENTS, True, FEATURE_PROPERTY_REFUSAL),
+            (
+                "mode_2_native_feature_property_by_subscript",
+                f"{FLAG_CALLS} AND properties['$feature/new-checkout'] = 'true'",
+                ONLY,
+                True,
+                FEATURE_PROPERTY_REFUSAL,
+            ),
+            (
+                "mode_2_native_feature_property_with_a_key_the_predicate_cannot_carry",
+                f"{UNKEYED_FEATURE_PROPERTY} AND properties.$feature_flag = 'café'",
+                ONLY,
+                True,
+                FEATURE_PROPERTY_REFUSAL,
+            ),
+            (
+                "mode_2_native_feature_property_on_a_scan_found_by_type",
+                "SELECT count() FROM persons p JOIN events e ON e.person_id = p.id "
+                "WHERE e.event = '$feature_flag_called' AND e.properties.`$feature/new-checkout` = 'true'",
+                ONLY,
+                True,
+                FEATURE_PROPERTY_REFUSAL,
+            ),
+            ("mode_1_legacy_feature_property", UNKEYED_FEATURE_PROPERTY, READ, False, None),
         ]
     )
     def test_flag_call_shape_flag_evaluations_cannot_answer_raises_on_the_native_events_schema(
@@ -1256,6 +1283,16 @@ class TestReadFlagCallsWithUnion(BaseTest):
             return
         with pytest.raises(QueryError, match=reason):
             self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+    def test_feature_property_beside_a_flag_key_pin_reads_flag_evaluations_on_the_native_events_schema(self):
+        sql = self._sql(
+            f"{UNKEYED_FEATURE_PROPERTY} AND properties.$feature_flag = 'new-checkout'",
+            mode=ONLY,
+            union=False,
+            new_events_schema=True,
+        )
+
+        assert re.search(r"FROM flag_evaluations\b", sql) is not None
 
     @parameterized.expand(
         [
