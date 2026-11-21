@@ -308,7 +308,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["include_columns"] = self._include_columns
-        context["report_view_actions"] = self.action in {"create", "update", "partial_update"}
+        context["report_view_actions"] = self.action in {"create", "update", "partial_update", "rename"}
         request_data = getattr(self.request, "data", {})
         # Read actions stay out: building a database selects every view in the team, SQL body
         # included, and neither serializer reads it. Only the write paths below do, to check a
@@ -973,7 +973,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 )
         saved_query.refresh_from_db()
         # The context the name was validated with: a fresh one would build the team's database a third time.
-        return response.Response(self.get_serializer_class()(saved_query, context=context).data)
+        serializer = self.get_serializer_class()(saved_query, context=context)
+        # Reported after the commit, with the same properties a rename through PATCH reports.
+        serializer._report_view_action(
+            "view updated",
+            saved_query,
+            {
+                "query_changed": False,
+                "name_changed": True,
+                "description_changed": False,
+                "sync_frequency": None,
+                "soft_update": False,
+                "breaking_column_change_acknowledged": False,
+                "removed_column_count": 0,
+                "affected_downstream_view_count": 0,
+            },
+            self.team,
+        )
+        return response.Response(serializer.data)
 
     @extend_schema(request=None, responses={200: lineage.SavedQueryDependenciesSerializer})
     @action(methods=["GET"], detail=True)

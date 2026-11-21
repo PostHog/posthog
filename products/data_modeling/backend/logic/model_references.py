@@ -35,15 +35,19 @@ def _qualifier_binding(field_chain: list[str], scope: dict[str, list[str] | None
     is a table key wins, else the longest nested name among all tables in scope. A qualifier is rewritten
     only when the table it binds to is the model.
     """
-    if len(field_chain) < 2:
+    if len(field_chain) < 2 or not scope:
         return None
     if field_chain[0] in scope:
         target = scope[field_chain[0]]
         return (1, target) if target is not None else None
+    # No qualifier is deeper than the deepest name in scope, so a long chain stops early.
+    deepest_name = max(key.count("__") + 1 for key in scope)
     match: tuple[int, list[str] | None] | None = None
     parts: list[str] = []
     for consumed, segment in enumerate(field_chain[:-1], start=1):
         parts.extend(segment.split("."))
+        if len(parts) > deepest_name:
+            break
         key = "__".join(parts)
         if len(parts) >= 2 and key in scope:
             match = consumed, scope[key]
@@ -73,6 +77,8 @@ class _ModelReferenceFinder(TraversingVisitor):
         self.lambda_arguments: list[str] = []
         # Each reference is the field, the number of leading segments to replace, and the replacement.
         self.references: list[tuple[ast.Field, int, list[str]]] = []
+        # Each table read by name, with the CTE names in scope where it is read.
+        self.reads: list[tuple[Chain, frozenset[str]]] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         # The resolver registers a CTE only after resolving its definition, so a definition reads the
@@ -184,6 +190,7 @@ class _ModelReferenceFinder(TraversingVisitor):
         target = self.target_for(tuple(chain))
         if target is not None:
             self.references.append((table, len(raw_chain), target))
+            self.reads.append((tuple(chain), frozenset().union(*self.cte_scopes)))
         return target
 
 
@@ -251,43 +258,29 @@ def rename_model_references(query: str, spellings: Collection[Chain], new_chain:
     It splices the source text, so comments and formatting survive. It parses and never resolves.
     Raises ModelReferenceRewriteError when the query does not parse or the result cannot be proven.
     """
-    qualified = new_chain if new_chain[0] == MODELS_ROOT else [MODELS_ROOT, *new_chain]
 
     def target_for(chain: Chain) -> list[str] | None:
-        if chain not in spellings:
-            return None
-        return qualified if chain[0] == MODELS_ROOT else new_chain
+        return renamed_chain(chain, new_chain) if chain in spellings else None
 
     return _rewrite(query, target_for)
 
 
-def reads_model(query: str, spellings: Collection[Chain]) -> bool:
-    """Whether the query names the model that answers to `spellings`. False when it does not parse."""
+def renamed_chain(chain: Chain, new_chain: list[str]) -> list[str]:
+    """The new name of a spelling of the model: it keeps its `models.` prefix, or its lack of one."""
+    if chain[0] != MODELS_ROOT or new_chain[0] == MODELS_ROOT:
+        return new_chain
+    return [MODELS_ROOT, *new_chain]
+
+
+def table_reads(query: str) -> list[tuple[Chain, frozenset[str]]]:
+    """Each table the query reads by name, with the CTE names in scope at that read. Empty when it does not parse.
+
+    A read model's expanded body sees exactly those CTEs, so one of them can stand in for a name in that body.
+    """
     try:
         select = parse_select(query)
     except BaseHogQLError:
-        return False
-    finder = _ModelReferenceFinder(lambda chain: [] if chain in spellings else None)
+        return []
+    finder = _ModelReferenceFinder(lambda chain: [])
     finder.visit(select)
-    return bool(finder.references)
-
-
-class _CteNameCollector(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.names: set[str] = set()
-
-    def visit_cte(self, node: ast.CTE) -> None:
-        self.names.add(node.name)
-        super().visit_cte(node)
-
-
-def cte_names(query: str) -> set[str]:
-    """The names of every CTE the query defines, at any depth. Empty when it does not parse."""
-    try:
-        select = parse_select(query)
-    except BaseHogQLError:
-        return set()
-    collector = _CteNameCollector()
-    collector.visit(select)
-    return collector.names
+    return finder.reads

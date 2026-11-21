@@ -16984,7 +16984,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "data-warehouse-rename-saved-view"
     },
     "view-rename-plan": {
         "description": "Show what renaming a saved query changes, without changing anything. Returns the models whose SQL reads this view, each with its SQL before and after, the models that block the rename with the reason, the saved joins that name this view and get the new name, and a plan_token. Show the user the changes, then call 'view-rename' with the same name and the plan_token. Needs edit access to every model in the plan.",
@@ -16999,7 +17000,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "data-warehouse-rename-saved-view"
     },
     "view-resume": {
         "description": "Resume a saved query whose materialization was suspended after repeated failures. Scheduled runs skip a suspended view and everything downstream of it until it is resumed. Set engine to 'clickhouse' or 'trino' to resume only that engine; omit it to resume all. The view runs again at its next scheduled run; use 'view-run' to run it now. Returns resumed=false when the view was not suspended. Check the 'suspended' field from 'view-get' to see which engines are suspended and why.",

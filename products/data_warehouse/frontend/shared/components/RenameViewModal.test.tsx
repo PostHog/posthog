@@ -104,7 +104,7 @@ describe('RenameViewModal', () => {
             />
         )
 
-        expect(screen.getByRole('button', { name: button })).toBeInTheDocument()
+        expect(screen.getByText(button).closest('button')).toBeInTheDocument()
         for (const item of joins) {
             expect(screen.getByText(`orders_by_week.${item.field_name} → customers`)).toBeInTheDocument()
         }

@@ -1,10 +1,9 @@
 from collections.abc import Mapping
 
 from posthog.hogql import ast
-from posthog.hogql.compilation import CompilationBudgetExceededError
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.errors import BaseHogQLError, CompilationBudgetExceededError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor
 

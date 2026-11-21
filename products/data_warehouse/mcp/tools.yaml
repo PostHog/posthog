@@ -277,6 +277,8 @@ tools:
     view-rename:
         operation: warehouse_saved_queries_rename_create
         enabled: true
+        # Shown only once the flag is on, after the Django routes behind these tools are deployed.
+        feature_flag: data-warehouse-rename-saved-view
         scopes:
             - warehouse_view:write
         annotations:
@@ -295,6 +297,8 @@ tools:
     view-rename-plan:
         operation: warehouse_saved_queries_rename_plan_create
         enabled: true
+        # Shown only once the flag is on, after the Django routes behind these tools are deployed.
+        feature_flag: data-warehouse-rename-saved-view
         scopes:
             - warehouse_view:write
         annotations:
