@@ -2,11 +2,14 @@ import hmac
 import json
 import time
 import hashlib
+from collections.abc import Callable
 
 from parameterized import parameterized
 
 from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateSimpleTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.webhook_template import template
+
+OTHER_SIGNATURE = "f" * 64
 
 
 class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
@@ -27,7 +30,13 @@ class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
             data["request"].update(globals["request"])
         return data
 
-    def _make_signed_request(self, secret: str, body: dict | None = None, method: str = "POST") -> dict:
+    def _make_signed_request(
+        self,
+        secret: str,
+        body: dict | None = None,
+        method: str = "POST",
+        format_header: Callable[[str, str], str] = lambda t, v1: f"t={t},v1={v1}",
+    ) -> dict:
         payload = json.dumps(
             body
             or {
@@ -41,16 +50,30 @@ class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
         return {
             "request": {
                 "method": method,
-                "headers": {"stripe-signature": f"t={timestamp},v1={signature}"},
+                "headers": {"stripe-signature": format_header(timestamp, signature)},
                 "body": json.loads(payload),
                 "stringBody": payload,
                 "query": {},
             }
         }
 
-    def test_valid_signed_webhook(self):
+    @parameterized.expand(
+        [
+            ("timestamp_then_signature", lambda t, v1: f"t={t},v1={v1}"),
+            (
+                "diagnostic_fields_and_second_v1",
+                lambda t, v1: (
+                    f"t={t},v1={v1},v1={OTHER_SIGNATURE},v0={OTHER_SIGNATURE},"
+                    "secret=whsec_test,destination=we_test,payload=a1b2c3d4"
+                ),
+            ),
+            ("matching_v1_last", lambda t, v1: f"t={t},v1={OTHER_SIGNATURE},v1={v1}"),
+            ("signature_before_timestamp", lambda t, v1: f"v1={v1},t={t}"),
+        ]
+    )
+    def test_valid_signed_webhook(self, _name, format_header):
         secret = "whsec_test"
-        globals = self._make_signed_request(secret)
+        globals = self._make_signed_request(secret, format_header=format_header)
         self.run_function(
             {"signing_secret": secret, "bypass_signature_check": False, "schema_mapping": {"invoice": "schema_123"}},
             globals=globals,
