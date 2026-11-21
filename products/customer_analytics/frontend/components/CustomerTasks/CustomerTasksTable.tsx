@@ -6,6 +6,7 @@ import { IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDropdown, LemonInputSelect, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjsLocalToTimezone } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -67,6 +68,8 @@ export function CustomerTasksTable({
         bulkUpdateTasks,
         loadAccountOptions,
         setBulkAccountOpen,
+        updateTask,
+        addTagToFilter,
     } = useActions(logic)
     const bulkSaving = Boolean(mutationKeys.bulk)
     const bulkDisabledReason = bulkSaving ? 'Saving' : taskPageLoading ? 'Loading tasks' : undefined
@@ -108,6 +111,25 @@ export function CustomerTasksTable({
                     </div>
                 </div>
             ),
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            className: 'CustomerTasksTable__tags',
+            render: (_, task) =>
+                customerTaskEditDisabledReason(task) ? (
+                    <ObjectTags tags={[...task.tags]} staticOnly onTagClick={addTagToFilter} wrap />
+                ) : (
+                    <ObjectTags
+                        tags={[...task.tags]}
+                        onChange={(tags) => updateTask(task.id, { tags })}
+                        onTagClick={addTagToFilter}
+                        saving={Boolean(mutationKeys[task.id])}
+                        data-attr="customer-task-tags"
+                        editorFullWidth
+                        wrap
+                    />
+                ),
         },
         {
             title: 'Status',

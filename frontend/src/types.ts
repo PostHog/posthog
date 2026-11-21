@@ -655,6 +655,7 @@ export interface OrganizationType extends OrganizationBasicType {
     enforce_2fa: boolean | null
     enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_data_processing_locked?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean

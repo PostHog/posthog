@@ -5707,6 +5707,7 @@ def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessC
         updated_at=task.updated_at,
         can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
         can_restore=_customer_tasks_logic.can_restore_customer_task(task, user_access_control),
+        tags=_customer_tasks_logic.list_customer_task_tag_names(task),
     )
 
 

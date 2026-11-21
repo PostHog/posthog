@@ -5976,10 +5976,10 @@ Note: developers.flowlu.com is the API host, not docs (returns 404/api-key error
 
 Re-audited 2026-11-19 against: <https://www.flowlu.com/api/json/openapien.json>
 
-- [ ] `Transaction categories (GET /fin/categories/list)` — Lookup for the category on synced transactions, needed for spend and income breakdowns (high)
-- [ ] `Bank accounts (GET /fin/bank_account/list)` — Account lookup for synced transactions and customer payments (high)
-- [ ] `Business lines (GET /fin/business_line/list)` — Business line dimension for revenue and profit reporting (medium)
-- [ ] `Account categories (GET /crm/account_category/list)` — Lookup for the category on synced CRM accounts (medium)
+- [x] `Transaction categories (GET /fin/categories/list)` — Lookup for the category on synced transactions, needed for spend and income breakdowns (high) — added as `transaction_categories`
+- [x] `Bank accounts (GET /fin/bank_account/list)` — Account lookup for synced transactions and customer payments (high) — added as `bank_accounts`
+- [x] `Business lines (GET /fin/business_line/list)` — Business line dimension for revenue and profit reporting (medium) — added as `business_lines`
+- [x] `Account categories (GET /crm/account_category/list)` — Lookup for the category on synced CRM accounts (medium) — added as `account_categories`
 - [ ] `Industries (GET /crm/industry/list)` — Lookup for the industry on synced CRM accounts (medium)
 - [ ] `Recurring invoices (GET /fin/recurring_invoice/list)` — Recurring billing schedules, for subscription revenue forecasts (medium)
 - [ ] `Project types (GET /st/project_types/list)` — Lookup for the type on synced projects (medium)
@@ -8764,7 +8764,7 @@ Note: Endpoint map in products/warehouse_sources/sources/langfuse/settings.py is
 
 Re-audited 2026-11-19 against: <https://cloud.langfuse.com/generated/api/openapi.yml>
 
-- [ ] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low)
+- [x] `Skills (GET /api/public/skills)` — versioned agent skills with tags and the production version label, the same kind of asset as prompts we already sync (low) — synced as `skills`, full refresh only: moving the production label between older versions does not change `latestVersionLastUpdatedAt`, so `fromUpdatedAt` would miss it
 
 Note (2026-11-19): Parsed the full OpenAPI file and diffed it against the synced tables. Everything else listable is already synced, skipped in the earlier audit, or under /unstable/ (dashboards, topics) and config-shaped. Skills lists with page, limit and fromUpdatedAt/toUpdatedAt filters, so incremental sync is possible.
 
@@ -9111,7 +9111,7 @@ Note: Read the llms.txt index and the .md pages for the list endpoints. Events, 
 
 ## LlamaCloud — gaps
 
-Today (13): `batches`, `classify_jobs`, `extract_jobs`, `extraction_agents`, `extraction_runs`, `files`, `indexes`, `parse_jobs`, `pipelines`, `projects`, `sheets_jobs`, `split_jobs`, `usage_metrics`
+Today (16): `batches`, `classify_jobs`, `data_sources`, `extract_jobs`, `extraction_agents`, `extraction_runs`, `files`, `indexes`, `parse_jobs`, `pipeline_files`, `pipelines`, `projects`, `retrievers`, `sheets_jobs`, `split_jobs`, `usage_metrics`
 
 Diffed against: <https://api.cloud.llamaindex.ai/api/openapi.json>
 
@@ -9119,10 +9119,10 @@ Diffed against: <https://api.cloud.llamaindex.ai/api/openapi.json>
 - [x] `GET /api/v1/extraction/runs` — run-level history (status, timings, agent) behind extraction jobs (high). Added as `extraction_runs` (fan-out over `extraction_agents`, full refresh). The extracted `data` is not imported.
 - [x] `GET /api/v1/indexes` — top-level index objects; nothing in the current table set exposes them (medium). Added as `indexes`.
 - ~~`GET /api/v1/pipelines/{pipeline_id}/documents/paginated`~~ — skipped: the vendor spec marks it deprecated, and each document row carries the full document text.
-- [ ] `GET /api/v1/pipelines/{pipeline_id}/files2` — pipeline-to-file membership join for the files table we already sync (medium)
-- [ ] `GET /api/v1/beta/batch-processing/{job_id}/items` — per-item rows inside a batch; batches alone give only the job header (medium)
-- [ ] `GET /api/v1/data-sources` — lookup resolving the data-source ids attached to pipelines (medium)
-- [ ] `GET /api/v1/retrievers` — retriever configs referenced by retrieval activity (low)
+- [x] `GET /api/v1/pipelines/{pipeline_id}/files2` — pipeline-to-file membership join for the files table we already sync (medium). Added as `pipeline_files`, read from `GET /api/v1/beta/pipelines/{pipeline_id}/files`: the vendor spec marks `files2` deprecated, and the beta listing returns the same files with page tokens (fan-out over `pipelines`, full refresh).
+- [ ] `GET /api/v1/beta/batch-processing/{job_id}/items` — per-item rows inside a batch; batches alone give only the job header (medium). Skipped: it lists items of beta batch-processing jobs (`bjb-` ids), not of the v2 batches the `batches` table syncs (`bat-` ids), so it has no synced parent; v2 per-file results come from `expand=results` on batches.
+- [x] `GET /api/v1/data-sources` — lookup resolving the data-source ids attached to pipelines (medium). Added as `data_sources` (full refresh). The `component` connector config holds credentials and is not imported.
+- [x] `GET /api/v1/retrievers` — retriever configs referenced by retrieval activity (low). Added as `retrievers`, read from `GET /api/v1/beta/retrievers`: the v1 listing is deprecated and unpaginated (full refresh).
 - [ ] `GET /api/v1/chat` — chat sessions over pipelines, usable as engagement data (low)
 - [ ] `GET /api/v1/organizations` — lookup resolving organization ids on projects (low)
 
@@ -9729,10 +9729,10 @@ Diffed against: <https://www.metabase.com/docs/latest/api.json>
 - [x] `field (GET /api/database/{id}/fields, /api/field/{id})` — column-level metadata lookup for the databases we already sync (high)
 - [x] `permissions groups and membership (GET /api/permissions/group, /api/permissions/membership)` — membership table joining synced users to permission groups (high)
 - [x] `query execution log (GET /api/ee/logs/query_execution/{yyyy-mm})` — per-execution runtime/error history — the core usage-analytics fact table (high)
-- [ ] `activity recents (GET /api/activity/recent_views, /api/activity/recents, /api/activity/popular_items)` — who viewed which card/dashboard, the main content-usage signal (medium)
-- [ ] `revision (GET /api/revision, /api/revision/{entity}/{id})` — change history for cards and dashboards (medium)
-- [ ] `task runs (GET /api/task, /api/task/runs)` — sync/scheduled job history for database health monitoring (medium)
-- [ ] `collection items (GET /api/collection/{id}/items, /api/collection/tree)` — maps cards/dashboards to the collections we already sync (medium)
+- [ ] `activity recents (GET /api/activity/recent_views, /api/activity/recents, /api/activity/popular_items)` — who viewed which card/dashboard, the main content-usage signal (medium) Skipped: returns only the calling user's own recent items (max 20 per model) and the top 5 popular items, not instance-wide view history.
+- [x] `revision (GET /api/revision, /api/revision/{entity}/{id})` — change history for cards and dashboards (medium)
+- [x] `task runs (GET /api/task, /api/task/runs)` — sync/scheduled job history for database health monitoring (medium)
+- [x] `collection items (GET /api/collection/{id}/items, /api/collection/tree)` — maps cards/dashboards to the collections we already sync (medium)
 - [ ] `metric, measure and segment (GET /api/metric, /api/measure, /api/segment)` — semantic-layer definitions referenced by cards (medium)
 - [ ] `alerts, pulses and notifications (GET /api/alert, /api/pulse, /api/notification)` — subscription definitions and recipients (medium)
 - [ ] `timeline and timeline events (GET /api/timeline, /api/timeline/{id})` — annotation events attached to collections (low)
@@ -10138,7 +10138,7 @@ Note: Compared all GET operations in the official llms.txt, including nested acc
 
 ## MonteCarlo — **thin**
 
-Today (12): `alerts`, `dbt_runs`, `dbt_test_results`, `domains`, `events`, `fh_events`, `job_executions`, `job_schedules`, `monitors`, `tables`, `users`, `warehouses`
+Today (18): `alerts`, `authorization_group_members`, `authorization_groups`, `billing_monitor_usage`, `data_products`, `dbt_runs`, `dbt_test_results`, `domains`, `events`, `fh_events`, `job_executions`, `job_schedules`, `monitor_audit_logs`, `monitors`, `roles`, `tables`, `users`, `warehouses`
 
 Diffed against: <https://apidocs.getmontecarlo.com/>
 
@@ -10150,10 +10150,10 @@ Diffed against: <https://apidocs.getmontecarlo.com/>
 - [x] `getDbtRuns / getDbtJobExecutions / getDbtTestResults` — dbt run and test outcomes tied to the same tables already synced (medium). Added as `dbt_runs` (full refresh) and `dbt_test_results` (incremental on `runStartedAt`). `getDbtJobExecutions` skipped: it needs one required `jobUuid` per call, and each `dbt_runs` row already carries its job execution.
 - [ ] `getQueryLogs / getAggregatedQueries` — warehouse query logs attributed to tables — usage and cost analysis (medium). Not added: `getAggregatedQueries` is deprecated and takes one table MCON per call; `getQueryLogs` is a search API with offset paging, no documented sort field or depth limit, and the full SQL text of each query.
 - [x] `getJobExecutions / getJobSchedules` — pipeline job execution history for freshness root-causing (medium). Added as `job_executions` (monitor run history, fanned out over monitors, incremental on `startTime` through `historyDays`) and `job_schedules` (data collector schedules, fanned out over warehouses, full refresh).
-- [ ] `getDataProductsV2` — data product definitions that group assets for SLA reporting (medium)
-- [ ] `getAccountUsage / getAssetsUsage / getBillingMonitorUsage` — monitored-asset and monitor usage counts — how consumption is tracked (medium)
-- [ ] `getAuthorizationGroups + getAccountRoles` — user group/role membership lookup for the users table already synced (medium)
-- [ ] `getAccountAuditLogs / getMonitorAuditLogs` — who changed which monitor and when (low)
+- [x] `getDataProductsV2` — data product definitions that group assets for SLA reporting (medium). Added as `data_products` (full refresh).
+- [x] `getAccountUsage / getAssetsUsage / getBillingMonitorUsage` — monitored-asset and monitor usage counts — how consumption is tracked (medium). Added `getBillingMonitorUsage` as `billing_monitor_usage` (daily credits, incremental on `date`). `getAccountUsage` skipped: its rows carry only ingested and monitored table counts and an optional timestamp, with no key to merge on. `getAssetsUsage` skipped: it browses the asset tree one parent MCON at a time, and `tables` already has the monitored flag per table.
+- [x] `getAuthorizationGroups + getAccountRoles` — user group/role membership lookup for the users table already synced (medium). Added as `authorization_groups` (from `getAuthorizationGroupsPaginated`, because `getAuthorizationGroups` is deprecated), `authorization_group_members` (`getUsersInAccount` filtered per group, because the group `users` field is deprecated) and `roles`, all full refresh.
+- [x] `getAccountAuditLogs / getMonitorAuditLogs` — who changed which monitor and when (low). Added `getMonitorAuditLogs` as `monitor_audit_logs` (fanned out over monitors, full refresh: the query has only an upper time bound). `getAccountAuditLogs` skipped: its records have no id, and timestamp, user and event type do not make a unique key.
 
 Note: The GraphQL API exposes 661 documented queries (counted from spectaql anchors at apidocs.getmontecarlo.com); PostHog exposes 5 tables. Many of those queries are integration/config plumbing, but the core observability objects (incidents, events, domains, dbt results) are absent.
 
@@ -12566,7 +12566,7 @@ Today (7): `affiliate_coupons`, `affiliate_links`, `affiliates`, `campaigns`, `c
 
 Diffed against: <https://developers.rewardful.com/llms.txt>
 
-- [ ] `List sales (GET /v1/sales)` — Individual purchases behind each commission, with charge, refund, tax and sale amounts, the base for revenue and refund analysis per referral (high)
+- [x] `List sales (GET /v1/sales)` — Individual purchases behind each commission, with charge, refund, tax and sale amounts, the base for revenue and refund analysis per referral (high)
 
 Note: Read llms.txt and the .md page for every REST resource: campaigns, affiliates, affiliate links, affiliate coupons, referrals, sales, commissions and payouts. Only sales is missing. Page params match the other resources, and it supports expand=commission, which is not needed because commissions are already synced. Excluded affiliate SSO and webhook routes.
 
@@ -15409,10 +15409,10 @@ Diffed against: <https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/j
 - [ ] `Calls/{CallSid}/Events` — per-call state/transition history for debugging and funnel analysis of call flow (medium). Skipped: the rows are the HTTP request and response of each status callback to the customer's own app, not call state; they have no identifier and need one request per call
 - [x] `Notifications` — account-wide error and warning log, keyed to calls/messages — the standard delivery-failure diagnostic table (medium). Built as `alerts` from the Monitor API (`monitor.twilio.com/v1/Alerts`), because the spec marks the 2010-04-01 Notifications log deprecated
 - [x] `Messages/{MessageSid}/Media` — MMS media items per message; needed for attachment volume and storage analysis (medium)
-- [ ] `Queues/{QueueSid}/Members` — queued-call membership with wait position/time, the analytical grain behind the queues table already synced (medium)
-- [ ] `SMS/ShortCodes` — lookup resolving short-code senders on messages, complementing incoming_phone_numbers (medium)
-- [ ] `Balance` — current account balance, joins with usage records for prepaid burn-down (low)
-- [ ] `Recordings/{ReferenceSid}/AddOnResults (+ Payloads)` — add-on analysis output attached to recordings already synced (low)
+- [ ] `Queues/{QueueSid}/Members` — queued-call membership with wait position/time, the analytical grain behind the queues table already synced (medium). Skipped: the list returns only the calls that wait in a queue now, with a live position and wait time, and keeps no history of past members.
+- [x] `SMS/ShortCodes` — lookup resolving short-code senders on messages, complementing incoming_phone_numbers (medium)
+- [x] `Balance` — current account balance, joins with usage records for prepaid burn-down (low)
+- [x] `Recordings/{ReferenceSid}/AddOnResults (+ Payloads)` — add-on analysis output attached to recordings already synced (low). Built as `recording_add_on_results`; the Payloads sub-resource is a second fan-out level and was not built
 - [ ] `Addresses/{AddressSid}/DependentPhoneNumbers` — address-to-number mapping for regulatory/compliance reporting (low)
 
 Note: Diffed against the official twilio-oai api/2010-04-01 spec (121 paths). The source is a static endpoint map (products/warehouse_sources/sources/twilio/settings.py) hitting /2010-04-01/Accounts/{sid}/<Resource>.json, so sub-resources need explicit fan-out. Only the classic api_v2010 domain was checked; Twilio's other domains (Messaging, Conversations, Verify, TaskRouter, Voice Insights) are separate specs and out of scope for this diff.
@@ -15910,7 +15910,7 @@ Re-audited 2026-11-19 against <https://docs.wasabi.com/llms.txt>: no new gaps wo
 
 ## Watchmode — gaps
 
-Today (9): `genres`, `networks`, `regions`, `releases`, `sources`, `title_cast_crew`, `title_details`, `title_sources`, `titles`
+Today (12): `genres`, `networks`, `regions`, `releases`, `sources`, `title_cast_crew`, `title_details`, `title_episodes`, `title_release_dates`, `title_seasons`, `title_sources`, `titles`
 
 Diffed against: <https://api.watchmode.com/openapi.json>
 
@@ -15918,10 +15918,10 @@ Diffed against: <https://api.watchmode.com/openapi.json>
 - [x] `GET /v1/title/{title_id}/details` — full title metadata (ratings, runtime, plot, network, genre ids); list-titles only returns a stub row (high). Added as `title_details` (fan-out over `titles`).
 - [x] `GET /v1/title/{title_id}/cast-crew` — title-to-person membership table linking titles we sync to people (high). Added as `title_cast_crew` (fan-out over `titles`).
 - [ ] `GET /v1/person/{person_id}` — lookup resolving the person ids returned by cast-crew (high); skipped: there is no person list, so a full table needs a second fan-out over every title's cast and crew that cannot resume, and removing duplicate people needs state that grows with the catalog. `title_cast_crew` already carries `person_id`, `full_name`, `type` and `role`.
-- [ ] `GET /v1/title/{title_id}/episodes` — per-episode rows for TV titles, the finest analytical grain available (medium)
-- [ ] `GET /v1/title/{title_id}/seasons` — season-level rollup between titles and episodes (medium)
-- [ ] `GET /v1/title-release-dates` — advanced release-date feed with source and region dimensions that the simple /releases table lacks (medium)
-- [ ] `GET /v1/changes/titles_sources_changed` — change feed of streaming-availability changes, the natural incremental driver for a title_sources table (medium)
+- [x] `GET /v1/title/{title_id}/episodes` — per-episode rows for TV titles, the finest analytical grain available (medium). Added as `title_episodes` (fan-out over series titles, limit/offset paging).
+- [x] `GET /v1/title/{title_id}/seasons` — season-level rollup between titles and episodes (medium). Added as `title_seasons` (fan-out over series titles).
+- [x] `GET /v1/title-release-dates` — advanced release-date feed with source and region dimensions that the simple /releases table lacks (medium). Added as `title_release_dates` (full refresh over 30-day windows, split when truncated).
+- [ ] `GET /v1/changes/titles_sources_changed` — change feed of streaming-availability changes, the natural incremental driver for a title_sources table (medium). Skipped: returns only bare title ids for a polling window, with no per-row timestamp or change detail; it is a refresh trigger, not table data.
 - [ ] `GET /v1/changes/new_titles` — change feed of newly added titles, enables incremental sync of the titles table (low)
 - [ ] `GET /v1/changes/titles_details_changed` — change feed for title metadata updates (low)
 - [ ] `GET /v1/changes/new_people` — change feed for newly added people, pairs with a person table (low)

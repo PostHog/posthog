@@ -34620,6 +34620,8 @@ export namespace Schemas {
       readonly can_edit: boolean;
       /** Whether the current user can restore this task. */
       readonly can_restore: boolean;
+      /** Tag names on the task, sorted alphabetically. */
+      readonly tags: readonly string[];
     }
 
     /**
@@ -34641,12 +34643,12 @@ export namespace Schemas {
     /**
      * Value before the change.
      */
-    export type CustomerTaskChangeBefore = string | number | boolean | { [key: string]: unknown } | null;
+    export type CustomerTaskChangeBefore = string | number | boolean | { [key: string]: unknown } | string[] | null;
 
     /**
      * Value after the change.
      */
-    export type CustomerTaskChangeAfter = string | number | boolean | { [key: string]: unknown } | null;
+    export type CustomerTaskChangeAfter = string | number | boolean | { [key: string]: unknown } | string[] | null;
 
     export interface CustomerTaskChange {
       /** Semantic task field that changed. */
@@ -34715,8 +34717,20 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement tag names, up to 100. An empty list removes every tag.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** Archive tasks when true, or restore them when false. */
       archived?: boolean;
+      /** How to apply tags to each task: add merges them (the default), remove deletes them, set replaces all tags.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      tags_mode?: BulkUpdateTagsActionEnum;
     }
 
     export interface CustomerTaskBulkUpdate {
@@ -34773,6 +34787,12 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Tag names for the task, up to 100.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface CustomerTaskPage {
@@ -34815,6 +34835,12 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement tag names, up to 100. An empty list removes every tag.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * Replacement task name.
          * @maxLength 400
@@ -79398,6 +79424,11 @@ export namespace Schemas {
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
       /**
+         * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+         * @nullable
+         */
+      readonly is_ai_data_processing_locked: boolean | null;
+      /**
          * When True, this organization allows its data to be used to train PostHog AI models.
          * @nullable
          */
@@ -82760,6 +82791,58 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `experiment` - Experiment
+     */
+    export type ScannerScopeKindEnum = typeof ScannerScopeKindEnum[keyof typeof ScannerScopeKindEnum];
+
+
+    export const ScannerScopeKindEnum = {
+      Experiment: 'experiment',
+    } as const;
+
+    /**
+     * * `all_at_creation` - Every variant the experiment had when the scanner was made
+     * * `user` - A subset someone picked
+     */
+    export type VariantsSourceEnum = typeof VariantsSourceEnum[keyof typeof VariantsSourceEnum];
+
+
+    export const VariantsSourceEnum = {
+      AllAtCreation: 'all_at_creation',
+      User: 'user',
+    } as const;
+
+    /**
+     * An experiment scope: the sessions of people exposed to an experiment, labeled by variant.
+     */
+    export interface ScannerExperimentScope {
+      /** The kind of scope. Only `experiment` exists today.
+       *
+       * * `experiment` - Experiment */
+      kind: ScannerScopeKindEnum;
+      /**
+         * The experiment whose exposed sessions the scanner watches.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.
+         * @maxItems 128
+         * @items.maxLength 400
+         */
+      variants?: string[];
+      /** Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.
+       *
+       * * `all_at_creation` - Every variant the experiment had when the scanner was made
+       * * `user` - A subset someone picked */
+      variants_source?: VariantsSourceEnum;
+      /** Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true. */
+      balance?: boolean;
+      /** Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false. */
+      start_on_launch?: boolean;
+    }
+
+    /**
      * * `manual` - Turned off by a person
      * * `free_credits_used` - Free credits used
      * * `no_ai_consent` - No AI consent
@@ -82863,6 +82946,13 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
       experiment_targeting?: ScannerExperimentTargeting | null;
+      /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+      scope?: ScannerExperimentScope | null;
+      /**
+         * What this scanner's scope watches, for a reader that cannot see the experiment.
+         * @nullable
+         */
+      readonly scope_summary: string | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version: number;
       /**
@@ -91091,6 +91181,12 @@ export namespace Schemas {
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
       /**
+         * Replacement tag names, up to 100. An empty list removes every tag.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
+      /**
          * Replacement task name.
          * @maxLength 400
          */
@@ -95337,6 +95433,11 @@ export namespace Schemas {
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
       /**
+         * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+         * @nullable
+         */
+      readonly is_ai_data_processing_locked?: boolean | null;
+      /**
          * When True, this organization allows its data to be used to train PostHog AI models.
          * @nullable
          */
@@ -97256,6 +97357,13 @@ export namespace Schemas {
       emits_signals?: boolean;
       /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
       experiment_targeting?: ScannerExperimentTargeting | null;
+      /** Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope. */
+      scope?: ScannerExperimentScope | null;
+      /**
+         * What this scanner's scope watches, for a reader that cannot see the experiment.
+         * @nullable
+         */
+      readonly scope_summary?: string | null;
       /** Increments on every config-changing save. Observations snapshot this value. */
       readonly scanner_version?: number;
       /**
@@ -139878,6 +139986,12 @@ export namespace Schemas {
      * @minLength 1
      */
     statuses?: string;
+    /**
+     * JSON-encoded list of tag names, such as ["renewal", "urgent"]. Returns tasks with any of the tags.
+     * @minLength 1
+     * @maxLength 306402
+     */
+    tags?: string;
     };
 
     export type CustomerTasksListArchiveState = typeof CustomerTasksListArchiveState[keyof typeof CustomerTasksListArchiveState];
@@ -149599,7 +149713,7 @@ export namespace Schemas {
      */
     teammate_uuid?: string;
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.
      */
     unclaimed?: boolean;
     /**
@@ -149896,7 +150010,7 @@ export namespace Schemas {
      */
     teammate_uuid?: string;
     /**
-     * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
+     * Filter by whether the report has no active claim and no draft, open, or unknown PR. True returns the reports with no work in progress. Suggested reviewers do not count as a claim. Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed until it is restored.
      */
     unclaimed?: boolean;
     /**
@@ -152067,7 +152181,7 @@ export namespace Schemas {
      */
     enabled?: string;
     /**
-     * Filter to scanners whose targeting watches the given experiment.
+     * Filter to scanners whose scope watches the given experiment.
      */
     experiment_id?: string;
     /**
@@ -152087,6 +152201,12 @@ export namespace Schemas {
      */
     scanner_type?: string;
     /**
+     * Filter to scanners whose scope is of this kind.
+     *
+     * * `experiment` - Experiment
+     */
+    scope_kind?: VisionScannersListScopeKind;
+    /**
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
@@ -152095,6 +152215,13 @@ export namespace Schemas {
      */
     tags?: string;
     };
+
+    export type VisionScannersListScopeKind = typeof VisionScannersListScopeKind[keyof typeof VisionScannersListScopeKind];
+
+
+    export const VisionScannersListScopeKind = {
+      Experiment: 'experiment',
+    } as const;
 
     export type VisionScannersImpactRetrieveParams = {
     /**
