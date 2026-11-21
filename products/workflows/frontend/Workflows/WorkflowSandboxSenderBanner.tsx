@@ -4,7 +4,12 @@ import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { startEmailDomainSetup } from '../Channels/EmailDomain/emailDomainSetupLinks'
+import { isVerifiedEmailSender } from '../Channels/defaultEmailSender'
+import {
+    captureEmailDomainSetupStarted,
+    emailDomainSetupPath,
+    startEmailDomainSetup,
+} from '../Channels/EmailDomain/emailDomainSetupLinks'
 import { isLiveOnSandboxSender } from '../Channels/sandboxSender'
 import { hasDeliverableSender } from './hogflows/steps/email/emailStepVariants'
 import { workflowLogic } from './workflowLogic'
@@ -36,6 +41,25 @@ export function WorkflowSandboxSenderBanner({ id }: { id: string }): JSX.Element
                     {ownSender
                         ? `${restriction} To reach your users, switch those steps to your verified sender.`
                         : restriction}
+                </LemonBanner>
+            </div>
+        )
+    }
+
+    const stoppedSender = integrations?.find(isVerifiedEmailSender)
+    if (stoppedSender) {
+        return (
+            <div className="shrink-0" data-attr="workflow-sandbox-sender-banner">
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Fix your sending domain',
+                        'data-attr': 'workflow-sandbox-sender-fix-domain',
+                        to: emailDomainSetupPath(stoppedSender.id),
+                        onClick: () => captureEmailDomainSetupStarted('sandbox_sender_banner_repair'),
+                    }}
+                >
+                    {restriction} To reach your users, fix your sending domain and switch those steps to it.
                 </LemonBanner>
             </div>
         )

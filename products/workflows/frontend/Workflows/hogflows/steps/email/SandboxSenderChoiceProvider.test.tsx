@@ -300,6 +300,27 @@ describe('SandboxSenderChoiceProvider', () => {
         }
     )
 
+    it.each(['legacy', 'sender row'])(
+        'moves a sandbox step to the own sender picked in the From picker, with the %s header',
+        async (header) => {
+            useSenderMocks([OWN_SENDER, SECOND_SENDER])
+            showSenderRow(header === 'sender row')
+            await renderStep(SANDBOX_STEP)
+
+            fireEvent.click(within(openFromPicker()).getByText('hello@example.com'))
+
+            await waitFor(() =>
+                expect(storedStep()).toMatchObject({
+                    type: 'function_email',
+                    config: {
+                        template_id: 'template-email',
+                        inputs: { email: { value: { from: { integrationId: 7 } } } },
+                    },
+                })
+            )
+        }
+    )
+
     it.each<[string, IntegrationType[], RegExp]>([
         ['a sender is still verifying', [VERIFYING_SENDER], /^hello@example\.com isn't verified yet\.$/],
         ['the only verified sender stopped sending', [STOPPED_SENDER], /^Sending stopped for example\.com: /],
@@ -313,7 +334,9 @@ describe('SandboxSenderChoiceProvider', () => {
         expect(within(row).getByText('PostHog test sender')).toBeInTheDocument()
         expect(within(row).queryByText(/verified yet\.|^Sending stopped for/)?.textContent ?? '').toMatch(warning)
         expect(
-            within(row).getByText('Save your changes, then reload this page after you verify a sender.')
+            within(row).getByText(
+                "Save your changes and wait until they're saved. Reload this page after you verify a sender."
+            )
         ).toBeInTheDocument()
         expect(screen.getByTestId('workflow-email-test-sender-add')).toHaveAttribute(
             'href',
