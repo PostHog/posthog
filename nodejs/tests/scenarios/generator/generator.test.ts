@@ -391,7 +391,7 @@ describe('drive', () => {
                     cdpApi: {
                         ...CDP_API,
                         url: `http://127.0.0.1:${port}`,
-                        retry: { backoffMs: 1, maxWaitMs: 1, deadlineMs: 1000 },
+                        clock: { now: () => 0, wait: () => Promise.resolve() },
                     },
                 }
             )

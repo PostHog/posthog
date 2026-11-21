@@ -11,7 +11,7 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
-import { OfferContext, SendRetry, TRAFFIC, bounceFollowup, captureWebhook, transactionalEmail } from './traffic'
+import { OfferContext, SendClock, TRAFFIC, bounceFollowup, captureWebhook, transactionalEmail } from './traffic'
 
 const SECRET = 'scenario-transactional-secret'
 const UNIT = { unitId: 'run-a-1', teamId: 7, flowId: 'flow-7' }
@@ -21,11 +21,19 @@ type Answer = { status: number; body: object }
 
 const NEVER_ABORTED = new AbortController().signal
 
-function startCdpApi(
-    ...answers: Answer[]
-): Promise<{ url: string; received: object[]; answered: Promise<void>; close(): Promise<void> }> {
+type FakeCdpApi = {
+    url: string
+    received: object[]
+    receivedAt: number[]
+    answered: Promise<void>
+    close(): Promise<void>
+}
+
+function startCdpApi(answers: Answer[], now: () => number = Date.now): Promise<FakeCdpApi> {
     let markAnswered = (): void => undefined
     const answered = new Promise<void>((resolve) => (markAnswered = resolve))
+    const receivedAt: number[] = []
+
     const verifier = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET)
     const received: object[] = []
     const server = http.createServer((req, res) => {
@@ -40,6 +48,7 @@ function startCdpApi(
             const body = TransactionalEmailRequestSchema.strict().parse(parseJSON(raw))
             const answer = answers[Math.min(received.length, answers.length - 1)]
             received.push({ method: req.method, url: req.url, authorized, body })
+            receivedAt.push(now())
             res.writeHead(answer.status, { 'content-type': 'application/json' }).end(
                 JSON.stringify(answer.body),
                 markAnswered
@@ -51,6 +60,7 @@ function startCdpApi(
             resolve({
                 url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
                 received,
+                receivedAt,
                 answered,
                 close: () => new Promise((closed) => server.close(() => closed())),
             })
@@ -58,9 +68,9 @@ function startCdpApi(
     )
 }
 
-const contextFor = (url: string, settled: string | undefined = undefined, retry?: SendRetry): OfferContext => ({
+const contextFor = (url: string, settled: string | undefined = undefined, clock?: SendClock): OfferContext => ({
     emit: () => Promise.reject(new Error('the transactional kind never emits')),
-    cdpApi: { url, jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET), retry },
+    cdpApi: { url, jwt: new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET), clock },
     sesFeedback: { settled: (unitId) => Promise.resolve(unitId === UNIT.unitId ? settled : 'another unit') },
 })
 
@@ -97,7 +107,7 @@ describe('traffic', () => {
         ])(
             '%s from the template route, called with a token for the team and flow',
             async (_story, answer, expected) => {
-                const cdpApi = await startCdpApi(answer)
+                const cdpApi = await startCdpApi([answer])
                 try {
                     expect(await transactionalEmail.offer(UNIT, contextFor(cdpApi.url), NEVER_ABORTED)).toEqual(
                         expected
@@ -122,7 +132,7 @@ describe('traffic', () => {
         )
 
         it('journals a transport error when cdp-api cannot be reached', async () => {
-            const cdpApi = await startCdpApi({ status: 202, body: {} })
+            const cdpApi = await startCdpApi([{ status: 202, body: {} }])
             await cdpApi.close()
 
             expect(await transactionalEmail.offer(UNIT, contextFor(cdpApi.url), NEVER_ABORTED)).toEqual({
@@ -132,49 +142,72 @@ describe('traffic', () => {
         })
 
         const UNAVAILABLE: Answer = { status: 503, body: { error: 'intake_unavailable' } }
-        const QUICK_RETRY: SendRetry = { backoffMs: 1, maxWaitMs: 1, deadlineMs: 200 }
 
-        const offerAgainst = (cdpApi: { url: string }, retry: SendRetry, signal = NEVER_ABORTED) =>
-            transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, retry), signal)
-
-        it('retries a 5xx with the same key and journals the retry', async () => {
-            const cdpApi = await startCdpApi(UNAVAILABLE, { status: 202, body: { status: 'queued' } })
-            try {
-                expect(await offerAgainst(cdpApi, QUICK_RETRY)).toEqual({ accepted: true, retries: 1 })
-                expect(cdpApi.received).toHaveLength(2)
-                expect(new Set(cdpApi.received.map((request) => JSON.stringify(request))).size).toBe(1)
-            } finally {
-                await cdpApi.close()
+        describe('on a controlled clock', () => {
+            const controlledClock = (...stalls: number[]): SendClock & { waits: number[] } => {
+                let now = 0
+                const waits: number[] = []
+                return {
+                    waits,
+                    now: () => now,
+                    wait: (ms) => {
+                        waits.push(ms)
+                        now += ms + (stalls.shift() ?? 0)
+                        return Promise.resolve()
+                    },
+                }
             }
-        })
 
-        it('keeps retrying a 5xx with the same key until its deadline, then journals the last refusal', async () => {
-            const cdpApi = await startCdpApi(UNAVAILABLE)
-            try {
-                const answer = await offerAgainst(cdpApi, QUICK_RETRY)
+            it('retries a 5xx with the same key after half a second and journals the retry', async () => {
+                const clock = controlledClock()
+                const cdpApi = await startCdpApi([UNAVAILABLE, { status: 202, body: { status: 'queued' } }], clock.now)
+                try {
+                    expect(
+                        await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
+                    ).toEqual({ accepted: true, retries: 1 })
+                    expect(cdpApi.receivedAt).toEqual([0, 500])
+                    expect(new Set(cdpApi.received.map((request) => JSON.stringify(request))).size).toBe(1)
+                } finally {
+                    await cdpApi.close()
+                }
+            })
 
-                expect(answer).toEqual({
-                    accepted: false,
-                    status: 503,
-                    outcome: 'intake_unavailable',
-                    retries: cdpApi.received.length - 1,
-                })
-                expect(cdpApi.received.length).toBeGreaterThan(4)
-                expect(new Set(cdpApi.received.map((request) => JSON.stringify(request))).size).toBe(1)
-            } finally {
-                await cdpApi.close()
-            }
+            it('backs off from half a second to five, retries until a minute after the first send, then journals the last refusal', async () => {
+                const clock = controlledClock()
+                const cdpApi = await startCdpApi([UNAVAILABLE], clock.now)
+                const backoffs = [500, 1000, 2000, 4000, ...Array.from({ length: 10 }, () => 5000)]
+                try {
+                    expect(
+                        await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
+                    ).toEqual({ accepted: false, status: 503, outcome: 'intake_unavailable', retries: backoffs.length })
+                    expect(cdpApi.receivedAt).toEqual(
+                        backoffs.reduce((sentAt, backoff) => [...sentAt, sentAt[sentAt.length - 1] + backoff], [0])
+                    )
+                    expect(new Set(cdpApi.received.map((request) => JSON.stringify(request))).size).toBe(1)
+                } finally {
+                    await cdpApi.close()
+                }
+            })
+
+            it('sends no retry when its backoff overruns the deadline', async () => {
+                const clock = controlledClock(60_000)
+                const cdpApi = await startCdpApi([UNAVAILABLE, { status: 202, body: { status: 'queued' } }], clock.now)
+                try {
+                    expect(
+                        await transactionalEmail.offer(UNIT, contextFor(cdpApi.url, undefined, clock), NEVER_ABORTED)
+                    ).toEqual({ accepted: false, status: 503, outcome: 'intake_unavailable' })
+                    expect(cdpApi.received).toHaveLength(1)
+                } finally {
+                    await cdpApi.close()
+                }
+            })
         })
 
         it('stops waiting to retry when the run aborts', async () => {
-            const cdpApi = await startCdpApi(UNAVAILABLE)
+            const cdpApi = await startCdpApi([UNAVAILABLE])
             const abort = new AbortController()
             try {
-                const offered = offerAgainst(
-                    cdpApi,
-                    { backoffMs: 60_000, maxWaitMs: 60_000, deadlineMs: 120_000 },
-                    abort.signal
-                )
+                const offered = transactionalEmail.offer(UNIT, contextFor(cdpApi.url), abort.signal)
                 await cdpApi.answered
                 abort.abort()
 
@@ -202,7 +235,7 @@ describe('bounce_followup traffic', () => {
             0,
         ],
     ])('%s', async (_story, settled, expected, sends) => {
-        const cdpApi = await startCdpApi({ status: 422, body: { error: 'recipient_suppressed' } })
+        const cdpApi = await startCdpApi([{ status: 422, body: { error: 'recipient_suppressed' } }])
         try {
             expect(
                 await bounceFollowup.followUp!.offer(

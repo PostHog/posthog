@@ -22,11 +22,11 @@ export type Unit = { unitId: string; teamId: number; flowId: string }
 
 export type Emit = (unit: Unit, event: string, properties: object) => Promise<IntakeAnswer>
 
-export type SendRetry = { backoffMs: number; maxWaitMs: number; deadlineMs: number }
+export type SendClock = { now(): number; wait(ms: number, signal: AbortSignal): Promise<void> }
 
 export type OfferContext = {
     emit: Emit
-    cdpApi?: { url: string; jwt: Pick<ScopedServiceJwt, 'mint'>; retry?: SendRetry }
+    cdpApi?: { url: string; jwt: Pick<ScopedServiceJwt, 'mint'>; clock?: SendClock }
     sesFeedback?: SesFeedback
 }
 
@@ -249,23 +249,37 @@ export const bounceFollowup: TrafficKind = {
     },
 }
 
-const SEND_RETRY: SendRetry = { backoffMs: 500, maxWaitMs: 5_000, deadlineMs: 60_000 }
+const SEND_RETRY = { backoffMs: 500, maxWaitMs: 5_000, deadlineMs: 60_000 }
+
+const REAL_CLOCK: SendClock = {
+    now: () => Date.now(),
+    wait: async (ms, signal) => {
+        await sleep(ms, undefined, { signal })
+    },
+}
+
+const withRetries = (answer: IntakeAnswer, retries: number): JournalEntry['answer'] =>
+    retries === 0 ? answer : { ...answer, retries }
 
 async function sendTransactional(
     unit: Unit,
     cdpApi: NonNullable<OfferContext['cdpApi']>,
     signal: AbortSignal
 ): Promise<JournalEntry['answer']> {
-    const { backoffMs, maxWaitMs, deadlineMs } = cdpApi.retry ?? SEND_RETRY
+    const { backoffMs, maxWaitMs, deadlineMs } = SEND_RETRY
+    const clock = cdpApi.clock ?? REAL_CLOCK
     const request = { to: unitAddress(unit), distinct_id: unit.unitId, variables: {}, idempotency_key: unit.unitId }
-    const deadline = Date.now() + deadlineMs
+    const deadline = clock.now() + deadlineMs
     for (let retry = 0; ; retry += 1) {
         const answer = await postTransactional(unit, cdpApi, request)
         const waitMs = Math.min(backoffMs * 2 ** retry, maxWaitMs)
-        if (!('status' in answer) || answer.status < 500 || Date.now() + waitMs > deadline) {
-            return retry === 0 ? answer : { ...answer, retries: retry }
+        if (!('status' in answer) || answer.status < 500 || clock.now() + waitMs > deadline) {
+            return withRetries(answer, retry)
         }
-        await sleep(waitMs, undefined, { signal })
+        await clock.wait(waitMs, signal)
+        if (clock.now() > deadline) {
+            return withRetries(answer, retry)
+        }
     }
 }
 
