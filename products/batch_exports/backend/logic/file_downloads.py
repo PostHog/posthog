@@ -307,7 +307,7 @@ def count_rows_for_hogql_batch_export(
         user=user,
         query_type="HogQLBatchExportCountRowsQuery",
         settings=query_settings,
-        modifiers=apply_hogql_batch_export_modifier_defaults(team, modifiers),
+        modifiers=apply_hogql_batch_export_modifier_defaults(team, modifiers, new_events_schema_opt_in=False),
     )
     return query_response.results[0][0] if query_response.results else 0
 

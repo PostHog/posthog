@@ -324,6 +324,7 @@ class BatchExportInsertIntoInternalStageInputs:
     is_workflows: bool = False
     on_demand: bool = False
     destination_default_fields: list[BatchExportField] | None = None
+    use_new_events_schema: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -409,6 +410,7 @@ async def insert_into_internal_stage_activity(
                 model,
                 inputs.batch_export_id,
                 is_backfill=inputs.backfill_details is not None,
+                new_events_schema_opt_in=inputs.use_new_events_schema,
             )
             records_total = await _stage_query_results(
                 inputs,
@@ -476,6 +478,7 @@ async def _stage_query_results(
             extra_query_parameters=extra_query_parameters,
             num_partitions=num_partitions,
             is_workflows=inputs.is_workflows,
+            new_events_schema_opt_in=inputs.use_new_events_schema,
         )
 
     try:
@@ -583,6 +586,7 @@ async def _get_query(
     filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None = None,
     num_partitions: int | None = None,
     is_workflows: bool = False,
+    new_events_schema_opt_in: bool = False,
     **parameters,
 ):
     logger = LOGGER.bind(model_name=model_name)
@@ -669,7 +673,7 @@ async def _get_query(
         native_source = query_template in (
             EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
             EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
-        ) and batch_exports_read_new_events_table(team_id)
+        ) and batch_exports_read_new_events_table(team_id, export_opted_in=new_events_schema_opt_in)
 
         # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
         # TODO: Temporary. Once `events_json_recent` serves the recent paths, choose the table once up front and

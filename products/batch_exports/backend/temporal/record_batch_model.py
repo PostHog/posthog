@@ -383,11 +383,13 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         batch_export_id: str | None = None,
         user_id: int | None = None,
         hogql_modifiers: dict[str, typing.Any] | None = None,
+        new_events_schema_opt_in: bool = False,
     ) -> None:
         super().__init__(team_id=team_id, batch_export_id=batch_export_id)
         self.user_id = user_id
         self.hogql_query = hogql_query
         self.hogql_modifiers = load_hogql_modifiers(hogql_modifiers)
+        self.new_events_schema_opt_in = new_events_schema_opt_in
         self.parsed_hogql_query = parse_hogql_select_for_batch_export(hogql_query)
         self.hogql_table_names = tuple(sorted(get_table_names(self.parsed_hogql_query)))
         self.wait_for_data_interval_end = DATA_INTERVAL_END_PLACEHOLDER in find_interval_placeholders(
@@ -403,7 +405,9 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
             team,
             user=user,
             values={"log_comment": self.get_log_comment()},
-            modifiers=apply_hogql_batch_export_modifier_defaults(team, self.hogql_modifiers),
+            modifiers=apply_hogql_batch_export_modifier_defaults(
+                team, self.hogql_modifiers, new_events_schema_opt_in=self.new_events_schema_opt_in
+            ),
         )
         # Pinned here rather than resolved in `get_clickhouse_request_settings`, which is sync and runs on
         # the event loop where a database read is not allowed.
@@ -449,6 +453,7 @@ def resolve_batch_exports_model(
     batch_export_model: BatchExportModelInput | None = None,
     batch_export_id: str | None = None,
     is_backfill: bool = False,
+    new_events_schema_opt_in: bool = False,
 ):
     """Resolve which model and model parameters to use for a batch export.
 
@@ -475,6 +480,7 @@ def resolve_batch_exports_model(
                 batch_export_id=batch_export_id,
                 user_id=model.user_id,
                 hogql_modifiers=model.modifiers,
+                new_events_schema_opt_in=new_events_schema_opt_in,
             )
 
     return model, record_batch_model, model_name, fields, filters, extra_query_parameters

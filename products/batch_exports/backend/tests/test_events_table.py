@@ -6,25 +6,33 @@ from products.batch_exports.backend.events_table import batch_exports_read_new_e
 
 
 @pytest.mark.parametrize(
-    "team_ids,excluded_team_ids,rollout_percentage,expected",
+    "export_opted_in,team_ids,excluded_team_ids,rollout_percentage,expected",
     [
-        ([], [], 0, False),
-        ([], [], 100, True),
-        (["42"], [], 0, True),
-        (["42"], ["42"], 100, False),
-        ([], ["42"], 100, False),
+        (False, [], [], 0, False),
+        (False, [], [], 100, True),
+        (False, ["42"], [], 0, True),
+        (False, ["42"], ["42"], 100, False),
+        (False, [], ["42"], 100, False),
+        (True, [], ["42"], 0, True),
     ],
-    ids=["off", "full-rollout", "listed-team", "excluded-beats-listed", "excluded-beats-rollout"],
+    ids=[
+        "off",
+        "full-rollout",
+        "listed-team",
+        "excluded-beats-listed",
+        "excluded-beats-rollout",
+        "export-opt-in-beats-excluded",
+    ],
 )
 def test_batch_exports_read_new_events_table(
-    team_ids: list[str], excluded_team_ids: list[str], rollout_percentage: int, expected: bool
+    export_opted_in: bool, team_ids: list[str], excluded_team_ids: list[str], rollout_percentage: int, expected: bool
 ) -> None:
     with override_settings(
         BATCH_EXPORTS_NEW_EVENTS_TABLE_TEAM_IDS=team_ids,
         BATCH_EXPORTS_NEW_EVENTS_TABLE_EXCLUDED_TEAM_IDS=excluded_team_ids,
         BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=rollout_percentage,
     ):
-        assert batch_exports_read_new_events_table(42) is expected
+        assert batch_exports_read_new_events_table(42, export_opted_in=export_opted_in) is expected
 
 
 def test_raising_the_rollout_percentage_keeps_the_teams_already_moved() -> None:

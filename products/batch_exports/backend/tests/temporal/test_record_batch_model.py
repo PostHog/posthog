@@ -584,15 +584,39 @@ class TestHogQLQueryRecordBatchModel:
             "timeout_overflow_mode": "throw",
         }
 
-    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
-    async def test_request_settings_unescape_dotted_keys_on_the_native_table(self, ateam: "Team", auser: User) -> None:
+    @pytest.mark.parametrize(
+        "batch_exports_rollout,export_opt_in,stored_modifiers,reads_native_table",
+        [
+            (True, False, {}, True),
+            (False, True, {}, True),
+            (False, True, {"useNewEventsSchema": False}, False),
+            (False, False, {}, False),
+        ],
+        ids=["batch-exports-rollout", "export-opt-in", "stored-modifier-wins", "off"],
+    )
+    async def test_request_settings_unescape_dotted_keys_on_the_native_table(
+        self,
+        ateam: "Team",
+        auser: User,
+        batch_exports_rollout: bool,
+        export_opt_in: bool,
+        stored_modifiers: dict,
+        reads_native_table: bool,
+    ) -> None:
         # The printed query carries no SETTINGS clause, so the native read setting travels with the request.
-        model = HogQLQueryRecordBatchModel(
-            team_id=ateam.pk, hogql_query="SELECT properties AS properties FROM events", user_id=auser.pk
+        _, model, _, _, _, _ = resolve_batch_exports_model(
+            ateam.pk,
+            BatchExportHogQLModel(
+                query="SELECT properties AS properties FROM events", user_id=auser.pk, modifiers=stored_modifiers
+            ),
+            new_events_schema_opt_in=export_opt_in,
         )
-        await model.as_query_with_context(None, None)
+        assert isinstance(model, HogQLQueryRecordBatchModel)
+        with override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if batch_exports_rollout else 0):
+            await model.as_query_with_context(None, None)
 
-        assert model.get_clickhouse_request_settings()["json_type_escape_dots_in_keys"] == "1"
+        request_settings = model.get_clickhouse_request_settings()
+        assert (request_settings.get("json_type_escape_dots_in_keys") == "1") is reads_native_table
 
     @pytest.mark.parametrize(
         "hogql_query,expected_message",

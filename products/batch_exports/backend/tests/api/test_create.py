@@ -828,6 +828,16 @@ def test_cannot_create_batch_export_with_hogql_model_if_not_enabled(
             "unknown field/s: 'hello', 'hello2'",
         ),
         (
+            "AwsS3",
+            {
+                "bucket_name": "my-s3-bucket",
+                "region": "us-east-1",
+                "prefix": "posthog-events/",
+                "use_new_events_schema": 1,  # Wrong type
+            },
+            "invalid type: got 'int', expected 'bool'",
+        ),
+        (
             "Postgres",
             {
                 "user": "test",
