@@ -4955,6 +4955,19 @@ class TestPrinter(BaseTest):
         )
         assert "JSONExtractString(" in printed.split("AS p1 ON")[0].split("FROM person WHERE")[-1]
 
+    def test_inline_persons_over_an_outer_cte_when_the_join_constraint_reads_a_lazy_join_of_persons(self):
+        printed = self._print(
+            """
+            with fc as (select person_id from events where event = 'x')
+            select count()
+            from events
+                     join persons as p1 on p1.pdi.distinct_id = events.distinct_id
+                         and p1.id in (select person_id from fc)
+            """,
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        assert "globalIn(id, (SELECT" in printed or "in(id, (SELECT" in printed
+
     def test_two_joins(self):
         printed = self._print(
             """

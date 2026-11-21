@@ -477,6 +477,8 @@ class LazyTableResolver(TraversingVisitor):
             resolve_types(subquery, self.context, self.dialect, [], resolver_factory=self.resolver_factory),
         )
         assert subquery.type is not None
+        # The filter that the table copied from its join may read a CTE of the enclosing query.
+        subquery.type.ctes = {**(select_type.ctes or {}), **(subquery.type.ctes or {})}
         columns = [cast(ast.Alias, column) for column in subquery.select]
         for column in columns:
             export = collector.exports[column.alias]
