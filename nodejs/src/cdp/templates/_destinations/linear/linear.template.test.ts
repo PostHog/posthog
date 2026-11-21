@@ -43,6 +43,19 @@ describe('linear template', () => {
         expect(attachmentBody).toContain(expectedLinkPart)
     })
 
+    it.each<[string, Record<string, any>, string | undefined]>([
+        ['sends the chosen priority', { priority: '2' }, 'priority: 2'],
+        ['omits priority by default', {}, undefined],
+        ['omits priority for functions without the priority input', { priority: undefined }, undefined],
+        ["omits a priority outside Linear's range", { priority: '9' }, undefined],
+    ])('%s', async (_name, priorityInputs, expectedPriority) => {
+        const response = await tester.invoke({ ...baseInputs, ...priorityInputs })
+
+        expect(response.error).toBeUndefined()
+        const mutation = parseJSON((response.invocation.queueParameters as any).body).query
+        expect(mutation.match(/priority:[^}]*/)?.[0].trim()).toBe(expectedPriority)
+    })
+
     it('builds the title and description from the event properties, with the stack trace', async () => {
         const { title: _title, description: _description, ...inputs } = baseInputs
         const response = await tester.invoke(inputs, {
