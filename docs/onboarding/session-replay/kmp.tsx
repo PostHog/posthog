@@ -107,10 +107,10 @@ export const getKMPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // Experimental: verify screenshot mask alignment before keeping a capture (Android only). Default is false.
                                             verifyScreenshotMaskAlignment = false,
 
-                                            // How iOS captures screenshots (iOS only). Default is GPU (experimental), which takes
-                                            // less main-thread time but doesn't capture web view pages or Metal content.
-                                            // STANDARD draws the window on the main thread.
-                                            iosCaptureMethod = IosCaptureMethod.GPU,
+                                            // How iOS captures screenshots (iOS only). Default is STANDARD, which draws the window
+                                            // on the main thread. GPU (experimental) takes less main-thread time but doesn't capture
+                                            // web view pages, and records Metal content, including Compose Multiplatform, as a placeholder.
+                                            iosCaptureMethod = IosCaptureMethod.STANDARD,
                                         ),
                                     )
                                 `,
