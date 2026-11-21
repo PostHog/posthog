@@ -5,7 +5,6 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -187,9 +186,6 @@ describe('email domain setup entry points', () => {
         await flush()
 
         expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(stopped.id)}$`))
-        expect(posthog.capture).toHaveBeenCalledWith('email domain setup started', {
-            entry: 'sandbox_sender_banner_repair',
-        })
     })
 
     it("offers no setup from the live workflow banner while the senders can't be read", async () => {

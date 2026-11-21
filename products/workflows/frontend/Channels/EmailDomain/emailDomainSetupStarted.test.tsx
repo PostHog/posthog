@@ -10,11 +10,21 @@ const DOMAIN = 'mail.acme.com'
 
 type SentEvent = { event: string; properties: Record<string, any> }
 
+const LIVE_ON_TEST_SENDER = {
+    id: 'flow-1',
+    name: 'Welcome',
+    status: 'active',
+    trigger: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+    actions: [{ id: 'email', type: 'email_sandbox', name: 'Email', config: { inputs: {} } }],
+    edges: [],
+}
+
 describe('email domain setup started', () => {
     const sentEvents: SentEvent[] = []
     let app: {
         rtl: typeof import('@testing-library/react/pure')
         Provider: typeof import('kea').Provider
+        BindLogic: typeof import('kea').BindLogic
         router: typeof import('kea-router').router
         urls: typeof import('scenes/urls').urls
         initKeaTests: typeof import('~/test/init').initKeaTests
@@ -24,6 +34,8 @@ describe('email domain setup started', () => {
         MessagingTabActions: typeof import('../../MessagingTabActions').MessagingTabActions
         SendingDomainRow: typeof import('../../Transactional/sendFromCode/SendingDomainRow').SendingDomainRow
         EmailSetupModal: typeof import('../EmailSetup/EmailSetupModal').EmailSetupModal
+        workflowLogic: typeof import('../../Workflows/workflowLogic').workflowLogic
+        WorkflowSandboxSenderBanner: typeof import('../../Workflows/WorkflowSandboxSenderBanner').WorkflowSandboxSenderBanner
     }
 
     beforeAll(async () => {
@@ -41,6 +53,7 @@ describe('email domain setup started', () => {
         app = {
             rtl: await import('@testing-library/react/pure'),
             Provider: (await import('kea')).Provider,
+            BindLogic: (await import('kea')).BindLogic,
             router: (await import('kea-router')).router,
             urls: (await import('scenes/urls')).urls,
             initKeaTests: (await import('~/test/init')).initKeaTests,
@@ -50,6 +63,9 @@ describe('email domain setup started', () => {
             MessagingTabActions: (await import('../../MessagingTabActions')).MessagingTabActions,
             SendingDomainRow: (await import('../../Transactional/sendFromCode/SendingDomainRow')).SendingDomainRow,
             EmailSetupModal: (await import('../EmailSetup/EmailSetupModal')).EmailSetupModal,
+            workflowLogic: (await import('../../Workflows/workflowLogic')).workflowLogic,
+            WorkflowSandboxSenderBanner: (await import('../../Workflows/WorkflowSandboxSenderBanner'))
+                .WorkflowSandboxSenderBanner,
         }
     })
 
@@ -108,6 +124,17 @@ describe('email domain setup started', () => {
             presses: [],
             entry: 'broadcast',
         },
+        {
+            from: 'the repair button on a live workflow whose senders stopped',
+            seed: 'stopped',
+            ui: () => (
+                <app.BindLogic logic={app.workflowLogic} props={{ id: LIVE_ON_TEST_SENDER.id }}>
+                    <app.WorkflowSandboxSenderBanner id={LIVE_ON_TEST_SENDER.id} />
+                </app.BindLogic>
+            ),
+            presses: ['workflow-sandbox-sender-fix-domain'],
+            entry: 'sandbox_sender_banner_repair',
+        },
     ])('sends one start event with the entry for $from', async ({ seed, ui, presses, entry }) => {
         sentEvents.length = 0
         const backend = new app.FakeEmailDomainBackend()
@@ -116,10 +143,14 @@ describe('email domain setup started', () => {
             backend.verifyDomain(DOMAIN)
         } else if (seed === 'unverified') {
             backend.addSender({ email: `hello@${DOMAIN}` })
+        } else if (seed === 'stopped') {
+            backend.addSender({ email: `hello@${DOMAIN}` })
+            backend.stopsSending(DOMAIN)
         }
         const mocks = backend.mocks()
         useMocks({
             ...mocks,
+            get: { ...mocks.get, '/api/projects/:team_id/hog_flows/:id/': LIVE_ON_TEST_SENDER },
             post: {
                 ...mocks.post,
                 [`${INGESTION_HOST}/e/`]: async ({ request }: MockResolverInfo) => {
