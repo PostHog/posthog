@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -1058,8 +1058,8 @@ def delivery_ticket_is_live(delivery: ConversationDelivery) -> bool:
     return Ticket.objects.filter(id=delivery.ticket_id).exists()
 
 
-def cancel_open_deliveries_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
-    """Stop outbound sends for a ticket that was just soft-deleted.
+def cancel_open_deliveries_for_tickets(*, team_id: int, ticket_ids: Sequence[UUID | str]) -> None:
+    """Stop outbound sends for tickets that were just soft-deleted.
 
     QuerySet.update skips the model save hook, so terminal_at is set here.
     A failed row is what the worker treats as done.
@@ -1068,7 +1068,7 @@ def cancel_open_deliveries_for_ticket(*, team_id: int, ticket_id: UUID | str) ->
     open_statuses = [ConversationDelivery.Status.PENDING, ConversationDelivery.Status.PROCESSING]
     delivery_ids = list(
         ConversationDelivery.objects.for_team(team_id)
-        .filter(ticket_id=ticket_id, status__in=open_statuses)
+        .filter(ticket_id__in=ticket_ids, status__in=open_statuses)
         .values_list("id", flat=True)
     )
     if not delivery_ids:
