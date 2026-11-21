@@ -132,14 +132,15 @@ role "batch_exports" {
 }
 
 # FLAGS satellite: the feature flag evaluation store, split off the main cluster. Holds
-# sharded_flag_evaluations, the Kafka consumer and the MV that fills it, plus the
-# flag_evaluations read table. The data nodes read it through that table, so prod data
-# points it at this cluster (roles/data/prod). Dev is not modeled: no flags cluster is
+# sharded_flag_evaluations and its native-JSON counterpart sharded_flag_evaluations_json,
+# each with a Kafka consumer and the MV that fills it, plus the flag_evaluations read table.
+# The data nodes read it through that table, so prod data points it at this cluster
+# (roles/data/prod). Dev is not modeled: no flags cluster is
 # confirmed there, and dev data keeps the storage table. The local stacks have no flags
 # node and keep the storage on data and the consumer on medium.
 role "flags" {
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/shared/flag_evaluations_json.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/data/shared/flag_evaluations.hcl", "roles/data/shared/flag_evaluations_json.hcl", "roles/data/prod/flag_evaluations.hcl", "roles/coshared/flag_evaluations_data", "roles/coshared/flag_evaluations_ingest", "roles/flags/shared"] }
 }
 
 # DATA cluster: the main sharded cluster (events family, persons/groups, sessions,
