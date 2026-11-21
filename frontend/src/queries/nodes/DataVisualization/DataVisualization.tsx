@@ -327,6 +327,7 @@ function DataTableVisualizationContent({
         response,
         responseLoading,
         responseError,
+        responseErrorObject,
         queryCancelled,
         isChartSettingsPanelOpen,
         xData,
@@ -519,6 +520,7 @@ function DataTableVisualizationContent({
                 <InsightErrorState
                     query={props.query}
                     excludeDetail
+                    errorCode={queryCancelled ? null : responseErrorObject?.code}
                     title={
                         queryCancelled
                             ? 'The query was cancelled'

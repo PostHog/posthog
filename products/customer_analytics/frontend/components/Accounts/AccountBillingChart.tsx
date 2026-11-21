@@ -230,8 +230,16 @@ export function AccountBillingChart({
     })
     // Keeps the query's data logics alive across tab switches — they detach only on row collapse.
     useAttachedLogic(vizLogic, billingLogic)
-    const { response, responseLoading, responseError, xData, yData, chartSettings, effectiveVisualizationType } =
-        useValues(vizLogic)
+    const {
+        response,
+        responseLoading,
+        responseError,
+        responseErrorObject,
+        xData,
+        yData,
+        chartSettings,
+        effectiveVisualizationType,
+    } = useValues(vizLogic)
     const theme = useChartTheme()
 
     const hiddenKeys = ephemeralHiddenSeriesKeysByShortId[shortId] ?? []
@@ -249,7 +257,14 @@ export function AccountBillingChart({
 
     let content: JSX.Element | null
     if (responseError) {
-        content = <InsightErrorState query={query} title={responseError} excludeDetail />
+        content = (
+            <InsightErrorState
+                query={query}
+                title={responseError}
+                errorCode={responseErrorObject?.code}
+                excludeDetail
+            />
+        )
     } else if (!response || responseLoading) {
         content = <LemonSkeleton className="h-full w-full" />
     } else if (!xData || chipItems.length === 0) {

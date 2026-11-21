@@ -36,6 +36,12 @@ export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_excee
 export const TABLE_ACCESS_DENIED_ERROR_CODE = 'table_access_denied'
 
 /**
+ * DRF code for `NotAuthenticated`. DRF sends it with a 403 instead of a 401 when the view's first
+ * authentication class sets no `WWW-Authenticate` header, so check the code and not only the status.
+ */
+export const NOT_AUTHENTICATED_ERROR_CODE = 'not_authenticated'
+
+/**
  * A 409 from the approvals gate: the change was policy-gated and a change request was created,
  * or one is already pending. Approval 409 bodies always carry `change_request_id`
  * (see products/approvals/backend/decorators.py).
