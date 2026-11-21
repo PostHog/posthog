@@ -13,7 +13,10 @@ from posthog.hogql.database.schema.events_with_flag_calls import (
     EventsWithFlagCallsTable,
     union_table_of,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
+from posthog.hogql.database.schema.flag_evaluations import (
+    FlagEvaluationsPersonSubTable,
+    reads_flag_evaluations_json_table,
+)
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
@@ -408,15 +411,19 @@ class PropertySwapper(CloningVisitor):
         if not isinstance(table_type, ast.TableType):
             return None
 
-        table_name = table_type.resolve_database_table(self.context).to_printed_hogql()
-        if table_name not in MATERIALIZATION_VALID_TABLES:
+        database_table = table_type.resolve_database_table(self.context)
+        table_name = database_table.to_printed_hogql()
+        reads_native_flag_table = reads_flag_evaluations_json_table(database_table, self.context)
+        if table_name not in MATERIALIZATION_VALID_TABLES and not reads_native_flag_table:
             return None
 
         # events_json holds no `$feature/<key>` subcolumns: the rebuilt document, or the resolver's map read, serves
         # these keys with the boolean or string type the SDK sent.
+        reads_native_table = reads_native_flag_table or (
+            self.context.uses_new_events_schema() and table_name == "events"
+        )
         if (
-            self.context.uses_new_events_schema()
-            and table_name == "events"
+            reads_native_table
             and database_field.name == "properties"
             and len(node.args) > 1
             and isinstance(node.args[1], ast.Constant)
@@ -425,14 +432,9 @@ class PropertySwapper(CloningVisitor):
         ):
             return None
 
-        if (
-            self.context.uses_new_events_schema()
-            and table_name == "events"
-            and field_type.name
-            in (
-                "properties",
-                "person_properties",
-            )
+        if reads_native_table and field_type.name in (
+            "properties",
+            "person_properties",
         ):
             first_key = self._json_extract_first_key(node)
             if first_key is None:
