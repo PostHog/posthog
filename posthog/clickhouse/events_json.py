@@ -75,7 +75,7 @@ EVENTS_JSON_INSERT_SETTINGS = (
     "json_type_escape_dots_in_keys = 1, type_json_skip_duplicated_paths = 1"
 )
 
-# Storage settings that native-JSON tables share. They set how the JSON, Map and String columns serialize.
+# Serialization settings for the JSON, Map and String columns, shared by the native-JSON tables.
 EVENTS_JSON_SERIALIZATION_SETTINGS = (
     "object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', "
     "enable_block_offset_column = 1, enable_block_number_column = 1, map_serialization_version = 'with_buckets', "

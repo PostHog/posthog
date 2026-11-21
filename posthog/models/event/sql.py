@@ -483,7 +483,7 @@ EVENTS_JSON_CLEANER = "JSONCleanPostHogEvent"
 EVENTS_JSON_CLEANED_ALIAS = "cleaned"
 
 
-def _cast_cleaned_properties(field: str, raw_column: str, json_type: str) -> str:
+def cast_cleaned_properties(field: str, raw_column: str, json_type: str) -> str:
     # The cleaner quarantines bad input itself; this fallback only covers a document the typed JSON column rejects.
     fallback = f"concat('{{\"{UNPARSEABLE_PROPERTIES_KEY}\":', toJSONString({raw_column}), '}}')"
     cleaned = f"{EVENTS_JSON_CLEANED_ALIAS}.{field}"
@@ -491,7 +491,7 @@ def _cast_cleaned_properties(field: str, raw_column: str, json_type: str) -> str
     return f"ifNull(accurateCastOrNull({cleaned}, {escaped_type}), CAST({fallback}, {escaped_type}))"
 
 
-def _cast_temporary_properties(field: str) -> str:
+def cast_temporary_properties(field: str) -> str:
     # A materialized view converts a String into a JSON column at write time, outside its SELECT, where
     # the SELECT's SETTINGS do not apply. The explicit cast keeps date inference off for this column too.
     escaped_type = escape_clickhouse_string(TEMPORARY_PROPERTIES_JSON_TYPE)
@@ -580,9 +580,9 @@ SETTINGS {insert_settings}
         insert_settings=EVENTS_JSON_INSERT_SETTINGS,
         cleaner=EVENTS_JSON_CLEANER,
         cleaned=EVENTS_JSON_CLEANED_ALIAS,
-        temporary_properties_expr=_cast_temporary_properties("temporary_properties"),
-        properties_expr=_cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE()),
-        person_properties_expr=_cast_cleaned_properties(
+        temporary_properties_expr=cast_temporary_properties("temporary_properties"),
+        properties_expr=cast_cleaned_properties("properties", "source.properties", EVENTS_PROPERTIES_JSON_TYPE()),
+        person_properties_expr=cast_cleaned_properties(
             "person_properties", "source.person_properties", PERSON_PROPERTIES_JSON_TYPE()
         ),
     )
