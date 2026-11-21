@@ -323,16 +323,13 @@ def prepare_ast_for_printing(
     # replaces the overrides join that the rewrite matches.
     if dialect == "clickhouse":
         with context.timings.measure("add_person_id_filter_prewhere"):
-            with_prewhere = add_person_id_filter_prewhere(node, context)
-        if with_prewhere is not None:
-            with context.timings.measure("resolve_types_after_person_id_filter_prewhere"):
-                node = resolve_types(
-                    with_prewhere,
-                    context,
-                    dialect=dialect,
-                    scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
-                    resolver_factory=resolver_factory,
-                )
+            add_person_id_filter_prewhere(
+                node,
+                context,
+                lambda expr, scope: resolve_types(
+                    expr, context, dialect=dialect, scopes=[scope], resolver_factory=resolver_factory
+                ),
+            )
 
     # Modifier drives the production rollout (per-team override / staged default); the context flag
     # remains as the direct opt-in for tests and internal callers.

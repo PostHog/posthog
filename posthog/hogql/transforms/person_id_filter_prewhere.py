@@ -21,10 +21,9 @@ already has.
 The transform applies to events_json only. That table has bloom filter indexes on `distinct_id` and `person_id`.
 """
 
-from typing import cast
+from collections.abc import Callable
 
 from posthog.hogql import ast
-from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
@@ -37,17 +36,27 @@ _OVERRIDES_TABLE = "raw_person_distinct_id_overrides"
 _PUSHED_COMPARISONS = frozenset({ast.CompareOperationOp.Eq, ast.CompareOperationOp.In})
 
 
-def add_person_id_filter_prewhere(node: _T_AST, context: HogQLContext) -> _T_AST | None:
-    """Returns None when no SELECT qualifies. Otherwise it emits untyped nodes. The caller runs type resolution again."""
+_ResolveInSelect = Callable[[ast.Expr, ast.SelectQueryType], ast.Expr]
+
+
+def add_person_id_filter_prewhere(node: ast.AST, context: HogQLContext, resolve: _ResolveInSelect) -> None:
+    """Sets the PREWHERE on each SELECT of `node` that qualifies.
+
+    `resolve` resolves the types of one expression in the scope of one SELECT. The rest of the tree keeps its types,
+    because a second resolution of the whole tree does not print the same SQL as the first one.
+    """
     planner = _Planner()
     planner.visit(node)
     if planner.blocks_rewrite or not planner.rewrites or not context.uses_new_events_schema():
-        return None
-    return cast(_T_AST, _Rewriter(planner.rewrites).visit(node))
+        return
+    for rewrite in planner.rewrites:
+        rewrite.select.prewhere = resolve(rewrite.prewhere, rewrite.scope)
 
 
 @frozen
 class _Rewrite:
+    select: ast.SelectQuery
+    scope: ast.SelectQueryType
     prewhere: ast.Expr
 
 
@@ -73,7 +82,7 @@ def _plan(node: ast.SelectQuery) -> _Rewrite | None:
         ):
             # The resolver looks up a SELECT alias before a bare field, so the fields name their table.
             table = get_long_table_name(node.type, events)
-            return _Rewrite(prewhere=_prewhere(table, conjunct.op, conjunct.right))
+            return _Rewrite(select=node, scope=node.type, prewhere=_prewhere(table, conjunct.op, conjunct.right))
     return None
 
 
@@ -147,34 +156,17 @@ def _prewhere(table: str, op: ast.CompareOperationOp, person_ids: ast.Expr) -> a
 class _Planner(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
-        self.rewrites: dict[int, _Rewrite] = {}
+        self.rewrites: list[_Rewrite] = []
         self.blocks_rewrite = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         # The PREWHERE reads the overrides table by name. A CTE with that name would replace the table in it.
         if node.ctes and _OVERRIDES_TABLE in node.ctes:
             self.blocks_rewrite = True
-        # The caller resolves the whole tree again. That drops the isolated scope of expanded expression fields such as
-        # `events.person_id`, so their unqualified inner fields become ambiguous in a SELECT that joins two tables.
-        if node.select_from is not None and node.select_from.next_join is not None:
-            self.blocks_rewrite = True
         rewrite = _plan(node)
         if rewrite is not None:
-            self.rewrites[id(node)] = rewrite
+            self.rewrites.append(rewrite)
         super().visit_select_query(node)
 
     def visit_field(self, node: ast.Field) -> None:
         pass
-
-
-class _Rewriter(CloningVisitor):
-    def __init__(self, rewrites: dict[int, _Rewrite]) -> None:
-        super().__init__(clear_types=True)
-        self.rewrites = rewrites
-
-    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
-        query = super().visit_select_query(node)
-        rewrite = self.rewrites.get(id(node))
-        if rewrite is not None:
-            query.prewhere = rewrite.prewhere
-        return query
