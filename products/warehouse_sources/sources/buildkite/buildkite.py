@@ -1,8 +1,12 @@
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
+from dateutil.relativedelta import relativedelta
+from requests import Request, Response
+
 from products.warehouse_sources.sources.buildkite.settings import BUILDKITE_ENDPOINTS, BuildkiteEndpointConfig
 from products.warehouse_sources.sources.sdk import (
+    BasePaginator,
     ClientConfig,
     Endpoint,
     EndpointResource,
@@ -12,6 +16,7 @@ from products.warehouse_sources.sources.sdk import (
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    coerce_date,
     frozen,
     make_tracked_session,
     rename_parent_fields,
@@ -27,7 +32,22 @@ PAGE_SIZE = 100
 SUITE_CHILD_ENDPOINTS = ("test_suite_runs", "test_suite_tests")
 
 # Builds are the fan-out parent for every per-build child table.
-BUILD_CHILD_ENDPOINTS = ("jobs", "artifacts", "annotations")
+BUILD_CHILD_ENDPOINTS = ("jobs", "artifacts", "annotations", "build_tests")
+
+# The Pipelines children address a build by pipeline and number, the Test Engine one by build id.
+BUILD_CHILD_PATH_FIELDS: dict[str, dict[str, str]] = {
+    "jobs": {"pipeline_slug": "pipeline_slug", "build_number": "number"},
+    "artifacts": {"pipeline_slug": "pipeline_slug", "build_number": "number"},
+    "annotations": {"pipeline_slug": "pipeline_slug", "build_number": "number"},
+    "build_tests": {"build_id": "id"},
+}
+
+# Unlike the other list endpoints, these answer with an envelope and paginate on a cursor URL in
+# the body rather than a Link header.
+ENVELOPE_ENDPOINTS = ("jobs", "audit_events")
+
+# Buildkite only serves usage from today minus three calendar months on.
+USAGE_LOOKBACK = relativedelta(months=3)
 
 # Without `scope=all` the annotations listing returns only build-scoped annotations and drops the
 # job-scoped ones.
@@ -70,6 +90,13 @@ FANOUT_ENDPOINTS: dict[str, BuildkiteFanoutConfig] = {
         parent_field_renames={"id": "team_id", "slug": "team_slug"},
     ),
     "team_members": BuildkiteFanoutConfig(
+        parent_name="teams",
+        parent_path=BUILDKITE_ENDPOINTS["teams"].path,
+        resolve_param="team_id",
+        resolve_field="id",
+        parent_field_renames={"id": "team_id", "slug": "team_slug"},
+    ),
+    "team_suites": BuildkiteFanoutConfig(
         parent_name="teams",
         parent_path=BUILDKITE_ENDPOINTS["teams"].path,
         resolve_param="team_id",
@@ -157,16 +184,96 @@ def _bind_organization(path: str, organization: str) -> str:
     return path.replace("{organization}", organization)
 
 
+def _apply_envelope(endpoint: str, endpoint_config: Endpoint) -> None:
+    if endpoint in ENVELOPE_ENDPOINTS:
+        endpoint_config["data_selector"] = "items"
+        endpoint_config["paginator"] = JSONResponsePaginator(next_url_path="links.next")
+
+
 def _list_endpoint_resource(endpoint: str, organization: str, params: dict[str, Any]) -> EndpointResource:
+    endpoint_config: Endpoint = {
+        "path": _bind_organization(BUILDKITE_ENDPOINTS[endpoint].path, organization),
+        "params": params,
+        # Buildkite list endpoints return a top-level JSON array; a non-list 200 body
+        # means the response shape changed — fail loud instead of syncing garbage.
+        "data_selector_required": True,
+    }
+    _apply_envelope(endpoint, endpoint_config)
+    return {"name": endpoint, "endpoint": endpoint_config}
+
+
+class BuildkiteUsagePaginator(BasePaginator):
+    """Requests the usage summary once per calendar month window."""
+
+    def __init__(self, windows: list[tuple[date, date]]) -> None:
+        super().__init__()
+        self.windows = windows
+        self.index = 0
+        self._has_next_page = bool(windows)
+
+    def init_request(self, request: Request) -> None:
+        self.update_request(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        self.index += 1
+        self._has_next_page = self.index < len(self.windows)
+
+    def update_request(self, request: Request) -> None:
+        if self.index >= len(self.windows):
+            return
+        window_from, window_to = self.windows[self.index]
+        if request.params is None:
+            request.params = {}
+        request.params["from"] = window_from.isoformat()
+        request.params["to"] = window_to.isoformat()
+
+
+def _today() -> date:
+    return datetime.now(UTC).date()
+
+
+def _usage_windows(today: date, last_value: Any = None) -> list[tuple[date, date]]:
+    """Whole calendar months the API still serves, from the watermark's month to the current one.
+
+    A month the lookback limit cuts in half is left out, because its row would cover only part of
+    the month and key on a date other than the month start.
+    """
+    earliest = today - USAGE_LOOKBACK
+    month = earliest.replace(day=1)
+    if month < earliest:
+        month += relativedelta(months=1)
+
+    watermark = coerce_date(last_value)
+    if watermark is not None:
+        month = max(month, watermark.replace(day=1))
+
+    windows: list[tuple[date, date]] = []
+    while month <= today:
+        month_end = month + relativedelta(months=1, days=-1)
+        windows.append((month, min(month_end, today)))
+        month += relativedelta(months=1)
+    return windows
+
+
+def _flatten_reporting_period(row: dict[str, Any]) -> dict[str, Any]:
+    # The primary key has to be a top-level column, and the period only arrives nested.
+    period = row.get("reporting_period")
+    row["reporting_period_from"] = period.get("from") if isinstance(period, dict) else None
+    row["reporting_period_to"] = period.get("to") if isinstance(period, dict) else None
+    return row
+
+
+def _usage_resource(organization: str, windows: list[tuple[date, date]]) -> EndpointResource:
     return {
-        "name": endpoint,
+        "name": "organization_usage",
         "endpoint": {
-            "path": _bind_organization(BUILDKITE_ENDPOINTS[endpoint].path, organization),
-            "params": params,
-            # Buildkite list endpoints return a top-level JSON array; a non-list 200 body
-            # means the response shape changed — fail loud instead of syncing garbage.
+            "path": _bind_organization(BUILDKITE_ENDPOINTS["organization_usage"].path, organization),
+            "paginator": BuildkiteUsagePaginator(windows),
+            # The summary is one object per window, which becomes one row.
+            "data_selector": "$",
             "data_selector_required": True,
         },
+        "data_map": _flatten_reporting_period,
     }
 
 
@@ -248,23 +355,21 @@ def _builds_parent_resource(organization: str, created_from: str | None) -> Endp
 
 
 def _build_child_resource(endpoint: str, organization: str) -> EndpointResource:
+    path_params: dict[str, Any] = {
+        param: {"type": "resolve", "resource": "builds", "field": field}
+        for param, field in BUILD_CHILD_PATH_FIELDS[endpoint].items()
+    }
     endpoint_config: Endpoint = {
         "path": _bind_organization(BUILDKITE_ENDPOINTS[endpoint].path, organization),
         "params": {
-            # Both path params bind fields of the same parent build row.
-            "pipeline_slug": {"type": "resolve", "resource": "builds", "field": "pipeline_slug"},
-            "build_number": {"type": "resolve", "resource": "builds", "field": "number"},
+            **path_params,
             "per_page": PAGE_SIZE,
             **BUILD_CHILD_EXTRA_PARAMS.get(endpoint, {}),
         },
         "data_selector_required": True,
         "response_actions": [{"status_code": 404, "action": "ignore"}],
     }
-    if endpoint == "jobs":
-        # Unlike the other list endpoints, jobs answers with an envelope and paginates on a
-        # cursor URL in the body rather than a Link header.
-        endpoint_config["data_selector"] = "items"
-        endpoint_config["paginator"] = JSONResponsePaginator(next_url_path="links.next")
+    _apply_envelope(endpoint, endpoint_config)
     return {
         "name": endpoint,
         "include_from_parent": ["id", "number", "pipeline_slug", "created_at"],
@@ -402,6 +507,9 @@ def buildkite_source(
         # paths on every parent, which an organization's build list makes quadratic. A retry
         # re-walks the window and merge dedupes on the primary key.
         manager = None
+    elif endpoint == "organization_usage":
+        windows = _usage_windows(_today(), db_incremental_field_last_value if should_use_incremental_field else None)
+        resources = [_usage_resource(organization, windows)]
     else:
         params = _build_initial_params(
             config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
