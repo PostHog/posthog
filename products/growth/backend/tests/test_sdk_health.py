@@ -677,6 +677,7 @@ class TestMobileMajorUpgrade(SimpleTestCase):
         sdk = report.sdks[0]
         assert sdk.needs_updating is True
         assert sdk.severity == expected_severity
+        assert report.health == expected_severity
         assert sdk.migration_guide_url == expected_guide
         if expected_guide:
             assert expected_guide in sdk.reason

@@ -849,8 +849,13 @@ def assess_sdk(
     now: Optional[datetime] = None,
     project_id: Optional[int] = None,
     release_dates: Optional[dict[str, str]] = None,
+    baseline: Optional[SemanticVersion] = None,
 ) -> Optional[SdkAssessment]:
-    """Assess a single SDK's health across all versions in use."""
+    """Assess a single SDK's health across all versions in use.
+
+    `baseline` is a precomputed `outdatedness_baseline` for this SDK. Without it, the baseline is
+    computed from `release_dates`.
+    """
     if sdk_type == "posthog-python-mcp":
         # MCP's 0.x integration versions do not identify the installed Python package.
         usage = [entry for entry in usage if not entry.lib_version.startswith("0.")]
@@ -871,7 +876,8 @@ def assess_sdk(
         return None
 
     is_single_version = len(usage) == 1
-    baseline = outdatedness_baseline(sdk_type, latest, release_dates or {}, now=now)
+    if baseline is None:
+        baseline = outdatedness_baseline(sdk_type, latest, release_dates or {}, now=now)
     releases = [
         assess_release(sdk_type, entry, latest, is_single_version, now=now, project_id=project_id, baseline=baseline)
         for entry in usage
@@ -933,6 +939,7 @@ def compute_sdk_health(
     combined_data: dict[str, dict[str, Any]],
     now: Optional[datetime] = None,
     project_id: Optional[int] = None,
+    baselines: Optional[dict[str, SemanticVersion]] = None,
 ) -> SdkHealthReport:
     """
     Top-level entry point. Takes the combined data structure returned by the existing
@@ -949,6 +956,9 @@ def compute_sdk_health(
           },
           ...
         }
+
+    `baselines` maps an SDK type to its precomputed `outdatedness_baseline`, so a caller that assesses
+    many projects against the same release history parses that history once.
 
     Returns a structured health report that agents can consume directly.
     """
@@ -980,6 +990,7 @@ def compute_sdk_health(
                 now=now,
                 project_id=project_id,
                 release_dates=data.get("release_dates"),
+                baseline=(baselines or {}).get(sdk_type),
             )
         if assessment is not None:
             assessments.append(assessment)
@@ -990,7 +1001,16 @@ def compute_sdk_health(
     # Matches frontend `needsAttention` rule: at least half of SDKs outdated
     needs_attention = team_sdk_count > 0 and needs_updating_count >= ceil(team_sdk_count / 2)
 
+    # When needs_attention is true, escalate severity of updating SDKs to danger to mirror the UI's
+    # behavior of surfacing a red banner when the bulk of the team's SDKs are outdated.
     if needs_attention:
+        for a in assessments:
+            if a.needs_updating and not is_mobile_major_upgrade(a):
+                a.severity = "danger"
+
+    # Report health follows the escalated SDK severities, so a team whose only outdated SDKs are
+    # mobile SDKs a major behind gets a warning report, the same as those SDKs.
+    if any(a.severity == "danger" for a in assessments):
         health: Literal["success", "warning", "danger"] = "danger"
         overall_health: OverallHealth = "needs_attention"
     elif needs_updating_count >= 1:
@@ -999,13 +1019,6 @@ def compute_sdk_health(
     else:
         health = "success"
         overall_health = "healthy"
-
-    # When needs_attention is true, escalate severity of updating SDKs to danger to mirror the UI's
-    # behavior of surfacing a red banner when the bulk of the team's SDKs are outdated.
-    if needs_attention:
-        for a in assessments:
-            if a.needs_updating and not is_mobile_major_upgrade(a):
-                a.severity = "danger"
 
     return SdkHealthReport(
         overall_health=overall_health,
